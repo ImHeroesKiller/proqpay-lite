@@ -10,6 +10,7 @@ import { calcMargin, formatMarginReply } from './margin';
 import { renderMarkdown } from './markdown';
 import { identifyProvince, resolveWorkLocation } from './wilayah';
 import { validatePayrollIndonesia, formatValidationMarkdown } from './payroll-validate';
+import { formatBpjsReply } from './bpjs-calc';
 
 function periodOf(db: any) {
   return db.meta?.currentPeriod || '2025-07';
@@ -31,11 +32,11 @@ function nextStep(db: any) {
     case 'APPROVED':
       return `Payroll **APPROVED**. Lanjut: **validasi** lalu **buat payment instruction**.`;
     case 'PAYMENT_INSTRUCTION':
-      return `Payment instruction sudah ada. Lanjut: **tandai paid** atau **unduh payment csv** · **buat invoice**.`;
+      return `Payment instruction sudah ada. Lanjut: **tandai paid** / **unduh payment csv** / **buat invoice**.`;
     case 'PAID':
       return `Payroll **PAID**. Cek **margin** / **buat invoice** / **outstanding**.`;
     default:
-      return `Status payroll: **${pay.status}**. Ketik **help** untuk menu.`;
+      return `Status payroll: **${pay.status}**. Ketik **help**.`;
   }
 }
 
@@ -58,31 +59,36 @@ export function handleIdaIntent(
 
   if (/^(halo|hai|hi|hello|hey|pagi|siang|sore|malam)\b/.test(t) && t.length < 25) {
     return {
-      reply: renderMarkdown(
-        `Halo! Aku **IDA**.\n\n${nextStep(db)}\n\nKetik **help** untuk menu proses bisnis lengkap.`
-      ),
+      reply: renderMarkdown(`Hai. ${nextStep(db)} Ketik **help** kalau perlu menu.`),
     };
   }
 
   if (/\b(help|bantuan|bisa apa|menu|perintah|alur|proses bisnis|business process)\b/.test(t)) {
     return {
       reply: renderMarkdown(
-        `**ProQPay — Alur bisnis**\n\n` +
-          `0. **validasi** — cek UMR, BPJS, PPh, NIK, rekening\n` +
-          `1. **hitung payroll** → CALCULATED\n` +
-          `2. **ajukan approval** → APPROVED\n` +
-          `3. **buat payment instruction** → (blokir jika validasi error)\n` +
-          `4. **unduh payment csv**\n` +
-          `5. **tandai paid** → PAID\n` +
-          `6. **buat invoice** → AR\n` +
-          `7. **margin** / **outstanding**\n\n` +
-          nextStep(db)
+        `**Alur singkat**\n` +
+          `0 validasi → 1 hitung payroll → 2 ajukan approval → 3 payment instruction → 4 unduh csv → 5 tandai paid → 6 buat invoice → 7 margin\n\n` +
+          `Lain: daftar karyawan · UMR · BPJS · provinsi [lokasi]\n\n${nextStep(db)}`
       ),
     };
   }
 
   if (/\b(next|lanjut|langkah selanjutnya|apa lagi|selanjutnya)\b/.test(t)) {
-    return { reply: renderMarkdown(`**Langkah berikutnya**\n\n${nextStep(db)}`) };
+    return { reply: renderMarkdown(nextStep(db)) };
+  }
+
+  // BPJS — jawab natural dari data lokal
+  if (/\b(bpjs|iuran)\b/.test(t)) {
+    if (/perusahaan|pemberi kerja|yang harus dibayar perusahaan|beban perusahaan|4\s*%/.test(t)) {
+      return { reply: renderMarkdown(formatBpjsReply(db, 'company')) };
+    }
+    if (/kesehatan|jkn/.test(t)) {
+      return { reply: renderMarkdown(formatBpjsReply(db, 'kes')) };
+    }
+    if (/ketenagakerjaan|jht|jkk|jkm|\bjp\b|tk\b/.test(t)) {
+      return { reply: renderMarkdown(formatBpjsReply(db, 'tk')) };
+    }
+    return { reply: renderMarkdown(formatBpjsReply(db, 'all')) };
   }
 
   if (
@@ -98,9 +104,9 @@ export function handleIdaIntent(
     const resolved = resolveWorkLocation({ lokasi: cleaned, cabang: cleaned });
     return {
       reply: renderMarkdown(
-        `**Identifikasi wilayah**\n\n- Input: **${cleaned || text}**\n- Provinsi: **${hit.province}**\n- Confidence: ${hit.confidence} (${hit.source}` +
-          (hit.matchedKey ? ` · ${hit.matchedKey}` : '') +
-          `)\n- Work location: **${resolved.name}**`
+        `**${cleaned || text}** → provinsi **${hit.province}** (${hit.confidence}, ${hit.source}` +
+          (hit.matchedKey ? `, ${hit.matchedKey}` : '') +
+          `). Work location: **${resolved.name}**.`
       ),
     };
   }
@@ -117,41 +123,36 @@ export function handleIdaIntent(
     const totalAr = ar.reduce((s: number, a: any) => s + a.amount, 0);
     const m = calcMargin(db);
     const v = validatePayrollIndonesia(db);
-
-    let msg = `**Ringkasan ${db.meta?.orgName}**\n\n`;
-    msg += `- Periode: **${periodOf(db)}**\n`;
-    msg += `- ${emp} karyawan · ${cli} client\n`;
-    if (pay) msg += `- Payroll: **${pay.status}** · Net ${formatIDR(pay.summary?.totalNet)}\n`;
-    else msg += `- Payroll: belum dihitung\n`;
-    msg += `- Margin: **${formatIDR(m.margin)}** (${m.marginPct.toFixed(1)}%)\n`;
-    msg += `- Validasi: **${v.errorCount} error** · ${v.warningCount} warning\n`;
-    if (ar.length) msg += `- AR outstanding: **${formatIDR(totalAr)}**\n`;
-    msg += `\n${nextStep(db)}`;
+    let msg = `**${db.meta?.orgName}** · ${periodOf(db)}\n`;
+    msg += `${emp} karyawan · ${cli} client`;
+    if (pay) msg += ` · payroll **${pay.status}** net ${formatIDR(pay.summary?.totalNet)}`;
+    msg += ` · margin ${formatIDR(m.margin)} · validasi ${v.errorCount}E/${v.warningCount}W`;
+    if (ar.length) msg += ` · AR ${formatIDR(totalAr)}`;
     return { reply: renderMarkdown(msg) };
   }
 
   if (/\b(karyawan|employee|pegawai)\b/.test(t) && /\b(berapa|daftar|list|jumlah|siapa)\b/.test(t)) {
     const emp = db.employees || [];
-    let msg = `**${emp.length} Karyawan**\n\n`;
+    let msg = `**${emp.length} karyawan**\n`;
     emp.slice(0, 10).forEach((e: any) => {
-      msg += `- **${e.name}** — ${e.company} (${e.status || e.status_aktif || '-'})\n`;
+      msg += `- **${e.name}** — ${e.company}\n`;
     });
-    if (emp.length > 10) msg += `\n…+${emp.length - 10} lainnya.`;
+    if (emp.length > 10) msg += `…+${emp.length - 10}`;
     return { reply: renderMarkdown(msg) };
   }
 
-  // ── Validasi regulasi Indonesia ──
-  if (/\b(validasi|cek data|data rusak|kelengkapan|compliance|regulasi)\b/.test(t)) {
-    const report = validatePayrollIndonesia(db, { period: periodOf(db) });
-    return { reply: renderMarkdown(formatValidationMarkdown(report)) };
+  if (/\b(validasi|cek data|kelengkapan|compliance|regulasi)\b/.test(t)) {
+    return {
+      reply: renderMarkdown(formatValidationMarkdown(validatePayrollIndonesia(db, { period: periodOf(db) }))),
+    };
   }
 
   if (/\b(client|klien|perusahaan)\b/.test(t) && /\b(daftar|list|berapa|siapa)\b/.test(t)) {
     const cos = db.companies || [];
-    let msg = `**${cos.length} Client**\n\n`;
+    let msg = `**${cos.length} client**\n`;
     cos.forEach((c: any) => {
       const count = (db.employees || []).filter((e: any) => e.company === c.name).length;
-      msg += `- **${c.name}** — ${count} emp · ${c.payrollType || 'BULANAN'}\n`;
+      msg += `- **${c.name}** — ${count} emp\n`;
     });
     return { reply: renderMarkdown(msg) };
   }
@@ -162,18 +163,16 @@ export function handleIdaIntent(
   ) {
     const payrolls = db.payrolls || [];
     if (!payrolls.length) return { reply: renderMarkdown('Belum ada payroll. Ketik **hitung payroll**.') };
-    let msg = `**Payroll Status**\n\n`;
+    let msg = `**Payroll**\n`;
     payrolls
       .slice()
       .sort((a: any, b: any) => String(b.period).localeCompare(String(a.period)))
       .forEach((p: any) => {
         msg += `- **${p.period}** — ${p.status} · ${formatIDRShort(p.summary?.totalNet || 0)}\n`;
       });
-    msg += `\n${nextStep(db)}`;
     return { reply: renderMarkdown(msg) };
   }
 
-  // ── Hitung payroll (+ pre-check warning) ──
   if (
     /\b(hitung|buat|generate|calculate)\b.*\b(payroll|gaji)\b/.test(t) ||
     /\bpayroll\b.*\b(hitung|buat|generate)\b/.test(t)
@@ -181,29 +180,19 @@ export function handleIdaIntent(
     const period = periodOf(db);
     const existing = payrollOf(db, period);
     const report = validatePayrollIndonesia(db, { period });
-
     if (existing && !['DRAFT'].includes(existing.status) && existing.summary?.totalNet) {
       return {
         reply: renderMarkdown(
-          `Payroll **${period}** sudah ada (**${existing.status}**).\n` +
-            `Net: **${formatIDR(existing.summary?.totalNet)}**\n\n${nextStep(db)}`
+          `Payroll **${period}** sudah ada (**${existing.status}**), net **${formatIDR(existing.summary?.totalNet)}**. ${nextStep(db)}`
         ),
       };
     }
-
     const payroll = generatePayroll(db, period);
     payroll.status = 'CALCULATED';
-    (payroll as any).validation = {
-      ok: report.ok,
-      errorCount: report.errorCount,
-      warningCount: report.warningCount,
-    };
-
     const newDb = { ...db, payrolls: [...(db.payrolls || [])] };
     const idx = newDb.payrolls.findIndex((p: any) => p.period === period);
     if (idx >= 0) newDb.payrolls[idx] = payroll;
     else newDb.payrolls.push(payroll);
-
     newDb.auditLogs = [
       ...(newDb.auditLogs || []),
       {
@@ -212,106 +201,63 @@ export function handleIdaIntent(
         user: 'IDA',
         role: 'AI',
         action: 'PAYROLL_CALCULATED',
-        detail: `Payroll ${period}: ${payroll.summary.employeeCount} emp, net ${formatIDR(payroll.summary.totalNet)}; validasi ${report.errorCount}E/${report.warningCount}W`,
+        detail: `Payroll ${period}`,
         entity: 'Payroll',
         entityId: payroll.id,
       },
     ];
     saveDatabase(newDb);
-
-    let msg =
-      `✅ **Payroll ${period} CALCULATED**\n\n` +
-      `- Karyawan: **${payroll.summary.employeeCount}**\n` +
-      `- Gross: **${formatIDR(payroll.summary.totalGross)}**\n` +
-      `- Potongan: **${formatIDR(payroll.summary.totalDeduction)}**\n` +
-      `- **Net: ${formatIDR(payroll.summary.totalNet)}**\n` +
-      `- Validasi: **${report.errorCount} error**, ${report.warningCount} warning\n\n`;
-
-    if (!report.ok) {
-      msg +=
-        `⚠️ Ada error compliance. Payment instruction akan **diblokir** sampai diperbaiki. Ketik **validasi**.\n\n`;
-    }
-    msg += `Lanjut: **ajukan approval**`;
-
+    let msg = `Payroll **${period}** beres — ${payroll.summary.employeeCount} org, net **${formatIDR(payroll.summary.totalNet)}** (${report.errorCount} error validasi).`;
+    if (!report.ok) msg += ` Payment akan diblokir sampai data dibenerin — ketik **validasi**.`;
+    else msg += ` Lanjut **ajukan approval**.`;
     return { reply: renderMarkdown(msg), dbChanged: true, newDb };
   }
 
-  // ── Approval ──
   if (/\b(ajukan approval|approve|setujui|approval)\b/.test(t)) {
     const period = periodOf(db);
     const payroll = payrollOf(db, period);
-    if (!payroll) {
-      return { reply: renderMarkdown(`Belum ada payroll ${period}. Ketik **hitung payroll** dulu.`) };
-    }
+    if (!payroll) return { reply: renderMarkdown(`Belum ada payroll ${period}. **hitung payroll** dulu.`) };
     if (['APPROVED', 'PAID', 'PAYMENT_INSTRUCTION'].includes(payroll.status)) {
-      return { reply: renderMarkdown(`Sudah **${payroll.status}**.\n\n${nextStep(db)}`) };
+      return { reply: renderMarkdown(`Sudah **${payroll.status}**.`) };
     }
     if (payroll.status !== 'CALCULATED') {
-      return { reply: renderMarkdown(`Status **${payroll.status}**. Perlu **CALCULATED** dulu.`) };
+      return { reply: renderMarkdown(`Status **${payroll.status}** — perlu CALCULATED dulu.`) };
     }
-
     const report = validatePayrollIndonesia(db, { period });
-
     const newDb = {
       ...db,
       payrolls: db.payrolls.map((p: any) => (p.period === period ? { ...p, status: 'APPROVED' } : p)),
+      approvals: [
+        ...(db.approvals || []),
+        { id: `APR${Date.now()}`, payrollId: payroll.id, period, approvedBy: 'IDA', status: 'APPROVED', approvedAt: Date.now() },
+      ],
+      auditLogs: [
+        ...(db.auditLogs || []),
+        { id: `LOG${Date.now()}`, timestamp: Date.now(), user: 'IDA', role: 'AI', action: 'PAYROLL_APPROVED', detail: period, entity: 'Payroll', entityId: payroll.id },
+      ],
     };
-    newDb.approvals = [
-      ...(newDb.approvals || []),
-      {
-        id: `APR${Date.now()}`,
-        payrollId: payroll.id,
-        period,
-        approvedBy: 'IDA',
-        role: 'AI',
-        approvedAt: Date.now(),
-        status: 'APPROVED',
-        validationSnapshot: { errorCount: report.errorCount, warningCount: report.warningCount },
-      },
-    ];
-    newDb.auditLogs = [
-      ...(newDb.auditLogs || []),
-      {
-        id: `LOG${Date.now()}`,
-        timestamp: Date.now(),
-        user: 'IDA',
-        role: 'AI',
-        action: 'PAYROLL_APPROVED',
-        detail: `Payroll ${period} disetujui (validasi ${report.errorCount}E/${report.warningCount}W)`,
-        entity: 'Payroll',
-        entityId: payroll.id,
-      },
-    ];
     saveDatabase(newDb);
-
-    let msg = `✅ **${period} APPROVED**`;
-    if (!report.ok) msg += `\n\n⚠️ Masih ada **${report.errorCount} error** validasi — perbaiki sebelum payment.`;
-    msg += `\n\nLanjut: **buat payment instruction**`;
+    let msg = `**${period}** sudah APPROVED.`;
+    if (!report.ok) msg += ` Masih ${report.errorCount} error validasi sebelum payment.`;
+    else msg += ` Lanjut **buat payment instruction**.`;
     return { reply: renderMarkdown(msg), dbChanged: true, newDb };
   }
 
-  // ── Payment instruction (hard gate on validation errors) ──
   if (/\b(payment instruction|instruksi pembayaran|buat payment)\b/.test(t) && !/csv|unduh|download/.test(t)) {
     const period = periodOf(db);
     const payroll = payrollOf(db, period);
-    if (!payroll) return { reply: renderMarkdown('Belum ada payroll. **hitung payroll** dulu.') };
+    if (!payroll) return { reply: renderMarkdown('Belum ada payroll.') };
     if (payroll.status !== 'APPROVED' && payroll.status !== 'PAYMENT_INSTRUCTION') {
-      return {
-        reply: renderMarkdown(`Harus **APPROVED** dulu (sekarang **${payroll.status}**).`),
-      };
+      return { reply: renderMarkdown(`Harus APPROVED dulu (sekarang ${payroll.status}).`) };
     }
-
     const report = validatePayrollIndonesia(db, { period });
     if (!report.ok) {
       return {
         reply: renderMarkdown(
-          `⛔ **Payment instruction diblokir** — ${report.errorCount} error compliance.\n\n` +
-            formatValidationMarkdown(report) +
-            `\n\nPerbaiki data master, lalu ulangi.`
+          `Payment instruction diblokir (${report.errorCount} error).\n\n` + formatValidationMarkdown(report)
         ),
       };
     }
-
     const payment = {
       id: `PMT${period.replace('-', '')}`,
       payrollId: payroll.id,
@@ -322,37 +268,21 @@ export function handleIdaIntent(
       status: 'INSTRUCTION_CREATED',
       createdAt: Date.now(),
     };
-
     const newDb = {
       ...db,
       payrolls: db.payrolls.map((p: any) =>
         p.period === period ? { ...p, status: 'PAYMENT_INSTRUCTION' } : p
       ),
       payments: [...(db.payments || []).filter((x: any) => x.period !== period), payment],
+      auditLogs: [
+        ...(db.auditLogs || []),
+        { id: `LOG${Date.now()}`, timestamp: Date.now(), user: 'IDA', role: 'AI', action: 'PAYMENT_INSTRUCTION_CREATED', detail: payment.id, entity: 'Payment', entityId: payment.id },
+      ],
     };
-    newDb.auditLogs = [
-      ...(newDb.auditLogs || []),
-      {
-        id: `LOG${Date.now()}`,
-        timestamp: Date.now(),
-        user: 'IDA',
-        role: 'AI',
-        action: 'PAYMENT_INSTRUCTION_CREATED',
-        detail: `${payment.id} · ${formatIDR(payment.amount)} · validasi OK`,
-        entity: 'Payment',
-        entityId: payment.id,
-      },
-    ];
     saveDatabase(newDb);
-
     return {
       reply: renderMarkdown(
-        `🏦 **Payment instruction**\n\n` +
-          `- ID: **${payment.id}**\n` +
-          `- Bank: BCA\n` +
-          `- Total: **${formatIDR(payment.amount)}**\n` +
-          `- Validasi: ✅ lolos\n\n` +
-          `Lanjut: **unduh payment csv** · **tandai paid** · **buat invoice**`
+        `Payment instruction **${payment.id}** siap · **${formatIDR(payment.amount)}**. Bisa **unduh payment csv** atau **tandai paid**.`
       ),
       dbChanged: true,
       newDb,
@@ -362,25 +292,15 @@ export function handleIdaIntent(
   if (/\b(unduh|download)\b.*\b(payment|csv|transfer)\b/.test(t) || /\b(payment csv|csv payment)\b/.test(t)) {
     const period = periodOf(db);
     const payroll = payrollOf(db, period);
-    if (!payroll) return { reply: renderMarkdown('Belum ada payroll. **hitung payroll** dulu.') };
-    if (!payroll.details?.length) {
-      const regenerated = generatePayroll(db, period);
-      payroll.details = regenerated.details;
-    }
-    const report = validatePayrollIndonesia(db, { period });
-    if (!report.ok) {
-      return {
-        reply: renderMarkdown(
-          `⛔ Unduh CSV diblokir — masih ada error validasi (rekening/NIK/UMR). Ketik **validasi**.`
-        ),
-      };
+    if (!payroll) return { reply: renderMarkdown('Belum ada payroll.') };
+    if (!payroll.details?.length) payroll.details = generatePayroll(db, period).details;
+    if (!validatePayrollIndonesia(db, { period }).ok) {
+      return { reply: renderMarkdown('CSV diblokir — masih ada error validasi. Ketik **validasi**.') };
     }
     const file = generatePaymentFile(db, period, { bank: 'BCA' });
-    if (!file) return { reply: renderMarkdown('Gagal buat file payment.') };
+    if (!file) return { reply: renderMarkdown('Gagal buat file.') };
     downloadCsv(file.filename, file.content);
-    return {
-      reply: renderMarkdown(`📥 **${file.filename}** diunduh.\nFormat: ${file.schema.fields.join('; ')}`),
-    };
+    return { reply: renderMarkdown(`File **${file.filename}** diunduh.`) };
   }
 
   if (/\b(tandai paid|mark paid|sudah dibayar|konfirmasi bayar|set paid)\b/.test(t)) {
@@ -388,81 +308,43 @@ export function handleIdaIntent(
     const payroll = payrollOf(db, period);
     if (!payroll) return { reply: renderMarkdown('Belum ada payroll.') };
     if (!['PAYMENT_INSTRUCTION', 'APPROVED', 'PAID'].includes(payroll.status)) {
-      return {
-        reply: renderMarkdown(`Status **${payroll.status}** — buat payment instruction dulu.`),
-      };
+      return { reply: renderMarkdown(`Status ${payroll.status} — buat payment instruction dulu.`) };
     }
-
     const newDb = {
       ...db,
       payrolls: db.payrolls.map((p: any) => (p.period === period ? { ...p, status: 'PAID' } : p)),
       payments: (db.payments || []).map((p: any) =>
-        p.period === period
-          ? { ...p, status: 'PAID', paidAt: Date.now(), reference: p.reference || `MANUAL-${Date.now()}` }
-          : p
+        p.period === period ? { ...p, status: 'PAID', paidAt: Date.now() } : p
       ),
     };
-    newDb.auditLogs = [
-      ...(newDb.auditLogs || []),
-      {
-        id: `LOG${Date.now()}`,
-        timestamp: Date.now(),
-        user: 'IDA',
-        role: 'AI',
-        action: 'PAYMENT_CONFIRMED',
-        detail: `Payroll ${period} ditandai PAID`,
-        entity: 'Payroll',
-        entityId: payroll.id,
-      },
-    ];
     saveDatabase(newDb);
-
-    return {
-      reply: renderMarkdown(`✅ **${period} PAID**\n\nLanjut: **buat invoice** · **margin**`),
-      dbChanged: true,
-      newDb,
-    };
+    return { reply: renderMarkdown(`**${period}** ditandai PAID.`), dbChanged: true, newDb };
   }
 
   if (/\b(buat invoice|generate invoice|terbit invoice|invoice)\b/.test(t)) {
     const period = periodOf(db);
     const payroll = payrollOf(db, period);
-    if (!payroll) {
-      return { reply: renderMarkdown('Invoice butuh payroll. Ketik **hitung payroll** dulu.') };
-    }
-    if (!payroll.details?.length) {
-      const regen = generatePayroll(db, period);
-      payroll.details = regen.details;
-    }
-
+    if (!payroll) return { reply: renderMarkdown('Invoice butuh payroll dulu.') };
+    if (!payroll.details?.length) payroll.details = generatePayroll(db, period).details;
     const companies = db.companies || [];
     const newInvoices = [...(db.invoices || [])];
     const created: string[] = [];
-
     companies.forEach((c: any) => {
       const exists = newInvoices.find((inv: any) => inv.company === c.name && inv.period === period);
       if (exists) {
-        created.push(`${c.name}: sudah ada ${exists.id}`);
+        created.push(`${c.name}: ${exists.id} (sudah ada)`);
         return;
       }
       const inv = generateInvoice(
-        {
-          ...db,
-          invoices: newInvoices,
-          payrolls: db.payrolls.map((p: any) => (p.period === period ? payroll : p)),
-        },
+        { ...db, invoices: newInvoices, payrolls: db.payrolls.map((p: any) => (p.period === period ? payroll : p)) },
         c.name,
         period
       );
-      if (!inv) {
-        created.push(`${c.name}: skip`);
-        return;
-      }
+      if (!inv) return;
       inv.status = 'SENT';
       newInvoices.push(inv);
-      created.push(`${c.name}: **${inv.id}** · ${formatIDR(inv.totalAmount)}`);
+      created.push(`${c.name}: **${inv.id}** ${formatIDR(inv.totalAmount)}`);
     });
-
     const newAr = [...(db.arMonitor || [])];
     newInvoices
       .filter((inv: any) => inv.period === period && inv.status !== 'PAID')
@@ -477,35 +359,13 @@ export function handleIdaIntent(
           dueDate: Date.now() + 14 * 86400000,
           daysOverdue: 0,
           type: 'SERVICE',
-          notes: `Invoice ${period}`,
+          notes: period,
         });
       });
-
-    const newDb = {
-      ...db,
-      payrolls: db.payrolls.map((p: any) => (p.period === period ? payroll : p)),
-      invoices: newInvoices,
-      arMonitor: newAr,
-      auditLogs: [
-        ...(db.auditLogs || []),
-        {
-          id: `LOG${Date.now()}`,
-          timestamp: Date.now(),
-          user: 'IDA',
-          role: 'AI',
-          action: 'INVOICE_GENERATED',
-          detail: `Invoice periode ${period}`,
-          entity: 'Invoice',
-          entityId: period,
-        },
-      ],
-    };
+    const newDb = { ...db, payrolls: db.payrolls.map((p: any) => (p.period === period ? payroll : p)), invoices: newInvoices, arMonitor: newAr };
     saveDatabase(newDb);
-
     return {
-      reply: renderMarkdown(
-        `🧾 **Invoice ${period}**\n\n` + created.map((x) => `- ${x}`).join('\n') + `\n\nCek **margin** / **outstanding**`
-      ),
+      reply: renderMarkdown(`Invoice **${period}**:\n` + created.map((x) => `- ${x}`).join('\n')),
       dbChanged: true,
       newDb,
     };
@@ -513,20 +373,20 @@ export function handleIdaIntent(
 
   if (/\b(outstanding|ar |piutang|tagihan belum)\b/.test(t)) {
     const ar = (db.arMonitor || []).filter((a: any) => a.status === 'OUTSTANDING');
-    if (!ar.length) return { reply: renderMarkdown('✅ Tidak ada outstanding AR.') };
-    let msg = `**Outstanding AR**\n\n`;
+    if (!ar.length) return { reply: renderMarkdown('Tidak ada outstanding AR.') };
+    let msg = `**Outstanding**\n`;
     ar.forEach((a: any) => {
-      msg += `- **${a.company}** — ${formatIDR(a.amount)} (${a.invoiceId})\n`;
+      msg += `- **${a.company}** ${formatIDR(a.amount)} (${a.invoiceId})\n`;
     });
     return { reply: renderMarkdown(msg) };
   }
 
   if (/\b(audit|log aktivitas|riwayat)\b/.test(t)) {
     const logs = (db.auditLogs || []).slice().sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
-    if (!logs.length) return { reply: renderMarkdown('Belum ada audit log.') };
-    let msg = `**Audit (terbaru)**\n\n`;
+    if (!logs.length) return { reply: renderMarkdown('Belum ada audit.') };
+    let msg = `**Audit**\n`;
     logs.slice(0, 8).forEach((l: any) => {
-      msg += `- **${l.action}** — ${l.detail || ''}\n`;
+      msg += `- ${l.action}: ${l.detail || ''}\n`;
     });
     return { reply: renderMarkdown(msg) };
   }
@@ -541,20 +401,18 @@ export function handleIdaIntent(
       return { reply: renderMarkdown(`UMR DKI Jakarta 2025: **${formatIDR(UMR_2025['DKI Jakarta'])}**`) };
     return {
       reply: renderMarkdown(
-        `Contoh UMR 2025:\n- DKI Jakarta: ${formatIDR(UMR_2025['DKI Jakarta'])}\n- Jawa Barat: ${formatIDR(UMR_2025['Jawa Barat'])}\n- Sumatera Utara: ${formatIDR(UMR_2025['Sumatera Utara'])}\n- Bali: ${formatIDR(UMR_2025['Bali'])}`
+        `Contoh UMR 2025: DKI ${formatIDR(UMR_2025['DKI Jakarta'])} · Jabar ${formatIDR(UMR_2025['Jawa Barat'])} · Bali ${formatIDR(UMR_2025['Bali'])}`
       ),
     };
   }
 
-  if (/\b(import|upload|excel|hris)\b/.test(t)) {
+  if (/\b(import|upload|excel|hris|lampir)\b/.test(t)) {
     return {
       reply: renderMarkdown(
-        `Import HRIS lewat kartu **Import HRIS Excel (IAP)** di dashboard.\nSetelah import, jalankan **validasi**.`
+        `Klik **📎** di chat ini, pilih file `.xlsx`, lalu ketik **import sekarang**. Dashboard tidak menerima upload.`
       ),
     };
   }
 
-  return {
-    reply: renderMarkdown(`Belum kebaca. Ketik **help**, **validasi**, atau **next**.\n\n${nextStep(db)}`),
-  };
+  return { reply: renderMarkdown(`Coba **help**, **bpjs**, **validasi**, atau **next**.`) };
 }
