@@ -4,18 +4,10 @@ import { useState, useEffect, useRef } from 'react';
 import { loadDatabase } from '@/lib/database';
 import { handleIdaIntent } from '@/lib/ida-simple';
 import { emitDbChange } from '@/lib/events';
+import { renderMarkdown } from '@/lib/markdown';
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
 
-function escHtml(s: string) {
-  return s
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-    .replace(/\n/g, '<br/>');
-}
-
-/** Prefer local engine for known action intents; Gemini for free-form */
 function looksLikeLocalAction(text: string) {
   const t = text.toLowerCase();
   return /\b(hitung payroll|buat payroll|ajukan approval|approve|payment instruction|instruksi pembayaran)\b/.test(t);
@@ -26,7 +18,7 @@ export default function IdaFab() {
   const [messages, setMessages] = useState<{ role: 'ida' | 'user'; text: string }[]>([
     {
       role: 'ida',
-      text: 'Halo! Saya <strong>IDA</strong>, AI Payroll Manager. Tanyakan apa saja — atau ketik <strong>help</strong> / <strong>hitung payroll</strong>.',
+      text: 'Halo! Saya **IDA**, asisten payroll kamu. Tanya aja bebas — atau ketik **help** / **hitung payroll**.',
     },
   ]);
   const [input, setInput] = useState('');
@@ -44,6 +36,13 @@ export default function IdaFab() {
     }
   }, [messages]);
 
+  function pushIda(text: string, isMarkdown = true) {
+    setMessages((prev) => [
+      ...prev,
+      { role: 'ida', text: isMarkdown ? renderMarkdown(text) : text },
+    ]);
+  }
+
   async function send() {
     if (!input.trim() || !db || busy) return;
     const userMsg = input.trim();
@@ -52,18 +51,17 @@ export default function IdaFab() {
     setBusy(true);
 
     try {
-      // Action commands → local engine (writes localStorage / payroll state)
       if (looksLikeLocalAction(userMsg)) {
         const result = handleIdaIntent(userMsg, db);
         if (result.dbChanged && result.newDb) {
           setDb(result.newDb);
           emitDbChange();
         }
-        setMessages((prev) => [...prev, { role: 'ida', text: result.reply }]);
+        // local replies already contain simple HTML
+        pushIda(result.reply, false);
         return;
       }
 
-      // Free-form → Gemini via Cloudflare Function
       const context = {
         period: db.meta?.currentPeriod,
         org: db.meta?.orgName,
@@ -80,11 +78,9 @@ export default function IdaFab() {
       const data = await res.json();
 
       if (data.ok && data.reply) {
-        // Strip trailing intent JSON if present for display cleanliness
         let reply = data.reply.replace(/\n?\{\s*"intent"[\s\S]*\}\s*$/, '').trim();
-        setMessages((prev) => [...prev, { role: 'ida', text: escHtml(reply) }]);
+        pushIda(reply, true);
 
-        // If model suggested an action intent, optionally run local engine
         const intentMatch = data.reply.match(/\{\s*"intent"\s*:\s*"([^"]+)"[\s\S]*\}/);
         if (intentMatch) {
           const intent = intentMatch[1];
@@ -99,44 +95,35 @@ export default function IdaFab() {
               setDb(local.newDb);
               emitDbChange();
             }
-            setMessages((prev) => [...prev, { role: 'ida', text: local.reply }]);
+            pushIda(local.reply, false);
           }
         }
         return;
       }
 
-      // Gemini down → local rule-based fallback
       const result = handleIdaIntent(userMsg, db);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
       }
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'ida',
-          text:
-            result.reply +
-            (data.error
-              ? `<br/><br/><span style="color:var(--text3);font-size:11px">(Gemini offline — mode lokal)</span>`
-              : ''),
-        },
-      ]);
+      pushIda(
+        result.reply +
+          (data.error
+            ? '<br/><br/><span style="color:var(--text3);font-size:11px">(Gemini offline — mode lokal)</span>'
+            : ''),
+        false
+      );
     } catch {
       const result = handleIdaIntent(userMsg, db);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
       }
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'ida',
-          text:
-            result.reply +
-            `<br/><br/><span style="color:var(--text3);font-size:11px">(Gemini offline — mode lokal)</span>`,
-        },
-      ]);
+      pushIda(
+        result.reply +
+          '<br/><br/><span style="color:var(--text3);font-size:11px">(Gemini offline — mode lokal)</span>',
+        false
+      );
     } finally {
       setBusy(false);
     }
@@ -258,7 +245,7 @@ export default function IdaFab() {
                     background: busy ? 'var(--amber)' : 'var(--success)',
                   }}
                 />
-                {busy ? 'Thinking…' : 'Gemini + local ready'}
+                {busy ? 'Thinking…' : 'Siap bantu'}
               </div>
             </div>
             <button
@@ -293,7 +280,7 @@ export default function IdaFab() {
               <div
                 key={i}
                 style={{
-                  maxWidth: '85%',
+                  maxWidth: '88%',
                   alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
                 }}
               >
@@ -312,7 +299,9 @@ export default function IdaFab() {
                     borderTopLeftRadius: m.role === 'ida' ? '4px' : undefined,
                     borderTopRightRadius: m.role === 'user' ? '4px' : undefined,
                   }}
-                  dangerouslySetInnerHTML={{ __html: m.text }}
+                  dangerouslySetInnerHTML={{
+                    __html: m.role === 'user' ? m.text.replace(/</g, '<') : m.text,
+                  }}
                 />
               </div>
             ))}
@@ -333,7 +322,7 @@ export default function IdaFab() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder={busy ? 'IDA sedang berpikir…' : 'Tanya IDA…'}
+                placeholder={busy ? 'Sebentar ya…' : 'Tanya IDA…'}
                 disabled={busy}
                 style={{
                   flex: 1,
