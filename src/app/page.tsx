@@ -8,10 +8,14 @@ import IdaFab from '@/components/IdaFab';
 import MetricCard from '@/components/MetricCard';
 import ClientDetail from '@/components/ClientDetail';
 import RegionMap from '@/components/RegionMap';
+import MetricPopup from '@/components/MetricPopup';
+
+type PopupType = 'employees' | 'clients' | 'payroll' | 'outstanding' | null;
 
 export default function Home() {
   const [db, setDb] = useState<any>(null);
   const [mounted, setMounted] = useState(false);
+  const [popup, setPopup] = useState<PopupType>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -76,20 +80,19 @@ export default function Home() {
                 Global Snapshot
               </h2>
               <p style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '20px' }}>
-                All Clients · {db.meta?.currentPeriod}
+                All Clients · {db.meta?.currentPeriod} · klik card untuk detail
               </p>
 
               <div style={{
                 display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
                 gap: '14px', marginBottom: '20px'
               }}>
-                <MetricCard label="Employees" value={String(empCount)} sub={`${clientCount} client · ${projectCount} project`} accent="var(--cyan)" />
-                <MetricCard label="Clients" value={String(clientCount)} sub={`${projectCount} project aktif`} accent="var(--teal)" />
-                <MetricCard label="Payroll Net" value={formatIDRShort(totalNet)} sub={currentPayroll ? currentPayroll.status : 'Belum dihitung'} accent="var(--accent)" />
-                <MetricCard label="Outstanding" value={formatIDRShort(totalOutstanding)} sub={`${outstanding.length} klien`} accent="var(--orange)" />
+                <MetricCard label="Employees" value={String(empCount)} sub={`${clientCount} client · ${projectCount} project`} accent="var(--cyan)" onClick={() => setPopup('employees')} />
+                <MetricCard label="Clients" value={String(clientCount)} sub={`${projectCount} project aktif`} accent="var(--teal)" onClick={() => setPopup('clients')} />
+                <MetricCard label="Payroll Net" value={formatIDRShort(totalNet)} sub={currentPayroll ? currentPayroll.status : 'Belum dihitung'} accent="var(--accent)" onClick={() => setPopup('payroll')} />
+                <MetricCard label="Outstanding" value={formatIDRShort(totalOutstanding)} sub={`${outstanding.length} klien`} accent="var(--orange)" onClick={() => setPopup('outstanding')} />
               </div>
 
-              {/* Region Distribution + Client Overview */}
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
@@ -129,7 +132,6 @@ export default function Home() {
               </div>
             </section>
 
-            {/* SECTION 2 — Client Detail */}
             <ClientDetail db={db} />
 
             <p style={{ marginTop: '28px', fontSize: '12px', color: 'var(--text3)', textAlign: 'center' }}>
@@ -141,6 +143,10 @@ export default function Home() {
       </div>
 
       <IdaFab />
+
+      {popup && (
+        <MetricPopup type={popup} db={db} onClose={() => setPopup(null)} />
+      )}
     </div>
   );
 }
