@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { loadDatabase } from '@/lib/database';
 import { handleIdaIntent } from '@/lib/ida-simple';
+import { emitDbChange } from '@/lib/events';
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
 
@@ -35,6 +36,7 @@ export default function IdaFab() {
       const result = handleIdaIntent(userMsg, db);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
+        emitDbChange(); // notify dashboard to refresh
       }
       setMessages(prev => [...prev, { role: 'ida', text: result.reply }]);
     }, 400);
