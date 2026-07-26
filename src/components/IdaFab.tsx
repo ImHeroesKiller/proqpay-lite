@@ -7,6 +7,7 @@ import { emitDbChange } from '@/lib/events';
 import { renderMarkdown } from '@/lib/markdown';
 import { calcMargin } from '@/lib/margin';
 import { formatIDR } from '@/lib/format';
+import { getIdaSessionId } from '@/lib/session';
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
 
@@ -18,17 +19,19 @@ function looksLikeLocalAction(text: string) {
     /\b(hitung payroll|buat payroll|ajukan approval|approve payroll|payment instruction|instruksi pembayaran)\b/.test(
       t
     ) ||
+    /\b(buat invoice|generate invoice|unduh payment|download payment|csv payment)\b/.test(t) ||
     /\b(help|bantuan|status|ringkasan|daftar karyawan|daftar client|outstanding|umr)\b/.test(t)
   );
 }
 
 export default function IdaFab() {
   const [open, setOpen] = useState(false);
+  const [sessionId, setSessionId] = useState('default');
   const [messages, setMessages] = useState<{ role: 'ida' | 'user'; text: string }[]>([
     {
       role: 'ida',
       text: renderMarkdown(
-        'Halo! Aku **IDA**, asisten payroll kamu. Tanya aja bebas — **help**, **margin**, **provinsi Kabanjahe**, atau **hitung payroll**.'
+        'Halo! Aku **IDA** (RAG + memory). Tanya bebas — **help**, **margin**, **provinsi Medan**, atau **hitung payroll**. Bilang **ingat ...** untuk long memory.'
       ),
     },
   ]);
@@ -39,6 +42,7 @@ export default function IdaFab() {
 
   useEffect(() => {
     setDb(loadDatabase());
+    setSessionId(getIdaSessionId());
   }, []);
 
   useEffect(() => {
@@ -109,7 +113,7 @@ export default function IdaFab() {
       const res = await fetch('/api/ida', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg, context }),
+        body: JSON.stringify({ message: userMsg, context, sessionId }),
       });
 
       const data = await res.json();
@@ -117,27 +121,6 @@ export default function IdaFab() {
       if (data.ok && data.reply) {
         let reply = data.reply.replace(/\n?\{\s*"intent"[\s\S]*\}\s*$/, '').trim();
         pushIda(reply, true);
-
-        const intentMatch = data.reply.match(/\{\s*"intent"\s*:\s*"([^"]+)"[\s\S]*\}/);
-        if (intentMatch) {
-          const intent = intentMatch[1];
-          const map: Record<string, string> = {
-            calculate_payroll: 'hitung payroll',
-            approve_payroll: 'ajukan approval',
-            payment_instruction: 'buat payment instruction',
-            summary: 'status',
-          };
-          if (map[intent]) {
-            const local = handleIdaIntent(map[intent], db);
-            if (local.dbChanged && local.newDb) {
-              setDb(local.newDb);
-              emitDbChange();
-            }
-            if (['calculate_payroll', 'approve_payroll', 'payment_instruction'].includes(intent)) {
-              pushIda(local.reply, false);
-            }
-          }
-        }
         return;
       }
 
@@ -200,7 +183,7 @@ export default function IdaFab() {
         />
         <div style={{ textAlign: 'left' }}>
           <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>Ask IDA</div>
-          <div style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text2)' }}>AI Payroll Manager</div>
+          <div style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text2)' }}>RAG · Memory · Payroll</div>
         </div>
         <span
           style={{
@@ -222,9 +205,9 @@ export default function IdaFab() {
             position: 'fixed',
             bottom: '90px',
             right: '26px',
-            width: '360px',
+            width: '380px',
             maxWidth: 'calc(100vw - 52px)',
-            height: '480px',
+            height: '500px',
             maxHeight: 'calc(100vh - 140px)',
             background: 'var(--bg-surface)',
             border: '1px solid var(--border)',
@@ -275,7 +258,7 @@ export default function IdaFab() {
                     background: busy ? 'var(--amber)' : 'var(--success)',
                   }}
                 />
-                {busy ? 'Thinking…' : 'Siap bantu'}
+                {busy ? 'RAG…' : 'Memory on'}
               </div>
             </div>
             <button
@@ -352,7 +335,7 @@ export default function IdaFab() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder={busy ? 'Sebentar ya…' : 'Coba: provinsi Medan, margin, help'}
+                placeholder={busy ? 'Mengambil konteks…' : 'Tanya IDA…'}
                 disabled={busy}
                 style={{
                   flex: 1,
