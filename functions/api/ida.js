@@ -1,14 +1,8 @@
 /**
  * ProQPay Lite — IDA Gemini proxy (Cloudflare Pages Function)
  *
- * Secrets (Cloudflare → Settings → Variables and secrets):
- *   GEMINI_WORKER_1 ... GEMINI_WORKER_5
- *
- * Fallback order:
- *   for each key:
- *     1. gemini-3.5-flash
- *     2. gemini-3.5-flash-lite
- *   then next key, repeat
+ * Secrets: GEMINI_WORKER_1 ... GEMINI_WORKER_5
+ * Fallback: each key → gemini-3.5-flash → gemini-3.5-flash-lite → next key
  */
 
 const MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite'];
@@ -20,13 +14,20 @@ const KEY_NAMES = [
   'GEMINI_WORKER_5',
 ];
 
-const SYSTEM_PROMPT = `Anda adalah IDA, AI Payroll Manager untuk ProQPay Lite (Indonesia).
-Jawab singkat, jelas, profesional, dalam Bahasa Indonesia.
-Fokus: payroll, BPJS, PPh 21, UMR, karyawan, client, invoice, AR, approval, payment instruction.
-Jika user meminta aksi sistem (hitung payroll, approve, dll), jelaskan langkahnya atau konfirmasi intent dalam format JSON di baris terakhir:
+const SYSTEM_PROMPT = `Kamu adalah IDA, asisten payroll di ProQPay Lite.
+
+Gaya bicara:
+- Bahasa Indonesia, kasual tapi sopan
+- Singkat dan to the point (1–4 kalimat, kecuali diminta detail)
+- Ramah, ringan, tidak kaku
+- Boleh pakai markdown sederhana: **tebal**, list, \\'kode\\'
+- Jangan bertele-tele, jangan formal berlebihan
+
+Topik: payroll, BPJS, PPh 21, UMR, karyawan, client, invoice, AR, approval, payment.
+
+Kalau user minta aksi sistem, tetap jawab singkat dulu, lalu di baris paling akhir (opsional) tulis JSON saja:
 {"intent":"nama_intent","period":null}
-Intent valid: greeting, help, summary, list_employees, list_clients, calculate_payroll, approve_payroll, payment_instruction, outstanding, umr_check, unknown.
-Jika hanya percakapan biasa, intent = unknown atau sesuai konteks.`;
+Intent: greeting, help, summary, list_employees, list_clients, calculate_payroll, approve_payroll, payment_instruction, outstanding, umr_check, unknown.`;
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -50,10 +51,10 @@ export async function onRequest(context) {
   if (!userText) return json({ error: 'message required' }, 400);
 
   const contextHint = body.context
-    ? `\nKonteks dashboard: ${JSON.stringify(body.context).slice(0, 800)}`
+    ? `\nKonteks ringkas: ${JSON.stringify(body.context).slice(0, 600)}`
     : '';
 
-  const prompt = `${SYSTEM_PROMPT}${contextHint}\n\nPesan user: ${userText}`;
+  const prompt = `${SYSTEM_PROMPT}${contextHint}\n\nUser: ${userText}`;
 
   const keys = KEY_NAMES.map((name) => env[name]).filter(Boolean);
   if (!keys.length) {
@@ -85,7 +86,6 @@ export async function onRequest(context) {
         const msg = err?.message || String(err);
         attempts.push({ keyIndex: ki + 1, model, error: msg.slice(0, 200) });
         lastError = msg;
-        // continue fallback
       }
     }
   }
@@ -110,8 +110,8 @@ async function callGemini(apiKey, model, prompt) {
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens: 1024,
+        temperature: 0.55,
+        maxOutputTokens: 800,
       },
     }),
   });
