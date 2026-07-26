@@ -1,13 +1,95 @@
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* ProQPay Lite — 2026 Design System */
+:root {
+  --bg: #f7f8fb;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f4f6fa;
+  --bg-sunk: #eef1f6;
+  --border: #eaeef4;
+  --border-strong: #dde2ec;
+  --border-soft: #f0f3f8;
+  --text: #0f172a;
+  --text2: #5a6478;
+  --text3: #94a3b8;
+  --accent: #5b5ef0;
+  --accent2: #7c7ff5;
+  --accent-soft: rgba(91, 94, 240, 0.10);
+  --accent-soft2: rgba(91, 94, 240, 0.16);
+  --indigo: #6366f1;
+  --blue: #3b82f6;
+  --cyan: #06b6d4;
+  --teal: #14b8a6;
+  --green: #10b981;
+  --amber: #f59e0b;
+  --orange: #f97316;
+  --red: #ef4444;
+  --violet: #8b5cf6;
+  --pink: #ec4899;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
+  --shadow-md: 0 6px 18px rgba(15, 23, 42, 0.07), 0 2px 6px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.10), 0 6px 16px rgba(15, 23, 42, 0.05);
+  --shadow-fab: 0 10px 30px rgba(91, 94, 240, 0.32), 0 3px 10px rgba(15, 23, 42, 0.08);
 }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
   height: 100%;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #f7f8fb;
-  color: #0f172a;
+  background: var(--bg);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.005em;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Utility */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(91, 94, 240, 0.28);
+}
+.btn-primary:hover {
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(91, 94, 240, 0.38);
+  transform: translateY(-1px);
 }
