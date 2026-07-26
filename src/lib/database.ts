@@ -181,14 +181,32 @@ export function generatePaymentFile(db: any, period: string, bankTemplate: any) 
   return { content: lines.join('\n'), filename: `payment_${bankTemplate.bank}_${period}.csv`, schema };
 }
 
-export function generateInvoice(db: any, company: string, period: string) {
+export type BillingSettings = {
+  serviceFeePerEmp?: number;
+  bpjsFeePerEmp?: number;
+  adminFee?: number;
+};
+
+function nonNegative(value: unknown, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
+export function generateInvoice(
+  db: any,
+  company: string,
+  period: string,
+  billing: BillingSettings = {}
+) {
   const companyEmps = db.employees.filter((e: any) => e.company === company);
   const payroll = db.payrolls.find((p: any) => p.period === period);
   if (!payroll) return null;
   const companyDetails = payroll.details.filter((d: any) => d.company === company);
-  const serviceFee = companyDetails.length * 1500000;
-  const bpjsFee = companyDetails.length * 300000;
-  const adminFee = 2000000;
+  const serviceFeePerEmp = nonNegative(billing.serviceFeePerEmp, 1_500_000);
+  const bpjsFeePerEmp = nonNegative(billing.bpjsFeePerEmp, 300_000);
+  const adminFee = nonNegative(billing.adminFee, 2_000_000);
+  const serviceFee = companyDetails.length * serviceFeePerEmp;
+  const bpjsFee = companyDetails.length * bpjsFeePerEmp;
   const subtotal = serviceFee + bpjsFee + adminFee;
   const tax = Math.round(subtotal * 0.10);
   return {
@@ -196,9 +214,9 @@ export function generateInvoice(db: any, company: string, period: string) {
     company, period, amount: subtotal, taxAmount: tax, totalAmount: subtotal + tax,
     status: 'DRAFT', issuedAt: Date.now(), paidAt: null,
     items: [
-      { desc: `Payroll Service Fee - ${companyEmps.length} karyawan`, qty: companyEmps.length, unitPrice: 1500000, amount: serviceFee },
-      { desc: 'BPJS Management Fee', qty: companyEmps.length, unitPrice: 300000, amount: bpjsFee },
-      { desc: 'Administrative Fee', qty: 1, unitPrice: 2000000, amount: adminFee },
+      { desc: `Payroll Service Fee - ${companyEmps.length} karyawan`, qty: companyEmps.length, unitPrice: serviceFeePerEmp, amount: serviceFee },
+      { desc: 'BPJS Management Fee', qty: companyEmps.length, unitPrice: bpjsFeePerEmp, amount: bpjsFee },
+      { desc: 'Administrative Fee', qty: 1, unitPrice: adminFee, amount: adminFee },
     ]
   };
 }

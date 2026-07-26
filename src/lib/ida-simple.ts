@@ -11,6 +11,7 @@ import { renderMarkdown } from './markdown';
 import { identifyProvince, resolveWorkLocation } from './wilayah';
 import { validatePayrollIndonesia, formatValidationMarkdown } from './payroll-validate';
 import { formatBpjsReply } from './bpjs-calc';
+import { loadSettings } from './app-settings';
 
 function periodOf(db: any) {
   return db.meta?.currentPeriod || '2025-07';
@@ -56,6 +57,7 @@ export function handleIdaIntent(
   db: any
 ): { reply: string; dbChanged?: boolean; newDb?: any } {
   const t = text.toLowerCase().trim();
+  const billing = loadSettings();
 
   if (/^(halo|hai|hi|hello|hey|pagi|siang|sore|malam)\b/.test(t) && t.length < 25) {
     return {
@@ -111,7 +113,7 @@ export function handleIdaIntent(
   }
 
   if (/\b(margin|laba|profit|keuntungan|potensi margin)\b/.test(t)) {
-    return { reply: renderMarkdown(formatMarginReply(calcMargin(db))) };
+    return { reply: renderMarkdown(formatMarginReply(calcMargin(db, undefined, billing))) };
   }
 
   if (/\b(ringkasan|summary|overview|status|kondisi)\b/.test(t) && !/payroll/.test(t)) {
@@ -120,7 +122,7 @@ export function handleIdaIntent(
     const pay = payrollOf(db);
     const ar = (db.arMonitor || []).filter((a: any) => a.status === 'OUTSTANDING');
     const totalAr = ar.reduce((s: number, a: any) => s + a.amount, 0);
-    const m = calcMargin(db);
+    const m = calcMargin(db, undefined, billing);
     const v = validatePayrollIndonesia(db);
     let msg = `**${db.meta?.orgName}** · ${periodOf(db)}\n`;
     msg += `${emp} karyawan · ${cli} client`;
@@ -337,7 +339,8 @@ export function handleIdaIntent(
       const inv = generateInvoice(
         { ...db, invoices: newInvoices, payrolls: db.payrolls.map((p: any) => (p.period === period ? payroll : p)) },
         c.name,
-        period
+        period,
+        billing
       );
       if (!inv) return;
       inv.status = 'SENT';

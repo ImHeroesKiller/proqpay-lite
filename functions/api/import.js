@@ -1,4 +1,8 @@
 import { neon } from '@neondatabase/serverless';
+import {
+  MAX_IMPORT_BYTES,
+  validateImportRows,
+} from './import-validation.js';
 
 function getUrl(env) {
   return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
@@ -18,9 +22,13 @@ export async function onRequest(context) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: cors() });
   }
-
   if (request.method !== 'POST') {
     return json({ error: 'POST only — send { rows: ParsedEmployee[] }' }, 405);
+  }
+
+  const contentLength = Number(request.headers.get('content-length') || 0);
+  if (contentLength > MAX_IMPORT_BYTES) {
+    return json({ error: `Payload maksimal ${MAX_IMPORT_BYTES} byte` }, 413);
   }
 
   const url = getUrl(env);
@@ -28,215 +36,269 @@ export async function onRequest(context) {
 
   let body;
   try {
-    body = await request.json();
+    const rawBody = await request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_IMPORT_BYTES) {
+      return json({ error: `Payload maksimal ${MAX_IMPORT_BYTES} byte` }, 413);
+    }
+    body = JSON.parse(rawBody);
   } catch {
     return json({ error: 'Invalid JSON' }, 400);
   }
 
-  const rows = body.rows;
-  if (!Array.isArray(rows) || !rows.length) {
-    return json({ error: 'rows[] required' }, 400);
+  const validation = validateImportRows(body.rows);
+  if (!validation.ok) {
+    return json(
+      {
+        ok: false,
+        error: 'Import validation failed',
+        issues: validation.issues,
+      },
+      422
+    );
   }
 
+  const rows = validation.rows;
   const sql = neon(url);
   const orgId = 'ORG-OTSINDO';
 
-  let inserted = 0;
-  let updated = 0;
-  let errors = [];
-  const provinceStats = {};
+  try {
+    const existing = await sql`
+      SELECT id FROM employees
+      WHERE id = ANY(${rows.map((row) => row.nrk)}::text[])
+    `;
+    const existingIds = new Set(existing.map((row) => row.id));
+    const inserted = rows.filter((row) => !existingIds.has(row.nrk)).length;
+    const updated = rows.length - inserted;
+    const provinceStats = {};
+    rows.forEach((row) => {
+      const province = row.province || 'Tidak diketahui';
+      provinceStats[province] = (provinceStats[province] || 0) + 1;
+    });
 
-  // Ensure org
-  await sql`
-    INSERT INTO organizations (id, name, code)
-    VALUES (${orgId}, 'OTSINDO', 'OTSINDO')
-    ON CONFLICT (id) DO NOTHING
-  `;
+    await sql.transaction((tx) => {
+      const queries = [
+        tx`
+          INSERT INTO organizations (id, name, code)
+          VALUES (${orgId}, 'OTSINDO', 'OTSINDO')
+          ON CONFLICT (id) DO NOTHING
+        `,
+      ];
 
-  for (const r of rows) {
-    try {
-      if (!r.nrk || !r.name) continue;
+      for (const row of rows) {
+        const clientId = `CLI-${slug(row.clientCode || row.client || row.company || 'GEN')}`;
+        const branchId = `BR-${slug(row.branch || 'NA')}`;
+        const locationId = `LOC-${slug(row.lokasi || row.branch || row.nrk)}`;
+        const contractId = `CTR-${row.nrk}`;
+        const assignmentId = `ASG-${row.nrk}`;
 
-      const clientId = `CLI-${slug(r.clientCode || r.client || 'GEN')}`;
-      await sql`
-        INSERT INTO clients (id, org_id, code, name)
-        VALUES (${clientId}, ${orgId}, ${String(r.clientCode || '000')}, ${String(r.client || 'Unknown')})
-        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-      `;
+        queries.push(
+          tx`
+            INSERT INTO clients (id, org_id, code, name)
+            VALUES (
+              ${clientId},
+              ${orgId},
+              ${String(row.clientCode || '000')},
+              ${String(row.client || row.company || 'Unknown')}
+            )
+            ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+          `,
+          tx`
+            INSERT INTO branches (id, org_id, name, city_umk, province)
+            VALUES (
+              ${branchId}, ${orgId}, ${String(row.branch || 'NA')},
+              ${row.kotaUmk || null}, ${row.province || null}
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              city_umk = COALESCE(EXCLUDED.city_umk, branches.city_umk),
+              province = COALESCE(EXCLUDED.province, branches.province)
+          `,
+          tx`
+            INSERT INTO work_locations (id, branch_id, name, unit_kerja, province, city_umk)
+            VALUES (
+              ${locationId}, ${branchId}, ${String(row.lokasi || row.branch || 'UNKNOWN')},
+              ${row.unitKerja || null}, ${row.province || 'Tidak diketahui'}, ${row.kotaUmk || null}
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              province = EXCLUDED.province,
+              unit_kerja = COALESCE(EXCLUDED.unit_kerja, work_locations.unit_kerja),
+              city_umk = COALESCE(EXCLUDED.city_umk, work_locations.city_umk)
+          `,
+          tx`
+            INSERT INTO employees (
+              id, org_id, client_id, branch_id, location_id, name, gender,
+              birth_place, birth_date, religion, phone, mobile, email, mother_name,
+              status_aktif, province, updated_at
+            ) VALUES (
+              ${row.nrk}, ${orgId}, ${clientId}, ${branchId}, ${locationId}, ${row.name},
+              ${row.gender || null}, ${row.birthPlace || null}, ${row.birthDate || null},
+              ${row.religion || null}, ${row.phone || null}, ${row.mobile || null},
+              ${row.email || null}, ${row.motherName || null}, ${row.statusAktif || null},
+              ${row.province || null}, NOW()
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              client_id = EXCLUDED.client_id,
+              branch_id = EXCLUDED.branch_id,
+              location_id = EXCLUDED.location_id,
+              gender = EXCLUDED.gender,
+              birth_place = EXCLUDED.birth_place,
+              birth_date = EXCLUDED.birth_date,
+              religion = EXCLUDED.religion,
+              phone = EXCLUDED.phone,
+              mobile = EXCLUDED.mobile,
+              email = EXCLUDED.email,
+              mother_name = EXCLUDED.mother_name,
+              status_aktif = EXCLUDED.status_aktif,
+              province = EXCLUDED.province,
+              updated_at = NOW()
+          `,
+          tx`
+            INSERT INTO employee_identity (
+              employee_id, ktp_no, npwp_no, address, marital_status, ptkp_claimed, ptkp_updated
+            ) VALUES (
+              ${row.nrk}, ${row.ktp || null}, ${row.npwp || null}, ${row.address || null},
+              ${row.marital || null}, ${row.ptkpClaimed || null}, ${row.ptkpUpdated || null}
+            )
+            ON CONFLICT (employee_id) DO UPDATE SET
+              ktp_no = EXCLUDED.ktp_no,
+              npwp_no = EXCLUDED.npwp_no,
+              address = EXCLUDED.address,
+              marital_status = EXCLUDED.marital_status,
+              ptkp_claimed = EXCLUDED.ptkp_claimed,
+              ptkp_updated = EXCLUDED.ptkp_updated
+          `,
+          tx`
+            INSERT INTO employee_contracts (
+              id, employee_id, employment_type, contract_status, join_date, accepted_date,
+              contract_start, contract_end, resign_date, resign_reason, candidate_source, is_current
+            ) VALUES (
+              ${contractId}, ${row.nrk}, ${row.employmentType || null},
+              ${row.contractStatus || null}, ${row.joinDate || null}, ${row.acceptedDate || null},
+              ${row.contractStart || null}, ${row.contractEnd || null}, ${row.resignDate || null},
+              ${row.resignReason || null}, ${row.candidateSource || null}, TRUE
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              employment_type = EXCLUDED.employment_type,
+              contract_status = EXCLUDED.contract_status,
+              join_date = EXCLUDED.join_date,
+              accepted_date = EXCLUDED.accepted_date,
+              contract_start = EXCLUDED.contract_start,
+              contract_end = EXCLUDED.contract_end,
+              resign_date = EXCLUDED.resign_date,
+              resign_reason = EXCLUDED.resign_reason,
+              candidate_source = EXCLUDED.candidate_source,
+              is_current = TRUE
+          `,
+          tx`
+            INSERT INTO employee_assignments (id, employee_id, position, pic, hrbp, is_current)
+            VALUES (
+              ${assignmentId}, ${row.nrk}, ${row.position || null},
+              ${row.pic || null}, ${row.hrbp || null}, TRUE
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              position = EXCLUDED.position,
+              pic = EXCLUDED.pic,
+              hrbp = EXCLUDED.hrbp,
+              is_current = TRUE
+          `,
+          tx`
+            INSERT INTO employee_compensation (employee_id, basic_salary, salary_start)
+            VALUES (${row.nrk}, ${row.basicSalary || 0}, ${row.salaryStart || null})
+            ON CONFLICT (employee_id) DO UPDATE SET
+              basic_salary = EXCLUDED.basic_salary,
+              salary_start = EXCLUDED.salary_start,
+              updated_at = NOW()
+          `,
+          tx`
+            INSERT INTO employee_bpjs (
+              employee_id, bpjs_kesehatan_no, bpjs_kesehatan_effective, jamsostek_no
+            ) VALUES (
+              ${row.nrk}, ${row.bpjsKes || null}, ${row.bpjsKesEffective || null},
+              ${row.jamsostek || null}
+            )
+            ON CONFLICT (employee_id) DO UPDATE SET
+              bpjs_kesehatan_no = EXCLUDED.bpjs_kesehatan_no,
+              bpjs_kesehatan_effective = EXCLUDED.bpjs_kesehatan_effective,
+              jamsostek_no = EXCLUDED.jamsostek_no,
+              updated_at = NOW()
+          `,
+          tx`
+            INSERT INTO employee_hris_meta (employee_id, hris_user)
+            VALUES (${row.nrk}, ${row.hrisUser || null})
+            ON CONFLICT (employee_id) DO UPDATE SET hris_user = EXCLUDED.hris_user
+          `
+        );
 
-      const branchId = `BR-${slug(r.branch || 'NA')}`;
-      await sql`
-        INSERT INTO branches (id, org_id, name, city_umk, province)
-        VALUES (${branchId}, ${orgId}, ${String(r.branch || 'NA')}, ${r.kotaUmk || null}, ${r.province || null})
-        ON CONFLICT (id) DO UPDATE SET
-          city_umk = COALESCE(EXCLUDED.city_umk, branches.city_umk),
-          province = COALESCE(EXCLUDED.province, branches.province)
-      `;
+        if (row.bank || row.accountNo) {
+          const bankId = `BNK-${row.nrk}`;
+          queries.push(tx`
+            INSERT INTO employee_bank_accounts (
+              id, employee_id, bank_name, account_no, is_primary
+            ) VALUES (
+              ${bankId}, ${row.nrk}, ${row.bank || null}, ${row.accountNo || null}, TRUE
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              bank_name = EXCLUDED.bank_name,
+              account_no = EXCLUDED.account_no,
+              is_primary = TRUE
+          `);
+        }
 
-      const locId = `LOC-${slug(r.lokasi || r.branch || r.nrk)}`;
-      await sql`
-        INSERT INTO work_locations (id, branch_id, name, unit_kerja, province, city_umk)
+        if (row.educationLevel || row.school) {
+          const educationId = `EDU-${row.nrk}`;
+          queries.push(tx`
+            INSERT INTO employee_education (
+              id, employee_id, level, school_name, major, graduate_year, is_highest
+            ) VALUES (
+              ${educationId}, ${row.nrk}, ${row.educationLevel || null},
+              ${row.school || null}, ${row.major || null}, ${row.graduateYear || null}, TRUE
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              level = EXCLUDED.level,
+              school_name = EXCLUDED.school_name,
+              major = EXCLUDED.major,
+              graduate_year = EXCLUDED.graduate_year,
+              is_highest = TRUE
+          `);
+        }
+      }
+
+      queries.push(tx`
+        INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity)
         VALUES (
-          ${locId}, ${branchId}, ${String(r.lokasi || r.branch || 'UNKNOWN')},
-          ${r.unitKerja || null}, ${r.province || 'Tidak diketahui'}, ${r.kotaUmk || null}
+          ${'LOG-IMP-' + Date.now()},
+          ${orgId},
+          'import',
+          'SYSTEM',
+          'EMPLOYEE_IMPORT',
+          ${`Import ${inserted} new, ${updated} updated, 0 errors`},
+          'Employee'
         )
-        ON CONFLICT (id) DO UPDATE SET
-          province = EXCLUDED.province,
-          unit_kerja = COALESCE(EXCLUDED.unit_kerja, work_locations.unit_kerja),
-          city_umk = COALESCE(EXCLUDED.city_umk, work_locations.city_umk)
-      `;
+      `);
+      return queries;
+    });
 
-      const existing = await sql`SELECT id FROM employees WHERE id = ${r.nrk} LIMIT 1`;
-      const isUpdate = existing.length > 0;
-
-      await sql`
-        INSERT INTO employees (
-          id, org_id, client_id, branch_id, location_id, name, gender,
-          birth_place, birth_date, religion, phone, mobile, email, mother_name,
-          status_aktif, province, updated_at
-        ) VALUES (
-          ${r.nrk}, ${orgId}, ${clientId}, ${branchId}, ${locId}, ${r.name}, ${r.gender || null},
-          ${r.birthPlace || null}, ${r.birthDate || null}, ${r.religion || null},
-          ${r.phone || null}, ${r.mobile || null}, ${r.email || null}, ${r.motherName || null},
-          ${r.statusAktif || null}, ${r.province || null}, NOW()
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          client_id = EXCLUDED.client_id,
-          branch_id = EXCLUDED.branch_id,
-          location_id = EXCLUDED.location_id,
-          gender = EXCLUDED.gender,
-          birth_place = EXCLUDED.birth_place,
-          birth_date = EXCLUDED.birth_date,
-          religion = EXCLUDED.religion,
-          phone = EXCLUDED.phone,
-          mobile = EXCLUDED.mobile,
-          email = EXCLUDED.email,
-          mother_name = EXCLUDED.mother_name,
-          status_aktif = EXCLUDED.status_aktif,
-          province = EXCLUDED.province,
-          updated_at = NOW()
-      `;
-
-      await sql`
-        INSERT INTO employee_identity (employee_id, ktp_no, npwp_no, address, marital_status, ptkp_claimed, ptkp_updated)
-        VALUES (${r.nrk}, ${r.ktp || null}, ${r.npwp || null}, ${r.address || null},
-          ${r.marital || null}, ${r.ptkpClaimed || null}, ${r.ptkpUpdated || null})
-        ON CONFLICT (employee_id) DO UPDATE SET
-          ktp_no = EXCLUDED.ktp_no, npwp_no = EXCLUDED.npwp_no, address = EXCLUDED.address,
-          marital_status = EXCLUDED.marital_status, ptkp_claimed = EXCLUDED.ptkp_claimed,
-          ptkp_updated = EXCLUDED.ptkp_updated
-      `;
-
-      const contractId = `CTR-${r.nrk}`;
-      await sql`
-        INSERT INTO employee_contracts (
-          id, employee_id, employment_type, contract_status, join_date, accepted_date,
-          contract_start, contract_end, resign_date, resign_reason, candidate_source, is_current
-        ) VALUES (
-          ${contractId}, ${r.nrk}, ${r.employmentType || null}, ${r.contractStatus || null},
-          ${r.joinDate || null}, ${r.acceptedDate || null},
-          ${r.contractStart || null}, ${r.contractEnd || null}, ${r.resignDate || null},
-          ${r.resignReason || null}, ${r.candidateSource || null}, true
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          employment_type = EXCLUDED.employment_type,
-          contract_status = EXCLUDED.contract_status,
-          join_date = EXCLUDED.join_date,
-          contract_start = EXCLUDED.contract_start,
-          contract_end = EXCLUDED.contract_end,
-          resign_date = EXCLUDED.resign_date,
-          resign_reason = EXCLUDED.resign_reason
-      `;
-
-      const asgId = `ASG-${r.nrk}`;
-      await sql`
-        INSERT INTO employee_assignments (id, employee_id, position, pic, hrbp, is_current)
-        VALUES (${asgId}, ${r.nrk}, ${r.position || null}, ${r.pic || null}, ${r.hrbp || null}, true)
-        ON CONFLICT (id) DO UPDATE SET
-          position = EXCLUDED.position, pic = EXCLUDED.pic, hrbp = EXCLUDED.hrbp
-      `;
-
-      await sql`
-        INSERT INTO employee_compensation (employee_id, basic_salary, salary_start)
-        VALUES (${r.nrk}, ${r.basicSalary || 0}, ${r.salaryStart || null})
-        ON CONFLICT (employee_id) DO UPDATE SET
-          basic_salary = EXCLUDED.basic_salary,
-          salary_start = EXCLUDED.salary_start,
-          updated_at = NOW()
-      `;
-
-      if (r.bank || r.accountNo) {
-        const bankId = `BNK-${r.nrk}`;
-        await sql`
-          INSERT INTO employee_bank_accounts (id, employee_id, bank_name, account_no, is_primary)
-          VALUES (${bankId}, ${r.nrk}, ${r.bank || null}, ${r.accountNo || null}, true)
-          ON CONFLICT (id) DO UPDATE SET
-            bank_name = EXCLUDED.bank_name, account_no = EXCLUDED.account_no
-        `;
-      }
-
-      await sql`
-        INSERT INTO employee_bpjs (employee_id, bpjs_kesehatan_no, bpjs_kesehatan_effective, jamsostek_no)
-        VALUES (${r.nrk}, ${r.bpjsKes || null}, ${r.bpjsKesEffective || null}, ${r.jamsostek || null})
-        ON CONFLICT (employee_id) DO UPDATE SET
-          bpjs_kesehatan_no = EXCLUDED.bpjs_kesehatan_no,
-          bpjs_kesehatan_effective = EXCLUDED.bpjs_kesehatan_effective,
-          jamsostek_no = EXCLUDED.jamsostek_no,
-          updated_at = NOW()
-      `;
-
-      if (r.educationLevel || r.school) {
-        const eduId = `EDU-${r.nrk}`;
-        await sql`
-          INSERT INTO employee_education (id, employee_id, level, school_name, major, graduate_year, is_highest)
-          VALUES (${eduId}, ${r.nrk}, ${r.educationLevel || null}, ${r.school || null},
-            ${r.major || null}, ${r.graduateYear || null}, true)
-          ON CONFLICT (id) DO UPDATE SET
-            level = EXCLUDED.level, school_name = EXCLUDED.school_name,
-            major = EXCLUDED.major, graduate_year = EXCLUDED.graduate_year
-        `;
-      }
-
-      await sql`
-        INSERT INTO employee_hris_meta (employee_id, hris_user)
-        VALUES (${r.nrk}, ${r.hrisUser || null})
-        ON CONFLICT (employee_id) DO UPDATE SET hris_user = EXCLUDED.hris_user
-      `;
-
-      if (isUpdate) updated++;
-      else inserted++;
-
-      const p = r.province || 'Tidak diketahui';
-      provinceStats[p] = (provinceStats[p] || 0) + 1;
-    } catch (err) {
-      errors.push({ nrk: r.nrk, error: err?.message || String(err) });
-      if (errors.length > 30) break;
-    }
+    return json({
+      ok: true,
+      atomic: true,
+      inserted,
+      updated,
+      errors: 0,
+      errorSamples: [],
+      provinceStats,
+      total: rows.length,
+    });
+  } catch (error) {
+    return json(
+      {
+        ok: false,
+        atomic: true,
+        error: 'Import transaction failed',
+        message: error?.message || String(error),
+      },
+      500
+    );
   }
-
-  await sql`
-    INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity)
-    VALUES (
-      ${'LOG-IMP-' + Date.now()},
-      ${orgId},
-      'import',
-      'SYSTEM',
-      'EMPLOYEE_IMPORT',
-      ${`Import ${inserted} new, ${updated} updated, ${errors.length} errors`},
-      'Employee'
-    )
-  `;
-
-  return json({
-    ok: true,
-    inserted,
-    updated,
-    errors: errors.length,
-    errorSamples: errors.slice(0, 10),
-    provinceStats,
-    total: rows.length,
-  });
 }
 
 function cors() {

@@ -11,6 +11,7 @@ import { getIdaSessionId } from '@/lib/session';
 import { parseIapWorkbook, type ParsedEmployee } from '@/lib/excel-iap';
 import { validatePayrollIndonesia, formatValidationMarkdown } from '@/lib/payroll-validate';
 import { loadSettings, onSettingsChange } from '@/lib/app-settings';
+import { syncDatabaseFromNeon } from '@/lib/neon-sync';
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
 
@@ -39,31 +40,6 @@ function mapConfirmToAction(text: string, lastUserHint?: string) {
   }
   if (/\binvoice\b/.test(t)) return 'buat invoice';
   return text;
-}
-
-function parsedToLocalEmployees(rows: ParsedEmployee[]) {
-  return rows.map((r) => ({
-    id: r.nrk,
-    name: r.name,
-    nik: r.ktp || '',
-    npwp: r.npwp || '',
-    status: r.statusAktif || r.contractStatus || 'KONTRAK',
-    joinDate: r.joinDate || '',
-    company: r.client || r.company || 'Client',
-    project: r.unitKerja || r.lokasi || '',
-    position: r.position || '',
-    region: r.province || r.kotaUmk || '',
-    province: r.province,
-    bankAccount: r.accountNo ? `${r.bank || 'BANK'}-${r.accountNo}` : '',
-    bankName: r.bank || '',
-    salaryGross: r.basicSalary || 0,
-    allowanceTransport: 0,
-    allowanceMeal: 0,
-    bpjsKesehatan: Boolean(r.bpjsKes),
-    bpjsKetenagakerjaan: Boolean(r.jamsostek),
-    pph21: true,
-    email: r.email || '',
-  }));
 }
 
 /** Strip HTML for typing, then re-render markdown at end */
@@ -99,16 +75,32 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   const typingCancel = useRef(false);
 
   useEffect(() => {
-    setDb(loadDatabase());
+    const localDb = loadDatabase();
+    setDb(localDb);
     setSessionId(getIdaSessionId());
     const st = loadSettings();
     setShowCot(st.idaShowCot);
     setTypingMs(st.idaTypingMs);
-    return onSettingsChange(() => {
+    const controller = new AbortController();
+    syncDatabaseFromNeon(localDb, { signal: controller.signal })
+      .then((result) => {
+        if (!result.synced) return;
+        saveDatabase(result.db);
+        setDb(result.db);
+        emitDbChange();
+      })
+      .catch(() => {
+        // Tetap gunakan mirror lokal saat Neon tidak dapat dijangkau.
+      });
+    const unsubscribe = onSettingsChange(() => {
       const s = loadSettings();
       setShowCot(s.idaShowCot);
       setTypingMs(s.idaTypingMs);
     });
+    return () => {
+      controller.abort();
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -154,7 +146,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   function buildContext(database: any) {
     const period = database.meta?.currentPeriod;
     const payroll = (database.payrolls || []).find((p: any) => p.period === period);
-    const m = calcMargin(database);
+    const m = calcMargin(database, undefined, loadSettings());
     return {
       org: database.meta?.orgName,
       period,
@@ -218,23 +210,13 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         updated += data.updated || 0;
         errors += data.errors || 0;
       }
-      const localEmps = parsedToLocalEmployees(pendingRows);
-      const clientNames = Array.from(new Set(localEmps.map((e) => e.company)));
-      const companies = clientNames.map((name, i) => ({
-        id: `CMP-IMP-${i + 1}`,
-        name,
-        npwp: '',
-        address: '',
-        pic: '',
-        phone: '',
-        payrollType: 'BULANAN',
-        payrollSetup: { type: 'BULANAN', umrRegion: localEmps[0]?.region || 'DKI Jakarta', umrYear: 2025, bpjsKesehatan: true, bpjsKetenagakerjaan: true, pph21: true },
-      }));
+      const synced = await syncDatabaseFromNeon(db, { requireData: true });
       const newDb = {
-        ...db,
-        employees: localEmps,
-        companies,
-        meta: { ...db.meta, lastImportAt: Date.now() },
+        ...synced.db,
+        meta: {
+          ...synced.db.meta,
+          lastImportAt: Date.now(),
+        },
       };
       saveDatabase(newDb);
       setDb(newDb);
@@ -242,7 +224,8 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       setPendingRows(null);
       const report = validatePayrollIndonesia(newDb);
       await pushIda(
-        `Data tersimpan (**${localEmps.length}** karyawan).\n\n` + formatValidationMarkdown(report),
+        `Data tersimpan (**${inserted} baru, ${updated} diperbarui, ${errors} gagal**). Dashboard tersinkron **${synced.count} karyawan**.\n\n` +
+          formatValidationMarkdown(report),
         true,
         ['Data disimpan', 'Pemeriksaan selesai']
       );

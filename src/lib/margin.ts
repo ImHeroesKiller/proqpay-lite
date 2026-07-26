@@ -1,4 +1,5 @@
 import { formatIDR } from './format';
+import type { BillingSettings } from './database';
 
 /**
  * Margin outsourcing payroll:
@@ -6,7 +7,7 @@ import { formatIDR } from './format';
  * Cost   ≈ total payroll net (biaya gaji)
  * Margin = revenue - cost
  */
-export function calcMargin(db: any, period?: string) {
+export function calcMargin(db: any, period?: string, billing: BillingSettings = {}) {
   const p = period || db.meta?.currentPeriod || '2025-07';
 
   const invoices = (db.invoices || []).filter((inv: any) => inv.period === p);
@@ -18,9 +19,12 @@ export function calcMargin(db: any, period?: string) {
   // Jika belum ada invoice periode ini, estimasi service fee standar
   if (!invoices.length && db.companies?.length) {
     const empCount = db.employees?.length || 0;
-    const serviceFee = empCount * 1500000;
-    const bpjsFee = empCount * 300000;
-    const adminFee = 2000000 * (db.companies?.length || 1);
+    const serviceFeePerEmp = Number(billing.serviceFeePerEmp ?? 1_500_000);
+    const bpjsFeePerEmp = Number(billing.bpjsFeePerEmp ?? 300_000);
+    const adminFeePerClient = Number(billing.adminFee ?? 2_000_000);
+    const serviceFee = empCount * serviceFeePerEmp;
+    const bpjsFee = empCount * bpjsFeePerEmp;
+    const adminFee = adminFeePerClient * (db.companies?.length || 1);
     const subtotal = serviceFee + bpjsFee + adminFee;
     const tax = Math.round(subtotal * 0.1);
     revenue = subtotal + tax;
@@ -43,12 +47,17 @@ export function calcMargin(db: any, period?: string) {
     estimated: invoices.length === 0,
     payrollStatus: payroll?.status || 'BELUM_DIHITUNG',
     employeeCount: payroll?.summary?.employeeCount || db.employees?.length || 0,
+    billing: {
+      serviceFeePerEmp: Number(billing.serviceFeePerEmp ?? 1_500_000),
+      bpjsFeePerEmp: Number(billing.bpjsFeePerEmp ?? 300_000),
+      adminFee: Number(billing.adminFee ?? 2_000_000),
+    },
   };
 }
 
 export function formatMarginReply(m: ReturnType<typeof calcMargin>) {
   const note = m.estimated
-    ? '_Invoice periode ini belum diterbitkan — revenue pakai estimasi fee standar (1,5jt/karyawan + BPJS fee + admin)._'
+    ? `_Invoice periode ini belum diterbitkan — revenue memakai Settings: service fee ${formatIDR(m.billing.serviceFeePerEmp)}/karyawan, BPJS ${formatIDR(m.billing.bpjsFeePerEmp)}/karyawan, dan admin ${formatIDR(m.billing.adminFee)}/client._`
     : `_Dari ${m.invoiceCount} invoice periode ${m.period}._`;
 
   return (

@@ -24,22 +24,57 @@ export async function onRequest(context) {
           c.name AS company,
           e.name,
           a.position,
+          a.pic,
+          a.hrbp,
           COALESCE(ec.contract_status, e.status_aktif) AS status,
+          ec.join_date AS "joinDate",
           COALESCE(wl.province, e.province, b.province) AS region,
-          COALESCE(cp.basic_salary, 0) AS "salaryGross",
-          ba.account_no AS "bankAccount",
-          ba.bank_name AS "bankName"
+          COALESCE(wl.province, e.province, b.province) AS province,
+          COALESCE(wl.unit_kerja, wl.name) AS project,
+          COALESCE(cp.basic_salary, 0)::float8 AS "salaryGross",
+          0 AS "allowanceTransport",
+          0 AS "allowanceMeal",
+          ba.account_no AS "accountNo",
+          CASE
+            WHEN ba.account_no IS NULL THEN ''
+            WHEN ba.bank_name IS NULL THEN ba.account_no
+            ELSE ba.bank_name || '-' || ba.account_no
+          END AS "bankAccount",
+          ba.bank_name AS "bankName",
+          ei.ktp_no AS nik,
+          ei.npwp_no AS npwp,
+          e.email,
+          (bp.bpjs_kesehatan_no IS NOT NULL) AS "bpjsKesehatan",
+          (bp.jamsostek_no IS NOT NULL) AS "bpjsKetenagakerjaan",
+          TRUE AS pph21
         FROM employees e
         LEFT JOIN clients c ON c.id = e.client_id
         LEFT JOIN branches b ON b.id = e.branch_id
         LEFT JOIN work_locations wl ON wl.id = e.location_id
-        LEFT JOIN employee_assignments a
-          ON a.employee_id = e.id AND a.is_current = TRUE
-        LEFT JOIN employee_contracts ec
-          ON ec.employee_id = e.id AND ec.is_current = TRUE
+        LEFT JOIN LATERAL (
+          SELECT position, pic, hrbp
+          FROM employee_assignments
+          WHERE employee_id = e.id AND is_current = TRUE
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) a ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT contract_status, join_date
+          FROM employee_contracts
+          WHERE employee_id = e.id AND is_current = TRUE
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) ec ON TRUE
         LEFT JOIN employee_compensation cp ON cp.employee_id = e.id
-        LEFT JOIN employee_bank_accounts ba
-          ON ba.employee_id = e.id AND ba.is_primary = TRUE
+        LEFT JOIN LATERAL (
+          SELECT account_no, bank_name
+          FROM employee_bank_accounts
+          WHERE employee_id = e.id AND is_primary = TRUE
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) ba ON TRUE
+        LEFT JOIN employee_identity ei ON ei.employee_id = e.id
+        LEFT JOIN employee_bpjs bp ON bp.employee_id = e.id
         ORDER BY e.name ASC
         LIMIT 500
       `;
