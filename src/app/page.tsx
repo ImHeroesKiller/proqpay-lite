@@ -7,6 +7,7 @@ import Sidebar from '@/components/Sidebar';
 import IdaFab from '@/components/IdaFab';
 import MetricCard from '@/components/MetricCard';
 import ClientDetail from '@/components/ClientDetail';
+import RegionMap from '@/components/RegionMap';
 
 export default function Home() {
   const [db, setDb] = useState<any>(null);
@@ -80,7 +81,7 @@ export default function Home() {
 
               <div style={{
                 display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: '14px', marginBottom: '24px'
+                gap: '14px', marginBottom: '20px'
               }}>
                 <MetricCard label="Employees" value={String(empCount)} sub={`${clientCount} client · ${projectCount} project`} accent="var(--cyan)" />
                 <MetricCard label="Clients" value={String(clientCount)} sub={`${projectCount} project aktif`} accent="var(--teal)" />
@@ -88,33 +89,42 @@ export default function Home() {
                 <MetricCard label="Outstanding" value={formatIDRShort(totalOutstanding)} sub={`${outstanding.length} klien`} accent="var(--orange)" />
               </div>
 
-              {/* Quick Client Overview */}
-              <div className="card" style={{ padding: '20px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '14px', color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Client Overview
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {db.companies?.map((c: any) => {
-                    const empOfClient = db.employees.filter((e: any) => e.company === c.name).length;
-                    const projOfClient = db.projects.filter((p: any) => p.company === c.name).length;
-                    return (
-                      <div key={c.id} style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        padding: '12px 14px', background: 'var(--bg-subtle)', borderRadius: 'var(--r-md)'
-                      }}>
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: '14px' }}>{c.name}</div>
-                          <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
-                            {empOfClient} emp · {projOfClient} project · {c.payrollType}
+              {/* Region Distribution + Client Overview */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                gap: '16px',
+                marginBottom: '8px'
+              }}>
+                <RegionMap employees={db.employees} />
+
+                <div className="card" style={{ padding: '20px' }}>
+                  <h3 style={{ fontSize: '11px', fontWeight: 600, marginBottom: '14px', color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Client Overview
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {db.companies?.map((c: any) => {
+                      const empOfClient = db.employees.filter((e: any) => e.company === c.name).length;
+                      const projOfClient = db.projects.filter((p: any) => p.company === c.name).length;
+                      return (
+                        <div key={c.id} style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '12px 14px', background: 'var(--bg-subtle)', borderRadius: 'var(--r-md)'
+                        }}>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '14px' }}>{c.name}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
+                              {empOfClient} emp · {projOfClient} project · {c.payrollType}
+                            </div>
                           </div>
+                          <span style={{
+                            fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: 'var(--r-pill)',
+                            background: 'rgba(16,185,129,0.12)', color: '#059669'
+                          }}>ACTIVE</span>
                         </div>
-                        <span style={{
-                          fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: 'var(--r-pill)',
-                          background: 'rgba(16,185,129,0.12)', color: '#059669'
-                        }}>ACTIVE</span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </section>
