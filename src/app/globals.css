@@ -1,11 +1,11 @@
 /* ProQPay Lite — 2026 Design System */
 :root {
-  --bg: #f7f8fb;
+  --bg: #f5f6fa;
   --bg-surface: #ffffff;
-  --bg-subtle: #f4f6fa;
-  --bg-sunk: #eef1f6;
-  --border: #eaeef4;
-  --border-strong: #dde2ec;
+  --bg-subtle: #f3f5f9;
+  --bg-sunk: #ebeef5;
+  --border: #e8ecf3;
+  --border-strong: #d5dbe6;
   --border-soft: #f0f3f8;
   --text: #0f172a;
   --text2: #5a6478;
@@ -35,32 +35,40 @@
   --r-pill: 999px;
   --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
   --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
-  --shadow-md: 0 6px 18px rgba(15, 23, 42, 0.07), 0 2px 6px rgba(15, 23, 42, 0.04);
-  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.10), 0 6px 16px rgba(15, 23, 42, 0.05);
-  --shadow-fab: 0 10px 30px rgba(91, 94, 240, 0.32), 0 3px 10px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 20px 48px rgba(15, 23, 42, 0.12), 0 8px 20px rgba(15, 23, 42, 0.06);
+  --shadow-fab: 0 12px 32px rgba(91, 94, 240, 0.28), 0 4px 12px rgba(15, 23, 42, 0.08);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
   height: 100%;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  letter-spacing: -0.005em;
+  letter-spacing: -0.011em;
+}
+
+::selection {
+  background: var(--accent-soft2);
+  color: var(--text);
 }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* Utility */
 .card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-xs);
+}
+
+.metric-card {
+  background: linear-gradient(180deg, #ffffff 0%, #fafbfd 100%);
 }
 
 .btn {
@@ -93,3 +101,11 @@ a:hover { text-decoration: underline; }
   box-shadow: 0 6px 20px rgba(91, 94, 240, 0.38);
   transform: translateY(-1px);
 }
+
+/* Scrollbar subtle */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb {
+  background: #cfd6e4;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track { background: transparent; }
