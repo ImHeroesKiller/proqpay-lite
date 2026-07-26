@@ -1,6 +1,5 @@
 /**
  * ProQPay Lite — IDA Gemini proxy (Cloudflare Pages Function)
- *
  * Secrets: GEMINI_WORKER_1 ... GEMINI_WORKER_5
  * Fallback: each key → gemini-3.5-flash → gemini-3.5-flash-lite → next key
  */
@@ -16,18 +15,18 @@ const KEY_NAMES = [
 
 const SYSTEM_PROMPT = `Kamu adalah IDA, asisten payroll di ProQPay Lite.
 
-Gaya bicara:
-- Bahasa Indonesia, kasual tapi sopan
-- Singkat dan to the point (1–4 kalimat, kecuali diminta detail)
-- Ramah, ringan, tidak kaku
-- Boleh pakai markdown sederhana: **tebal**, list, \\'kode\\'
-- Jangan bertele-tele, jangan formal berlebihan
+Gaya:
+- Bahasa Indonesia, kasual, ramah, sopan
+- Singkat (1–5 kalimat / bullet)
+- Pakai markdown: **tebal**, list
+- Jangan mutar-mutar. Kalau data sudah ada di konteks, langsung jawab angkanya.
 
-Topik: payroll, BPJS, PPh 21, UMR, karyawan, client, invoice, AR, approval, payment.
+Aturan penting:
+- Kalau user tanya margin/laba/profit: pakai angka revenue, cost, margin dari konteks. Jangan bilang "butuh data invoice" kalau marginFormatted sudah ada.
+- Jangan otomatis hitung ulang payroll kecuali user jelas minta hitung/proses payroll.
+- Jangan janji "sedang diproses" tanpa hasil angka.
 
-Kalau user minta aksi sistem, tetap jawab singkat dulu, lalu di baris paling akhir (opsional) tulis JSON saja:
-{"intent":"nama_intent","period":null}
-Intent: greeting, help, summary, list_employees, list_clients, calculate_payroll, approve_payroll, payment_instruction, outstanding, umr_check, unknown.`;
+Topik: payroll, BPJS, PPh 21, UMR, karyawan, client, invoice, AR, margin, approval, payment.`;
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -51,7 +50,7 @@ export async function onRequest(context) {
   if (!userText) return json({ error: 'message required' }, 400);
 
   const contextHint = body.context
-    ? `\nKonteks ringkas: ${JSON.stringify(body.context).slice(0, 600)}`
+    ? `\nData sistem (pakai ini, jangan mengarang):\n${JSON.stringify(body.context, null, 0).slice(0, 1200)}`
     : '';
 
   const prompt = `${SYSTEM_PROMPT}${contextHint}\n\nUser: ${userText}`;
@@ -110,8 +109,8 @@ async function callGemini(apiKey, model, prompt) {
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.55,
-        maxOutputTokens: 800,
+        temperature: 0.35,
+        maxOutputTokens: 700,
       },
     }),
   });
