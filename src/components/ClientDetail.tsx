@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { formatIDRShort } from '@/lib/format';
+import ActivityTimeline from './ActivityTimeline';
 
 export default function ClientDetail({ db }: { db: any }) {
   const clients = db.companies?.map((c: any) => c.name) || [];
@@ -19,6 +20,15 @@ export default function ClientDetail({ db }: { db: any }) {
   info.employees.forEach((e: any) => {
     if (e.region) regions[e.region] = (regions[e.region] || 0) + 1;
   });
+
+  // Simple AI insights
+  const insights: { icon: string; text: string }[] = [];
+  if (!info.company?.payrollSetup) insights.push({ icon: '⚙️', text: `Payroll belum di-setup untuk ${selected}.` });
+  const noBank = info.employees.filter((e: any) => !e.bankAccount).length;
+  if (noBank > 0) insights.push({ icon: '⚠️', text: `${noBank} karyawan belum punya rekening bank.` });
+  if (info.invoice && info.invoice.status !== 'PAID') insights.push({ icon: '📄', text: `Invoice ${info.invoice.id} berstatus ${info.invoice.status}.` });
+  if (info.ar) insights.push({ icon: '⏳', text: `AR outstanding ${formatIDRShort(info.ar.amount)}.` });
+  if (insights.length === 0) insights.push({ icon: '✨', text: 'Semua data lengkap. Tidak ada action diperlukan.' });
 
   return (
     <section style={{ marginTop: '36px' }}>
@@ -54,7 +64,7 @@ export default function ClientDetail({ db }: { db: any }) {
         gap: '16px',
       }}>
         {/* Employee List */}
-        <div className="card" style={{ padding: '18px', gridColumn: 'span 2' }}>
+        <div className="card" style={{ padding: '18px', gridColumn: '1 / -1' }}>
           <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
             Employee List <span style={{ fontWeight: 500, color: 'var(--text3)' }}>({info.employees.length})</span>
           </div>
@@ -122,6 +132,25 @@ export default function ClientDetail({ db }: { db: any }) {
           </div>
         </div>
 
+        {/* AI Insight */}
+        <div className="card" style={{ padding: '18px', borderColor: 'color-mix(in srgb, var(--violet) 22%, var(--border))' }}>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
+            🧠 AI Insight
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {insights.map((i, idx) => (
+              <div key={idx} style={{
+                display: 'flex', gap: '9px', alignItems: 'flex-start',
+                padding: '10px 12px', background: 'var(--bg-subtle)',
+                borderRadius: 'var(--r-md)', border: '1px solid var(--border-soft)'
+              }}>
+                <span style={{ fontSize: '15px', flexShrink: 0 }}>{i.icon}</span>
+                <span style={{ fontSize: '12.5px', lineHeight: 1.45 }}>{i.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Billing */}
         <div className="card" style={{ padding: '18px' }}>
           <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
@@ -156,6 +185,9 @@ export default function ClientDetail({ db }: { db: any }) {
             <div style={{ fontSize: '13px', color: 'var(--text3)' }}>No invoice this period</div>
           )}
         </div>
+
+        {/* Activity Timeline */}
+        <ActivityTimeline logs={db.auditLogs || []} />
       </div>
     </section>
   );
