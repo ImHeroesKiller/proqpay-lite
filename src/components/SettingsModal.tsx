@@ -46,10 +46,12 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   }
 
   function updateUser(id: string, p: Partial<AppUser>) {
+    if (!s) return;
     patch({ users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) });
   }
 
   function addUser() {
+    if (!s) return;
     const id = `U${Date.now().toString(36)}`;
     patch({
       users: [
