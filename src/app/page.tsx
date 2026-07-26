@@ -11,6 +11,7 @@ import ClientDetail from '@/components/ClientDetail';
 import RegionMap from '@/components/RegionMap';
 import MetricPopup from '@/components/MetricPopup';
 import DashFilters from '@/components/DashFilters';
+import ExcelUpload from '@/components/ExcelUpload';
 import { IconUsers, IconBuilding, IconWallet, IconClock } from '@/components/Icons';
 
 type PopupType = 'employees' | 'clients' | 'payroll' | 'outstanding' | null;
@@ -67,7 +68,6 @@ export default function Home() {
   const outstanding = (db.arMonitor || []).filter((a: any) => a.status === 'OUTSTANDING');
   const totalOutstanding = outstanding.reduce((s: number, a: any) => s + a.amount, 0);
 
-  // Sparkline series (demo trend from payrolls + synthetic)
   const payrollTrend = (db.payrolls || [])
     .slice()
     .sort((a: any, b: any) => a.period.localeCompare(b.period))
@@ -122,6 +122,8 @@ export default function Home() {
               </p>
 
               <DashFilters period={period} onPeriodChange={handlePeriodChange} />
+
+              <ExcelUpload />
 
               <div style={{
                 display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -209,7 +211,7 @@ export default function Home() {
 
             <p style={{ marginTop: '28px', fontSize: '12px', color: 'var(--text3)', textAlign: 'center' }}>
               ProQPay Lite · Next.js 16 ·{' '}
-              <a href="https://proqpay.netlify.app/">Netlify</a>
+              <a href="https://proqpay-lite.pages.dev/">Cloudflare Pages</a>
               {' · '}
               <a href="https://github.com/ImHeroesKiller/proqpay-lite">GitHub</a>
             </p>
