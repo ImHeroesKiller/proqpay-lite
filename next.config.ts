@@ -1,14 +1,17 @@
 import type { NextConfig } from 'next';
 
+// GitHub Pages serves under /proqpay-lite
+// Set GITHUB_PAGES=true in CI, or detect production build
+const isGhPages = process.env.GITHUB_PAGES === 'true' || process.env.NODE_ENV === 'production';
+
 const nextConfig: NextConfig = {
   output: 'export',
   trailingSlash: true,
   images: {
     unoptimized: true,
   },
-  // Base path for GitHub Pages (repo name)
-  basePath: process.env.NODE_ENV === 'production' ? '/proqpay-lite' : '',
-  assetPrefix: process.env.NODE_ENV === 'production' ? '/proqpay-lite/' : '',
+  basePath: isGhPages ? '/proqpay-lite' : '',
+  assetPrefix: isGhPages ? '/proqpay-lite/' : '',
 };
 
 export default nextConfig;
