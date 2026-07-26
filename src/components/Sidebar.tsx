@@ -1,55 +1,75 @@
 'use client';
 
+import { useState } from 'react';
+import SettingsModal from './SettingsModal';
+
 export default function Sidebar() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   return (
-    <aside style={{
-      width: '56px',
-      background: 'var(--bg-surface)',
-      borderRight: '1px solid var(--border)',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      padding: '14px 0',
-      gap: '6px',
-      flexShrink: 0,
-      height: '100vh',
-      position: 'sticky',
-      top: 0,
-    }}>
-      <div style={{
-        width: '34px',
-        height: '34px',
-        borderRadius: '10px',
-        background: 'linear-gradient(135deg, var(--accent), var(--violet))',
+    <>
+      <aside style={{
+        width: '56px',
+        background: 'var(--bg-surface)',
+        borderRight: '1px solid var(--border)',
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: 'center',
-        fontWeight: 800,
-        fontSize: '13px',
-        color: '#fff',
-        marginBottom: '10px',
-        boxShadow: '0 4px 12px rgba(91, 94, 240, 0.35)',
+        padding: '14px 0',
+        gap: '6px',
+        flexShrink: 0,
+        height: '100vh',
+        position: 'sticky',
+        top: 0,
       }}>
-        PQ
-      </div>
+        <div style={{
+          width: '34px',
+          height: '34px',
+          borderRadius: '10px',
+          background: 'linear-gradient(135deg, var(--accent), var(--violet))',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontWeight: 800,
+          fontSize: '13px',
+          color: '#fff',
+          marginBottom: '10px',
+          boxShadow: '0 4px 12px rgba(91, 94, 240, 0.35)',
+        }}>
+          PQ
+        </div>
 
-      <NavBtn active icon="▦" title="Dashboard" />
-      <NavBtn icon="💬" title="Chat with IDA" />
-      <NavBtn icon="👥" title="Employees" />
-      <NavBtn icon="🏢" title="Clients" />
-      <NavBtn icon="📊" title="Reports" />
+        <NavBtn active icon="▦" title="Dashboard" />
+        <NavBtn icon="💬" title="Chat with IDA" />
+        <NavBtn icon="👥" title="Employees" />
+        <NavBtn icon="🏢" title="Clients" />
+        <NavBtn icon="📊" title="Reports" />
 
-      <div style={{ flex: 1 }} />
+        <div style={{ flex: 1 }} />
 
-      <NavBtn icon="⚙️" title="Settings" />
-    </aside>
+        <NavBtn icon="⚙️" title="Settings" onClick={() => setSettingsOpen(true)} />
+      </aside>
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </>
   );
 }
 
-function NavBtn({ icon, title, active = false }: { icon: string; title: string; active?: boolean }) {
+function NavBtn({
+  icon,
+  title,
+  active = false,
+  onClick,
+}: {
+  icon: string;
+  title: string;
+  active?: boolean;
+  onClick?: () => void;
+}) {
   return (
     <button
       title={title}
+      onClick={onClick}
       style={{
         width: '40px',
         height: '40px',
