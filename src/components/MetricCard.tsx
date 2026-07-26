@@ -3,21 +3,38 @@ export default function MetricCard({
   value,
   sub,
   accent,
+  onClick,
 }: {
   label: string;
   value: string;
   sub: string;
   accent: string;
+  onClick?: () => void;
 }) {
   return (
     <div
       className="card"
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
       style={{
         padding: '18px',
         position: 'relative',
         overflow: 'hidden',
-        cursor: 'pointer',
+        cursor: onClick ? 'pointer' : 'default',
         transition: 'box-shadow 0.25s ease, transform 0.25s ease',
+      }}
+      onMouseEnter={(e) => {
+        if (onClick) {
+          (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-md)';
+          (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)';
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (onClick) {
+          (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-xs)';
+          (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+        }
       }}
     >
       <div
