@@ -10,14 +10,11 @@ import { formatIDR } from '@/lib/format';
 import { getIdaSessionId } from '@/lib/session';
 import { parseIapWorkbook, type ParsedEmployee } from '@/lib/excel-iap';
 import { validatePayrollIndonesia, formatValidationMarkdown } from '@/lib/payroll-validate';
+import { loadSettings, onSettingsChange } from '@/lib/app-settings';
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
 
-type Msg = {
-  role: 'ida' | 'user';
-  text: string;
-  cot?: string[];
-};
+type Msg = { role: 'ida' | 'user'; text: string; cot?: string[]; html?: boolean };
 
 function cleanCot(list?: string[] | null) {
   if (!list) return undefined;
@@ -28,17 +25,9 @@ function cleanCot(list?: string[] | null) {
 function looksLikeLocalAction(text: string) {
   const t = text.toLowerCase();
   return (
-    /\b(margin|laba|profit|keuntungan|potensi margin)\b/.test(t) ||
-    /\b(bpjs|iuran|jht|jkk|jkm|jkn)\b/.test(t) ||
-    /\b(provinsi|wilayah|daerah)\b/.test(t) ||
-    /\b(hitung payroll|buat payroll|ajukan approval|approve payroll|payment instruction|instruksi pembayaran)\b/.test(
-      t
-    ) ||
-    /\b(buat invoice|generate invoice|terbit invoice|invoice|kirim invoice)\b/.test(t) ||
-    /\b(unduh payment|download payment|csv payment|tandai paid|mark paid)\b/.test(t) ||
-    /\b(help|bantuan|alur|proses|next|lanjut|status|ringkasan|daftar karyawan|daftar client|outstanding|umr|audit|validasi|import|upload)\b/.test(
-      t
-    ) ||
+    /\b(margin|laba|profit|bpjs|iuran|jht|jkk|jkm|jkn|provinsi|wilayah)\b/.test(t) ||
+    /\b(hitung payroll|ajukan approval|payment instruction|buat invoice|invoice|tandai paid|unduh payment)\b/.test(t) ||
+    /\b(help|bantuan|next|status|ringkasan|validasi|import|upload|audit|umr|daftar)\b/.test(t) ||
     /^(iya|yes|ok|oke|ya|generate|kirim|proses)\b/.test(t)
   );
 }
@@ -46,13 +35,9 @@ function looksLikeLocalAction(text: string) {
 function mapConfirmToAction(text: string, lastUserHint?: string) {
   const t = text.toLowerCase().trim();
   if (/^(iya|yes|ok|oke|ya|generate|kirim|proses)\b/.test(t)) {
-    if (lastUserHint && /invoice/.test(lastUserHint)) return 'buat invoice';
-    if (/invoice|tagihan/.test(t)) return 'buat invoice';
-    return 'buat invoice';
+    return lastUserHint && /invoice/.test(lastUserHint) ? 'buat invoice' : 'buat invoice';
   }
-  if (/\b(generate|buat|terbit|kirim)\b.*\binvoice\b/.test(t) || /\binvoice\b/.test(t)) {
-    return 'buat invoice';
-  }
+  if (/\binvoice\b/.test(t)) return 'buat invoice';
   return text;
 }
 
@@ -81,41 +66,89 @@ function parsedToLocalEmployees(rows: ParsedEmployee[]) {
   }));
 }
 
-export default function IdaFab() {
+/** Strip HTML for typing, then re-render markdown at end */
+function stripHtml(html: string) {
+  if (typeof document === 'undefined') return html.replace(/<[^>]+>/g, '');
+  const d = document.createElement('div');
+  d.innerHTML = html;
+  return d.textContent || '';
+}
+
+export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sessionId, setSessionId] = useState('default');
   const [messages, setMessages] = useState<Msg[]>([
     {
       role: 'ida',
-      text: renderMarkdown(
-        'Hai, aku **IDA**. Tanya payroll, BPJS, invoice, atau lampirkan Excel lewat **📎**.'
-      ),
+      text: renderMarkdown('Hai, aku **IDA**. Bisa bantu payroll, BPJS, invoice, atau unggah data lewat 📎.'),
+      html: true,
     },
   ]);
   const [input, setInput] = useState('');
   const [db, setDb] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [typing, setTyping] = useState(false);
   const [pendingRows, setPendingRows] = useState<ParsedEmployee[] | null>(null);
   const [cotLive, setCotLive] = useState<string[] | null>(null);
+  const [showCot, setShowCot] = useState(true);
+  const [typingMs, setTypingMs] = useState(28);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const lastTopicRef = useRef<string>('');
+  const lastTopicRef = useRef('');
+  const typingCancel = useRef(false);
 
   useEffect(() => {
     setDb(loadDatabase());
     setSessionId(getIdaSessionId());
+    const st = loadSettings();
+    setShowCot(st.idaShowCot);
+    setTypingMs(st.idaTypingMs);
+    return onSettingsChange(() => {
+      const s = loadSettings();
+      setShowCot(s.idaShowCot);
+      setTypingMs(s.idaTypingMs);
+    });
   }, []);
 
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, cotLive, expanded]);
+    if (openSignal > 0) setOpen(true);
+  }, [openSignal]);
 
-  function pushIda(text: string, isMarkdown = true, cot?: string[]) {
-    setMessages((prev) => [
-      ...prev,
-      { role: 'ida', text: isMarkdown ? renderMarkdown(text) : text, cot: cleanCot(cot) },
-    ]);
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, cotLive, expanded, typing]);
+
+  async function typeOut(finalHtml: string, cot?: string[]) {
+    typingCancel.current = false;
+    setTyping(true);
+    const plain = stripHtml(finalHtml);
+    const steps = Math.min(plain.length, 400);
+    const chunk = Math.max(1, Math.floor(plain.length / 60));
+    let shown = '';
+    setMessages((prev) => [...prev, { role: 'ida', text: '', cot: cleanCot(cot), html: false }]);
+    for (let i = 0; i < plain.length; i += chunk) {
+      if (typingCancel.current) break;
+      shown = plain.slice(0, i + chunk);
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1] = { role: 'ida', text: shown + (i + chunk < plain.length ? '▍' : ''), cot: cleanCot(cot), html: false };
+        return copy;
+      });
+      await new Promise((r) => setTimeout(r, typingMs));
+      if (i > steps * 2) break;
+    }
+    setMessages((prev) => {
+      const copy = [...prev];
+      copy[copy.length - 1] = { role: 'ida', text: finalHtml, cot: cleanCot(cot), html: true };
+      return copy;
+    });
+    setTyping(false);
+  }
+
+  async function pushIda(text: string, isMarkdown = true, cot?: string[]) {
+    const html = isMarkdown ? renderMarkdown(text) : text;
+    await typeOut(html, cot);
   }
 
   function buildContext(database: any) {
@@ -130,44 +163,30 @@ export default function IdaFab() {
       clientNames: (database.companies || []).map((c: any) => c.name),
       payrollNet: payroll?.summary?.totalNet ?? null,
       payrollStatus: payroll?.status ?? null,
-      margin: m.margin,
-      marginPct: Number(m.marginPct.toFixed(1)),
+      marginFormatted: formatIDR(m.margin),
       revenueFormatted: formatIDR(m.revenue),
       costFormatted: formatIDR(m.cost),
-      marginFormatted: formatIDR(m.margin),
-      pendingImport: pendingRows?.length || 0,
     };
   }
 
   async function handleFile(file: File) {
     setBusy(true);
-    setCotLive(['Parse Excel…', 'Map provinsi…']);
+    setCotLive(['Membaca file…', 'Memetakan wilayah…']);
     setMessages((prev) => [...prev, { role: 'user', text: `📎 ${file.name}` }]);
     try {
-      const buf = await file.arrayBuffer();
-      const parsed = parseIapWorkbook(buf);
+      const parsed = parseIapWorkbook(await file.arrayBuffer());
       setPendingRows(parsed.rows);
-      const byProv: Record<string, number> = {};
-      parsed.rows.forEach((r) => {
-        byProv[r.province] = (byProv[r.province] || 0) + 1;
-      });
-      const provLine = Object.entries(byProv)
-        .slice(0, 6)
-        .map(([k, v]) => `${k} (${v})`)
-        .join(' · ');
       const sample = parsed.rows
         .slice(0, 3)
-        .map((r) => `- **${r.name}** · ${r.lokasi || r.branch} → **${r.province}**`)
+        .map((r) => `- **${r.name}** → **${r.province}**`)
         .join('\n');
-      pushIda(
-        renderMarkdown(
-          `File terbaca: **${parsed.rows.length}** baris valid (skip ${parsed.skipped}). Provinsi: ${provLine || '-'}\n\n${sample}\n\nKetik **import sekarang** kalau mau disimpan.`
-        ),
-        false,
-        ['Parse OK', `${parsed.rows.length} rows`]
+      await pushIda(
+        `File terbaca: **${parsed.rows.length}** baris.\n\n${sample}\n\nKetik **import sekarang** untuk menyimpan.`,
+        true,
+        ['File dibaca', `${parsed.rows.length} baris siap`]
       );
     } catch (e: any) {
-      pushIda(renderMarkdown(`Gagal parse: ${e?.message || e}`), false, ['Parse error']);
+      await pushIda(`Gagal membaca file: ${e?.message || e}`, true, ['Gagal membaca']);
       setPendingRows(null);
     } finally {
       setCotLive(null);
@@ -177,18 +196,17 @@ export default function IdaFab() {
 
   async function runImport() {
     if (!pendingRows?.length || !db) {
-      pushIda(renderMarkdown('Belum ada file di antrian. Pakai 📎 dulu.'), false);
+      await pushIda('Belum ada file. Gunakan 📎 dulu.');
       return;
     }
     setBusy(true);
-    setCotLive(['Neon import…', 'Mirror lokal…']);
+    setCotLive(['Menyimpan data…', 'Memperbarui ringkasan…']);
     try {
-      const chunkSize = 40;
-      let inserted = 0;
-      let updated = 0;
-      let errors = 0;
-      for (let i = 0; i < pendingRows.length; i += chunkSize) {
-        const chunk = pendingRows.slice(i, i + chunkSize);
+      let inserted = 0,
+        updated = 0,
+        errors = 0;
+      for (let i = 0; i < pendingRows.length; i += 40) {
+        const chunk = pendingRows.slice(i, i + 40);
         const res = await fetch('/api/import', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -200,7 +218,6 @@ export default function IdaFab() {
         updated += data.updated || 0;
         errors += data.errors || 0;
       }
-
       const localEmps = parsedToLocalEmployees(pendingRows);
       const clientNames = Array.from(new Set(localEmps.map((e) => e.company)));
       const companies = clientNames.map((name, i) => ({
@@ -211,39 +228,26 @@ export default function IdaFab() {
         pic: '',
         phone: '',
         payrollType: 'BULANAN',
-        payrollSetup: {
-          type: 'BULANAN',
-          umrRegion: localEmps.find((e) => e.company === name)?.region || 'DKI Jakarta',
-          umrYear: 2025,
-          bpjsKesehatan: true,
-          bpjsKetenagakerjaan: true,
-          pph21: true,
-        },
+        payrollSetup: { type: 'BULANAN', umrRegion: localEmps[0]?.region || 'DKI Jakarta', umrYear: 2025, bpjsKesehatan: true, bpjsKetenagakerjaan: true, pph21: true },
       }));
-
       const newDb = {
         ...db,
         employees: localEmps,
         companies,
         meta: { ...db.meta, lastImportAt: Date.now() },
-        imports: [...(db.imports || []), { at: Date.now(), count: localEmps.length, source: 'IDA chat' }],
       };
       saveDatabase(newDb);
       setDb(newDb);
       emitDbChange();
       setPendingRows(null);
-
       const report = validatePayrollIndonesia(newDb);
-      pushIda(
-        renderMarkdown(
-          `Import selesai — Neon +${inserted}/upd ${updated}/err ${errors}, lokal **${localEmps.length}** karyawan.\n\n` +
-            formatValidationMarkdown(report)
-        ),
-        false,
-        ['Import OK', `${report.errorCount}E/${report.warningCount}W`]
+      await pushIda(
+        `Data tersimpan (**${localEmps.length}** karyawan).\n\n` + formatValidationMarkdown(report),
+        true,
+        ['Data disimpan', 'Pemeriksaan selesai']
       );
     } catch (e: any) {
-      pushIda(renderMarkdown(`Import gagal: **${e?.message || e}**`), false, ['Import error']);
+      await pushIda(`Gagal menyimpan: **${e?.message || e}**`, true, ['Gagal menyimpan']);
     } finally {
       setCotLive(null);
       setBusy(false);
@@ -251,84 +255,73 @@ export default function IdaFab() {
   }
 
   async function send() {
-    if (!input.trim() || !db || busy) return;
+    if (!input.trim() || !db || busy || typing) return;
     const userMsg = input.trim();
     setMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
     setInput('');
     setBusy(true);
-    setCotLive(['Pahami intent…']);
+    setCotLive(['Memahami permintaan…']);
 
-    if (/invoice|payroll|upload|import|margin|validasi|bpjs/.test(userMsg.toLowerCase())) {
-      lastTopicRef.current = userMsg.toLowerCase();
-    }
+    if (/invoice|payroll|upload|bpjs|validasi/.test(userMsg.toLowerCase())) lastTopicRef.current = userMsg.toLowerCase();
 
     try {
       const low = userMsg.toLowerCase();
-
-      if (/\b(import sekarang|simpan import|proses import)\b/.test(low)) {
+      if (/\b(import sekarang|simpan import)\b/.test(low)) {
         await runImport();
         return;
       }
-      if (/\b(batal import|cancel import)\b/.test(low)) {
+      if (/\b(batal import)\b/.test(low)) {
         setPendingRows(null);
-        pushIda(renderMarkdown('Antrian import dibatalkan.'), false);
+        await pushIda('Antrian dibatalkan.');
         return;
       }
       if (/\b(upload|import|excel|lampir)\b/.test(low) && !pendingRows?.length) {
-        pushIda(
-          renderMarkdown('Pakai tombol **📎** di bawah, pilih `.xlsx`, lalu **import sekarang**.'),
-          false,
-          ['Upload via chat']
-        );
+        await pushIda('Gunakan tombol **📎** di bawah, lalu ketik **import sekarang**.', true, ['Arahkan unggah file']);
         return;
       }
 
       const mapped = mapConfirmToAction(userMsg, lastTopicRef.current);
       if (looksLikeLocalAction(userMsg) || mapped !== userMsg) {
-        setCotLive([`Local: ${mapped}`]);
+        setCotLive(['Menyiapkan jawaban…', `Menjalankan: ${mapped}`]);
         const result = handleIdaIntent(mapped, db);
         if (result.dbChanged && result.newDb) {
           setDb(result.newDb);
           emitDbChange();
         }
-        pushIda(result.reply, false, ['Local engine', mapped]);
+        await pushIda(result.reply, false, ['Selesai']);
         return;
       }
 
-      setCotLive(['RAG…', 'Model…']);
-      const context = buildContext(db);
+      setCotLive(['Mencari informasi terkait…', 'Menyusun jawaban…']);
       const res = await fetch('/api/ida', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg, context, sessionId }),
+        body: JSON.stringify({ message: userMsg, context: buildContext(db), sessionId }),
       });
       const data = await res.json();
-
       if (data.ok && data.reply) {
         const cot =
           cleanCot(data.cot?.lines) ||
           cleanCot([
-            data.cot?.ragSources?.length ? `RAG ${data.cot.ragSources.length}` : '',
-            data.cot?.webTriggers?.length ? `Web ${data.cot.webTriggers.join(',')}` : '',
-            data.model || '',
+            data.cot?.webTriggers?.length ? 'Memeriksa aturan terkait' : '',
+            'Menyusun jawaban',
           ]);
-        pushIda(data.reply.replace(/\n?\{\s*"intent"[\s\S]*\}\s*$/, '').trim(), true, cot);
+        await pushIda(data.reply, true, cot);
         return;
       }
-
       const result = handleIdaIntent(userMsg, db);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
       }
-      pushIda(result.reply, false, ['Fallback local']);
+      await pushIda(result.reply, false, ['Selesai']);
     } catch {
       const result = handleIdaIntent(userMsg, db);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
       }
-      pushIda(result.reply, false);
+      await pushIda(result.reply, false);
     } finally {
       setCotLive(null);
       setBusy(false);
@@ -336,42 +329,32 @@ export default function IdaFab() {
   }
 
   const panelStyle: React.CSSProperties = expanded
-    ? {
-        position: 'fixed',
-        top: 0,
-        right: 0,
-        width: '50vw',
-        minWidth: '320px',
-        maxWidth: '100vw',
-        height: '100vh',
-        bottom: 'auto',
-        borderRadius: 0,
-        zIndex: 70,
-      }
+    ? { position: 'fixed', top: 0, right: 0, width: '50vw', minWidth: 320, height: '100vh', borderRadius: 0, zIndex: 90 }
     : {
         position: 'fixed',
-        bottom: '90px',
-        right: '26px',
-        width: '400px',
+        bottom: 90,
+        right: 26,
+        width: 400,
         maxWidth: 'calc(100vw - 52px)',
-        height: '540px',
+        height: 540,
         maxHeight: 'calc(100vh - 140px)',
         borderRadius: 'var(--r-xl)',
-        zIndex: 60,
+        zIndex: 90,
       };
 
   return (
     <>
       <button
+        type="button"
         onClick={() => setOpen(!open)}
         style={{
           position: 'fixed',
-          bottom: '26px',
-          right: '26px',
+          bottom: 26,
+          right: 26,
           zIndex: 50,
           display: expanded && open ? 'none' : 'flex',
           alignItems: 'center',
-          gap: '11px',
+          gap: 11,
           padding: '6px 20px 6px 6px',
           background: 'var(--bg-surface)',
           border: '1px solid var(--border)',
@@ -380,21 +363,10 @@ export default function IdaFab() {
           cursor: 'pointer',
         }}
       >
-        <img
-          src={IDA_AVATAR}
-          alt="IDA"
-          style={{
-            width: '42px',
-            height: '42px',
-            borderRadius: '50%',
-            objectFit: 'cover',
-            border: '2px solid var(--bg-surface)',
-            boxShadow: '0 0 0 2px var(--accent-soft2)',
-          }}
-        />
+        <img src={IDA_AVATAR} alt="IDA" style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover' }} />
         <div style={{ textAlign: 'left' }}>
-          <div style={{ fontSize: '14px', fontWeight: 700 }}>Ask IDA</div>
-          <div style={{ fontSize: '10.5px', color: 'var(--text2)' }}>Chat · Upload · CoT</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>Ask IDA</div>
+          <div style={{ fontSize: 10.5, color: 'var(--text2)' }}>Asisten payroll</div>
         </div>
       </button>
 
@@ -410,90 +382,37 @@ export default function IdaFab() {
             overflow: 'hidden',
           }}
         >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '14px 16px',
-              borderBottom: '1px solid var(--border)',
-            }}
-          >
-            <img
-              src={IDA_AVATAR}
-              alt="IDA"
-              style={{
-                width: '40px',
-                height: '40px',
-                borderRadius: '50%',
-                objectFit: 'cover',
-                border: '2px solid var(--accent-soft2)',
-              }}
-            />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+            <img src={IDA_AVATAR} alt="IDA" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '15px', fontWeight: 700 }}>IDA</div>
-              <div style={{ fontSize: '12px', color: 'var(--text2)' }}>
-                {busy ? 'Berpikir…' : pendingRows ? `Antrian: ${pendingRows.length}` : 'Siap'}
+              <div style={{ fontSize: 15, fontWeight: 700 }}>IDA</div>
+              <div style={{ fontSize: 12, color: 'var(--text2)' }}>
+                {busy || typing ? 'Mengetik…' : pendingRows ? `${pendingRows.length} file siap` : 'Online'}
               </div>
             </div>
-            <button
-              type="button"
-              title={expanded ? 'Kecilkan' : 'Perbesar ½ layar'}
-              onClick={() => setExpanded((e) => !e)}
-              style={{
-                width: '30px',
-                height: '30px',
-                borderRadius: 'var(--r-sm)',
-                border: '1px solid var(--border)',
-                background: 'var(--bg-surface)',
-                cursor: 'pointer',
-                fontSize: '12px',
-              }}
-            >
+            <button type="button" className="btn" style={{ width: 30, height: 30, padding: 0 }} onClick={() => setExpanded((e) => !e)}>
               {expanded ? '⛶' : '⤢'}
             </button>
             <button
               type="button"
+              className="btn"
+              style={{ width: 30, height: 30, padding: 0 }}
               onClick={() => {
                 setOpen(false);
                 setExpanded(false);
-              }}
-              style={{
-                width: '30px',
-                height: '30px',
-                borderRadius: 'var(--r-sm)',
-                border: '1px solid var(--border)',
-                background: 'var(--bg-surface)',
-                cursor: 'pointer',
               }}
             >
               ✕
             </button>
           </div>
 
-          <div
-            ref={scrollRef}
-            style={{
-              flex: 1,
-              overflowY: 'auto',
-              padding: '16px 18px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px',
-            }}
-          >
+          <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
             {messages.map((m, i) => (
-              <div
-                key={i}
-                style={{
-                  maxWidth: expanded ? '85%' : '92%',
-                  alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-                }}
-              >
-                {m.role === 'ida' && m.cot && m.cot.length > 0 && (
-                  <details style={{ marginBottom: '6px', fontSize: '11px', color: 'var(--text3)' }}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 650 }}>Chain of thought</summary>
-                    <ol style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
+              <div key={i} style={{ maxWidth: '92%', alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                {showCot && m.role === 'ida' && m.cot && m.cot.length > 0 && (
+                  <details style={{ marginBottom: 6, fontSize: 11, color: 'var(--text3)' }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 650 }}>Alur berpikir</summary>
+                    <ol style={{ margin: '6px 0 0', paddingLeft: 18 }}>
                       {m.cot.map((c, j) => (
                         <li key={j}>{c}</li>
                       ))}
@@ -504,36 +423,34 @@ export default function IdaFab() {
                   style={{
                     padding: '11px 15px',
                     borderRadius: 'var(--r-md)',
-                    fontSize: '13px',
+                    fontSize: 13,
                     lineHeight: 1.55,
-                    background:
-                      m.role === 'user'
-                        ? 'linear-gradient(135deg, var(--accent), var(--accent2))'
-                        : 'var(--bg-subtle)',
+                    background: m.role === 'user' ? 'linear-gradient(135deg, var(--accent), var(--accent2))' : 'var(--bg-subtle)',
                     color: m.role === 'user' ? '#fff' : 'var(--text)',
                     border: m.role === 'ida' ? '1px solid var(--border-soft)' : 'none',
+                    whiteSpace: m.html ? undefined : 'pre-wrap',
                   }}
-                  dangerouslySetInnerHTML={{
-                    __html: m.role === 'user' ? m.text.replace(/</g, '<') : m.text,
-                  }}
+                  {...(m.html || m.role === 'ida'
+                    ? { dangerouslySetInnerHTML: { __html: m.role === 'user' ? m.text.replace(/</g, '<') : m.text } }
+                    : { children: m.text })}
                 />
               </div>
             ))}
 
-            {cotLive && cotLive.length > 0 && (
+            {showCot && cotLive && cotLive.length > 0 && (
               <div
                 style={{
                   alignSelf: 'flex-start',
-                  fontSize: '11px',
+                  fontSize: 11,
                   color: 'var(--text3)',
                   padding: '8px 12px',
-                  borderRadius: '10px',
+                  borderRadius: 10,
                   background: 'var(--bg-subtle)',
                   border: '1px dashed var(--border)',
                 }}
               >
-                <strong>Berpikir…</strong>
-                <ol style={{ margin: '4px 0 0', paddingLeft: '18px' }}>
+                <strong>Sedang bekerja…</strong>
+                <ol style={{ margin: '4px 0 0', paddingLeft: 18 }}>
                   {cotLive.map((c, j) => (
                     <li key={j}>{c}</li>
                   ))}
@@ -543,22 +460,7 @@ export default function IdaFab() {
           </div>
 
           <div style={{ padding: '12px 16px 16px', borderTop: '1px solid var(--border)' }}>
-            {pendingRows && (
-              <div style={{ fontSize: '11px', color: 'var(--amber)', marginBottom: '8px', fontWeight: 650 }}>
-                {pendingRows.length} baris · ketik import sekarang
-              </div>
-            )}
-            <div
-              style={{
-                display: 'flex',
-                gap: '8px',
-                alignItems: 'center',
-                background: 'var(--bg-subtle)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--r-lg)',
-                padding: '6px',
-              }}
-            >
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: 6 }}>
               <input
                 ref={fileRef}
                 type="file"
@@ -570,50 +472,29 @@ export default function IdaFab() {
                   e.target.value = '';
                 }}
               />
-              <button
-                type="button"
-                title="Lampirkan Excel"
-                disabled={busy}
-                onClick={() => fileRef.current?.click()}
-                style={{
-                  width: '34px',
-                  height: '34px',
-                  borderRadius: 'var(--r-sm)',
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-surface)',
-                  cursor: busy ? 'wait' : 'pointer',
-                  fontSize: '16px',
-                }}
-              >
+              <button type="button" disabled={busy || typing} onClick={() => fileRef.current?.click()} style={{ width: 34, height: 34, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-surface)', cursor: 'pointer' }}>
                 📎
               </button>
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder={busy ? 'Sebentar…' : 'Tanya IDA…'}
-                disabled={busy}
-                style={{
-                  flex: 1,
-                  border: 'none',
-                  background: 'transparent',
-                  outline: 'none',
-                  fontSize: '13px',
-                  fontFamily: 'inherit',
-                  color: 'var(--text)',
-                }}
+                placeholder="Tulis pesan…"
+                disabled={busy || typing}
+                style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', fontSize: 13, fontFamily: 'inherit' }}
               />
               <button
+                type="button"
                 onClick={send}
-                disabled={busy}
+                disabled={busy || typing}
                 style={{
-                  width: '34px',
-                  height: '34px',
-                  borderRadius: 'var(--r-sm)',
+                  width: 34,
+                  height: 34,
+                  borderRadius: 8,
                   border: 'none',
                   background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
                   color: '#fff',
-                  cursor: busy ? 'wait' : 'pointer',
+                  cursor: 'pointer',
                 }}
               >
                 ➤
