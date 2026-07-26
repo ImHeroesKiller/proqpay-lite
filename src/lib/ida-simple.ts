@@ -77,7 +77,6 @@ export function handleIdaIntent(
     return { reply: renderMarkdown(nextStep(db)) };
   }
 
-  // BPJS — jawab natural dari data lokal
   if (/\b(bpjs|iuran)\b/.test(t)) {
     if (/perusahaan|pemberi kerja|yang harus dibayar perusahaan|beban perusahaan|4\s*%/.test(t)) {
       return { reply: renderMarkdown(formatBpjsReply(db, 'company')) };
@@ -409,7 +408,7 @@ export function handleIdaIntent(
   if (/\b(import|upload|excel|hris|lampir)\b/.test(t)) {
     return {
       reply: renderMarkdown(
-        `Klik **📎** di chat ini, pilih file `.xlsx`, lalu ketik **import sekarang**. Dashboard tidak menerima upload.`
+        'Klik **📎** di chat ini, pilih file .xlsx, lalu ketik **import sekarang**. Dashboard tidak menerima upload.'
       ),
     };
   }
