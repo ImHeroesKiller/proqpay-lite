@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { loadDatabase } from '@/lib/database';
 import { formatIDRShort } from '@/lib/format';
 import Sidebar from '@/components/Sidebar';
+import IdaFab from '@/components/IdaFab';
 
 export default function Home() {
   const [db, setDb] = useState<any>(null);
@@ -121,6 +122,9 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Floating IDA CTA */}
+      <IdaFab />
     </div>
   );
 }
