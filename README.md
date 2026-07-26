@@ -2,52 +2,65 @@
 
 **AI Payroll Operating System** — Conversation-first payroll platform with IDA AI Assistant.
 
-Built with **Next.js 16** (July 2026).
+Built with **Next.js 16** · deployed on **GitHub Pages**.
 
-## Features
+## Live demo
 
-- Conversation-first UX powered by IDA (AI Payroll Manager)
-- Two-section dashboard: Global Snapshot + Client Detail
-- Interactive Indonesia administrative map
-- Payroll calculation (BPJS, PPh 21, UMR)
-- Invoice & AR monitoring
-- Payment instruction generation (BCA, Mandiri, BNI, BRI, etc.)
-- Role-based access (Super Admin, HR, Payroll, Finance, Director, Viewer)
-- Clean modern 2026 white + colorful SaaS design
+https://imheroeskiller.github.io/proqpay-lite/
+
+## Features (GitHub Pages build)
+
+- Two-section dashboard: **Global Snapshot** + **Client Detail**
+- Metric cards (Employees, Clients, Payroll, Outstanding) + searchable popup
+- Region distribution chart
+- Client detail: employee table, area, billing, AI insight, activity timeline
+- Floating **Ask IDA** mini-chat (rule-based)
+- IDA commands: `help`, `status`, `hitung payroll`, `daftar karyawan`, `outstanding`, `UMR Jakarta`, …
+- Payroll calculation (BPJS + PPh 21) with localStorage persistence
+- Settings modal (org, period, role)
+- Clean 2026 white + indigo SaaS design
+
+> Gemini / full LLM intent is prepared in code but **not** enabled on static Pages (API key would not be safe in the browser).
 
 ## Tech Stack
 
-- Next.js 16 (App Router + Static Export)
-- React 19
-- TypeScript
-- CSS Variables design system
-- localStorage persistence (demo)
+- Next.js 16 (App Router + `output: 'export'`)
+- React 19 + TypeScript
+- CSS variables design system
+- localStorage demo database
 
-## Getting Started
+## Local development
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open http://localhost:3000
 
-## Deploy to GitHub Pages
+Optional Gemini (local only):
 
-This project is configured for static export (`output: 'export'`).
+```bash
+cp .env.example .env.local
+# add GEMINI_API_KEY=...
+```
 
-GitHub Actions will automatically build and deploy to GitHub Pages on every push to `main`.
+## GitHub Pages setup (one-time)
 
-**Live demo:** https://imheroeskiller.github.io/proqpay-lite/
+1. Repo **Settings** → **Pages**
+2. **Source**: GitHub Actions
+3. Push to `main` → workflow builds `out/` and deploys
 
-## Project Structure
+Workflow: `.github/workflows/deploy.yml`  
+`GITHUB_PAGES=true` ensures `basePath=/proqpay-lite`.
+
+## Project structure
 
 ```
 src/
-  app/           # Next.js App Router
-  components/    # UI components
-  lib/           # database, ida-engine, dashboard renderer
-  styles/        # global CSS
+  app/            # layout, page, globals.css
+  components/     # Sidebar, IdaFab, MetricCard, ClientDetail, …
+  lib/            # database, format, ida-simple, gemini (optional), events
 ```
 
 ## License
