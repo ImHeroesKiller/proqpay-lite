@@ -5,12 +5,20 @@ import { loadDatabase } from '@/lib/database';
 import { handleIdaIntent } from '@/lib/ida-simple';
 import { emitDbChange } from '@/lib/events';
 import { renderMarkdown } from '@/lib/markdown';
+import { calcMargin } from '@/lib/margin';
+import { formatIDR } from '@/lib/format';
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
 
 function looksLikeLocalAction(text: string) {
   const t = text.toLowerCase();
-  return /\b(hitung payroll|buat payroll|ajukan approval|approve|payment instruction|instruksi pembayaran)\b/.test(t);
+  return (
+    /\b(margin|laba|profit|keuntungan|potensi margin)\b/.test(t) ||
+    /\b(hitung payroll|buat payroll|ajukan approval|approve payroll|payment instruction|instruksi pembayaran)\b/.test(
+      t
+    ) ||
+    /\b(help|bantuan|status|ringkasan|daftar karyawan|daftar client|outstanding|umr)\b/.test(t)
+  );
 }
 
 export default function IdaFab() {
@@ -18,7 +26,9 @@ export default function IdaFab() {
   const [messages, setMessages] = useState<{ role: 'ida' | 'user'; text: string }[]>([
     {
       role: 'ida',
-      text: 'Halo! Saya **IDA**, asisten payroll kamu. Tanya aja bebas — atau ketik **help** / **hitung payroll**.',
+      text: renderMarkdown(
+        'Halo! Aku **IDA**, asisten payroll kamu. Tanya aja bebas — atau ketik **help** / **margin** / **hitung payroll**.'
+      ),
     },
   ]);
   const [input, setInput] = useState('');
@@ -43,6 +53,38 @@ export default function IdaFab() {
     ]);
   }
 
+  function buildContext(database: any) {
+    const period = database.meta?.currentPeriod;
+    const payroll = (database.payrolls || []).find((p: any) => p.period === period);
+    const m = calcMargin(database);
+    const invoices = (database.invoices || []).map((inv: any) => ({
+      id: inv.id,
+      company: inv.company,
+      period: inv.period,
+      total: inv.totalAmount,
+      status: inv.status,
+    }));
+
+    return {
+      org: database.meta?.orgName,
+      period,
+      employees: database.employees?.length,
+      clients: database.companies?.length,
+      payrollNet: payroll?.summary?.totalNet ?? null,
+      payrollGross: payroll?.summary?.totalGross ?? null,
+      payrollStatus: payroll?.status ?? null,
+      margin: m.margin,
+      marginPct: Number(m.marginPct.toFixed(1)),
+      revenue: m.revenue,
+      cost: m.cost,
+      marginEstimated: m.estimated,
+      invoices,
+      revenueFormatted: formatIDR(m.revenue),
+      costFormatted: formatIDR(m.cost),
+      marginFormatted: formatIDR(m.margin),
+    };
+  }
+
   async function send() {
     if (!input.trim() || !db || busy) return;
     const userMsg = input.trim();
@@ -57,17 +99,11 @@ export default function IdaFab() {
           setDb(result.newDb);
           emitDbChange();
         }
-        // local replies already contain simple HTML
         pushIda(result.reply, false);
         return;
       }
 
-      const context = {
-        period: db.meta?.currentPeriod,
-        org: db.meta?.orgName,
-        employees: db.employees?.length,
-        clients: db.companies?.length,
-      };
+      const context = buildContext(db);
 
       const res = await fetch('/api/ida', {
         method: 'POST',
@@ -84,18 +120,22 @@ export default function IdaFab() {
         const intentMatch = data.reply.match(/\{\s*"intent"\s*:\s*"([^"]+)"[\s\S]*\}/);
         if (intentMatch) {
           const intent = intentMatch[1];
-          if (['calculate_payroll', 'approve_payroll', 'payment_instruction'].includes(intent)) {
-            const map: Record<string, string> = {
-              calculate_payroll: 'hitung payroll',
-              approve_payroll: 'ajukan approval',
-              payment_instruction: 'buat payment instruction',
-            };
+          const map: Record<string, string> = {
+            calculate_payroll: 'hitung payroll',
+            approve_payroll: 'ajukan approval',
+            payment_instruction: 'buat payment instruction',
+            summary: 'status',
+          };
+          if (map[intent]) {
             const local = handleIdaIntent(map[intent], db);
             if (local.dbChanged && local.newDb) {
               setDb(local.newDb);
               emitDbChange();
             }
-            pushIda(local.reply, false);
+            // only append if actionful
+            if (['calculate_payroll', 'approve_payroll', 'payment_instruction'].includes(intent)) {
+              pushIda(local.reply, false);
+            }
           }
         }
         return;
@@ -106,24 +146,14 @@ export default function IdaFab() {
         setDb(result.newDb);
         emitDbChange();
       }
-      pushIda(
-        result.reply +
-          (data.error
-            ? '<br/><br/><span style="color:var(--text3);font-size:11px">(Gemini offline — mode lokal)</span>'
-            : ''),
-        false
-      );
+      pushIda(result.reply, false);
     } catch {
       const result = handleIdaIntent(userMsg, db);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
       }
-      pushIda(
-        result.reply +
-          '<br/><br/><span style="color:var(--text3);font-size:11px">(Gemini offline — mode lokal)</span>',
-        false
-      );
+      pushIda(result.reply, false);
     } finally {
       setBusy(false);
     }
@@ -322,7 +352,7 @@ export default function IdaFab() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder={busy ? 'Sebentar ya…' : 'Tanya IDA…'}
+                placeholder={busy ? 'Sebentar ya…' : 'Coba: margin, help, hitung payroll'}
                 disabled={busy}
                 style={{
                   flex: 1,
