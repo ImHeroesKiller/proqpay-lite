@@ -11,7 +11,6 @@ import ClientDetail from '@/components/ClientDetail';
 import RegionMap from '@/components/RegionMap';
 import MetricPopup from '@/components/MetricPopup';
 import DashFilters from '@/components/DashFilters';
-import ExcelUpload from '@/components/ExcelUpload';
 import { IconUsers, IconBuilding, IconWallet, IconClock } from '@/components/Icons';
 
 type PopupType = 'employees' | 'clients' | 'payroll' | 'outstanding' | null;
@@ -36,6 +35,7 @@ export default function Home() {
     return unsub;
   }, []);
 
+  /** View-only period switch (tidak mengubah master lewat form input bisnis) */
   function handlePeriodChange(p: string) {
     setPeriod(p);
     if (!db) return;
@@ -97,7 +97,7 @@ export default function Home() {
               fontSize: '10.5px', fontWeight: 650, color: 'var(--accent)',
               padding: '4px 10px', border: '1px solid var(--accent-soft2)',
               background: 'var(--accent-soft)', borderRadius: 'var(--r-pill)', letterSpacing: '0.02em'
-            }}>AI Payroll OS</span>
+            }}>AI Payroll OS · read-only dashboard</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{
@@ -107,7 +107,7 @@ export default function Home() {
             <span style={{
               fontSize: '12px', padding: '5px 12px', borderRadius: 'var(--r-pill)',
               background: 'var(--accent-soft)', color: 'var(--accent)', fontWeight: 650
-            }}>Super Admin</span>
+            }}>Via IDA</span>
           </div>
         </header>
 
@@ -118,12 +118,10 @@ export default function Home() {
                 Global Snapshot
               </h2>
               <p style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '16px' }}>
-                All Clients · {period} · klik card untuk detail
+                Visualisasi saja · semua aksi (upload, payroll, invoice) lewat **Ask IDA**
               </p>
 
               <DashFilters period={period} onPeriodChange={handlePeriodChange} />
-
-              <ExcelUpload />
 
               <div style={{
                 display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -210,7 +208,7 @@ export default function Home() {
             <ClientDetail db={db} />
 
             <p style={{ marginTop: '28px', fontSize: '12px', color: 'var(--text3)', textAlign: 'center' }}>
-              ProQPay Lite · Next.js 16 ·{' '}
+              ProQPay Lite · Conversation-first ·{' '}
               <a href="https://proqpay-lite.pages.dev/">Cloudflare Pages</a>
               {' · '}
               <a href="https://github.com/ImHeroesKiller/proqpay-lite">GitHub</a>
