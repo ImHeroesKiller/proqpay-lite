@@ -11,6 +11,8 @@ export default async (req) => {
     NEON_DATABASE_URL: Boolean(process.env.NEON_DATABASE_URL),
   };
 
+  const hasAny = Object.values(envHints).some(Boolean);
+
   try {
     const url = getConnectionUrl();
     if (!url) {
@@ -18,9 +20,10 @@ export default async (req) => {
         {
           status: 'error',
           database: 'disconnected',
-          message: 'No connection URL in runtime',
+          message: hasAny
+            ? 'Env flag present but getConnectionUrl() returned empty — check secret scope includes Functions and redeploy.'
+            : 'No DATABASE_URL in Function runtime. Set env, scope to Functions, then Trigger deploy.',
           env_present: envHints,
-          hint: 'Netlify Database native injects NETLIFY_DB_URL at function runtime. Redeploy after DB is active. Or copy connection string from Database → branch → Copy connection string into DATABASE_URL.',
         },
         500
       );
@@ -48,4 +51,6 @@ export default async (req) => {
   }
 };
 
-export const config = { path: '/api/health' };
+export const config = {
+  path: '/api/health',
+};
