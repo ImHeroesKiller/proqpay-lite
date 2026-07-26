@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { loadDatabase } from '@/lib/database';
+import { loadDatabase, saveDatabase } from '@/lib/database';
 import { formatIDRShort } from '@/lib/format';
 import { onDbChange } from '@/lib/events';
 import Sidebar from '@/components/Sidebar';
@@ -10,6 +10,7 @@ import MetricCard from '@/components/MetricCard';
 import ClientDetail from '@/components/ClientDetail';
 import RegionMap from '@/components/RegionMap';
 import MetricPopup from '@/components/MetricPopup';
+import DashFilters from '@/components/DashFilters';
 
 type PopupType = 'employees' | 'clients' | 'payroll' | 'outstanding' | null;
 
@@ -17,17 +18,29 @@ export default function Home() {
   const [db, setDb] = useState<any>(null);
   const [mounted, setMounted] = useState(false);
   const [popup, setPopup] = useState<PopupType>(null);
+  const [period, setPeriod] = useState('2025-07');
 
   useEffect(() => {
     setMounted(true);
-    setDb(loadDatabase());
+    const data = loadDatabase();
+    setDb(data);
+    if (data?.meta?.currentPeriod) setPeriod(data.meta.currentPeriod);
 
-    // Listen for DB changes from IDA
     const unsub = onDbChange(() => {
-      setDb(loadDatabase());
+      const fresh = loadDatabase();
+      setDb(fresh);
+      if (fresh?.meta?.currentPeriod) setPeriod(fresh.meta.currentPeriod);
     });
     return unsub;
   }, []);
+
+  function handlePeriodChange(p: string) {
+    setPeriod(p);
+    if (!db) return;
+    const next = { ...db, meta: { ...db.meta, currentPeriod: p } };
+    saveDatabase(next);
+    setDb(next);
+  }
 
   if (!mounted || !db) {
     return (
@@ -40,7 +53,7 @@ export default function Home() {
   const empCount = db.employees?.length || 0;
   const clientCount = db.companies?.length || 0;
   const projectCount = db.projects?.length || 0;
-  const currentPayroll = db.payrolls?.find((p: any) => p.period === db.meta?.currentPeriod);
+  const currentPayroll = db.payrolls?.find((p: any) => p.period === period);
   const totalNet = currentPayroll?.summary?.totalNet || 0;
   const outstanding = (db.arMonitor || []).filter((a: any) => a.status === 'OUTSTANDING');
   const totalOutstanding = outstanding.reduce((s: number, a: any) => s + a.amount, 0);
@@ -69,7 +82,7 @@ export default function Home() {
             <span style={{
               fontSize: '12px', padding: '5px 12px', borderRadius: 'var(--r-pill)',
               background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--text2)', fontWeight: 500
-            }}>{db.meta?.currentPeriod || '2025-07'}</span>
+            }}>{period}</span>
             <span style={{
               fontSize: '12px', padding: '5px 12px', borderRadius: 'var(--r-pill)',
               background: 'var(--accent-soft)', color: 'var(--accent)', fontWeight: 600
@@ -83,9 +96,11 @@ export default function Home() {
               <h2 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '6px', letterSpacing: '-0.02em' }}>
                 Global Snapshot
               </h2>
-              <p style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '20px' }}>
-                All Clients · {db.meta?.currentPeriod} · klik card untuk detail
+              <p style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '14px' }}>
+                All Clients · {period} · klik card untuk detail
               </p>
+
+              <DashFilters period={period} onPeriodChange={handlePeriodChange} />
 
               <div style={{
                 display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
@@ -139,7 +154,7 @@ export default function Home() {
             <ClientDetail db={db} />
 
             <p style={{ marginTop: '28px', fontSize: '12px', color: 'var(--text3)', textAlign: 'center' }}>
-              ProQPay Lite · Next.js 16 ·{' '}
+              ProQPay Lite · Next.js 16 · GitHub Pages ·{' '}
               <a href="https://github.com/ImHeroesKiller/proqpay-lite">GitHub</a>
             </p>
           </div>
