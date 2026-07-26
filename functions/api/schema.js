@@ -21,7 +21,6 @@ export async function onRequest(context) {
 
     const sql = neon(url);
 
-    // Run statements sequentially (Neon http driver)
     const statements = [
       `CREATE TABLE IF NOT EXISTS organizations (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, code TEXT UNIQUE,
@@ -30,13 +29,15 @@ export async function onRequest(context) {
         id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
         code TEXT NOT NULL, name TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE (org_id, code))`,
+      `CREATE TABLE IF NOT EXISTS provinces (
+        code TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE)`,
       `CREATE TABLE IF NOT EXISTS branches (
         id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
-        name TEXT NOT NULL, city_umk TEXT,
+        name TEXT NOT NULL, city_umk TEXT, province TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE (org_id, name))`,
       `CREATE TABLE IF NOT EXISTS work_locations (
         id TEXT PRIMARY KEY, branch_id TEXT REFERENCES branches(id),
-        name TEXT NOT NULL, unit_kerja TEXT,
+        name TEXT NOT NULL, unit_kerja TEXT, province TEXT, city_umk TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS employees (
         id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
@@ -44,6 +45,7 @@ export async function onRequest(context) {
         location_id TEXT REFERENCES work_locations(id), name TEXT NOT NULL,
         gender TEXT, birth_place TEXT, birth_date DATE, religion TEXT,
         phone TEXT, mobile TEXT, email TEXT, mother_name TEXT, status_aktif TEXT,
+        province TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS employee_identity (
         employee_id TEXT PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
@@ -98,7 +100,20 @@ export async function onRequest(context) {
       await sql.query(stmt);
     }
 
-    // Seed org + sample client shell (IAP)
+    const alters = [
+      `ALTER TABLE branches ADD COLUMN IF NOT EXISTS province TEXT`,
+      `ALTER TABLE work_locations ADD COLUMN IF NOT EXISTS province TEXT`,
+      `ALTER TABLE work_locations ADD COLUMN IF NOT EXISTS city_umk TEXT`,
+      `ALTER TABLE employees ADD COLUMN IF NOT EXISTS province TEXT`,
+    ];
+    for (const a of alters) {
+      try {
+        await sql.query(a);
+      } catch {
+        /* ignore */
+      }
+    }
+
     await sql`
       INSERT INTO organizations (id, name, code)
       VALUES ('ORG-OTSINDO', 'OTSINDO', 'OTSINDO')
@@ -112,11 +127,12 @@ export async function onRequest(context) {
 
     return json({
       status: 'ok',
-      message: 'IAP-normalized schema ready',
+      message: 'Schema ready — work_locations.province via IDA wilayah',
       host: 'cloudflare-pages',
       tables: [
         'organizations',
         'clients',
+        'provinces',
         'branches',
         'work_locations',
         'employees',
