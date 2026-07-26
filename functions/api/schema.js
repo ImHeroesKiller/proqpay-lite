@@ -1,12 +1,7 @@
 import { neon } from '@neondatabase/serverless';
 
 function getUrl(env) {
-  return (
-    env.DATABASE_URL ||
-    env.NEON_DATABASE_URL ||
-    env.POSTGRES_URL ||
-    null
-  );
+  return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
 }
 
 export async function onRequest(context) {
@@ -22,93 +17,121 @@ export async function onRequest(context) {
 
   try {
     const url = getUrl(env);
-    if (!url) {
-      return json({ status: 'error', message: 'DATABASE_URL missing' }, 500);
-    }
+    if (!url) return json({ status: 'error', message: 'DATABASE_URL missing' }, 500);
 
     const sql = neon(url);
 
-    await sql`
-      CREATE TABLE IF NOT EXISTS organizations (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        current_period TEXT DEFAULT '2025-07',
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `;
+    // Run statements sequentially (Neon http driver)
+    const statements = [
+      `CREATE TABLE IF NOT EXISTS organizations (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, code TEXT UNIQUE,
+        created_at TIMESTAMPTZ DEFAULT NOW())`,
+      `CREATE TABLE IF NOT EXISTS clients (
+        id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
+        code TEXT NOT NULL, name TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE (org_id, code))`,
+      `CREATE TABLE IF NOT EXISTS branches (
+        id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
+        name TEXT NOT NULL, city_umk TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE (org_id, name))`,
+      `CREATE TABLE IF NOT EXISTS work_locations (
+        id TEXT PRIMARY KEY, branch_id TEXT REFERENCES branches(id),
+        name TEXT NOT NULL, unit_kerja TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW())`,
+      `CREATE TABLE IF NOT EXISTS employees (
+        id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
+        client_id TEXT REFERENCES clients(id), branch_id TEXT REFERENCES branches(id),
+        location_id TEXT REFERENCES work_locations(id), name TEXT NOT NULL,
+        gender TEXT, birth_place TEXT, birth_date DATE, religion TEXT,
+        phone TEXT, mobile TEXT, email TEXT, mother_name TEXT, status_aktif TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`,
+      `CREATE TABLE IF NOT EXISTS employee_identity (
+        employee_id TEXT PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
+        ktp_no TEXT, npwp_no TEXT, address TEXT,
+        marital_status TEXT, ptkp_claimed TEXT, ptkp_updated TEXT)`,
+      `CREATE TABLE IF NOT EXISTS employee_contracts (
+        id TEXT PRIMARY KEY, employee_id TEXT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        employment_type TEXT, contract_status TEXT, join_date DATE, accepted_date DATE,
+        contract_start DATE, contract_end DATE, resign_date DATE, resign_reason TEXT,
+        candidate_source TEXT, is_current BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMPTZ DEFAULT NOW())`,
+      `CREATE TABLE IF NOT EXISTS employee_assignments (
+        id TEXT PRIMARY KEY, employee_id TEXT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        position TEXT, pic TEXT, hrbp TEXT, effective_from DATE, effective_to DATE,
+        is_current BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT NOW())`,
+      `CREATE TABLE IF NOT EXISTS employee_compensation (
+        employee_id TEXT PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
+        basic_salary BIGINT DEFAULT 0, salary_start DATE, currency TEXT DEFAULT 'IDR',
+        updated_at TIMESTAMPTZ DEFAULT NOW())`,
+      `CREATE TABLE IF NOT EXISTS employee_bank_accounts (
+        id TEXT PRIMARY KEY, employee_id TEXT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        bank_name TEXT, account_no TEXT, is_primary BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMPTZ DEFAULT NOW())`,
+      `CREATE TABLE IF NOT EXISTS employee_bpjs (
+        employee_id TEXT PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
+        bpjs_kesehatan_no TEXT, bpjs_kesehatan_effective DATE, jamsostek_no TEXT,
+        updated_at TIMESTAMPTZ DEFAULT NOW())`,
+      `CREATE TABLE IF NOT EXISTS employee_education (
+        id TEXT PRIMARY KEY, employee_id TEXT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        level TEXT, school_name TEXT, major TEXT, graduate_year INT, is_highest BOOLEAN DEFAULT TRUE)`,
+      `CREATE TABLE IF NOT EXISTS employee_hris_meta (
+        employee_id TEXT PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
+        input_user TEXT, input_at DATE, fj_input_at DATE, fj_input_user TEXT,
+        es_input_at DATE, es_input_user TEXT, hris_user TEXT)`,
+      `CREATE TABLE IF NOT EXISTS payrolls (
+        id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id), period TEXT NOT NULL,
+        status TEXT DEFAULT 'DRAFT', total_gross BIGINT DEFAULT 0, total_deduction BIGINT DEFAULT 0,
+        total_net BIGINT DEFAULT 0, employee_count INT DEFAULT 0, details JSONB DEFAULT '[]'::jsonb,
+        created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (org_id, period))`,
+      `CREATE TABLE IF NOT EXISTS invoices (
+        id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
+        client_id TEXT REFERENCES clients(id), period TEXT, amount BIGINT DEFAULT 0,
+        tax_amount BIGINT DEFAULT 0, total_amount BIGINT DEFAULT 0, status TEXT DEFAULT 'DRAFT',
+        issued_at TIMESTAMPTZ, paid_at TIMESTAMPTZ, items JSONB DEFAULT '[]'::jsonb)`,
+      `CREATE TABLE IF NOT EXISTS audit_logs (
+        id TEXT PRIMARY KEY, org_id TEXT, timestamp TIMESTAMPTZ DEFAULT NOW(),
+        username TEXT, role TEXT, action TEXT, detail TEXT, entity TEXT, entity_id TEXT)`,
+    ];
 
-    await sql`
-      CREATE TABLE IF NOT EXISTS companies (
-        id TEXT PRIMARY KEY,
-        org_id TEXT,
-        name TEXT NOT NULL,
-        npwp TEXT,
-        pic TEXT,
-        phone TEXT,
-        payroll_type TEXT DEFAULT 'MONTHLY',
-        status TEXT DEFAULT 'ACTIVE',
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `;
+    for (const stmt of statements) {
+      await sql.query(stmt);
+    }
 
+    // Seed org + sample client shell (IAP)
     await sql`
-      CREATE TABLE IF NOT EXISTS employees (
-        id TEXT PRIMARY KEY,
-        company TEXT,
-        name TEXT NOT NULL,
-        position TEXT,
-        status TEXT DEFAULT 'TETAP',
-        region TEXT,
-        salary_gross BIGINT DEFAULT 0,
-        bank_account TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )
+      INSERT INTO organizations (id, name, code)
+      VALUES ('ORG-OTSINDO', 'OTSINDO', 'OTSINDO')
+      ON CONFLICT (id) DO NOTHING
     `;
-
     await sql`
-      CREATE TABLE IF NOT EXISTS payrolls (
-        id TEXT PRIMARY KEY,
-        period TEXT NOT NULL,
-        status TEXT DEFAULT 'DRAFT',
-        total_gross BIGINT DEFAULT 0,
-        total_deduction BIGINT DEFAULT 0,
-        total_net BIGINT DEFAULT 0,
-        employee_count INT DEFAULT 0,
-        details JSONB DEFAULT '[]'::jsonb,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `;
-
-    await sql`
-      CREATE TABLE IF NOT EXISTS audit_logs (
-        id TEXT PRIMARY KEY,
-        timestamp TIMESTAMPTZ DEFAULT NOW(),
-        username TEXT,
-        role TEXT,
-        action TEXT,
-        detail TEXT,
-        entity TEXT,
-        entity_id TEXT
-      )
-    `;
-
-    await sql`
-      CREATE TABLE IF NOT EXISTS ar_monitor (
-        id TEXT PRIMARY KEY,
-        company TEXT,
-        invoice_id TEXT,
-        amount BIGINT DEFAULT 0,
-        status TEXT DEFAULT 'OUTSTANDING',
-        days_overdue INT DEFAULT 0
-      )
+      INSERT INTO clients (id, org_id, code, name)
+      VALUES ('CLI-039', 'ORG-OTSINDO', '039', 'PT. INDOMARCO ADI PRIMA')
+      ON CONFLICT (id) DO NOTHING
     `;
 
     return json({
       status: 'ok',
-      message: 'Schema ready',
+      message: 'IAP-normalized schema ready',
       host: 'cloudflare-pages',
-      tables: ['organizations', 'companies', 'employees', 'payrolls', 'audit_logs', 'ar_monitor'],
+      tables: [
+        'organizations',
+        'clients',
+        'branches',
+        'work_locations',
+        'employees',
+        'employee_identity',
+        'employee_contracts',
+        'employee_assignments',
+        'employee_compensation',
+        'employee_bank_accounts',
+        'employee_bpjs',
+        'employee_education',
+        'employee_hris_meta',
+        'payrolls',
+        'invoices',
+        'audit_logs',
+      ],
     });
   } catch (err) {
     return json({ status: 'error', message: err?.message || String(err) }, 500);
