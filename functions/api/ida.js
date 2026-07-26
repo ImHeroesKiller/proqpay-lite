@@ -15,22 +15,19 @@ const KEY_NAMES = [
 
 const SYSTEM_PROMPT = `Kamu adalah IDA, asisten payroll ProQPay Lite.
 
-GAYA WAJIB:
-- Bahasa Indonesia, kasual, ramah, sopan
-- Jawaban LENGKAP dalam 2–6 kalimat atau bullet singkat
-- JANGAN memotong kalimat di tengah
-- JANGAN membuka dengan "Siap! Kita proses…" lalu berhenti — kalau akan aksi, sebut hasilnya langsung
-- Jangan mutar-mutar minta konfirmasi berulang jika data sudah ada di konteks
+GAYA (sangat penting):
+- Bahasa Indonesia kasual, ramah, natural seperti chat orang
+- JANGAN mulai hampir setiap balasan dengan "Halo!" — sapaan hanya jika user menyapa dulu
+- JANGAN menutup dengan ajakan upload Excel / tombol 📎 kecuali user memang tanya cara import/upload
+- JANGAN mengulang penjelasan yang sama di setiap pesan (mis. "5% BPJS, 4% perusahaan, 1% karyawan") jika sudah dijelaskan di RECENT_CHAT — langsung jawab angka/poin baru yang diminta
+- Jawaban 1–4 kalimat atau bullet singkat; lengkap, tidak terpotong
+- Jika data di CLIENT_CONTEXT cukup, hitung/estimasi dari situ; jangan minta upload ulang
 
-UPLOAD FILE:
-- Upload Excel HANYA lewat tombol 📎 di chat IDA
-- JANGAN pernah bilang upload di dashboard (dashboard read-only)
+FAKTA OPERASIONAL:
+- Dashboard read-only; upload file hanya via chat 📎 — sebutkan itu HANYA saat relevan
+- Angka: pakai CLIENT_CONTEXT / RAG, jangan mengarang detail karyawan
 
-INVOICE / PAYROLL:
-- Jika user bilang generate/buat/kirim invoice dan client+periode sudah jelas di konteks, jawab seolah aksi lokal akan jalan; jangan tanya ulang client yang sudah disebut
-- Jangan pakai angka mengarang; pakai CLIENT_CONTEXT
-
-Gunakan RAG_CONTEXT, WEB_OFFICIAL (≥95%), MEMORY. Jangan mengarang regulasi.`;
+Regulasi: pakai WEB_OFFICIAL bila ada (confidence ≥95%). Jika tidak ada, pakai pengetahuan standar singkat tanpa mengada-ada update tahun spesifik.`;
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -62,22 +59,20 @@ export async function onRequest(context) {
   await saveMemory(env, sessionId, 'user', userText);
 
   const ragBlock = ragChunks.map((c, i) => `[${i + 1}:${c.source}/${c.id || '-'}] ${c.text}`).join('\n');
-  const histBlock = history.map((h) => `${h.role}: ${h.content}`).join('\n').slice(0, 2500);
+  const histBlock = history.map((h) => `${h.role}: ${h.content}`).join('\n').slice(0, 2800);
   const factBlock = facts.length ? facts.map((f, i) => `${i + 1}. ${f}`).join('\n') : '(belum ada)';
   const clientCtx = body.context
-    ? `CLIENT_CONTEXT: ${JSON.stringify(body.context).slice(0, 1200)}`
+    ? `CLIENT_CONTEXT: ${JSON.stringify(body.context).slice(0, 1400)}`
     : '';
 
-  let webBlock = '(tidak dipicu / tidak ada hasil ≥95%)';
+  let webBlock = '(tidak dipicu)';
   if (web.used && web.snippets?.length) {
     webBlock = web.snippets
       .map(
         (s, i) =>
-          `[W${i + 1}|${s.topic}|conf=${s.confidence}] ${s.label}\n${s.title}\n${s.snippet}\nSumber: ${s.url}`
+          `[W${i + 1}|${s.topic}|conf=${s.confidence}] ${s.label}\n${s.snippet}\nSumber: ${s.url}`
       )
       .join('\n\n');
-  } else if (web.triggers?.length) {
-    webBlock = `(trigger: ${web.triggers.join(', ')} — tidak ada sumber resmi lolos confidence ${web.confidenceMin})`;
   }
 
   const prompt = `${SYSTEM_PROMPT}
@@ -91,14 +86,14 @@ ${webBlock}
 LONG_MEMORY_FACTS:
 ${factBlock}
 
-RECENT_CHAT:
+RECENT_CHAT (jangan mengulang poin yang sudah ada di sini):
 ${histBlock || '(baru)'}
 
 ${clientCtx}
 
 User: ${userText}
 
-Jawab lengkap, jangan terpotong.`;
+Balas natural, tanpa "Halo!" rutin, tanpa CTA upload kecuali diminta.`;
 
   const keys = KEY_NAMES.map((n) => env[n]).filter(Boolean);
   if (!keys.length) {
@@ -113,12 +108,18 @@ Jawab lengkap, jangan terpotong.`;
       try {
         const text = await callGemini(keys[ki], model, prompt);
         await saveMemory(env, sessionId, 'ida', text);
+        const cotLines = [];
+        if (ragChunks.length) cotLines.push(`RAG ${ragChunks.length} chunk`);
+        if (web.triggers?.length) cotLines.push(`Web: ${web.triggers.join(',')}`);
+        if (history.length) cotLines.push(`Memory ${history.length} turns`);
+        if (model) cotLines.push(model);
         return json({
           ok: true,
           reply: text,
           model,
           keyIndex: ki + 1,
           cot: {
+            lines: cotLines,
             ragSources: ragChunks.map((c) => c.source + (c.id ? `/${c.id}` : '')),
             webTriggers: web.triggers || [],
             webUsed: !!web.used,
@@ -145,11 +146,7 @@ async function callGemini(apiKey, model, prompt) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.25,
-        maxOutputTokens: 1200,
-        // discourage mid-sentence stop
-      },
+      generationConfig: { temperature: 0.35, maxOutputTokens: 900 },
     }),
   });
   const data = await res.json().catch(() => ({}));
