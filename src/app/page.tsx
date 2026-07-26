@@ -2,9 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { loadDatabase, saveDatabase } from '@/lib/database';
-import { formatIDRShort } from '@/lib/format';
+import { formatIDR, formatIDRShort } from '@/lib/format';
 import { onDbChange } from '@/lib/events';
-import Sidebar from '@/components/Sidebar';
+import { loadSettings, onSettingsChange, type AppSettings } from '@/lib/app-settings';
+import Sidebar, { type AppView } from '@/components/Sidebar';
+import AppHeader from '@/components/AppHeader';
+import HelpModal from '@/components/HelpModal';
 import IdaFab from '@/components/IdaFab';
 import MetricCard from '@/components/MetricCard';
 import ClientDetail from '@/components/ClientDetail';
@@ -20,22 +23,32 @@ export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [popup, setPopup] = useState<PopupType>(null);
   const [period, setPeriod] = useState('2025-07');
+  const [view, setView] = useState<AppView>('dashboard');
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [idaOpenSignal, setIdaOpenSignal] = useState(0);
 
   useEffect(() => {
     setMounted(true);
     const data = loadDatabase();
     setDb(data);
+    const st = loadSettings();
+    setSettings(st);
     if (data?.meta?.currentPeriod) setPeriod(data.meta.currentPeriod);
+    else if (st.defaultPeriod) setPeriod(st.defaultPeriod);
 
     const unsub = onDbChange(() => {
       const fresh = loadDatabase();
       setDb(fresh);
       if (fresh?.meta?.currentPeriod) setPeriod(fresh.meta.currentPeriod);
     });
-    return unsub;
+    const unsubS = onSettingsChange(() => setSettings(loadSettings()));
+    return () => {
+      unsub();
+      unsubS();
+    };
   }, []);
 
-  /** View-only period switch (tidak mengubah master lewat form input bisnis) */
   function handlePeriodChange(p: string) {
     setPeriod(p);
     if (!db) return;
@@ -44,18 +57,10 @@ export default function Home() {
     setDb(next);
   }
 
-  if (!mounted || !db) {
+  if (!mounted || !db || !settings) {
     return (
       <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            width: '40px', height: '40px', borderRadius: '12px', margin: '0 auto 12px',
-            background: 'linear-gradient(135deg, var(--accent), var(--violet))',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#fff', fontWeight: 800, fontSize: '13px',
-          }}>PQ</div>
-          <p style={{ color: 'var(--text3)', fontSize: '13px' }}>Loading ProQPay Lite…</p>
-        </div>
+        <p style={{ color: 'var(--text3)', fontSize: 13 }}>Memuat…</p>
       </div>
     );
   }
@@ -72,156 +77,253 @@ export default function Home() {
     .slice()
     .sort((a: any, b: any) => a.period.localeCompare(b.period))
     .map((p: any) => p.summary?.totalNet || 0);
-  if (payrollTrend.length < 2) {
-    payrollTrend.push(...[82000000, 88000000, 91000000, totalNet || 94000000]);
-  }
-  const empTrend = [8, 9, 10, 11, empCount];
-  const clientTrend = [1, 1, 2, 2, clientCount];
-  const arTrend = [120000000, 110000000, 100000000, totalOutstanding || 107800000];
+  if (payrollTrend.length < 2) payrollTrend.push(...[82000000, 88000000, 91000000, totalNet || 94000000]);
+
+  const pad = settings.density === 'compact' ? '18px 16px' : '28px 24px';
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar />
+      <Sidebar
+        view={view}
+        onView={setView}
+        onOpenIda={() => setIdaOpenSignal((n) => n + 1)}
+      />
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <header style={{
-          height: '58px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '0 24px', background: 'rgba(255,255,255,0.82)', borderBottom: '1px solid var(--border)',
-          backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', position: 'sticky', top: 0, zIndex: 10
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ fontWeight: 720, fontSize: '16px', letterSpacing: '-0.03em' }}>
-              ProQPay <span style={{ color: 'var(--orange)' }}>Lite</span>
-            </div>
-            <span style={{
-              fontSize: '10.5px', fontWeight: 650, color: 'var(--accent)',
-              padding: '4px 10px', border: '1px solid var(--accent-soft2)',
-              background: 'var(--accent-soft)', borderRadius: 'var(--r-pill)', letterSpacing: '0.02em'
-            }}>AI Payroll OS · read-only dashboard</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{
-              fontSize: '12px', padding: '5px 12px', borderRadius: 'var(--r-pill)',
-              background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--text2)', fontWeight: 550
-            }}>{period}</span>
-            <span style={{
-              fontSize: '12px', padding: '5px 12px', borderRadius: 'var(--r-pill)',
-              background: 'var(--accent-soft)', color: 'var(--accent)', fontWeight: 650
-            }}>Via IDA</span>
-          </div>
-        </header>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+        <AppHeader period={period} onHelp={() => setHelpOpen(true)} />
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '28px 24px' }}>
-          <div style={{ maxWidth: '1180px', margin: '0 auto' }}>
-            <section>
-              <h2 style={{ fontSize: '22px', fontWeight: 720, marginBottom: '4px', letterSpacing: '-0.03em' }}>
-                Global Snapshot
-              </h2>
-              <p style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '16px' }}>
-                Visualisasi saja · semua aksi (upload, payroll, invoice) lewat **Ask IDA**
-              </p>
+        <div style={{ flex: 1, overflowY: 'auto', padding: pad }}>
+          <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+            {view === 'dashboard' && (
+              <section>
+                <h2 style={{ fontSize: 22, fontWeight: 720, marginBottom: 4 }}>Ringkasan</h2>
+                <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 16 }}>
+                  Periode {period}
+                </p>
 
-              <DashFilters period={period} onPeriodChange={handlePeriodChange} />
+                <DashFilters period={period} onPeriodChange={handlePeriodChange} />
 
-              <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                gap: '14px', marginBottom: '20px'
-              }}>
-                <MetricCard
-                  label="Employees"
-                  value={String(empCount)}
-                  sub={`${clientCount} client · ${projectCount} project`}
-                  accent="#06b6d4"
-                  icon={<IconUsers />}
-                  sparkData={empTrend}
-                  onClick={() => setPopup('employees')}
-                />
-                <MetricCard
-                  label="Clients"
-                  value={String(clientCount)}
-                  sub={`${projectCount} project aktif`}
-                  accent="#14b8a6"
-                  icon={<IconBuilding />}
-                  sparkData={clientTrend}
-                  onClick={() => setPopup('clients')}
-                />
-                <MetricCard
-                  label="Payroll Net"
-                  value={formatIDRShort(totalNet)}
-                  sub={currentPayroll ? currentPayroll.status : 'Belum dihitung'}
-                  accent="#5b5ef0"
-                  icon={<IconWallet />}
-                  sparkData={payrollTrend}
-                  onClick={() => setPopup('payroll')}
-                />
-                <MetricCard
-                  label="Outstanding"
-                  value={formatIDRShort(totalOutstanding)}
-                  sub={`${outstanding.length} klien`}
-                  accent="#f97316"
-                  icon={<IconClock />}
-                  sparkData={arTrend}
-                  onClick={() => setPopup('outstanding')}
-                />
-              </div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    gap: 14,
+                    marginBottom: 20,
+                  }}
+                >
+                  <MetricCard
+                    label="Karyawan"
+                    value={String(empCount)}
+                    sub={`${clientCount} klien`}
+                    accent="#06b6d4"
+                    icon={<IconUsers />}
+                    sparkData={settings.showSparklines ? [8, 9, 10, 11, empCount] : undefined}
+                    onClick={() => setPopup('employees')}
+                  />
+                  <MetricCard
+                    label="Klien"
+                    value={String(clientCount)}
+                    sub={`${projectCount} proyek`}
+                    accent="#14b8a6"
+                    icon={<IconBuilding />}
+                    sparkData={settings.showSparklines ? [1, 1, 2, 2, clientCount] : undefined}
+                    onClick={() => setPopup('clients')}
+                  />
+                  <MetricCard
+                    label="Payroll"
+                    value={formatIDRShort(totalNet)}
+                    sub={currentPayroll ? currentPayroll.status : 'Belum dihitung'}
+                    accent="#5b5ef0"
+                    icon={<IconWallet />}
+                    sparkData={settings.showSparklines ? payrollTrend : undefined}
+                    onClick={() => setPopup('payroll')}
+                  />
+                  <MetricCard
+                    label="Piutang"
+                    value={formatIDRShort(totalOutstanding)}
+                    sub={`${outstanding.length} tagihan`}
+                    accent="#f97316"
+                    icon={<IconClock />}
+                    sparkData={settings.showSparklines ? [120000000, 110000000, 100000000, totalOutstanding] : undefined}
+                    onClick={() => setPopup('outstanding')}
+                  />
+                </div>
 
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                gap: '16px',
-                marginBottom: '8px'
-              }}>
-                <RegionMap employees={db.employees} />
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                    gap: 16,
+                  }}
+                >
+                  {settings.showMap && <RegionMap employees={db.employees} />}
 
-                <div className="card" style={{ padding: '20px' }}>
-                  <h3 style={{ fontSize: '11px', fontWeight: 650, marginBottom: '14px', color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Client Overview
-                  </h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {db.companies?.map((c: any) => {
-                      const empOfClient = db.employees.filter((e: any) => e.company === c.name).length;
-                      const projOfClient = db.projects.filter((p: any) => p.company === c.name).length;
-                      return (
-                        <div key={c.id} style={{
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          padding: '12px 14px', background: 'var(--bg-subtle)', borderRadius: 'var(--r-md)',
-                          border: '1px solid var(--border-soft)',
-                        }}>
-                          <div>
-                            <div style={{ fontWeight: 650, fontSize: '14px' }}>{c.name}</div>
-                            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
-                              {empOfClient} emp · {projOfClient} project · {c.payrollType}
+                  <div className="card" style={{ padding: 20 }}>
+                    <h3
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 650,
+                        marginBottom: 14,
+                        color: 'var(--text2)',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Klien
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {db.companies?.map((c: any) => {
+                        const empOfClient = db.employees.filter((e: any) => e.company === c.name).length;
+                        return (
+                          <div
+                            key={c.id}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '12px 14px',
+                              background: 'var(--bg-subtle)',
+                              borderRadius: 'var(--r-md)',
+                              border: '1px solid var(--border-soft)',
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontWeight: 650, fontSize: 14 }}>{c.name}</div>
+                              <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>
+                                {empOfClient} karyawan
+                              </div>
                             </div>
+                            <span
+                              style={{
+                                fontSize: 10.5,
+                                fontWeight: 650,
+                                padding: '3px 10px',
+                                borderRadius: 999,
+                                background: 'rgba(16,185,129,0.12)',
+                                color: '#059669',
+                              }}
+                            >
+                              Aktif
+                            </span>
                           </div>
-                          <span style={{
-                            fontSize: '10.5px', fontWeight: 650, padding: '3px 10px', borderRadius: 'var(--r-pill)',
-                            background: 'rgba(16,185,129,0.12)', color: '#059669'
-                          }}>ACTIVE</span>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </section>
 
-            <ClientDetail db={db} />
+                {settings.showClientDetail && <ClientDetail db={db} />}
+              </section>
+            )}
 
-            <p style={{ marginTop: '28px', fontSize: '12px', color: 'var(--text3)', textAlign: 'center' }}>
-              ProQPay Lite · Conversation-first ·{' '}
-              <a href="https://proqpay-lite.pages.dev/">Cloudflare Pages</a>
-              {' · '}
-              <a href="https://github.com/ImHeroesKiller/proqpay-lite">GitHub</a>
-            </p>
+            {view === 'employees' && (
+              <section>
+                <h2 style={{ fontSize: 22, fontWeight: 720 }}>Karyawan</h2>
+                <p style={{ color: 'var(--text3)', fontSize: 13 }}>{empCount} data</p>
+                <div className="card" style={{ marginTop: 16, overflow: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        {['ID', 'Nama', 'Klien', 'Wilayah', 'Gaji'].map((h) => (
+                          <th key={h} style={th}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(db.employees || []).map((e: any) => (
+                        <tr key={e.id} style={{ borderBottom: '1px solid var(--border-soft)' }}>
+                          <td style={td}>{e.id}</td>
+                          <td style={td}>{e.name}</td>
+                          <td style={td}>{e.company}</td>
+                          <td style={td}>{e.region || e.province || '-'}</td>
+                          <td style={td}>{formatIDR(e.salaryGross || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
+            {view === 'clients' && (
+              <section>
+                <h2 style={{ fontSize: 22, fontWeight: 720 }}>Klien</h2>
+                <div className="card" style={{ marginTop: 16, overflow: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        {['ID', 'Nama', 'PIC', 'Telepon', 'Tipe'].map((h) => (
+                          <th key={h} style={th}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(db.companies || []).map((c: any) => (
+                        <tr key={c.id} style={{ borderBottom: '1px solid var(--border-soft)' }}>
+                          <td style={td}>{c.id}</td>
+                          <td style={td}>{c.name}</td>
+                          <td style={td}>{c.pic || '-'}</td>
+                          <td style={td}>{c.phone || '-'}</td>
+                          <td style={td}>{c.payrollType || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
+            {view === 'reports' && (
+              <section>
+                <h2 style={{ fontSize: 22, fontWeight: 720 }}>Laporan</h2>
+                <div style={{ display: 'grid', gap: 16, marginTop: 16 }}>
+                  <div className="card" style={{ padding: 20 }}>
+                    <h3 style={{ marginTop: 0, fontSize: 15 }}>Payroll</h3>
+                    {(db.payrolls || []).length === 0 && <p style={{ color: 'var(--text3)' }}>Belum ada data.</p>}
+                    {(db.payrolls || []).map((p: any) => (
+                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border-soft)' }}>
+                        <span>
+                          {p.period} · {p.status}
+                        </span>
+                        <strong>{formatIDR(p.summary?.totalNet || 0)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="card" style={{ padding: 20 }}>
+                    <h3 style={{ marginTop: 0, fontSize: 15 }}>Piutang</h3>
+                    {outstanding.length === 0 && <p style={{ color: 'var(--text3)' }}>Tidak ada piutang.</p>}
+                    {outstanding.map((a: any) => (
+                      <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border-soft)' }}>
+                        <span>
+                          {a.company} · {a.invoiceId}
+                        </span>
+                        <strong>{formatIDR(a.amount)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
           </div>
         </div>
       </div>
 
-      <IdaFab />
-
-      {popup && (
-        <MetricPopup type={popup} db={db} onClose={() => setPopup(null)} />
-      )}
+      <IdaFab openSignal={idaOpenSignal} />
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+      {popup && <MetricPopup type={popup} db={db} onClose={() => setPopup(null)} />}
     </div>
   );
 }
+
+const th: React.CSSProperties = {
+  textAlign: 'left',
+  padding: '10px 14px',
+  background: 'var(--bg-subtle)',
+  color: 'var(--text2)',
+  fontSize: 11,
+  textTransform: 'uppercase',
+};
+const td: React.CSSProperties = { padding: '10px 14px' };
