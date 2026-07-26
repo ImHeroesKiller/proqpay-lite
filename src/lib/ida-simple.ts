@@ -2,17 +2,44 @@ import { generatePayroll, saveDatabase } from './database';
 import { formatIDR, formatIDRShort } from './format';
 import { calcMargin, formatMarginReply } from './margin';
 import { renderMarkdown } from './markdown';
+import { identifyProvince, resolveWorkLocation } from './wilayah';
 
 export function handleIdaIntent(text: string, db: any): { reply: string; dbChanged?: boolean; newDb?: any } {
   const t = text.toLowerCase().trim();
 
   if (/^(halo|hai|hi|hello|hey|pagi|siang|sore|malam)\b/.test(t) && t.length < 25) {
     return {
-      reply: renderMarkdown('Halo! Aku **IDA**, asisten payroll kamu. Tanya aja bebas ya — atau ketik **help** / **margin** / **hitung payroll**.'),
+      reply: renderMarkdown(
+        'Halo! Aku **IDA**, asisten payroll kamu. Tanya aja bebas — **help**, **margin**, **provinsi Kabanjahe**, atau **hitung payroll**.'
+      ),
     };
   }
 
-  // Margin — jawab langsung dengan angka
+  // Identifikasi provinsi dari nama lokasi/cabang (IDA wilayah)
+  if (
+    /\b(provinsi|wilayah|daerah)\b/.test(t) ||
+    /\b(lokasi|cabang|kota)\b.*\b(mana|apa|provinsi)\b/.test(t) ||
+    /^provinsi\s+.+/.test(t)
+  ) {
+    const cleaned = text
+      .replace(/\b(provinsi|wilayah|daerah|lokasi|cabang|kota|apa|mana|dari|untuk|ya|dong|sih)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const hit = identifyProvince(cleaned || text);
+    const resolved = resolveWorkLocation({ lokasi: cleaned, cabang: cleaned });
+    return {
+      reply: renderMarkdown(
+        `**Identifikasi wilayah**\n\n` +
+          `- Input: **${cleaned || text}**\n` +
+          `- Provinsi: **${hit.province}**\n` +
+          `- Confidence: ${hit.confidence} (${hit.source}` +
+          (hit.matchedKey ? ` · key: ${hit.matchedKey}` : '') +
+          `)\n` +
+          `- Work location name: **${resolved.name}**`
+      ),
+    };
+  }
+
   if (/\b(margin|laba|profit|keuntungan|potensi margin)\b/.test(t)) {
     const m = calcMargin(db);
     return { reply: renderMarkdown(formatMarginReply(m)) };
@@ -25,8 +52,9 @@ export function handleIdaIntent(text: string, db: any): { reply: string; dbChang
           `**Info**\n` +
           `- status / ringkasan\n` +
           `- daftar karyawan / client\n` +
-          `- **margin** (hitung cepat)\n` +
-          `- outstanding / UMR Jakarta\n\n` +
+          `- **margin**\n` +
+          `- **provinsi [lokasi]** — identifikasi wilayah\n` +
+          `- outstanding / UMR\n\n` +
           `**Payroll**\n` +
           `- hitung payroll\n` +
           `- ajukan approval\n` +
@@ -152,9 +180,7 @@ export function handleIdaIntent(text: string, db: any): { reply: string; dbChang
     }
     if (payroll.status !== 'CALCULATED') {
       return {
-        reply: renderMarkdown(
-          `Status sekarang **${payroll.status}**. Hitung payroll dulu biar jadi CALCULATED.`
-        ),
+        reply: renderMarkdown(`Status sekarang **${payroll.status}**. Hitung payroll dulu biar jadi CALCULATED.`),
       };
     }
 
@@ -276,6 +302,6 @@ export function handleIdaIntent(text: string, db: any): { reply: string; dbChang
   }
 
   return {
-    reply: renderMarkdown(`Hmm belum kebaca maksudnya. Coba ketik **help** atau **margin**.`),
+    reply: renderMarkdown(`Hmm belum kebaca maksudnya. Coba ketik **help**, **margin**, atau **provinsi Medan**.`),
   };
 }
