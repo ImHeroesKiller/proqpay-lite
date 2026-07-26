@@ -4,52 +4,65 @@ import { useState } from 'react';
 import SettingsModal from './SettingsModal';
 import { IconDashboard, IconMessage, IconUsers, IconBuilding, IconChart, IconSettings } from './Icons';
 
-export default function Sidebar() {
+export type AppView = 'dashboard' | 'employees' | 'clients' | 'reports';
+
+export default function Sidebar({
+  view,
+  onView,
+  onOpenIda,
+}: {
+  view: AppView;
+  onView: (v: AppView) => void;
+  onOpenIda: () => void;
+}) {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <>
-      <aside style={{
-        width: '60px',
-        background: 'var(--bg-surface)',
-        borderRight: '1px solid var(--border)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '16px 0',
-        gap: '4px',
-        flexShrink: 0,
-        height: '100vh',
-        position: 'sticky',
-        top: 0,
-      }}>
-        <div style={{
-          width: '36px',
-          height: '36px',
-          borderRadius: '11px',
-          background: 'linear-gradient(135deg, var(--accent), var(--violet))',
+      <aside
+        style={{
+          width: 60,
+          background: 'var(--bg-surface)',
+          borderRight: '1px solid var(--border)',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'center',
-          fontWeight: 800,
-          fontSize: '12px',
-          color: '#fff',
-          marginBottom: '14px',
-          boxShadow: '0 4px 14px rgba(91, 94, 240, 0.35)',
-          letterSpacing: '-0.02em',
-        }}>
+          padding: '16px 0',
+          gap: 4,
+          flexShrink: 0,
+          height: '100vh',
+          position: 'sticky',
+          top: 0,
+          zIndex: 30,
+        }}
+      >
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 11,
+            background: 'linear-gradient(135deg, var(--accent), var(--violet))',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 800,
+            fontSize: 12,
+            color: '#fff',
+            marginBottom: 14,
+          }}
+        >
           PQ
         </div>
 
-        <NavBtn active icon={<IconDashboard />} title="Dashboard" />
-        <NavBtn icon={<IconMessage />} title="Chat with IDA" />
-        <NavBtn icon={<IconUsers />} title="Employees" />
-        <NavBtn icon={<IconBuilding />} title="Clients" />
-        <NavBtn icon={<IconChart />} title="Reports" />
+        <NavBtn active={view === 'dashboard'} icon={<IconDashboard />} title="Dashboard" onClick={() => onView('dashboard')} />
+        <NavBtn icon={<IconMessage />} title="Chat IDA" onClick={onOpenIda} />
+        <NavBtn active={view === 'employees'} icon={<IconUsers />} title="Karyawan" onClick={() => onView('employees')} />
+        <NavBtn active={view === 'clients'} icon={<IconBuilding />} title="Klien" onClick={() => onView('clients')} />
+        <NavBtn active={view === 'reports'} icon={<IconChart />} title="Laporan" onClick={() => onView('reports')} />
 
         <div style={{ flex: 1 }} />
 
-        <NavBtn icon={<IconSettings />} title="Settings" onClick={() => setSettingsOpen(true)} />
+        <NavBtn icon={<IconSettings />} title="Pengaturan" onClick={() => setSettingsOpen(true)} />
       </aside>
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
@@ -71,11 +84,12 @@ function NavBtn({
   return (
     <button
       title={title}
+      type="button"
       onClick={onClick}
       style={{
-        width: '42px',
-        height: '42px',
-        borderRadius: '12px',
+        width: 42,
+        height: 42,
+        borderRadius: 12,
         border: 'none',
         background: active ? 'var(--accent-soft)' : 'transparent',
         color: active ? 'var(--accent)' : 'var(--text3)',
@@ -83,22 +97,23 @@ function NavBtn({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        transition: 'all 0.2s ease',
         position: 'relative',
       }}
     >
       {icon}
       {active && (
-        <span style={{
-          position: 'absolute',
-          left: '-9px',
-          top: '50%',
-          transform: 'translateY(-50%)',
-          width: '3px',
-          height: '18px',
-          borderRadius: '0 3px 3px 0',
-          background: 'var(--accent)',
-        }} />
+        <span
+          style={{
+            position: 'absolute',
+            left: -9,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: 3,
+            height: 18,
+            borderRadius: '0 3px 3px 0',
+            background: 'var(--accent)',
+          }}
+        />
       )}
     </button>
   );
