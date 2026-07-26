@@ -13,6 +13,12 @@ import { validatePayrollIndonesia, formatValidationMarkdown } from '@/lib/payrol
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
 
+type Msg = {
+  role: 'ida' | 'user';
+  text: string;
+  cot?: string[];
+};
+
 function looksLikeLocalAction(text: string) {
   const t = text.toLowerCase();
   return (
@@ -21,13 +27,26 @@ function looksLikeLocalAction(text: string) {
     /\b(hitung payroll|buat payroll|ajukan approval|approve payroll|payment instruction|instruksi pembayaran)\b/.test(
       t
     ) ||
-    /\b(buat invoice|generate invoice|unduh payment|download payment|csv payment|tandai paid|mark paid)\b/.test(
-      t
-    ) ||
+    /\b(buat invoice|generate invoice|terbit invoice|invoice|kirim invoice)\b/.test(t) ||
+    /\b(unduh payment|download payment|csv payment|tandai paid|mark paid)\b/.test(t) ||
     /\b(help|bantuan|alur|proses|next|lanjut|status|ringkasan|daftar karyawan|daftar client|outstanding|umr|audit|validasi|import|upload)\b/.test(
       t
-    )
+    ) ||
+    /^(iya|yes|ok|oke|ya|generate|kirim|proses)\b/.test(t)
   );
+}
+
+function mapConfirmToAction(text: string, lastUserHint?: string) {
+  const t = text.toLowerCase().trim();
+  if (/^(iya|yes|ok|oke|ya|generate|kirim|proses)\b/.test(t)) {
+    if (lastUserHint && /invoice/.test(lastUserHint)) return 'buat invoice';
+    if (/invoice|tagihan/.test(t)) return 'buat invoice';
+    return 'buat invoice';
+  }
+  if (/\b(generate|buat|terbit|kirim)\b.*\binvoice\b/.test(t) || /\binvoice\b/.test(t)) {
+    return 'buat invoice';
+  }
+  return text;
 }
 
 function parsedToLocalEmployees(rows: ParsedEmployee[]) {
@@ -57,24 +76,27 @@ function parsedToLocalEmployees(rows: ParsedEmployee[]) {
 
 export default function IdaFab() {
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [sessionId, setSessionId] = useState('default');
-  const [messages, setMessages] = useState<{ role: 'ida' | 'user'; text: string }[]>([
+  const [messages, setMessages] = useState<Msg[]>([
     {
       role: 'ida',
       text: renderMarkdown(
-        'Halo! Aku **IDA**.\n\nDashboard hanya tampilan — semua aksi di sini.\n\n' +
-          '- 📎 **Lampirkan Excel HRIS** (tombol kertas)\n' +
-          '- **help** · **validasi** · **hitung payroll** · **margin**\n' +
-          '- Bilang **ingat …** untuk long memory'
+        'Halo! Aku **IDA**.\n\nDashboard **read-only** — semua aksi di chat ini.\n\n' +
+          '- 📎 Lampirkan Excel HRIS di sini\n' +
+          '- **help** · **validasi** · **hitung payroll** · **buat invoice** · **margin**'
       ),
+      cot: ['Siaga', 'Mode conversation-first', 'Upload hanya via 📎'],
     },
   ]);
   const [input, setInput] = useState('');
   const [db, setDb] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [pendingRows, setPendingRows] = useState<ParsedEmployee[] | null>(null);
+  const [cotLive, setCotLive] = useState<string[] | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const lastTopicRef = useRef<string>('');
 
   useEffect(() => {
     setDb(loadDatabase());
@@ -83,10 +105,13 @@ export default function IdaFab() {
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages]);
+  }, [messages, cotLive, expanded]);
 
-  function pushIda(text: string, isMarkdown = true) {
-    setMessages((prev) => [...prev, { role: 'ida', text: isMarkdown ? renderMarkdown(text) : text }]);
+  function pushIda(text: string, isMarkdown = true, cot?: string[]) {
+    setMessages((prev) => [
+      ...prev,
+      { role: 'ida', text: isMarkdown ? renderMarkdown(text) : text, cot },
+    ]);
   }
 
   function buildContext(database: any) {
@@ -98,6 +123,7 @@ export default function IdaFab() {
       period,
       employees: database.employees?.length,
       clients: database.companies?.length,
+      clientNames: (database.companies || []).map((c: any) => c.name),
       payrollNet: payroll?.summary?.totalNet ?? null,
       payrollStatus: payroll?.status ?? null,
       margin: m.margin,
@@ -111,6 +137,7 @@ export default function IdaFab() {
 
   async function handleFile(file: File) {
     setBusy(true);
+    setCotLive(['Baca file…', 'Parse kolom IAP…', 'Map provinsi…']);
     setMessages((prev) => [...prev, { role: 'user', text: `📎 ${file.name}` }]);
     try {
       const buf = await file.arrayBuffer();
@@ -128,37 +155,38 @@ export default function IdaFab() {
 
       const sample = parsed.rows
         .slice(0, 3)
-        .map((r) => `- **${r.name}** · ${r.lokasi || r.branch} → **${r.province}** · ${r.basicSalary.toLocaleString('id-ID')}`)
+        .map((r) => `- **${r.name}** · ${r.lokasi || r.branch} → **${r.province}**`)
         .join('\n');
 
       pushIda(
         renderMarkdown(
           `File terbaca ✅\n\n` +
             `- Sheet: **${parsed.sheetName}**\n` +
-            `- Baris mentah: ${parsed.totalRaw} · valid: **${parsed.rows.length}** · skip: ${parsed.skipped}\n` +
+            `- Valid: **${parsed.rows.length}** · skip ${parsed.skipped}\n` +
             `- Provinsi: ${provLine || '-'}\n\n` +
             `**Contoh**\n${sample}\n\n` +
-            `Ketik **import sekarang** untuk simpan ke Neon + refresh data lokal.\n` +
-            `Atau **batal import** untuk buang antrian.`
+            `Ketik **import sekarang** untuk simpan.`
         ),
-        false
+        false,
+        ['Parse OK', `Rows ${parsed.rows.length}`, 'Menunggu konfirmasi import']
       );
     } catch (e: any) {
-      pushIda(renderMarkdown(`Gagal parse Excel: ${e?.message || e}`), false);
+      pushIda(renderMarkdown(`Gagal parse: ${e?.message || e}`), false, ['Error parse']);
       setPendingRows(null);
     } finally {
+      setCotLive(null);
       setBusy(false);
     }
   }
 
   async function runImport() {
     if (!pendingRows?.length || !db) {
-      pushIda(renderMarkdown('Belum ada file di antrian. Lampirkan .xlsx dulu (tombol 📎).'), false);
+      pushIda(renderMarkdown('Belum ada file. Lampirkan .xlsx lewat 📎.'), false);
       return;
     }
     setBusy(true);
+    setCotLive(['Upload ke Neon…', 'Mirror ke dashboard…', 'Validasi regulasi…']);
     try {
-      // 1) Neon bulk
       const chunkSize = 40;
       let inserted = 0;
       let updated = 0;
@@ -177,7 +205,6 @@ export default function IdaFab() {
         errors += data.errors || 0;
       }
 
-      // 2) Local mirror for dashboard visualization
       const localEmps = parsedToLocalEmployees(pendingRows);
       const clientNames = Array.from(new Set(localEmps.map((e) => e.company)));
       const companies = clientNames.map((name, i) => ({
@@ -202,11 +229,8 @@ export default function IdaFab() {
         ...db,
         employees: localEmps,
         companies,
-        meta: { ...db.meta, orgName: db.meta?.orgName || 'OTSINDO', lastImportAt: Date.now() },
-        imports: [
-          ...(db.imports || []),
-          { at: Date.now(), count: localEmps.length, source: 'IDA chat Excel' },
-        ],
+        meta: { ...db.meta, lastImportAt: Date.now() },
+        imports: [...(db.imports || []), { at: Date.now(), count: localEmps.length, source: 'IDA chat' }],
       };
       saveDatabase(newDb);
       setDb(newDb);
@@ -216,17 +240,17 @@ export default function IdaFab() {
       const report = validatePayrollIndonesia(newDb);
       pushIda(
         renderMarkdown(
-          `**Import selesai**\n\n` +
-            `- Neon: +${inserted} / update ${updated} / err ${errors}\n` +
-            `- Lokal dashboard: **${localEmps.length}** karyawan · **${companies.length}** client\n\n` +
-            formatValidationMarkdown(report) +
-            `\n\nLanjut: **hitung payroll** atau perbaiki error dulu.`
+          `**Import selesai**\n\n- Neon: +${inserted} / upd ${updated} / err ${errors}\n` +
+            `- Dashboard: **${localEmps.length}** karyawan\n\n` +
+            formatValidationMarkdown(report)
         ),
-        false
+        false,
+        ['Import Neon OK', 'Local mirror OK', `Validasi ${report.errorCount}E/${report.warningCount}W`]
       );
     } catch (e: any) {
-      pushIda(renderMarkdown(`Import gagal: **${e?.message || e}**`), false);
+      pushIda(renderMarkdown(`Import gagal: **${e?.message || e}**`), false, ['Import error']);
     } finally {
+      setCotLive(null);
       setBusy(false);
     }
   }
@@ -237,6 +261,11 @@ export default function IdaFab() {
     setMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
     setInput('');
     setBusy(true);
+    setCotLive(['Pahami intent…']);
+
+    if (/invoice|payroll|upload|import|margin|validasi/.test(userMsg.toLowerCase())) {
+      lastTopicRef.current = userMsg.toLowerCase();
+    }
 
     try {
       const low = userMsg.toLowerCase();
@@ -247,29 +276,33 @@ export default function IdaFab() {
       }
       if (/\b(batal import|cancel import)\b/.test(low)) {
         setPendingRows(null);
-        pushIda(renderMarkdown('Antrian import dibatalkan.'), false);
+        pushIda(renderMarkdown('Antrian import dibatalkan.'), false, ['Batal import']);
         return;
       }
       if (/\b(upload|import|excel|lampir)\b/.test(low) && !pendingRows?.length) {
         pushIda(
           renderMarkdown(
-            'Silakan **lampirkan file** .xlsx lewat tombol 📎 di bawah chat.\nSetelah terbaca, ketik **import sekarang**.'
+            'Upload **hanya di chat** ini — klik tombol **📎** di bawah, pilih `.xlsx`, lalu ketik **import sekarang**.\n\nDashboard tidak menerima input file.'
           ),
-          false
+          false,
+          ['Arahkan ke 📎', 'Dashboard read-only']
         );
         return;
       }
 
-      if (looksLikeLocalAction(userMsg)) {
-        const result = handleIdaIntent(userMsg, db);
+      const mapped = mapConfirmToAction(userMsg, lastTopicRef.current);
+      if (looksLikeLocalAction(userMsg) || mapped !== userMsg) {
+        setCotLive(['Intent lokal', `Aksi: ${mapped}`, 'Eksekusi engine…']);
+        const result = handleIdaIntent(mapped, db);
         if (result.dbChanged && result.newDb) {
           setDb(result.newDb);
           emitDbChange();
         }
-        pushIda(result.reply, false);
+        pushIda(result.reply, false, ['Local engine', `Cmd: ${mapped}`, 'Selesai']);
         return;
       }
 
+      setCotLive(['RAG + memory…', 'Cek trigger web…', 'Generate jawaban…']);
       const context = buildContext(db);
       const res = await fetch('/api/ida', {
         method: 'POST',
@@ -279,27 +312,59 @@ export default function IdaFab() {
       const data = await res.json();
 
       if (data.ok && data.reply) {
-        pushIda(data.reply.replace(/\n?\{\s*"intent"[\s\S]*\}\s*$/, '').trim(), true);
+        const cot: string[] = [];
+        if (data.cot?.ragSources?.length) cot.push(`RAG: ${data.cot.ragSources.slice(0, 4).join(', ')}`);
+        if (data.cot?.webTriggers?.length) cot.push(`Web: ${data.cot.webTriggers.join(', ')}`);
+        if (data.cot?.memoryTurns != null) cot.push(`Memory: ${data.cot.memoryTurns} turns`);
+        if (data.model) cot.push(`Model: ${data.model}`);
+        pushIda(data.reply.replace(/\n?\{\s*"intent"[\s\S]*\}\s*$/, '').trim(), true, cot);
         return;
       }
 
+      setCotLive(['Fallback lokal…']);
       const result = handleIdaIntent(userMsg, db);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
       }
-      pushIda(result.reply, false);
+      pushIda(result.reply, false, ['Fallback local engine']);
     } catch {
       const result = handleIdaIntent(userMsg, db);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
       }
-      pushIda(result.reply, false);
+      pushIda(result.reply, false, ['Error path → local']);
     } finally {
+      setCotLive(null);
       setBusy(false);
     }
   }
+
+  const panelStyle: React.CSSProperties = expanded
+    ? {
+        position: 'fixed',
+        top: 0,
+        right: 0,
+        width: '50vw',
+        minWidth: '320px',
+        maxWidth: '100vw',
+        height: '100vh',
+        bottom: 'auto',
+        borderRadius: 0,
+        zIndex: 70,
+      }
+    : {
+        position: 'fixed',
+        bottom: '90px',
+        right: '26px',
+        width: '400px',
+        maxWidth: 'calc(100vw - 52px)',
+        height: '540px',
+        maxHeight: 'calc(100vh - 140px)',
+        borderRadius: 'var(--r-xl)',
+        zIndex: 60,
+      };
 
   return (
     <>
@@ -310,7 +375,7 @@ export default function IdaFab() {
           bottom: '26px',
           right: '26px',
           zIndex: 50,
-          display: 'flex',
+          display: expanded && open ? 'none' : 'flex',
           alignItems: 'center',
           gap: '11px',
           padding: '6px 20px 6px 6px',
@@ -335,37 +400,17 @@ export default function IdaFab() {
         />
         <div style={{ textAlign: 'left' }}>
           <div style={{ fontSize: '14px', fontWeight: 700 }}>Ask IDA</div>
-          <div style={{ fontSize: '10.5px', color: 'var(--text2)' }}>Chat · Upload · Payroll</div>
+          <div style={{ fontSize: '10.5px', color: 'var(--text2)' }}>Chat · Upload · CoT</div>
         </div>
-        <span
-          style={{
-            position: 'absolute',
-            top: '4px',
-            right: '4px',
-            width: '10px',
-            height: '10px',
-            borderRadius: '50%',
-            background: pendingRows ? 'var(--amber)' : 'var(--success)',
-            border: '2px solid var(--bg-surface)',
-          }}
-        />
       </button>
 
       {open && (
         <div
           style={{
-            position: 'fixed',
-            bottom: '90px',
-            right: '26px',
-            width: '400px',
-            maxWidth: 'calc(100vw - 52px)',
-            height: '540px',
-            maxHeight: 'calc(100vh - 140px)',
+            ...panelStyle,
             background: 'var(--bg-surface)',
             border: '1px solid var(--border)',
-            borderRadius: 'var(--r-xl)',
             boxShadow: 'var(--shadow-lg)',
-            zIndex: 60,
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
@@ -376,7 +421,7 @@ export default function IdaFab() {
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
-              padding: '16px 18px',
+              padding: '14px 16px',
               borderBottom: '1px solid var(--border)',
             }}
           >
@@ -394,11 +439,31 @@ export default function IdaFab() {
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: '15px', fontWeight: 700 }}>IDA</div>
               <div style={{ fontSize: '12px', color: 'var(--text2)' }}>
-                {busy ? 'Memproses…' : pendingRows ? `Antrian import: ${pendingRows.length} baris` : 'Siap · upload di chat'}
+                {busy ? 'Berpikir…' : pendingRows ? `Antrian: ${pendingRows.length} baris` : 'Siap'}
               </div>
             </div>
             <button
-              onClick={() => setOpen(false)}
+              type="button"
+              title={expanded ? 'Kecilkan' : 'Perbesar ½ layar'}
+              onClick={() => setExpanded((e) => !e)}
+              style={{
+                width: '30px',
+                height: '30px',
+                borderRadius: 'var(--r-sm)',
+                border: '1px solid var(--border)',
+                background: 'var(--bg-surface)',
+                cursor: 'pointer',
+                fontSize: '12px',
+              }}
+            >
+              {expanded ? '⛶' : '⤢'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setExpanded(false);
+              }}
               style={{
                 width: '30px',
                 height: '30px',
@@ -427,10 +492,26 @@ export default function IdaFab() {
               <div
                 key={i}
                 style={{
-                  maxWidth: '90%',
+                  maxWidth: expanded ? '85%' : '92%',
                   alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
                 }}
               >
+                {m.role === 'ida' && m.cot && m.cot.length > 0 && (
+                  <details
+                    style={{
+                      marginBottom: '6px',
+                      fontSize: '11px',
+                      color: 'var(--text3)',
+                    }}
+                  >
+                    <summary style={{ cursor: 'pointer', fontWeight: 650 }}>Chain of thought</summary>
+                    <ol style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
+                      {m.cot.map((c, j) => (
+                        <li key={j}>{c}</li>
+                      ))}
+                    </ol>
+                  </details>
+                )}
                 <div
                   style={{
                     padding: '11px 15px',
@@ -450,18 +531,32 @@ export default function IdaFab() {
                 />
               </div>
             ))}
+
+            {cotLive && (
+              <div
+                style={{
+                  alignSelf: 'flex-start',
+                  fontSize: '11px',
+                  color: 'var(--text3)',
+                  padding: '8px 12px',
+                  borderRadius: '10px',
+                  background: 'var(--bg-subtle)',
+                  border: '1px dashed var(--border)',
+                }}
+              >
+                <strong>Berpikir…</strong>
+                <ol style={{ margin: '4px 0 0', paddingLeft: '18px' }}>
+                  {cotLive.map((c, j) => (
+                    <li key={j}>{c}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </div>
 
           <div style={{ padding: '12px 16px 16px', borderTop: '1px solid var(--border)' }}>
             {pendingRows && (
-              <div
-                style={{
-                  fontSize: '11px',
-                  color: 'var(--amber)',
-                  marginBottom: '8px',
-                  fontWeight: 650,
-                }}
-              >
+              <div style={{ fontSize: '11px', color: 'var(--amber)', marginBottom: '8px', fontWeight: 650 }}>
                 {pendingRows.length} baris siap · ketik "import sekarang"
               </div>
             )}
@@ -489,7 +584,7 @@ export default function IdaFab() {
               />
               <button
                 type="button"
-                title="Lampirkan Excel HRIS"
+                title="Lampirkan Excel"
                 disabled={busy}
                 onClick={() => fileRef.current?.click()}
                 style={{
@@ -500,7 +595,6 @@ export default function IdaFab() {
                   background: 'var(--bg-surface)',
                   cursor: busy ? 'wait' : 'pointer',
                   fontSize: '16px',
-                  flexShrink: 0,
                 }}
               >
                 📎
@@ -509,7 +603,7 @@ export default function IdaFab() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder={busy ? 'Sebentar…' : 'Tanya atau: import sekarang'}
+                placeholder={busy ? 'Sebentar…' : 'Tanya IDA…'}
                 disabled={busy}
                 style={{
                   flex: 1,
@@ -532,7 +626,6 @@ export default function IdaFab() {
                   background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
                   color: '#fff',
                   cursor: busy ? 'wait' : 'pointer',
-                  flexShrink: 0,
                 }}
               >
                 ➤
