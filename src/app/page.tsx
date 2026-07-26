@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { loadDatabase } from '@/lib/database';
 import { formatIDRShort } from '@/lib/format';
+import { onDbChange } from '@/lib/events';
 import Sidebar from '@/components/Sidebar';
 import IdaFab from '@/components/IdaFab';
 import MetricCard from '@/components/MetricCard';
@@ -19,8 +20,13 @@ export default function Home() {
 
   useEffect(() => {
     setMounted(true);
-    const data = loadDatabase();
-    setDb(data);
+    setDb(loadDatabase());
+
+    // Listen for DB changes from IDA
+    const unsub = onDbChange(() => {
+      setDb(loadDatabase());
+    });
+    return unsub;
   }, []);
 
   if (!mounted || !db) {
@@ -44,7 +50,6 @@ export default function Home() {
       <Sidebar />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* Topbar */}
         <header style={{
           height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '0 24px', background: 'rgba(255,255,255,0.85)', borderBottom: '1px solid var(--border)',
@@ -74,7 +79,6 @@ export default function Home() {
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '28px 24px' }}>
           <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-            {/* SECTION 1 — Global Snapshot */}
             <section>
               <h2 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '6px', letterSpacing: '-0.02em' }}>
                 Global Snapshot
