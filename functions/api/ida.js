@@ -1,6 +1,5 @@
 /**
- * ProQPay Lite — IDA Gemini + RAG + long memory + restricted web
- * Secrets: GEMINI_WORKER_1..5
+ * ProQPay Lite — IDA Gemini + RAG + memory + restricted web
  */
 import { retrieveRag, loadMemory, saveMemory, loadFacts } from './ida-rag.js';
 import { fetchRegulatoryWeb } from './ida-web.js';
@@ -16,14 +15,22 @@ const KEY_NAMES = [
 
 const SYSTEM_PROMPT = `Kamu adalah IDA, asisten payroll ProQPay Lite.
 
-Gaya: Bahasa Indonesia, kasual, ramah, sopan, singkat. Markdown OK.
+GAYA WAJIB:
+- Bahasa Indonesia, kasual, ramah, sopan
+- Jawaban LENGKAP dalam 2–6 kalimat atau bullet singkat
+- JANGAN memotong kalimat di tengah
+- JANGAN membuka dengan "Siap! Kita proses…" lalu berhenti — kalau akan aksi, sebut hasilnya langsung
+- Jangan mutar-mutar minta konfirmasi berulang jika data sudah ada di konteks
 
-Gunakan RAG_CONTEXT, WEB_OFFICIAL (jika ada), dan MEMORY sebagai sumber kebenaran.
-WEB_OFFICIAL hanya dari domain pemerintah/resmi dengan confidence ≥ 95%. Jika WEB_OFFICIAL kosong, jangan mengarang regulasi terbaru — bilang data web tidak lolos ambang confidence.
-Jangan hitung payroll ulang kecuali user eksplisit minta.
-Kalau user bilang "ingat ...", anggap preferensi jangka panjang.
+UPLOAD FILE:
+- Upload Excel HANYA lewat tombol 📎 di chat IDA
+- JANGAN pernah bilang upload di dashboard (dashboard read-only)
 
-Topik: payroll, BPJS, PPh 21, UMR/UMK, karyawan, client, invoice, AR, margin, import Excel, provinsi.`;
+INVOICE / PAYROLL:
+- Jika user bilang generate/buat/kirim invoice dan client+periode sudah jelas di konteks, jawab seolah aksi lokal akan jalan; jangan tanya ulang client yang sudah disebut
+- Jangan pakai angka mengarang; pakai CLIENT_CONTEXT
+
+Gunakan RAG_CONTEXT, WEB_OFFICIAL (≥95%), MEMORY. Jangan mengarang regulasi.`;
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -45,7 +52,6 @@ export async function onRequest(context) {
 
   const sessionId = String(body.sessionId || body.session_id || 'default').slice(0, 80);
 
-  // RAG + memory + conditional restricted web (only on regulatory triggers)
   const [ragChunks, history, facts, web] = await Promise.all([
     retrieveRag(env, userText, 8),
     loadMemory(env, sessionId, 10),
@@ -59,7 +65,7 @@ export async function onRequest(context) {
   const histBlock = history.map((h) => `${h.role}: ${h.content}`).join('\n').slice(0, 2500);
   const factBlock = facts.length ? facts.map((f, i) => `${i + 1}. ${f}`).join('\n') : '(belum ada)';
   const clientCtx = body.context
-    ? `CLIENT_CONTEXT: ${JSON.stringify(body.context).slice(0, 1000)}`
+    ? `CLIENT_CONTEXT: ${JSON.stringify(body.context).slice(0, 1200)}`
     : '';
 
   let webBlock = '(tidak dipicu / tidak ada hasil ≥95%)';
@@ -79,7 +85,7 @@ export async function onRequest(context) {
 RAG_CONTEXT:
 ${ragBlock || '(kosong)'}
 
-WEB_OFFICIAL (confidence ≥ 95%, domain whitelist):
+WEB_OFFICIAL:
 ${webBlock}
 
 LONG_MEMORY_FACTS:
@@ -90,7 +96,9 @@ ${histBlock || '(baru)'}
 
 ${clientCtx}
 
-User: ${userText}`;
+User: ${userText}
+
+Jawab lengkap, jangan terpotong.`;
 
   const keys = KEY_NAMES.map((n) => env[n]).filter(Boolean);
   if (!keys.length) {
@@ -110,15 +118,13 @@ User: ${userText}`;
           reply: text,
           model,
           keyIndex: ki + 1,
-          rag: ragChunks.map((c) => ({ source: c.source, id: c.id })),
-          web: {
-            used: web.used,
-            triggers: web.triggers,
-            snippets: web.snippets,
-            confidenceMin: web.confidenceMin,
-            rejectedBelowConfidence: web.rejectedBelowConfidence,
+          cot: {
+            ragSources: ragChunks.map((c) => c.source + (c.id ? `/${c.id}` : '')),
+            webTriggers: web.triggers || [],
+            webUsed: !!web.used,
+            memoryTurns: history.length,
+            facts: facts.length,
           },
-          memoryTurns: history.length,
           attempts,
         });
       } catch (err) {
@@ -139,7 +145,11 @@ async function callGemini(apiKey, model, prompt) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 900 },
+      generationConfig: {
+        temperature: 0.25,
+        maxOutputTokens: 1200,
+        // discourage mid-sentence stop
+      },
     }),
   });
   const data = await res.json().catch(() => ({}));
