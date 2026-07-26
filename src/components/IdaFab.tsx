@@ -14,6 +14,7 @@ function looksLikeLocalAction(text: string) {
   const t = text.toLowerCase();
   return (
     /\b(margin|laba|profit|keuntungan|potensi margin)\b/.test(t) ||
+    /\b(provinsi|wilayah|daerah)\b/.test(t) ||
     /\b(hitung payroll|buat payroll|ajukan approval|approve payroll|payment instruction|instruksi pembayaran)\b/.test(
       t
     ) ||
@@ -27,7 +28,7 @@ export default function IdaFab() {
     {
       role: 'ida',
       text: renderMarkdown(
-        'Halo! Aku **IDA**, asisten payroll kamu. Tanya aja bebas — atau ketik **help** / **margin** / **hitung payroll**.'
+        'Halo! Aku **IDA**, asisten payroll kamu. Tanya aja bebas — **help**, **margin**, **provinsi Kabanjahe**, atau **hitung payroll**.'
       ),
     },
   ]);
@@ -132,7 +133,6 @@ export default function IdaFab() {
               setDb(local.newDb);
               emitDbChange();
             }
-            // only append if actionful
             if (['calculate_payroll', 'approve_payroll', 'payment_instruction'].includes(intent)) {
               pushIda(local.reply, false);
             }
@@ -352,7 +352,7 @@ export default function IdaFab() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder={busy ? 'Sebentar ya…' : 'Coba: margin, help, hitung payroll'}
+                placeholder={busy ? 'Sebentar ya…' : 'Coba: provinsi Medan, margin, help'}
                 disabled={busy}
                 style={{
                   flex: 1,
