@@ -1,8 +1,8 @@
 import type { NextConfig } from 'next';
 
-// GitHub Pages serves under /proqpay-lite
-// Set GITHUB_PAGES=true in CI, or detect production build
-const isGhPages = process.env.GITHUB_PAGES === 'true' || process.env.NODE_ENV === 'production';
+// Only GitHub Pages needs /proqpay-lite prefix.
+// Netlify / Vercel / local production build use root path.
+const isGhPages = process.env.GITHUB_PAGES === 'true';
 
 const nextConfig: NextConfig = {
   output: 'export',
