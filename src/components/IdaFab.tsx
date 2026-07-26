@@ -19,10 +19,17 @@ type Msg = {
   cot?: string[];
 };
 
+function cleanCot(list?: string[] | null) {
+  if (!list) return undefined;
+  const x = list.map((s) => String(s || '').trim()).filter(Boolean);
+  return x.length ? x : undefined;
+}
+
 function looksLikeLocalAction(text: string) {
   const t = text.toLowerCase();
   return (
     /\b(margin|laba|profit|keuntungan|potensi margin)\b/.test(t) ||
+    /\b(bpjs|iuran|jht|jkk|jkm|jkn)\b/.test(t) ||
     /\b(provinsi|wilayah|daerah)\b/.test(t) ||
     /\b(hitung payroll|buat payroll|ajukan approval|approve payroll|payment instruction|instruksi pembayaran)\b/.test(
       t
@@ -82,11 +89,8 @@ export default function IdaFab() {
     {
       role: 'ida',
       text: renderMarkdown(
-        'Halo! Aku **IDA**.\n\nDashboard **read-only** — semua aksi di chat ini.\n\n' +
-          '- 📎 Lampirkan Excel HRIS di sini\n' +
-          '- **help** · **validasi** · **hitung payroll** · **buat invoice** · **margin**'
+        'Hai, aku **IDA**. Tanya payroll, BPJS, invoice, atau lampirkan Excel lewat **📎**.'
       ),
-      cot: ['Siaga', 'Mode conversation-first', 'Upload hanya via 📎'],
     },
   ]);
   const [input, setInput] = useState('');
@@ -110,7 +114,7 @@ export default function IdaFab() {
   function pushIda(text: string, isMarkdown = true, cot?: string[]) {
     setMessages((prev) => [
       ...prev,
-      { role: 'ida', text: isMarkdown ? renderMarkdown(text) : text, cot },
+      { role: 'ida', text: isMarkdown ? renderMarkdown(text) : text, cot: cleanCot(cot) },
     ]);
   }
 
@@ -137,13 +141,12 @@ export default function IdaFab() {
 
   async function handleFile(file: File) {
     setBusy(true);
-    setCotLive(['Baca file…', 'Parse kolom IAP…', 'Map provinsi…']);
+    setCotLive(['Parse Excel…', 'Map provinsi…']);
     setMessages((prev) => [...prev, { role: 'user', text: `📎 ${file.name}` }]);
     try {
       const buf = await file.arrayBuffer();
       const parsed = parseIapWorkbook(buf);
       setPendingRows(parsed.rows);
-
       const byProv: Record<string, number> = {};
       parsed.rows.forEach((r) => {
         byProv[r.province] = (byProv[r.province] || 0) + 1;
@@ -152,26 +155,19 @@ export default function IdaFab() {
         .slice(0, 6)
         .map(([k, v]) => `${k} (${v})`)
         .join(' · ');
-
       const sample = parsed.rows
         .slice(0, 3)
         .map((r) => `- **${r.name}** · ${r.lokasi || r.branch} → **${r.province}**`)
         .join('\n');
-
       pushIda(
         renderMarkdown(
-          `File terbaca ✅\n\n` +
-            `- Sheet: **${parsed.sheetName}**\n` +
-            `- Valid: **${parsed.rows.length}** · skip ${parsed.skipped}\n` +
-            `- Provinsi: ${provLine || '-'}\n\n` +
-            `**Contoh**\n${sample}\n\n` +
-            `Ketik **import sekarang** untuk simpan.`
+          `File terbaca: **${parsed.rows.length}** baris valid (skip ${parsed.skipped}). Provinsi: ${provLine || '-'}\n\n${sample}\n\nKetik **import sekarang** kalau mau disimpan.`
         ),
         false,
-        ['Parse OK', `Rows ${parsed.rows.length}`, 'Menunggu konfirmasi import']
+        ['Parse OK', `${parsed.rows.length} rows`]
       );
     } catch (e: any) {
-      pushIda(renderMarkdown(`Gagal parse: ${e?.message || e}`), false, ['Error parse']);
+      pushIda(renderMarkdown(`Gagal parse: ${e?.message || e}`), false, ['Parse error']);
       setPendingRows(null);
     } finally {
       setCotLive(null);
@@ -181,11 +177,11 @@ export default function IdaFab() {
 
   async function runImport() {
     if (!pendingRows?.length || !db) {
-      pushIda(renderMarkdown('Belum ada file. Lampirkan .xlsx lewat 📎.'), false);
+      pushIda(renderMarkdown('Belum ada file di antrian. Pakai 📎 dulu.'), false);
       return;
     }
     setBusy(true);
-    setCotLive(['Upload ke Neon…', 'Mirror ke dashboard…', 'Validasi regulasi…']);
+    setCotLive(['Neon import…', 'Mirror lokal…']);
     try {
       const chunkSize = 40;
       let inserted = 0;
@@ -240,12 +236,11 @@ export default function IdaFab() {
       const report = validatePayrollIndonesia(newDb);
       pushIda(
         renderMarkdown(
-          `**Import selesai**\n\n- Neon: +${inserted} / upd ${updated} / err ${errors}\n` +
-            `- Dashboard: **${localEmps.length}** karyawan\n\n` +
+          `Import selesai — Neon +${inserted}/upd ${updated}/err ${errors}, lokal **${localEmps.length}** karyawan.\n\n` +
             formatValidationMarkdown(report)
         ),
         false,
-        ['Import Neon OK', 'Local mirror OK', `Validasi ${report.errorCount}E/${report.warningCount}W`]
+        ['Import OK', `${report.errorCount}E/${report.warningCount}W`]
       );
     } catch (e: any) {
       pushIda(renderMarkdown(`Import gagal: **${e?.message || e}**`), false, ['Import error']);
@@ -263,7 +258,7 @@ export default function IdaFab() {
     setBusy(true);
     setCotLive(['Pahami intent…']);
 
-    if (/invoice|payroll|upload|import|margin|validasi/.test(userMsg.toLowerCase())) {
+    if (/invoice|payroll|upload|import|margin|validasi|bpjs/.test(userMsg.toLowerCase())) {
       lastTopicRef.current = userMsg.toLowerCase();
     }
 
@@ -276,33 +271,31 @@ export default function IdaFab() {
       }
       if (/\b(batal import|cancel import)\b/.test(low)) {
         setPendingRows(null);
-        pushIda(renderMarkdown('Antrian import dibatalkan.'), false, ['Batal import']);
+        pushIda(renderMarkdown('Antrian import dibatalkan.'), false);
         return;
       }
       if (/\b(upload|import|excel|lampir)\b/.test(low) && !pendingRows?.length) {
         pushIda(
-          renderMarkdown(
-            'Upload **hanya di chat** ini — klik tombol **📎** di bawah, pilih `.xlsx`, lalu ketik **import sekarang**.\n\nDashboard tidak menerima input file.'
-          ),
+          renderMarkdown('Pakai tombol **📎** di bawah, pilih `.xlsx`, lalu **import sekarang**.'),
           false,
-          ['Arahkan ke 📎', 'Dashboard read-only']
+          ['Upload via chat']
         );
         return;
       }
 
       const mapped = mapConfirmToAction(userMsg, lastTopicRef.current);
       if (looksLikeLocalAction(userMsg) || mapped !== userMsg) {
-        setCotLive(['Intent lokal', `Aksi: ${mapped}`, 'Eksekusi engine…']);
+        setCotLive([`Local: ${mapped}`]);
         const result = handleIdaIntent(mapped, db);
         if (result.dbChanged && result.newDb) {
           setDb(result.newDb);
           emitDbChange();
         }
-        pushIda(result.reply, false, ['Local engine', `Cmd: ${mapped}`, 'Selesai']);
+        pushIda(result.reply, false, ['Local engine', mapped]);
         return;
       }
 
-      setCotLive(['RAG + memory…', 'Cek trigger web…', 'Generate jawaban…']);
+      setCotLive(['RAG…', 'Model…']);
       const context = buildContext(db);
       const res = await fetch('/api/ida', {
         method: 'POST',
@@ -312,29 +305,30 @@ export default function IdaFab() {
       const data = await res.json();
 
       if (data.ok && data.reply) {
-        const cot: string[] = [];
-        if (data.cot?.ragSources?.length) cot.push(`RAG: ${data.cot.ragSources.slice(0, 4).join(', ')}`);
-        if (data.cot?.webTriggers?.length) cot.push(`Web: ${data.cot.webTriggers.join(', ')}`);
-        if (data.cot?.memoryTurns != null) cot.push(`Memory: ${data.cot.memoryTurns} turns`);
-        if (data.model) cot.push(`Model: ${data.model}`);
+        const cot =
+          cleanCot(data.cot?.lines) ||
+          cleanCot([
+            data.cot?.ragSources?.length ? `RAG ${data.cot.ragSources.length}` : '',
+            data.cot?.webTriggers?.length ? `Web ${data.cot.webTriggers.join(',')}` : '',
+            data.model || '',
+          ]);
         pushIda(data.reply.replace(/\n?\{\s*"intent"[\s\S]*\}\s*$/, '').trim(), true, cot);
         return;
       }
 
-      setCotLive(['Fallback lokal…']);
       const result = handleIdaIntent(userMsg, db);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
       }
-      pushIda(result.reply, false, ['Fallback local engine']);
+      pushIda(result.reply, false, ['Fallback local']);
     } catch {
       const result = handleIdaIntent(userMsg, db);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
       }
-      pushIda(result.reply, false, ['Error path → local']);
+      pushIda(result.reply, false);
     } finally {
       setCotLive(null);
       setBusy(false);
@@ -439,7 +433,7 @@ export default function IdaFab() {
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: '15px', fontWeight: 700 }}>IDA</div>
               <div style={{ fontSize: '12px', color: 'var(--text2)' }}>
-                {busy ? 'Berpikir…' : pendingRows ? `Antrian: ${pendingRows.length} baris` : 'Siap'}
+                {busy ? 'Berpikir…' : pendingRows ? `Antrian: ${pendingRows.length}` : 'Siap'}
               </div>
             </div>
             <button
@@ -497,13 +491,7 @@ export default function IdaFab() {
                 }}
               >
                 {m.role === 'ida' && m.cot && m.cot.length > 0 && (
-                  <details
-                    style={{
-                      marginBottom: '6px',
-                      fontSize: '11px',
-                      color: 'var(--text3)',
-                    }}
-                  >
+                  <details style={{ marginBottom: '6px', fontSize: '11px', color: 'var(--text3)' }}>
                     <summary style={{ cursor: 'pointer', fontWeight: 650 }}>Chain of thought</summary>
                     <ol style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
                       {m.cot.map((c, j) => (
@@ -532,7 +520,7 @@ export default function IdaFab() {
               </div>
             ))}
 
-            {cotLive && (
+            {cotLive && cotLive.length > 0 && (
               <div
                 style={{
                   alignSelf: 'flex-start',
@@ -557,7 +545,7 @@ export default function IdaFab() {
           <div style={{ padding: '12px 16px 16px', borderTop: '1px solid var(--border)' }}>
             {pendingRows && (
               <div style={{ fontSize: '11px', color: 'var(--amber)', marginBottom: '8px', fontWeight: 650 }}>
-                {pendingRows.length} baris siap · ketik "import sekarang"
+                {pendingRows.length} baris · ketik import sekarang
               </div>
             )}
             <div
