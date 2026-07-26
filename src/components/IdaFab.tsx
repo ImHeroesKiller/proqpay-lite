@@ -2,104 +2,14 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { loadDatabase } from '@/lib/database';
-import { formatIDR, formatIDRShort, formatDate } from '@/lib/format';
+import { handleIdaIntent } from '@/lib/ida-simple';
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
-
-function generateReply(text: string, db: any): string {
-  const t = text.toLowerCase().trim();
-
-  if (/^(halo|hai|hi|hello|hey|pagi|siang|sore|malam)/.test(t)) {
-    return `Halo! Saya <strong>IDA</strong>, AI Payroll Manager. Ada yang bisa saya bantu hari ini?`;
-  }
-
-  if (/help|bantuan|bisa apa|menu|perintah/.test(t)) {
-    return `Berikut yang bisa saya bantu:<br>• <strong>Status / ringkasan</strong> — ketik "status" atau "ringkasan"<br>• <strong>Karyawan</strong> — "berapa karyawan" / "daftar karyawan"<br>• <strong>Client</strong> — "daftar client"<br>• <strong>Payroll</strong> — "status payroll" / "total payroll"<br>• <strong>Outstanding / AR</strong> — "outstanding" atau "ar"<br>• <strong>UMR</strong> — "UMR Jakarta"`;
-  }
-
-  if (/ringkasan|summary|overview|status|kondisi/.test(t)) {
-    const emp = db.employees?.length || 0;
-    const cli = db.companies?.length || 0;
-    const prj = db.projects?.length || 0;
-    const payroll = db.payrolls?.find((p: any) => p.period === db.meta?.currentPeriod);
-    const ar = (db.arMonitor || []).filter((a: any) => a.status === 'OUTSTANDING');
-    const totalAr = ar.reduce((s: number, a: any) => s + a.amount, 0);
-
-    let msg = `📊 <strong>Ringkasan Kondisi Payroll</strong><br><br>`;
-    msg += `• Organisasi: <strong>${db.meta?.orgName || 'ProQPay Demo'}</strong><br>`;
-    msg += `• Periode aktif: <strong>${db.meta?.currentPeriod}</strong><br>`;
-    msg += `• ${emp} karyawan · ${cli} client · ${prj} project<br>`;
-    if (payroll) {
-      msg += `<br><strong>Payroll ${payroll.period}</strong><br>`;
-      msg += `• Status: <strong>${payroll.status}</strong><br>`;
-      msg += `• Total Net: <strong>${formatIDR(payroll.summary?.totalNet)}</strong>`;
-    } else {
-      msg += `<br>Payroll periode ini belum dihitung.`;
-    }
-    if (ar.length > 0) {
-      msg += `<br><br>⚠️ Outstanding AR: <strong>${formatIDR(totalAr)}</strong> (${ar.length} klien)`;
-    }
-    return msg;
-  }
-
-  if (/berapa karyawan|jumlah karyawan|total karyawan|daftar karyawan|list karyawan|karyawan/.test(t) && !/payroll/.test(t)) {
-    const emp = db.employees || [];
-    let msg = `👥 <strong>${emp.length} Karyawan</strong><br><br>`;
-    emp.slice(0, 6).forEach((e: any) => {
-      msg += `• <strong>${e.name}</strong> — ${e.company} (${e.status})<br>`;
-    });
-    if (emp.length > 6) msg += `<br>…dan ${emp.length - 6} lainnya.`;
-    return msg;
-  }
-
-  if (/client|klien|perusahaan/.test(t)) {
-    const cos = db.companies || [];
-    let msg = `🏢 <strong>${cos.length} Client</strong><br><br>`;
-    cos.forEach((c: any) => {
-      const count = (db.employees || []).filter((e: any) => e.company === c.name).length;
-      msg += `• <strong>${c.name}</strong> — ${count} karyawan · ${c.payrollType}<br>`;
-    });
-    return msg;
-  }
-
-  if (/payroll|gaji|penggajian/.test(t)) {
-    const payrolls = db.payrolls || [];
-    if (payrolls.length === 0) return `Belum ada data payroll. Ketik "hitung payroll" untuk memulai (fitur full sedang diporting).`;
-    let msg = `💰 <strong>Payroll</strong><br><br>`;
-    payrolls.forEach((p: any) => {
-      msg += `• <strong>${p.period}</strong> — ${p.status} · Net ${formatIDRShort(p.summary?.totalNet || 0)}<br>`;
-    });
-    return msg;
-  }
-
-  if (/outstanding|ar |piutang|tagihan belum/.test(t)) {
-    const ar = (db.arMonitor || []).filter((a: any) => a.status === 'OUTSTANDING');
-    if (ar.length === 0) return `✅ Tidak ada outstanding AR saat ini.`;
-    let msg = `⏳ <strong>Outstanding AR</strong><br><br>`;
-    ar.forEach((a: any) => {
-      msg += `• <strong>${a.company}</strong> — ${formatIDR(a.amount)} (${a.invoiceId})<br>`;
-    });
-    return msg;
-  }
-
-  if (/umr|umk|upah minimum/.test(t)) {
-    if (/jakarta|dki/.test(t)) return `UMR DKI Jakarta 2025: <strong>Rp 5.396.761</strong>`;
-    if (/barat|jabar/.test(t)) return `UMR Jawa Barat 2025: <strong>Rp 2.049.324</strong>`;
-    if (/timur|jatim/.test(t)) return `UMR Jawa Timur 2025: <strong>Rp 2.246.100</strong>`;
-    return `Contoh UMR 2025:<br>• DKI Jakarta: Rp 5.396.761<br>• Jawa Barat: Rp 2.049.324<br>• Jawa Timur: Rp 2.246.100<br><br>Ketik "UMR Jakarta" untuk detail.`;
-  }
-
-  if (/hitung|buat payroll|generate payroll/.test(t)) {
-    return `Fitur <strong>hitung payroll</strong> sedang dalam proses porting ke Next.js. Saat ini Anda bisa melihat status dan ringkasan data yang sudah ada.`;
-  }
-
-  return `Saya belum sepenuhnya memahami "${text}". Coba ketik <strong>help</strong> untuk melihat perintah yang saya pahami, atau "status" untuk ringkasan.`;
-}
 
 export default function IdaFab() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<{ role: 'ida' | 'user'; text: string }[]>([
-    { role: 'ida', text: 'Halo! Saya <strong>IDA</strong>, AI Payroll Manager. Ada yang bisa saya bantu? 😊' }
+    { role: 'ida', text: 'Halo! Saya <strong>IDA</strong>, AI Payroll Manager. Ketik <strong>help</strong> atau <strong>hitung payroll</strong>.' }
   ]);
   const [input, setInput] = useState('');
   const [db, setDb] = useState<any>(null);
@@ -122,8 +32,11 @@ export default function IdaFab() {
     setInput('');
 
     setTimeout(() => {
-      const reply = generateReply(userMsg, db);
-      setMessages(prev => [...prev, { role: 'ida', text: reply }]);
+      const result = handleIdaIntent(userMsg, db);
+      if (result.dbChanged && result.newDb) {
+        setDb(result.newDb);
+      }
+      setMessages(prev => [...prev, { role: 'ida', text: result.reply }]);
     }, 400);
   }
 
@@ -220,7 +133,7 @@ export default function IdaFab() {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && send()}
-                placeholder="Ask IDA… (coba: status, help)"
+                placeholder="Coba: hitung payroll, status, help"
                 style={{
                   flex: 1, border: 'none', background: 'transparent',
                   outline: 'none', fontSize: '13px', fontFamily: 'inherit', color: 'var(--text)'
