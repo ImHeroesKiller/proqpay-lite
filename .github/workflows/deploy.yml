@@ -29,8 +29,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build
+      - name: Build static export
         run: npm run build
+        env:
+          GITHUB_PAGES: "true"
+          NODE_ENV: production
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
