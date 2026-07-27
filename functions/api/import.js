@@ -3,6 +3,15 @@ import {
   MAX_IMPORT_BYTES,
   validateImportRows,
 } from './import-validation.js';
+import {
+  authorize,
+  enforceRateLimit,
+  handlePreflight,
+  publicError,
+  secureJson,
+} from './_security.js';
+
+const METHODS = 'POST, OPTIONS';
 
 function getUrl(env) {
   return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
@@ -20,34 +29,53 @@ export async function onRequest(context) {
   const { request, env } = context;
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: cors() });
+    return handlePreflight(request, env, METHODS);
   }
   if (request.method !== 'POST') {
-    return json({ error: 'POST only — send { rows: ParsedEmployee[] }' }, 405);
+    return secureJson({ error: 'POST only — send { rows: ParsedEmployee[] }' }, 405, request, env, METHODS);
   }
 
+  const authorization = await authorize(request, env, {
+    roles: ['SUPER_ADMIN', 'HR', 'PAYROLL'],
+    mutating: true,
+    methods: METHODS,
+  });
+  if (authorization.response) return authorization.response;
+
+  const rateLimited = await enforceRateLimit(
+    request,
+    env,
+    authorization.actor,
+    'employee-import',
+    METHODS
+  );
+  if (rateLimited) return rateLimited;
+
+  const respond = (data, status = 200) =>
+    secureJson(data, status, request, env, METHODS);
+  const requestId = crypto.randomUUID();
   const contentLength = Number(request.headers.get('content-length') || 0);
   if (contentLength > MAX_IMPORT_BYTES) {
-    return json({ error: `Payload maksimal ${MAX_IMPORT_BYTES} byte` }, 413);
+    return respond({ error: `Payload maksimal ${MAX_IMPORT_BYTES} byte` }, 413);
   }
 
   const url = getUrl(env);
-  if (!url) return json({ error: 'DATABASE_URL missing' }, 500);
+  if (!url) return respond({ error: 'Service unavailable', requestId }, 503);
 
   let body;
   try {
     const rawBody = await request.text();
     if (new TextEncoder().encode(rawBody).byteLength > MAX_IMPORT_BYTES) {
-      return json({ error: `Payload maksimal ${MAX_IMPORT_BYTES} byte` }, 413);
+      return respond({ error: `Payload maksimal ${MAX_IMPORT_BYTES} byte` }, 413);
     }
     body = JSON.parse(rawBody);
   } catch {
-    return json({ error: 'Invalid JSON' }, 400);
+    return respond({ error: 'Invalid JSON' }, 400);
   }
 
   const validation = validateImportRows(body.rows);
   if (!validation.ok) {
-    return json(
+    return respond(
       {
         ok: false,
         error: 'Import validation failed',
@@ -266,10 +294,10 @@ export async function onRequest(context) {
       queries.push(tx`
         INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity)
         VALUES (
-          ${'LOG-IMP-' + Date.now()},
+          ${'LOG-IMP-' + crypto.randomUUID()},
           ${orgId},
-          'import',
-          'SYSTEM',
+          ${authorization.actor.email},
+          ${authorization.actor.role},
           'EMPLOYEE_IMPORT',
           ${`Import ${inserted} new, ${updated} updated, 0 errors`},
           'Employee'
@@ -278,7 +306,7 @@ export async function onRequest(context) {
       return queries;
     });
 
-    return json({
+    return respond({
       ok: true,
       atomic: true,
       inserted,
@@ -289,29 +317,14 @@ export async function onRequest(context) {
       total: rows.length,
     });
   } catch (error) {
-    return json(
+    return respond(
       {
         ok: false,
         atomic: true,
         error: 'Import transaction failed',
-        message: error?.message || String(error),
+        ...publicError(error, requestId),
       },
       500
     );
   }
-}
-
-function cors() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  };
-}
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...cors() },
-  });
 }

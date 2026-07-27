@@ -137,8 +137,8 @@ export async function retrieveRag(env, userText, limit = 6) {
       id: 'snapshot',
       text: `Snapshot Neon: ${snap[0]?.emp || 0} employees, ${cli[0]?.n || 0} clients.`,
     });
-  } catch (err) {
-    chunks.push({ source: 'system', text: `RAG DB error: ${err?.message || String(err)}` });
+  } catch {
+    chunks.push({ source: 'system', text: 'RAG database sementara tidak tersedia.' });
   }
 
   return chunks.slice(0, limit);
@@ -178,14 +178,14 @@ export async function saveMemory(env, sessionId, role, content) {
   if (!url || !sessionId || !content) return;
   try {
     const sql = neon(url);
-    const id = `MSG-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const id = `MSG-${crypto.randomUUID()}`;
     await sql`
       INSERT INTO ida_messages (id, session_id, role, content)
       VALUES (${id}, ${sessionId}, ${role}, ${String(content).slice(0, 4000)})
     `;
     // extract simple long-term facts
     if (role === 'user' && /ingat|remember|preferensi|saya ingin/i.test(content)) {
-      const fid = `FACT-${Date.now()}`;
+      const fid = `FACT-${crypto.randomUUID()}`;
       await sql`
         INSERT INTO ida_memories (id, session_id, fact)
         VALUES (${fid}, ${sessionId}, ${String(content).slice(0, 500)})

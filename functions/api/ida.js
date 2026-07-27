@@ -3,8 +3,18 @@
  */
 import { retrieveRag, loadMemory, saveMemory, loadFacts } from './ida-rag.js';
 import { fetchRegulatoryWeb } from './ida-web.js';
+import {
+  ROLES,
+  authorize,
+  enforceRateLimit,
+  handlePreflight,
+  secureJson,
+} from './_security.js';
 
 const MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite'];
+const METHODS = 'POST, OPTIONS';
+const MAX_BODY_BYTES = 64 * 1024;
+const MAX_MESSAGE_CHARS = 4000;
 const KEY_NAMES = [
   'GEMINI_WORKER_1',
   'GEMINI_WORKER_2',
@@ -33,21 +43,55 @@ export async function onRequest(context) {
   const { request, env } = context;
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: cors() });
+    return handlePreflight(request, env, METHODS);
   }
-  if (request.method !== 'POST') return json({ error: 'POST only' }, 405);
+  if (request.method !== 'POST') {
+    return secureJson({ error: 'POST only' }, 405, request, env, METHODS);
+  }
+
+  const authorization = await authorize(request, env, {
+    roles: ROLES,
+    mutating: true,
+    methods: METHODS,
+  });
+  if (authorization.response) return authorization.response;
+
+  const rateLimited = await enforceRateLimit(
+    request,
+    env,
+    authorization.actor,
+    'ida-chat',
+    METHODS
+  );
+  if (rateLimited) return rateLimited;
+
+  const respond = (data, status = 200) =>
+    secureJson(data, status, request, env, METHODS);
+  const requestId = crypto.randomUUID();
+  const contentLength = Number(request.headers.get('content-length') || 0);
+  if (contentLength > MAX_BODY_BYTES) {
+    return respond({ error: 'Payload too large' }, 413);
+  }
 
   let body;
   try {
-    body = await request.json();
+    const rawBody = await request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
+      return respond({ error: 'Payload too large' }, 413);
+    }
+    body = JSON.parse(rawBody);
   } catch {
-    return json({ error: 'Invalid JSON' }, 400);
+    return respond({ error: 'Invalid JSON' }, 400);
   }
 
   const userText = (body.message || body.text || '').trim();
-  if (!userText) return json({ error: 'message required' }, 400);
+  if (!userText) return respond({ error: 'message required' }, 400);
+  if (userText.length > MAX_MESSAGE_CHARS) {
+    return respond({ error: `message maksimal ${MAX_MESSAGE_CHARS} karakter` }, 422);
+  }
 
-  const sessionId = String(body.sessionId || body.session_id || 'default').slice(0, 80);
+  const rawSessionId = String(body.sessionId || body.session_id || 'default').slice(0, 80);
+  const sessionId = `${authorization.actor.id}:${rawSessionId}`.slice(0, 120);
 
   const [ragChunks, history, facts, web] = await Promise.all([
     retrieveRag(env, userText, 8),
@@ -97,11 +141,9 @@ Balas natural, tanpa "Halo!" rutin, tanpa CTA upload kecuali diminta.`;
 
   const keys = KEY_NAMES.map((n) => env[n]).filter(Boolean);
   if (!keys.length) {
-    return json({ error: 'No Gemini keys', hint: 'Set GEMINI_WORKER_1..5' }, 500);
+    console.error(JSON.stringify({ level: 'error', requestId, event: 'ida_keys_unavailable' }));
+    return respond({ error: 'AI service unavailable', requestId }, 503);
   }
-
-  const attempts = [];
-  let lastError = null;
 
   for (let ki = 0; ki < keys.length; ki++) {
     for (const model of MODELS) {
@@ -113,11 +155,10 @@ Balas natural, tanpa "Halo!" rutin, tanpa CTA upload kecuali diminta.`;
         if (web.triggers?.length) cotLines.push(`Web: ${web.triggers.join(',')}`);
         if (history.length) cotLines.push(`Memory ${history.length} turns`);
         if (model) cotLines.push(model);
-        return json({
+        return respond({
           ok: true,
           reply: text,
           model,
-          keyIndex: ki + 1,
           cot: {
             lines: cotLines,
             ragSources: ragChunks.map((c) => c.source + (c.id ? `/${c.id}` : '')),
@@ -126,17 +167,24 @@ Balas natural, tanpa "Halo!" rutin, tanpa CTA upload kecuali diminta.`;
             memoryTurns: history.length,
             facts: facts.length,
           },
-          attempts,
         });
       } catch (err) {
         const msg = err?.message || String(err);
-        attempts.push({ keyIndex: ki + 1, model, error: msg.slice(0, 200) });
-        lastError = msg;
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            requestId,
+            event: 'ida_provider_attempt_failed',
+            model,
+            keySlot: ki + 1,
+            message: msg.slice(0, 200),
+          })
+        );
       }
     }
   }
 
-  return json({ ok: false, error: 'All Gemini failed', lastError, attempts }, 502);
+  return respond({ ok: false, error: 'AI service unavailable', requestId }, 502);
 }
 
 async function callGemini(apiKey, model, prompt) {
@@ -159,19 +207,4 @@ async function callGemini(apiKey, model, prompt) {
     '';
   if (!text.trim()) throw new Error('Empty Gemini response');
   return text.trim();
-}
-
-function cors() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  };
-}
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...cors() },
-  });
 }

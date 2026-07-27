@@ -1,4 +1,7 @@
 import { neon } from '@neondatabase/serverless';
+import { handlePreflight, publicError, secureJson } from './_security.js';
+
+const METHODS = 'GET, OPTIONS';
 
 function getUrl(env) {
   return (
@@ -11,76 +14,43 @@ function getUrl(env) {
   );
 }
 
-export async function onRequest(context) {
-  const { request, env } = context;
-
+export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: corsHeaders(),
-    });
+    return handlePreflight(request, env, METHODS);
+  }
+  if (request.method !== 'GET') {
+    return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
   }
 
-  const envHints = {
-    DATABASE_URL: Boolean(env.DATABASE_URL),
-    NEON_DATABASE_URL: Boolean(env.NEON_DATABASE_URL),
-    POSTGRES_URL: Boolean(env.POSTGRES_URL),
-  };
-
+  const requestId = crypto.randomUUID();
   try {
     const url = getUrl(env);
     if (!url) {
-      return json(
-        {
-          status: 'error',
-          database: 'disconnected',
-          message: 'Set DATABASE_URL in Cloudflare Pages → Settings → Environment variables',
-          env_present: envHints,
-          host: 'cloudflare-pages',
-        },
-        500
+      return secureJson(
+        { status: 'error', message: 'Service unavailable', requestId },
+        503,
+        request,
+        env,
+        METHODS
       );
     }
 
     const sql = neon(url);
     const rows = await sql`SELECT 1 AS ok, NOW() AS server_time`;
-
-    return json({
-      status: 'ok',
-      database: 'connected',
-      server_time: rows[0]?.server_time,
-      env_present: envHints,
-      service: 'proqpay-lite',
-      host: 'cloudflare-pages',
-    });
-  } catch (err) {
-    return json(
+    return secureJson(
       {
-        status: 'error',
-        database: 'disconnected',
-        message: err?.message || String(err),
-        env_present: envHints,
+        status: 'ok',
+        database: 'connected',
+        server_time: rows[0]?.server_time,
+        service: 'proqpay-lite',
         host: 'cloudflare-pages',
       },
-      500
+      200,
+      request,
+      env,
+      METHODS
     );
+  } catch (error) {
+    return secureJson(publicError(error, requestId), 500, request, env, METHODS);
   }
-}
-
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  };
-}
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      ...corsHeaders(),
-    },
-  });
 }

@@ -5,6 +5,15 @@
  *   or { "lokasi": "...", "cabang": "...", "kotaUmk": "...", "unitKerja": "..." }
  *   or { "rows": [ { lokasi, cabang, kotaUmk }, ... ] }
  */
+import {
+  ROLES,
+  authorize,
+  enforceRateLimit,
+  handlePreflight,
+  secureJson,
+} from './_security.js';
+
+const METHODS = 'GET, POST, OPTIONS';
 
 // Lightweight copy of mapping rules for edge (no TS import path issues)
 const PROVINCE_CODES = {
@@ -136,32 +145,53 @@ function resolveWorkLocation(input) {
 }
 
 export async function onRequest(context) {
-  const { request } = context;
+  const { request, env } = context;
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: cors() });
+    return handlePreflight(request, env, METHODS);
   }
+
+  if (request.method !== 'GET' && request.method !== 'POST') {
+    return secureJson({ error: 'POST or GET only' }, 405, request, env, METHODS);
+  }
+
+  const authorization = await authorize(request, env, {
+    roles: ROLES,
+    mutating: request.method === 'POST',
+    methods: METHODS,
+  });
+  if (authorization.response) return authorization.response;
+
+  const rateLimited = await enforceRateLimit(
+    request,
+    env,
+    authorization.actor,
+    'wilayah-lookup',
+    METHODS
+  );
+  if (rateLimited) return rateLimited;
+
+  const respond = (data, status = 200) =>
+    secureJson(data, status, request, env, METHODS);
 
   if (request.method === 'GET') {
     const url = new URL(request.url);
     const q = url.searchParams.get('q') || url.searchParams.get('text') || '';
-    if (!q) return json({ error: 'query q required' }, 400);
-    return json({ ok: true, result: resolveWorkLocation({ text: q }) });
+    if (!q) return respond({ error: 'query q required' }, 400);
+    return respond({ ok: true, result: resolveWorkLocation({ text: q }) });
   }
-
-  if (request.method !== 'POST') return json({ error: 'POST or GET only' }, 405);
 
   let body;
   try {
     body = await request.json();
   } catch {
-    return json({ error: 'Invalid JSON' }, 400);
+    return respond({ error: 'Invalid JSON' }, 400);
   }
 
   if (Array.isArray(body.rows)) {
     const results = body.rows.map((r) => resolveWorkLocation(r));
     const unknown = results.filter((r) => r.province === 'Tidak diketahui').length;
-    return json({ ok: true, count: results.length, unknown, results });
+    return respond({ ok: true, count: results.length, unknown, results });
   }
 
   const result = resolveWorkLocation({
@@ -172,20 +202,5 @@ export async function onRequest(context) {
     unitKerja: body.unitKerja || body.unit_kerja,
   });
 
-  return json({ ok: true, result });
-}
-
-function cors() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  };
-}
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...cors() },
-  });
+  return respond({ ok: true, result });
 }

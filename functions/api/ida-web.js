@@ -183,13 +183,13 @@ export async function fetchRegulatoryWeb(userText) {
           });
         }
       }
-    } catch (err) {
+    } catch {
       snippets.push({
         topic: trigger.id,
         label: trigger.label,
         title: 'web_search_error',
         url: '',
-        snippet: `Pencarian ${trigger.label} gagal: ${err?.message || String(err)}`,
+        snippet: `Pencarian ${trigger.label} sementara tidak tersedia.`,
         confidence: 0,
       });
     }

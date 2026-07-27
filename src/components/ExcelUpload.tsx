@@ -16,6 +16,9 @@ export default function ExcelUpload() {
     setResult(null);
     setBusy(true);
     try {
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error('Ukuran file maksimal 5 MB');
+      }
       const buf = await file.arrayBuffer();
       const parsed = parseIapWorkbook(buf);
       setPreview(parsed.rows.slice(0, 8));

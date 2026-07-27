@@ -1,4 +1,14 @@
 import { neon } from '@neondatabase/serverless';
+import {
+  ROLES,
+  authorize,
+  enforceRateLimit,
+  handlePreflight,
+  publicError,
+  secureJson,
+} from './_security.js';
+
+const METHODS = 'GET, POST, OPTIONS';
 
 function getUrl(env) {
   return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
@@ -8,12 +18,36 @@ export async function onRequest(context) {
   const { request, env } = context;
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: cors() });
+    return handlePreflight(request, env, METHODS);
   }
+
+  if (request.method !== 'GET' && request.method !== 'POST') {
+    return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
+  }
+
+  const authorization = await authorize(request, env, {
+    roles: request.method === 'POST' ? ['SUPER_ADMIN', 'HR', 'PAYROLL'] : ROLES,
+    mutating: request.method === 'POST',
+    methods: METHODS,
+  });
+  if (authorization.response) return authorization.response;
+
+  const rateLimited = await enforceRateLimit(
+    request,
+    env,
+    authorization.actor,
+    request.method === 'POST' ? 'employees-write' : 'employees-read',
+    METHODS
+  );
+  if (rateLimited) return rateLimited;
+
+  const respond = (data, status = 200) =>
+    secureJson(data, status, request, env, METHODS);
+  const requestId = crypto.randomUUID();
 
   try {
     const url = getUrl(env);
-    if (!url) return json({ status: 'error', message: 'DATABASE_URL missing' }, 500);
+    if (!url) return respond({ status: 'error', message: 'Service unavailable', requestId }, 503);
 
     const sql = neon(url);
 
@@ -78,16 +112,21 @@ export async function onRequest(context) {
         ORDER BY e.name ASC
         LIMIT 500
       `;
-      return json({ employees: rows, count: rows.length });
+      return respond({ employees: rows, count: rows.length });
     }
 
     if (request.method === 'POST') {
-      const body = await request.json();
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return respond({ status: 'error', message: 'Invalid JSON' }, 400);
+      }
       if (!body.name || !String(body.name).trim()) {
-        return json({ status: 'error', message: 'name required' }, 400);
+        return respond({ status: 'error', message: 'name required' }, 400);
       }
 
-      const id = body.id || `EMP${Date.now()}`;
+      const id = body.id || `EMP-${crypto.randomUUID()}`;
       const orgId = body.orgId || body.org_id || 'ORG-OTSINDO';
       const clientId = body.clientId || body.client_id || null;
       const branchId = body.branchId || body.branch_id || null;
@@ -159,26 +198,11 @@ export async function onRequest(context) {
         `;
       }
 
-      return json({ ok: true, id });
+      return respond({ ok: true, id });
     }
 
-    return json({ error: 'Method not allowed' }, 405);
-  } catch (err) {
-    return json({ status: 'error', message: err?.message || String(err) }, 500);
+    return respond({ error: 'Method not allowed' }, 405);
+  } catch (error) {
+    return respond(publicError(error, requestId), 500);
   }
-}
-
-function cors() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  };
-}
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...cors() },
-  });
 }

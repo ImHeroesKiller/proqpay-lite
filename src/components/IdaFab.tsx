@@ -166,6 +166,9 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     setCotLive(['Membaca file…', 'Memetakan wilayah…']);
     setMessages((prev) => [...prev, { role: 'user', text: `📎 ${file.name}` }]);
     try {
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error('Ukuran file maksimal 5 MB');
+      }
       const parsed = parseIapWorkbook(await file.arrayBuffer());
       setPendingRows(parsed.rows);
       const sample = parsed.rows

@@ -1,4 +1,13 @@
 import { neon } from '@neondatabase/serverless';
+import {
+  authorize,
+  enforceRateLimit,
+  handlePreflight,
+  publicError,
+  secureJson,
+} from './_security.js';
+
+const METHODS = 'POST, OPTIONS';
 
 function getUrl(env) {
   return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
@@ -8,16 +17,35 @@ export async function onRequest(context) {
   const { request, env } = context;
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: cors() });
+    return handlePreflight(request, env, METHODS);
   }
 
-  if (request.method !== 'POST' && request.method !== 'GET') {
-    return json({ error: 'Method not allowed' }, 405);
+  if (request.method !== 'POST') {
+    return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
   }
 
+  const authorization = await authorize(request, env, {
+    roles: ['SUPER_ADMIN'],
+    mutating: true,
+    methods: METHODS,
+  });
+  if (authorization.response) return authorization.response;
+
+  const rateLimited = await enforceRateLimit(
+    request,
+    env,
+    authorization.actor,
+    'schema-migration',
+    METHODS
+  );
+  if (rateLimited) return rateLimited;
+
+  const respond = (data, status = 200) =>
+    secureJson(data, status, request, env, METHODS);
+  const requestId = crypto.randomUUID();
   try {
     const url = getUrl(env);
-    if (!url) return json({ status: 'error', message: 'DATABASE_URL missing' }, 500);
+    if (!url) return respond({ status: 'error', message: 'Service unavailable', requestId }, 503);
 
     const sql = neon(url);
 
@@ -125,7 +153,7 @@ export async function onRequest(context) {
       ON CONFLICT (id) DO NOTHING
     `;
 
-    return json({
+    return respond({
       status: 'ok',
       message: 'Schema ready — work_locations.province via IDA wilayah',
       host: 'cloudflare-pages',
@@ -149,22 +177,7 @@ export async function onRequest(context) {
         'audit_logs',
       ],
     });
-  } catch (err) {
-    return json({ status: 'error', message: err?.message || String(err) }, 500);
+  } catch (error) {
+    return respond(publicError(error, requestId), 500);
   }
-}
-
-function cors() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  };
-}
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...cors() },
-  });
 }
