@@ -36,25 +36,41 @@ function companiesFromEmployees(employees: any[], existingCompanies: any[]) {
 }
 
 export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
-  const response = await fetch('/api/employees', {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-    signal: options.signal,
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.message || data.error || `HTTP ${response.status}`);
-  }
+  const [response, stateResponse] = await Promise.all([
+    fetch('/api/employees', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: options.signal,
+    }),
+    fetch('/api/state', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: options.signal,
+    }),
+  ]);
+  const [data, stateData] = await Promise.all([
+    response.json().catch(() => ({})),
+    stateResponse.json().catch(() => ({})),
+  ]);
+  if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
 
   const employees = Array.isArray(data.employees) ? data.employees : [];
-  if (!employees.length && !options.requireData) {
+  const remoteState = stateResponse.ok && stateData?.state ? stateData.state : {};
+  const hasRemoteState = ['payrolls', 'approvals', 'payments', 'invoices', 'arMonitor', 'auditLogs']
+    .some((key) => Array.isArray(remoteState[key]) && remoteState[key].length > 0);
+  if (!employees.length && !hasRemoteState && !options.requireData) {
     return { db, count: 0, synced: false };
   }
 
   const nextDb = {
     ...db,
-    employees,
-    companies: companiesFromEmployees(employees, db.companies || []),
+    ...(employees.length
+      ? {
+          employees,
+          companies: companiesFromEmployees(employees, db.companies || []),
+        }
+      : {}),
+    ...(hasRemoteState ? remoteState : {}),
     meta: {
       ...db.meta,
       lastNeonSyncAt: Date.now(),
@@ -62,4 +78,23 @@ export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
     },
   };
   return { db: nextDb, count: employees.length, synced: true };
+}
+
+export async function persistBusinessState(db: any) {
+  const state = {
+    payrolls: db.payrolls || [],
+    approvals: db.approvals || [],
+    payments: db.payments || [],
+    invoices: db.invoices || [],
+    arMonitor: db.arMonitor || [],
+    auditLogs: db.auditLogs || [],
+  };
+  const response = await fetch('/api/state', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || data.message || `HTTP ${response.status}`);
+  return data;
 }

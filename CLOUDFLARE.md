@@ -60,6 +60,8 @@ Hak akses API:
 | `POST /api/import` | `SUPER_ADMIN`, `HR`, `PAYROLL` |
 | `POST /api/schema` | `SUPER_ADMIN` |
 | `/api/ida`, `/api/wilayah` | semua role terautentikasi |
+| `GET /api/state` | membaca state payroll, invoice, payment, AR, dan audit |
+| `POST /api/state` | `SUPER_ADMIN`, `PAYROLL`, `FINANCE`, `DIRECTOR` |
 
 ## Rate limiting
 
@@ -94,6 +96,14 @@ ada dua jalur deployment yang saling tumpang tindih.
 
 File `public/_headers` menetapkan anti-framing, MIME sniffing protection,
 referrer policy, permissions policy, HSTS, dan immutable cache untuk aset build.
+
+## Persistensi proses bisnis
+
+Aksi IDA untuk payroll, approval, payment instruction, paid, invoice, piutang,
+dan audit disinkronkan ke Neon melalui `/api/state`. Endpoint menggunakan
+transaksi atomik, validasi ukuran serta identifier, dan role enforcement.
+`localStorage` tetap menjadi mirror offline; saat koneksi pulih, state Neon
+digunakan kembali pada sinkronisasi dashboard.
 
 ## Catatan dependency
 

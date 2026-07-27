@@ -11,7 +11,7 @@ import { getIdaSessionId } from '@/lib/session';
 import { parseIapWorkbook, type ParsedEmployee } from '@/lib/excel-iap';
 import { validatePayrollIndonesia, formatValidationMarkdown } from '@/lib/payroll-validate';
 import { loadSettings, onSettingsChange } from '@/lib/app-settings';
-import { syncDatabaseFromNeon } from '@/lib/neon-sync';
+import { persistBusinessState, syncDatabaseFromNeon } from '@/lib/neon-sync';
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
 
@@ -251,6 +251,19 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     if (/invoice|payroll|upload|bpjs|validasi/.test(userMsg.toLowerCase())) lastTopicRef.current = userMsg.toLowerCase();
 
     try {
+      async function applyResult(result: ReturnType<typeof handleIdaIntent>) {
+        let reply = result.reply;
+        if (result.dbChanged && result.newDb) {
+          setDb(result.newDb);
+          emitDbChange();
+          try {
+            await persistBusinessState(result.newDb);
+          } catch {
+            reply += renderMarkdown('\n\n_Data tersimpan di perangkat, tetapi sinkronisasi server belum berhasil._');
+          }
+        }
+        return reply;
+      }
       const low = userMsg.toLowerCase();
       if (/\b(import sekarang|simpan import)\b/.test(low)) {
         await runImport();
@@ -270,11 +283,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       if (looksLikeLocalAction(userMsg) || mapped !== userMsg) {
         setCotLive(['Menyiapkan jawaban…', `Menjalankan: ${mapped}`]);
         const result = handleIdaIntent(mapped, db);
-        if (result.dbChanged && result.newDb) {
-          setDb(result.newDb);
-          emitDbChange();
-        }
-        await pushIda(result.reply, false, ['Selesai']);
+        await pushIda(await applyResult(result), false, ['Selesai']);
         return;
       }
 
@@ -296,16 +305,15 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         return;
       }
       const result = handleIdaIntent(userMsg, db);
-      if (result.dbChanged && result.newDb) {
-        setDb(result.newDb);
-        emitDbChange();
-      }
-      await pushIda(result.reply, false, ['Selesai']);
+      await pushIda(await applyResult(result), false, ['Selesai']);
     } catch {
       const result = handleIdaIntent(userMsg, db);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
+        persistBusinessState(result.newDb).catch(() => {
+          // Mirror lokal tetap tersedia bila koneksi server terputus.
+        });
       }
       await pushIda(result.reply, false);
     } finally {

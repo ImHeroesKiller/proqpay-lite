@@ -116,9 +116,23 @@ export async function onRequest(context) {
         UNIQUE (org_id, period))`,
       `CREATE TABLE IF NOT EXISTS invoices (
         id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
-        client_id TEXT REFERENCES clients(id), period TEXT, amount BIGINT DEFAULT 0,
+        client_id TEXT REFERENCES clients(id), company TEXT, period TEXT, amount BIGINT DEFAULT 0,
         tax_amount BIGINT DEFAULT 0, total_amount BIGINT DEFAULT 0, status TEXT DEFAULT 'DRAFT',
         issued_at TIMESTAMPTZ, paid_at TIMESTAMPTZ, items JSONB DEFAULT '[]'::jsonb)`,
+      `CREATE TABLE IF NOT EXISTS approvals (
+        id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
+        payroll_id TEXT, period TEXT, approved_by TEXT, status TEXT DEFAULT 'PENDING',
+        approved_at TIMESTAMPTZ)`,
+      `CREATE TABLE IF NOT EXISTS payments (
+        id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
+        payroll_id TEXT, period TEXT, bank TEXT, account TEXT, amount BIGINT DEFAULT 0,
+        status TEXT DEFAULT 'DRAFT', reference TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(), paid_at TIMESTAMPTZ)`,
+      `CREATE TABLE IF NOT EXISTS ar_monitor (
+        id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
+        company TEXT, invoice_id TEXT, amount BIGINT DEFAULT 0,
+        status TEXT DEFAULT 'OUTSTANDING', due_date TIMESTAMPTZ,
+        days_overdue INT DEFAULT 0, type TEXT, notes TEXT)`,
       `CREATE TABLE IF NOT EXISTS audit_logs (
         id TEXT PRIMARY KEY, org_id TEXT, timestamp TIMESTAMPTZ DEFAULT NOW(),
         username TEXT, role TEXT, action TEXT, detail TEXT, entity TEXT, entity_id TEXT)`,
@@ -133,6 +147,7 @@ export async function onRequest(context) {
       `ALTER TABLE work_locations ADD COLUMN IF NOT EXISTS province TEXT`,
       `ALTER TABLE work_locations ADD COLUMN IF NOT EXISTS city_umk TEXT`,
       `ALTER TABLE employees ADD COLUMN IF NOT EXISTS province TEXT`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS company TEXT`,
     ];
     for (const a of alters) {
       try {
@@ -174,6 +189,9 @@ export async function onRequest(context) {
         'employee_hris_meta',
         'payrolls',
         'invoices',
+        'approvals',
+        'payments',
+        'ar_monitor',
         'audit_logs',
       ],
     });

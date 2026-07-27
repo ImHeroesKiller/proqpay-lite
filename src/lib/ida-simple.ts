@@ -317,6 +317,10 @@ export function handleIdaIntent(
       payments: (db.payments || []).map((p: any) =>
         p.period === period ? { ...p, status: 'PAID', paidAt: Date.now() } : p
       ),
+      auditLogs: [
+        ...(db.auditLogs || []),
+        { id: `LOG${Date.now()}`, timestamp: Date.now(), user: 'IDA', role: 'AI', action: 'PAYMENT_CONFIRMED', detail: period, entity: 'Payroll', entityId: payroll.id },
+      ],
     };
     saveDatabase(newDb);
     return { reply: renderMarkdown(`**${period}** ditandai PAID.`), dbChanged: true, newDb };
@@ -364,7 +368,16 @@ export function handleIdaIntent(
           notes: period,
         });
       });
-    const newDb = { ...db, payrolls: db.payrolls.map((p: any) => (p.period === period ? payroll : p)), invoices: newInvoices, arMonitor: newAr };
+    const newDb = {
+      ...db,
+      payrolls: db.payrolls.map((p: any) => (p.period === period ? payroll : p)),
+      invoices: newInvoices,
+      arMonitor: newAr,
+      auditLogs: [
+        ...(db.auditLogs || []),
+        { id: `LOG${Date.now()}`, timestamp: Date.now(), user: 'IDA', role: 'AI', action: 'INVOICE_GENERATED', detail: period, entity: 'Invoice', entityId: created.join(', ').slice(0, 500) },
+      ],
+    };
     saveDatabase(newDb);
     return {
       reply: renderMarkdown(`Invoice **${period}**:\n` + created.map((x) => `- ${x}`).join('\n')),
