@@ -9,6 +9,19 @@ export const ROLES = Object.freeze([
   'VIEWER',
 ]);
 
+const ROLE_PERMISSIONS = Object.freeze({
+  SUPER_ADMIN: ['read', 'employees:write', 'import:write', 'schema:write', 'settings:write'],
+  PAYROLL: ['read', 'employees:write', 'import:write', 'payroll:write'],
+  HR: ['read', 'employees:write', 'import:write'],
+  FINANCE: ['read', 'finance:write'],
+  DIRECTOR: ['read', 'approval:write'],
+  VIEWER: ['read'],
+});
+
+export function permissionsFor(role) {
+  return ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.VIEWER;
+}
+
 function configuredOrigins(request, env) {
   const currentOrigin = new URL(request.url).origin;
   const configured = String(env.APP_ORIGINS || '')
@@ -73,7 +86,13 @@ function parseRoleMap(env) {
   if (!env.ROLE_MAP_JSON) return {};
   try {
     const parsed = JSON.parse(env.ROLE_MAP_JSON);
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).map(([email, role]) => [
+        String(email).trim().toLowerCase(),
+        role,
+      ])
+    );
   } catch {
     return {};
   }

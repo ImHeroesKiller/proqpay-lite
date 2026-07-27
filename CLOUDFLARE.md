@@ -54,6 +54,7 @@ Hak akses API:
 | Endpoint | Akses |
 |---|---|
 | `GET /api/health` | publik, respons disanitasi |
+| `GET /api/me` | identitas, role, dan permission pengguna aktif |
 | `GET /api/employees` | semua role terautentikasi |
 | `POST /api/employees` | `SUPER_ADMIN`, `HR`, `PAYROLL` |
 | `POST /api/import` | `SUPER_ADMIN`, `HR`, `PAYROLL` |
@@ -83,6 +84,16 @@ curl -X POST https://proqpay-lite.pages.dev/api/schema
 
 Setelah mengaktifkan Access, panggilan tanpa sesi Access harus menghasilkan 401
 untuk endpoint yang dilindungi.
+
+## Quality gate dan header
+
+GitHub Actions menjalankan tes, typecheck, lint, dan production build pada setiap
+push ke `main` dan pull request. Deployment production tetap dilakukan oleh
+integrasi Git Cloudflare Pages; workflow GitHub Pages lama telah dihapus agar tidak
+ada dua jalur deployment yang saling tumpang tindih.
+
+File `public/_headers` menetapkan anti-framing, MIME sniffing protection,
+referrer policy, permissions policy, HSTS, dan immutable cache untuk aset build.
 
 ## Catatan dependency
 

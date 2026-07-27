@@ -40,10 +40,14 @@ export async function onRequest({ request, env }) {
     return secureJson(
       {
         status: 'ok',
+        ready: true,
         database: 'connected',
         server_time: rows[0]?.server_time,
         service: 'proqpay-lite',
         host: 'cloudflare-pages',
+        auth_mode: String(env.AUTH_MODE || 'origin').toLowerCase() === 'access'
+          ? 'access'
+          : 'origin',
       },
       200,
       request,

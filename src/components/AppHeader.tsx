@@ -11,20 +11,49 @@ export default function AppHeader({
   onHelp: () => void;
 }) {
   const [user, setUser] = useState<AppUser | null>(null);
+  const [accessAuthenticated, setAccessAuthenticated] = useState(false);
   const [menu, setMenu] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
-    const sync = () => setUser(currentUser(loadSettings()));
+    let accessUser: AppUser | null = null;
+    const sync = () => setUser(accessUser || currentUser(loadSettings()));
     sync();
-    return onSettingsChange(sync);
+    const controller = new AbortController();
+    fetch('/api/me', {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!data.authenticated || !data.user?.email || !data.user?.role) return;
+        const email = String(data.user.email);
+        accessUser = {
+          id: String(data.user.id || email),
+          name: email.split('@')[0],
+          email,
+          role: data.user.role as AppUser['role'],
+          active: true,
+        };
+        setAccessAuthenticated(true);
+        setUser(accessUser);
+      })
+      .catch(() => {
+        // Profil lokal tetap digunakan jika endpoint identitas tidak tersedia.
+      });
+    const unsubscribe = onSettingsChange(sync);
+    return () => {
+      controller.abort();
+      unsubscribe();
+    };
   }, []);
 
   function logout() {
     setMenu(false);
     if (typeof window !== 'undefined') {
       localStorage.removeItem('proqpay_session_ok');
-      window.location.reload();
+      window.location.assign(accessAuthenticated ? '/cdn-cgi/access/logout' : '/');
     }
   }
 
