@@ -10,7 +10,7 @@ export type IdaRole =
   | 'SUPER_ADMIN'
   | 'HR'
   | 'PAYROLL'
-  | 'APPROVER'
+  | 'DIRECTOR'
   | 'FINANCE'
   | 'VIEWER';
 
