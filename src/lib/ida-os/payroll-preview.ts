@@ -20,7 +20,10 @@ export function buildPayrollPreview(payroll: any, validationErrors: number, plan
   };
 }
 
-export function buildPayrollBreakdown(payroll: any) {
+export function buildPayrollBreakdown(payroll: any): {
+  components: Record<string, number>;
+  clients: Record<string, { count: number; gross: number; net: number }>;
+} {
   const details = Array.isArray(payroll?.details) ? payroll.details : [];
   const components = details.reduce(
     (totals: Record<string, number>, item: any) => {
