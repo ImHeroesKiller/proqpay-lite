@@ -1,7 +1,9 @@
-// ProQPay Lite — Database Engine v2
-// In-memory database with localStorage persistence
+// ProQPay Lite — canonical client-side database mirror
+// Operational data is loaded from Neon. This module contains only regulatory
+// reference data and an empty local cache for offline resilience.
 
-export const DB_KEY = 'proqpay_db_v2';
+export const DB_KEY = 'proqpay_db_v3';
+export const LEGACY_DB_KEYS = ['proqpay_db_v2'];
 
 export const UMR_2025: Record<string, number> = {
   'DKI Jakarta': 5396761, 'Jawa Barat': 2049324, 'Jawa Tengah': 2163566, 'DI Yogyakarta': 2660200,
@@ -25,71 +27,28 @@ export const UMR_2024: Record<string, number> = {
 };
 
 export const BANK_SCHEMAS: Record<string, any> = {
-  'BCA': { code:'BCA', name:'Bank Central Asia', transferType:'BCA_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
-  'Mandiri': { code:'Mandiri', name:'Bank Mandiri', transferType:'MANDIRI_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
-  'BNI': { code:'BNI', name:'Bank Negara Indonesia', transferType:'BNI_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
-  'BRI': { code:'BRI', name:'Bank Rakyat Indonesia', transferType:'BRI_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
-  'CIMB': { code:'CIMB', name:'CIMB Niaga', transferType:'CIMB_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
-  'Permata': { code:'Permata', name:'Bank Permata', transferType:'PERMATA_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
+  BCA: { code:'BCA', name:'Bank Central Asia', transferType:'BCA_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
+  Mandiri: { code:'Mandiri', name:'Bank Mandiri', transferType:'MANDIRI_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
+  BNI: { code:'BNI', name:'Bank Negara Indonesia', transferType:'BNI_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
+  BRI: { code:'BRI', name:'Bank Rakyat Indonesia', transferType:'BRI_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
+  CIMB: { code:'CIMB', name:'CIMB Niaga', transferType:'CIMB_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
+  Permata: { code:'Permata', name:'Bank Permata', transferType:'PERMATA_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
 };
 
 export function seedDatabase() {
   return {
-    meta: { createdAt: Date.now(), currentPeriod: '2025-07', orgName: 'ProQPay Demo Corp' },
-    employees: [
-      { id:'EMP001', name:'Budi Santoso', nik:'3201010101900001', npwp:'01.234.567.8-090.000', status:'TETAP', joinDate:'2021-03-01', company:'PT Maju Bersama', project:'Managed Service Jakarta', position:'Senior Field Engineer', region:'DKI Jakarta', bankAccount:'BCA-1234567890', bankName:'BCA', salaryGross:8500000, allowanceTransport:1000000, allowanceMeal:500000, bpjsKesehatan:true, bpjsKetenagakerjaan:true, pph21:true },
-      { id:'EMP002', name:'Siti Rahayu', nik:'3201024502920002', npwp:'02.345.678.9-091.000', status:'TETAP', joinDate:'2020-08-15', company:'PT Maju Bersama', project:'Managed Service Jakarta', position:'Team Lead', region:'DKI Jakarta', bankAccount:'Mandiri-9876543210', bankName:'Mandiri', salaryGross:12000000, allowanceTransport:1500000, allowanceMeal:750000, bpjsKesehatan:true, bpjsKetenagakerjaan:true, pph21:true },
-      { id:'EMP003', name:'Agus Pratama', nik:'3510010101930003', npwp:'', status:'KONTRAK', joinDate:'2024-01-15', company:'PT Maju Bersama', project:'Data Center Surabaya', position:'Field Engineer', region:'Jawa Timur', bankAccount:'BNI-5555888811', bankName:'BNI', salaryGross:6500000, allowanceTransport:800000, allowanceMeal:400000, bpjsKesehatan:true, bpjsKetenagakerjaan:false, pph21:true },
-      { id:'EMP004', name:'Dewi Lestari', nik:'3578010101880004', npwp:'03.456.789.0-092.000', status:'TETAP', joinDate:'2019-05-20', company:'PT Sumber Rezeki', project:'Network Infrastructure Bandung', position:'Project Manager', region:'Jawa Barat', bankAccount:'BCA-1122334455', bankName:'BCA', salaryGross:15000000, allowanceTransport:2000000, allowanceMeal:1000000, bpjsKesehatan:true, bpjsKetenagakerjaan:true, pph21:true },
-      { id:'EMP005', name:'Eko Wijaya', nik:'6101010101950005', npwp:'', status:'KONTRAK', joinDate:'2024-06-01', company:'PT Sumber Rezeki', project:'Data Center Surabaya', position:'Field Engineer', region:'Kalimantan Barat', bankAccount:'BRI-9988776655', bankName:'BRI', salaryGross:5500000, allowanceTransport:600000, allowanceMeal:350000, bpjsKesehatan:false, bpjsKetenagakerjaan:false, pph21:true },
-      { id:'EMP006', name:'Rina Maulida', nik:'6202010101940006', npwp:'04.567.890.1-093.000', status:'TETAP', joinDate:'2022-02-01', company:'PT Maju Bersama', project:'Managed Service Jakarta', position:'Helpdesk Support', region:'Kalimantan Selatan', bankAccount:'Mandiri-4455667788', bankName:'Mandiri', salaryGross:7000000, allowanceTransport:1000000, allowanceMeal:500000, bpjsKesehatan:true, bpjsKetenagakerjaan:true, pph21:true },
-      { id:'EMP007', name:'Hendra Gunawan', nik:'7301010101900007', npwp:'05.678.901.2-094.000', status:'TETAP', joinDate:'2021-11-01', company:'PT Maju Bersama', project:'Network Infrastructure Bandung', position:'Network Engineer', region:'Sumatera Selatan', bankAccount:'BCA-6677889900', bankName:'BCA', salaryGross:9000000, allowanceTransport:1200000, allowanceMeal:600000, bpjsKesehatan:true, bpjsKetenagakerjaan:true, pph21:true },
-      { id:'EMP008', name:'Lina Kusuma', nik:'5121010101970008', npwp:'', status:'KONTRAK', joinDate:'2025-01-10', company:'PT Sumber Rezeki', project:'Data Center Surabaya', position:'Junior Engineer', region:'Bali', bankAccount:'BNI-1234509876', bankName:'BNI', salaryGross:4800000, allowanceTransport:500000, allowanceMeal:300000, bpjsKesehatan:false, bpjsKetenagakerjaan:false, pph21:false },
-      { id:'EMP009', name:'Joko Susilo', nik:'1101010101890009', npwp:'06.789.012.3-095.000', status:'TETAP', joinDate:'2018-07-01', company:'PT Maju Bersama', project:'Managed Service Jakarta', position:'Senior Network Engineer', region:'Aceh', bankAccount:'BCA-9988776655', bankName:'BCA', salaryGross:13000000, allowanceTransport:1800000, allowanceMeal:900000, bpjsKesehatan:true, bpjsKetenagakerjaan:true, pph21:true },
-      { id:'EMP010', name:'Maya Putri', nik:'1301010101960010', npwp:'07.890.123.4-096.000', status:'TETAP', joinDate:'2023-03-15', company:'PT Sumber Rezeki', project:'Network Infrastructure Bandung', position:'QA Engineer', region:'Sumatera Barat', bankAccount:'Mandiri-1122334455', bankName:'Mandiri', salaryGross:8000000, allowanceTransport:1000000, allowanceMeal:500000, bpjsKesehatan:true, bpjsKetenagakerjaan:true, pph21:true },
-      { id:'EMP011', name:'Rudi Hartono', nik:'5201010101980011', npwp:'', status:'KONTRAK', joinDate:'2024-09-01', company:'PT Maju Bersama', project:'Data Center Surabaya', position:'Field Engineer', region:'Nusa Tenggara Barat', bankAccount:'', bankName:'', salaryGross:6000000, allowanceTransport:700000, allowanceMeal:400000, bpjsKesehatan:false, bpjsKetenagakerjaan:false, pph21:true },
-      { id:'EMP012', name:'Fitri Handayani', nik:'7101010101930012', npwp:'08.901.234.5-097.000', status:'TETAP', joinDate:'2020-02-01', company:'PT Sumber Rezeki', project:'Managed Service Jakarta', position:'Finance Admin', region:'Riau', bankAccount:'BCA-5544332211', bankName:'BCA', salaryGross:7500000, allowanceTransport:1000000, allowanceMeal:500000, bpjsKesehatan:true, bpjsKetenagakerjaan:true, pph21:true },
-    ],
-    companies: [
-      { id:'CMP01', name:'PT Maju Bersama', npwp:'01.234.567.8-090.000', address:'Jl. Sudirman No.1, Jakarta', pic:'Budi Santoso', phone:'021-5550101', payrollType:'BULANAN', payrollSetup: { type:'BULANAN', umrRegion:'DKI Jakarta', umrYear:2025, bpjsKesehatan:true, bpjsKetenagakerjaan:true, pph21:true, allowanceTransport:true, allowanceMeal:true, overtime:true, cutOffDate:25, payDate:28 } },
-      { id:'CMP02', name:'PT Sumber Rezeki', npwp:'02.345.678.9-091.000', address:'Jl. Diponegoro No.2, Surabaya', pic:'Dewi Lestari', phone:'031-5550202', payrollType:'BULANAN', payrollSetup: { type:'BULANAN', umrRegion:'Jawa Timur', umrYear:2025, bpjsKesehatan:true, bpjsKetenagakerjaan:true, pph21:true, allowanceTransport:true, allowanceMeal:true, overtime:true, cutOffDate:25, payDate:28 } },
-    ],
-    projects: [
-      { id:'PRJ01', name:'Managed Service Jakarta', company:'PT Maju Bersama', region:'DKI Jakarta', startDate:'2024-01-01', budget:1500000000, status:'ACTIVE' },
-      { id:'PRJ02', name:'Data Center Surabaya', company:'PT Sumber Rezeki', region:'Jawa Timur', startDate:'2024-03-01', budget:800000000, status:'ACTIVE' },
-      { id:'PRJ03', name:'Network Infrastructure Bandung', company:'PT Sumber Rezeki', region:'Jawa Barat', startDate:'2023-06-01', budget:1200000000, status:'ACTIVE' },
-    ],
-    payrollRules: [
-      { id:'R001', name:'BPJS Kesehatan', rule:'4% dari gaji (employer), 1% dari gaji (employee)', applyTo:'TETAP', active:true },
-      { id:'R002', name:'BPJS Ketenagakerjaan', rule:'5.7% dari gaji (employer), 2% dari gaji (employee)', applyTo:'TETAP', active:true },
-      { id:'R003', name:'PPh 21', rule:'Progresif sesuai tarif PPh 21 TER', applyTo:'ALL', active:true },
-      { id:'R004', name:'Uang Lembur', rule:'1.5x untuk jam pertama, 2x untuk jam berikutnya', applyTo:'ALL', active:true },
-    ],
+    meta: { createdAt: Date.now(), currentPeriod: new Date().toISOString().slice(0, 7), orgName: 'ProQPay Lite', dataSource: 'neon' },
+    employees: [] as any[],
+    companies: [] as any[],
+    projects: [] as any[],
+    payrollRules: [] as any[],
     payrollSetups: [] as any[],
-    payrolls: [
-      {
-        id:'PAY202506', period:'2025-06', status:'PAID', createdAt:Date.now()-30*86400000,
-        summary: { employeeCount:12, totalGross:112300000, totalDeduction:18400000, totalNet:93900000 },
-        details: [] as any[]
-      }
-    ],
+    payrolls: [] as any[],
     approvals: [] as any[],
-    payments: [
-      { id:'PMT202506', payrollId:'PAY202506', period:'2025-06', bank:'BCA', account:'1234567890', amount:93900000, status:'PAID', paidAt:Date.now()-25*86400000, reference:'BCA-TRX-202506-001', createdAt:Date.now()-28*86400000 }
-    ],
-    invoices: [
-      { id:'INV202506-01', company:'PT Maju Bersama', period:'2025-06', amount:102000000, taxAmount:10200000, totalAmount:112200000, status:'PAID', issuedAt:Date.now()-28*86400000, paidAt:Date.now()-20*86400000, items:[{desc:'Payroll Service Fee - Managed Service Jakarta', qty:7, unitPrice:10000000, amount:70000000},{desc:'BPJS Management Fee', qty:7, unitPrice:3000000, amount:21000000},{desc:'PPH21 Processing Fee', qty:7, unitPrice:1000000, amount:7000000},{desc:'Administrative Fee', qty:1, unitPrice:4000000, amount:4000000}] },
-      { id:'INV202506-02', company:'PT Sumber Rezeki', period:'2025-06', amount:98000000, taxAmount:9800000, totalAmount:107800000, status:'SENT', issuedAt:Date.now()-28*86400000, paidAt:null, items:[{desc:'Payroll Service Fee - Network Infrastructure Bandung', qty:5, unitPrice:10000000, amount:50000000},{desc:'Data Center Surabaya Staffing', qty:4, unitPrice:8000000, amount:32000000},{desc:'BPJS Management Fee', qty:5, unitPrice:3000000, amount:15000000},{desc:'Administrative Fee', qty:1, unitPrice:1000000, amount:1000000}] },
-    ],
-    arMonitor: [
-      { id:'AR001', company:'PT Sumber Rezeki', invoiceId:'INV202506-02', amount:107800000, status:'OUTSTANDING', dueDate:Date.now()+5*86400000, daysOverdue:0, type:'REIMBURSE', notes:'Invoice payroll Juni - menunggu pembayaran dari klien' },
-    ],
-    auditLogs: [
-      { id:'LOG001', timestamp:Date.now()-25*86400000, user:'Super Admin', role:'SUPER_ADMIN', action:'PAYMENT_CONFIRMED', detail:'Payment instruction PMT202506 dikonfirmasi untuk periode 2025-06', entity:'Payment', entityId:'PMT202506' },
-      { id:'LOG002', timestamp:Date.now()-28*86400000, user:'Super Admin', role:'SUPER_ADMIN', action:'PAYMENT_INSTRUCTION_CREATED', detail:'Payment instruction PMT202506 dibuat untuk periode 2025-06', entity:'Payment', entityId:'PMT202506' },
-      { id:'LOG003', timestamp:Date.now()-30*86400000, user:'Super Admin', role:'SUPER_ADMIN', action:'PAYROLL_CALCULATED', detail:'Payroll periode 2025-06 dihitung: 12 karyawan, total net Rp 93.900.000', entity:'Payroll', entityId:'PAY202506' },
-      { id:'LOG004', timestamp:Date.now()-30*86400000, user:'Super Admin', role:'SUPER_ADMIN', action:'PAYROLL_APPROVED', detail:'Payroll periode 2025-06 disetujui', entity:'Payroll', entityId:'PAY202506' },
-    ],
+    payments: [] as any[],
+    invoices: [] as any[],
+    arMonitor: [] as any[],
+    auditLogs: [] as any[],
     imports: [] as any[],
     bankTemplates: [] as any[],
   };
@@ -99,16 +58,18 @@ export function loadDatabase() {
   if (typeof window === 'undefined') return seedDatabase();
   try {
     const data = localStorage.getItem(DB_KEY);
-    if (data) return JSON.parse(data);
-  } catch (e) {}
-  const seed = seedDatabase();
-  saveDatabase(seed);
-  return seed;
+    if (data) return { ...seedDatabase(), ...JSON.parse(data) };
+  } catch {}
+  LEGACY_DB_KEYS.forEach((key) => localStorage.removeItem(key));
+  const empty = seedDatabase();
+  saveDatabase(empty);
+  return empty;
 }
 
 export function saveDatabase(db: any) {
   if (typeof window === 'undefined') return;
   localStorage.setItem(DB_KEY, JSON.stringify(db));
+  LEGACY_DB_KEYS.forEach((key) => localStorage.removeItem(key));
 }
 
 export function calcEmployeePayroll(emp: any, rules: any, payrollSetup: any) {
