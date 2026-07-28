@@ -12,6 +12,7 @@ async function loadTsModule(relativePath, injected = {}) {
   const require = (specifier) => {
     if (specifier === './worker-registry') return injected.workerRegistry;
     if (specifier === './contracts') return {};
+    if (specifier === '../payroll-validate') return injected.payrollValidation;
     throw new Error(`Unexpected import ${specifier}`);
   };
   new Function('exports', 'require', compiled)(exports, require);
@@ -24,6 +25,49 @@ test('worker isolation rejects tables outside its domain', async () => {
   const denied = registry.assertWorkerTableAccess('PAYROLL', ['employees', 'invoices']);
   assert.equal(denied.allowed, false);
   assert.deepEqual(denied.denied, ['employees', 'invoices']);
+});
+
+test('read executor rejects financial plans', async () => {
+  const registry = await loadTsModule('src/lib/ida-os/worker-registry.ts');
+  const readWorkers = await loadTsModule('src/lib/ida-os/read-workers.ts', {
+    workerRegistry: registry,
+    payrollValidation: { validatePayrollIndonesia: () => ({}) },
+  });
+  assert.throws(
+    () => readWorkers.executeReadOnlyPlan({ risk: 'FINANCIAL', tasks: [] }, {}),
+    /menolak plan FINANCIAL/
+  );
+});
+
+test('compliance worker returns deterministic evidence', async () => {
+  const registry = await loadTsModule('src/lib/ida-os/worker-registry.ts');
+  const readWorkers = await loadTsModule('src/lib/ida-os/read-workers.ts', {
+    workerRegistry: registry,
+    payrollValidation: {
+      validatePayrollIndonesia: () => ({
+        ok: false,
+        errorCount: 2,
+        warningCount: 1,
+        infoCount: 0,
+        issues: [
+          { severity: 'error', message: 'NIK invalid' },
+          { severity: 'error', message: 'Rekening kosong' },
+          { severity: 'warning', message: 'Email kosong' },
+        ],
+      }),
+    },
+  });
+  const result = readWorkers.executeReadOnlyPlan({
+    risk: 'READ',
+    tasks: [{
+      worker: 'COMPLIANCE',
+      context: { payrollPeriod: '2026-07' },
+    }],
+  }, {});
+  assert.equal(result.worker, 'COMPLIANCE');
+  assert.equal(result.errors.length, 2);
+  assert.equal(result.evidence[0].service, 'validatePayrollIndonesia');
+  assert.equal(result.requiresConfirmation, false);
 });
 
 test('destructive action only allows SUPER_ADMIN', async () => {
