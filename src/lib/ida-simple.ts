@@ -21,11 +21,19 @@ import {
   buildPayrollPreview,
   type PayrollPreview,
 } from './ida-os/payroll-preview';
+import { payrollEmployeeRows, payrollReadiness, rankPayrollEmployees } from './ida-os/payroll-query';
+import {
+  applyApproval,
+  buildApprovalPreview,
+  type ApprovalPreview,
+} from './ida-os/approval-preview';
 
 export type PendingPayrollPreview = PayrollPreview;
+export type PendingApprovalPreview = ApprovalPreview;
 
 type IdaWorkflowContext = {
   confirmedPayrollPlanId?: string | null;
+  confirmedApprovalPlanId?: string | null;
 };
 
 function periodOf(db: any) {
@@ -78,6 +86,8 @@ export function handleIdaIntent(
   newDb?: any;
   pendingPayrollPreview?: PendingPayrollPreview;
   payrollPlanExecuted?: string;
+  pendingApprovalPreview?: PendingApprovalPreview;
+  approvalPlanExecuted?: string;
 } {
   const t = text.toLowerCase().trim();
   const billing = loadSettings();
@@ -267,6 +277,73 @@ export function handleIdaIntent(
   }
 
   if (
+    /\b(payroll|gaji)\b.*\b(ready|siap)\b|\b(ready|siap)\b.*\b(payroll|gaji)\b/.test(t)
+  ) {
+    const period = periodOf(db);
+    const payroll = payrollOf(db, period);
+    if (!payroll) return { reply: renderMarkdown(`Payroll **${period}** belum dibuat.`) };
+    const report = validatePayrollIndonesia(db, { period });
+    const readiness = payrollReadiness(payroll, report.errorCount);
+    return {
+      reply: renderMarkdown(
+        `**Kesiapan payroll ${period}**\n\n` +
+          `- Status: **${payroll.status}**\n` +
+          `- Karyawan: **${payroll.summary?.employeeCount || 0}**\n` +
+          `- Net: **${formatIDR(payroll.summary?.totalNet || 0)}**\n` +
+          `- Siap diajukan approval: **${readiness.readyForApproval ? 'Ya' : 'Tidak'}**\n` +
+          `- Siap payment instruction: **${readiness.readyForPayment ? 'Ya' : 'Tidak'}**\n` +
+          `- Catatan: ${readiness.reason}\n\n` +
+          `_Sumber: payroll ${payroll.id}, status payroll, dan hasil validasi deterministik._`
+      ),
+    };
+  }
+
+  if (
+    /\b(siapa|daftar|tampilkan)\b.*\b(gaji|upah)\b.*\b(paling kecil|terendah|paling besar|tertinggi)\b/.test(t) ||
+    /\b(gaji|upah)\b.*\b(paling kecil|terendah|paling besar|tertinggi)\b/.test(t)
+  ) {
+    const period = periodOf(db);
+    let payroll = payrollOf(db, period);
+    if (!payroll) return { reply: renderMarkdown(`Payroll **${period}** belum dibuat.`) };
+    if (!payroll.details?.length) payroll = { ...payroll, details: generatePayroll(db, period).details };
+    const highest = /\b(paling besar|tertinggi)\b/.test(t);
+    const rows = rankPayrollEmployees(payroll, highest ? 'HIGHEST' : 'LOWEST', 10);
+    const table = rows
+      .map((row, index) => `| ${index + 1} | ${row.name} | ${row.company} | ${formatIDR(row.salaryGross)} | ${formatIDR(row.net)} |`)
+      .join('\n');
+    return {
+      reply: renderMarkdown(
+        `**10 gaji pokok ${highest ? 'tertinggi' : 'terendah'} · ${period}**\n\n` +
+          `| No | Karyawan | Klien | Gaji pokok | Net |\n|---:|---|---|---:|---:|\n${table}\n\n` +
+          `_Diurutkan berdasarkan gaji pokok pada payroll lines. Tidak ada data yang diubah._`
+      ),
+    };
+  }
+
+  if (
+    /\b(tabel|daftar|rincian|perincian|detail)\b.*\b(per karyawan|karyawan|pegawai)\b/.test(t) ||
+    /\b(per karyawan)\b/.test(t)
+  ) {
+    const period = periodOf(db);
+    let payroll = payrollOf(db, period);
+    if (!payroll) return { reply: renderMarkdown(`Payroll **${period}** belum dibuat.`) };
+    if (!payroll.details?.length) payroll = { ...payroll, details: generatePayroll(db, period).details };
+    const allRows = payrollEmployeeRows(payroll);
+    const rows = allRows.slice(0, 20);
+    const table = rows
+      .map((row, index) => `| ${index + 1} | ${row.name} | ${formatIDR(row.gross)} | ${formatIDR(row.deduction)} | ${formatIDR(row.net)} |`)
+      .join('\n');
+    return {
+      reply: renderMarkdown(
+        `**Rincian payroll per karyawan · ${period}**\n\n` +
+          `| No | Karyawan | Gross | Potongan | Net |\n|---:|---|---:|---:|---:|\n${table}\n\n` +
+          (allRows.length > rows.length ? `_Menampilkan 20 dari ${allRows.length} payroll lines._` : `_Menampilkan ${allRows.length} payroll lines._`) +
+          ` Tidak ada data yang diubah.`
+      ),
+    };
+  }
+
+  if (
     /\b(status payroll|payroll status|progress payroll)\b/.test(t) ||
     (/\bpayroll\b/.test(t) && /\bstatus\b/.test(t))
   ) {
@@ -391,23 +468,66 @@ export function handleIdaIntent(
       return { reply: renderMarkdown(`Status **${payroll.status}** — perlu CALCULATED dulu.`) };
     }
     const report = validatePayrollIndonesia(db, { period });
-    const newDb = {
-      ...db,
-      payrolls: db.payrolls.map((p: any) => (p.period === period ? { ...p, status: 'APPROVED' } : p)),
-      approvals: [
-        ...(db.approvals || []),
-        { id: `APR${Date.now()}`, payrollId: payroll.id, period, approvedBy: 'IDA', status: 'APPROVED', approvedAt: Date.now() },
-      ],
-      auditLogs: [
-        ...(db.auditLogs || []),
-        { id: `LOG${Date.now()}`, timestamp: Date.now(), user: 'IDA', role: 'AI', action: 'PAYROLL_APPROVED', detail: period, entity: 'Payroll', entityId: payroll.id },
-      ],
-    };
+    const actorRole = String(contextOverrides.currentRole || 'VIEWER');
+    const actorEmail = String(contextOverrides.currentUser?.email || 'unknown@local');
+    if (!['SUPER_ADMIN', 'DIRECTOR'].includes(actorRole)) {
+      return {
+        reply: renderMarkdown(
+          `Role **${actorRole}** tidak berwenang menyetujui payroll. Payroll Staff dapat menyiapkan preview, tetapi eksekusi approval hanya untuk **SUPER_ADMIN** atau **DIRECTOR**.`
+        ),
+      };
+    }
+    const expectedConfirmation = `konfirmasi approval ${workflow.confirmedApprovalPlanId || ''}`.trim();
+    const isConfirmed = Boolean(workflow.confirmedApprovalPlanId) && t === expectedConfirmation.toLowerCase();
+    const preview = buildApprovalPreview(
+      payroll,
+      report.errorCount,
+      workflow.confirmedApprovalPlanId || orchestration.plan.id,
+      {
+      email: actorEmail,
+      role: actorRole,
+      }
+    );
+    if (!isConfirmed) {
+      return {
+        reply: renderMarkdown(
+          `**Preview approval payroll ${period} — belum dieksekusi**\n\n` +
+            `- Status: **${preview.currentStatus} → ${preview.nextStatus}**\n` +
+            `- Karyawan terdampak: **${preview.employeeCount}**\n` +
+            `- Total net: **${formatIDR(preview.totalNet)}**\n` +
+            `- Error validasi: **${preview.validationErrors}**\n` +
+            `- Approver: **${preview.actorEmail}** (${preview.actorRole})\n\n` +
+            (preview.validationErrors
+              ? `Approval dapat dicatat, tetapi payment instruction tetap diblokir sampai ${preview.validationErrors} error diselesaikan.\n\n`
+              : '') +
+            `Ketik persis **konfirmasi approval ${preview.planId}** untuk mengeksekusi, atau **batal**.`
+        ),
+        pendingApprovalPreview: preview,
+      };
+    }
+    let applied;
+    try {
+      applied = applyApproval(db, preview);
+    } catch (error) {
+      return { reply: renderMarkdown(String((error as Error).message)) };
+    }
+    const newDb = applied.db;
+    if (applied.alreadyApplied) {
+      return {
+        reply: renderMarkdown(`Payroll **${period}** sudah APPROVED. Tidak ada approval duplikat yang dibuat.`),
+        approvalPlanExecuted: workflow.confirmedApprovalPlanId || undefined,
+      };
+    }
     saveDatabase(newDb);
     let msg = `**${period}** sudah APPROVED.`;
     if (!report.ok) msg += ` Approval tercatat, tetapi payment instruction tetap diblokir karena masih ada ${report.errorCount} error validasi. Ketik **validasi** untuk detail.`;
     else msg += ` Lanjut **buat payment instruction**.`;
-    return { reply: renderMarkdown(msg), dbChanged: true, newDb };
+    return {
+      reply: renderMarkdown(msg),
+      dbChanged: true,
+      newDb,
+      approvalPlanExecuted: workflow.confirmedApprovalPlanId || undefined,
+    };
   }
 
   if (/\b(payment instruction|instruksi pembayaran|buat payment)\b/.test(t) && !/csv|unduh|download/.test(t)) {
