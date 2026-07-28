@@ -8,8 +8,10 @@ interface DashFiltersProps {
 export default function DashFilters({ period, onPeriodChange }: DashFiltersProps) {
   const [year, month] = period.split('-').map(Number);
   const periods = Array.from({ length: 12 }, (_, index) => {
-    const date = new Date(year, month - 1 - index, 1);
-    return date.toISOString().slice(0, 7);
+    const absoluteMonth = year * 12 + (month - 1) - index;
+    const itemYear = Math.floor(absoluteMonth / 12);
+    const itemMonth = (absoluteMonth % 12) + 1;
+    return `${itemYear}-${String(itemMonth).padStart(2, '0')}`;
   });
   const startDate = `${period}-01`;
   const lastDay = new Date(year, month, 0).getDate();
