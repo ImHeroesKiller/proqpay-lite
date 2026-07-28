@@ -119,6 +119,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   const [typing, setTyping] = useState(false);
   const [pendingRows, setPendingRows] = useState<ParsedEmployee[] | null>(null);
   const [lastImportFailure, setLastImportFailure] = useState('');
+  const [pendingFullReset, setPendingFullReset] = useState(false);
   const [cotLive, setCotLive] = useState<string[] | null>(null);
   const [showCot, setShowCot] = useState(true);
   const [typingMs, setTypingMs] = useState(28);
@@ -352,6 +353,60 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         return reply;
       }
       const low = userMsg.toLowerCase();
+      if (/\b(batal|jangan|tidak jadi)\b.*\b(hapus|reset)|^batal$/.test(low) && pendingFullReset) {
+        setPendingFullReset(false);
+        writeSystemLog('INFO', 'SECURITY', 'FULL_RESET_CANCELLED', 'Permintaan penghapusan seluruh data dibatalkan');
+        await pushIda('Penghapusan dibatalkan. Tidak ada data yang berubah.', true, ['Membatalkan tindakan']);
+        return;
+      }
+      if (/\b(hapus|reset)\s+(semua|seluruh)\s+data\b/.test(low) && !pendingFullReset) {
+        setPendingFullReset(true);
+        writeSystemLog('WARN', 'SECURITY', 'FULL_RESET_REQUESTED', 'Penghapusan seluruh data diminta');
+        await pushIda(
+          `Permintaan ini akan menghapus **seluruh data operasional**: ${db.employees?.length || 0} karyawan, klien, payroll, invoice, payment, dan piutang. Organisasi serta konfigurasi aplikasi tetap dipertahankan.\n\nRole akan diverifikasi oleh server. Untuk melanjutkan, ketik persis: **iya hapus sekarang**. Ketik **batal** untuk membatalkan.`,
+          true,
+          ['Mengidentifikasi tindakan permanen', 'Menunggu konfirmasi eksplisit']
+        );
+        return;
+      }
+      if (pendingFullReset) {
+        if (!/^iya\s+hapus\s+sekarang[.!]?$/i.test(userMsg.trim())) {
+          await pushIda(
+            'Belum dihapus. Konfirmasi belum sesuai. Ketik persis **iya hapus sekarang** atau **batal**.',
+            true,
+            ['Menjaga tindakan destruktif']
+          );
+          return;
+        }
+        setCotLive(['Memverifikasi role…', 'Menghapus data dalam satu transaksi…', 'Menyinkronkan dashboard…']);
+        const response = await fetch('/api/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirmation: 'HAPUS SEMUA DATA' }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const reason = result.error || result.message || `HTTP ${response.status}`;
+          writeSystemLog('ERROR', 'SECURITY', 'FULL_RESET_REJECTED', reason);
+          await pushIda(`Penghapusan ditolak: **${reason}**. Tidak ada data yang berubah.`, true, ['Verifikasi gagal']);
+          return;
+        }
+        const synced = await syncDatabaseFromNeon(db, { requireData: true });
+        saveDatabase(synced.db);
+        setDb(synced.db);
+        emitDbChange();
+        setPendingFullReset(false);
+        writeSystemLog('SUCCESS', 'SECURITY', 'FULL_RESET_COMPLETED', 'Seluruh data operasional berhasil dihapus', {
+          deleted: result.deleted,
+          actorVerified: true,
+        });
+        await pushIda(
+          `Seluruh data operasional berhasil dihapus secara atomik.\n\nTerhapus: **${result.deleted?.employees || 0} karyawan**, **${result.deleted?.clients || 0} klien**, **${result.deleted?.payrolls || 0} payroll**, dan **${result.deleted?.invoices || 0} invoice**. Organisasi dan konfigurasi aplikasi tetap tersedia.`,
+          true,
+          ['Role SUPER_ADMIN terverifikasi', 'Transaksi selesai', 'Dashboard tersinkron']
+        );
+        return;
+      }
       if (/\b(perbaiki|koreksi|bersihkan).*(otomatis|sendiri)?|\b(bisa|dapat).*(perbaiki|koreksi)\b/.test(low) && pendingRows?.length) {
         const fixed = autoFixImportRows(pendingRows);
         if (!fixed.changes.length) {
