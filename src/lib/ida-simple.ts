@@ -142,6 +142,34 @@ export function handleIdaIntent(
     return { reply: renderMarkdown(msg) };
   }
 
+  if (/\b(bersihkan data|data resign|karyawan resign|pegawai nonaktif|karyawan nonaktif)\b/.test(t)) {
+    const inactive = (db.employees || []).filter((employee: any) => {
+      const status = [employee.status, employee.statusAktif, employee.contractStatus]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return /resign|inactive|nonaktif|berhenti|terminated|keluar/.test(status);
+    });
+    if (!inactive.length) {
+      return {
+        reply: renderMarkdown(
+          `Tidak ada karyawan yang berstatus **resign/nonaktif** pada ${db.employees?.length || 0} data saat ini. Saya tidak akan menghapus berdasarkan dugaan. Sebutkan kriteria lain bila perlu, misalnya kontrak berakhir atau rekening kosong.`
+        ),
+      };
+    }
+    const preview = inactive
+      .slice(0, 15)
+      .map((employee: any) => `- **${employee.name}** (${employee.id}) — ${employee.statusAktif || employee.contractStatus || employee.status}`)
+      .join('\n');
+    return {
+      reply: renderMarkdown(
+        `Ditemukan **${inactive.length} kandidat nonaktif/resign**:\n\n${preview}` +
+          (inactive.length > 15 ? `\n…+${inactive.length - 15} lainnya` : '') +
+          `\n\nBelum ada data yang dihapus. Penghapusan membutuhkan role yang berwenang dan konfirmasi target.`
+      ),
+    };
+  }
+
   if (/\b(validasi|cek data|kelengkapan|compliance|regulasi)\b/.test(t)) {
     return {
       reply: renderMarkdown(formatValidationMarkdown(validatePayrollIndonesia(db, { period: periodOf(db) }))),
