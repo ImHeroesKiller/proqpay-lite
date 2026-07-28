@@ -210,7 +210,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                {settings.showClientDetail && <ClientDetail db={db} />}
+                {settings.showClientDetail && clientCount > 0 && <ClientDetail db={db} />}
               </section>
             )}
 
