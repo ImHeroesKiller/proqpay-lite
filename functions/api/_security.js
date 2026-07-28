@@ -79,7 +79,8 @@ function sameOriginMutation(request) {
   const url = new URL(request.url);
   const origin = request.headers.get('Origin');
   const fetchSite = request.headers.get('Sec-Fetch-Site');
-  return origin === url.origin || fetchSite === 'same-origin';
+  if (origin) return origin === url.origin;
+  return fetchSite === 'same-origin';
 }
 
 function parseRoleMap(env) {
