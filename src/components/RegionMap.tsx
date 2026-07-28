@@ -170,7 +170,16 @@ export default function RegionMap({ employees }: { employees: any[] }) {
   }, [employees]);
 
   return (
-    <div className="card" style={{ padding: '18px' }}>
+    <div
+      className="card"
+      style={{
+        padding: '18px',
+        position: 'relative',
+        zIndex: 0,
+        isolation: 'isolate',
+        overflow: 'hidden',
+      }}
+    >
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         marginBottom: '12px', gap: '10px', flexWrap: 'wrap',
@@ -192,13 +201,16 @@ export default function RegionMap({ employees }: { employees: any[] }) {
 
       <div style={{
         position: 'relative',
+        zIndex: 0,
+        isolation: 'isolate',
+        contain: 'paint',
         borderRadius: 'var(--r-md)',
         overflow: 'hidden',
         border: '1px solid var(--border)',
         background: '#eef2f7',
         height: '280px',
       }}>
-        <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+        <div ref={mapRef} style={{ width: '100%', height: '100%', position: 'relative', zIndex: 0 }} />
 
         {status === 'loading' && (
           <div style={{
