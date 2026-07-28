@@ -16,7 +16,7 @@ export const WORKER_REGISTRY: Record<WorkerId, WorkerPolicy> = {
     capabilities: ['read_payroll', 'calculate_payroll', 'validate_payroll', 'reconcile_payroll', 'explain_payroll'],
     tables: ['payrolls', 'payroll_lines', 'payroll_rules', 'payroll_setups'],
     forbidden: ['generate_invoice', 'mutate_employee', 'execute_payment'],
-    roles: ['SUPER_ADMIN', 'PAYROLL', 'APPROVER', 'FINANCE', 'VIEWER'],
+    roles: ['SUPER_ADMIN', 'PAYROLL', 'DIRECTOR', 'FINANCE', 'VIEWER'],
   },
   HR: {
     id: 'HR',
@@ -32,7 +32,7 @@ export const WORKER_REGISTRY: Record<WorkerId, WorkerPolicy> = {
     capabilities: ['read_client', 'read_project', 'read_billing_rule', 'generate_invoice', 'generate_payment_instruction', 'calculate_margin'],
     tables: ['clients', 'projects', 'billing_rules', 'invoices', 'payments'],
     forbidden: ['mutate_employee', 'calculate_payroll'],
-    roles: ['SUPER_ADMIN', 'PAYROLL', 'APPROVER', 'FINANCE', 'VIEWER'],
+    roles: ['SUPER_ADMIN', 'PAYROLL', 'DIRECTOR', 'FINANCE', 'VIEWER'],
   },
   COMPLIANCE: {
     id: 'COMPLIANCE',
@@ -40,7 +40,7 @@ export const WORKER_REGISTRY: Record<WorkerId, WorkerPolicy> = {
     capabilities: ['validate_compliance', 'explain_regulation', 'analyze_risk'],
     tables: ['provinces', 'regulatory_knowledge'],
     forbidden: ['mutate_payroll', 'mutate_employee', 'execute_payment'],
-    roles: ['SUPER_ADMIN', 'HR', 'PAYROLL', 'APPROVER', 'FINANCE', 'VIEWER'],
+    roles: ['SUPER_ADMIN', 'HR', 'PAYROLL', 'DIRECTOR', 'FINANCE', 'VIEWER'],
   },
   DOCUMENT: {
     id: 'DOCUMENT',
@@ -56,14 +56,14 @@ export const WORKER_REGISTRY: Record<WorkerId, WorkerPolicy> = {
     capabilities: ['read_ar', 'read_ap', 'analyze_cashflow', 'reconcile_payment', 'analyze_margin', 'forecast'],
     tables: ['ar_monitor', 'invoices', 'payments'],
     forbidden: ['mutate_employee'],
-    roles: ['SUPER_ADMIN', 'FINANCE', 'APPROVER', 'VIEWER'],
+    roles: ['SUPER_ADMIN', 'FINANCE', 'DIRECTOR', 'VIEWER'],
   },
 };
 
 const RISK_ROLES: Record<ActionRisk, readonly IdaRole[]> = {
-  READ: ['SUPER_ADMIN', 'HR', 'PAYROLL', 'APPROVER', 'FINANCE', 'VIEWER'],
+  READ: ['SUPER_ADMIN', 'HR', 'PAYROLL', 'DIRECTOR', 'FINANCE', 'VIEWER'],
   WRITE: ['SUPER_ADMIN', 'HR', 'PAYROLL', 'FINANCE'],
-  FINANCIAL: ['SUPER_ADMIN', 'PAYROLL', 'APPROVER', 'FINANCE'],
+  FINANCIAL: ['SUPER_ADMIN', 'PAYROLL', 'DIRECTOR', 'FINANCE'],
   DESTRUCTIVE: ['SUPER_ADMIN'],
 };
 
