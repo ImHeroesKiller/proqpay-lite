@@ -99,7 +99,14 @@ export async function onRequest(context) {
       ok: true,
       atomic: true,
       deleted: counts[0] || {},
-      preserved: ['organizations', 'provinces', 'application settings'],
+      preserved: [
+        'organizations',
+        'provinces',
+        'application settings',
+        'IDA knowledge',
+        'ida_messages',
+        'ida_memories',
+      ],
     });
   } catch (error) {
     return respond({ ok: false, ...publicError(error, requestId) }, 500);
