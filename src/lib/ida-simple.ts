@@ -16,6 +16,17 @@ import { buildSharedContext, orchestrateRequest } from './ida-os/orchestrator';
 import { executeReadOnlyPlan } from './ida-os/read-workers';
 import type { SharedContext } from './ida-os/contracts';
 import { writeSystemLog } from './system-log';
+import {
+  buildPayrollBreakdown,
+  buildPayrollPreview,
+  type PayrollPreview,
+} from './ida-os/payroll-preview';
+
+export type PendingPayrollPreview = PayrollPreview;
+
+type IdaWorkflowContext = {
+  confirmedPayrollPlanId?: string | null;
+};
 
 function periodOf(db: any) {
   return db.meta?.currentPeriod || '2025-07';
@@ -59,8 +70,15 @@ function downloadCsv(filename: string, content: string) {
 export function handleIdaIntent(
   text: string,
   db: any,
-  contextOverrides: Partial<SharedContext> = {}
-): { reply: string; dbChanged?: boolean; newDb?: any } {
+  contextOverrides: Partial<SharedContext> = {},
+  workflow: IdaWorkflowContext = {}
+): {
+  reply: string;
+  dbChanged?: boolean;
+  newDb?: any;
+  pendingPayrollPreview?: PendingPayrollPreview;
+  payrollPlanExecuted?: string;
+} {
   const t = text.toLowerCase().trim();
   const billing = loadSettings();
   const orchestration = orchestrateRequest(text, buildSharedContext(db, contextOverrides));
@@ -221,6 +239,23 @@ export function handleIdaIntent(
     };
   }
 
+  if (
+    /\b(as is|apa adanya|tetap|jangan diubah)\b/.test(t) &&
+    /\b(umr|gaji|email)\b/.test(t)
+  ) {
+    const report = validatePayrollIndonesia(db, { period: periodOf(db) });
+    const belowUmr = report.issues.filter((item: any) => item.code === 'BELOW_UMR');
+    const missingEmail = report.issues.filter((item: any) => item.code === 'EMAIL_MISSING');
+    return {
+      reply: renderMarkdown(
+        `**Preview kebijakan data — belum dieksekusi**\n\n` +
+          `- **${belowUmr.length} gaji** dipertahankan apa adanya. Error UMR tetap tercatat dan payment instruction tetap diblokir sampai ada kebijakan pengecualian yang sah.\n` +
+          `- **${missingEmail.length} email kosong** dapat diberi alamat placeholder nonaktif dengan pola \`NRK@pending.proqpay.invalid\`. Alamat ini hanya penanda data dan tidak bisa menerima payslip.\n\n` +
+          `Tidak ada nilai gaji atau email yang diubah. Perubahan email termasuk aksi HR dan akan disiapkan pada tahap manajemen data dengan preview per karyawan.`
+      ),
+    };
+  }
+
   if (/\b(client|klien|perusahaan)\b/.test(t) && /\b(daftar|list|berapa|siapa)\b/.test(t)) {
     const cos = db.companies || [];
     let msg = `**${cos.length} client**\n`;
@@ -248,8 +283,41 @@ export function handleIdaIntent(
   }
 
   if (
+    /\b(rincian|perincian|breakdown|komponen|detail)\b/.test(t) &&
+    (/\b(payroll|gaji|biaya|data|anggaran)\b/.test(t) || Boolean(payrollOf(db)))
+  ) {
+    const period = periodOf(db);
+    let payroll = payrollOf(db, period);
+    if (!payroll) {
+      return { reply: renderMarkdown(`Belum ada payroll **${period}**. Minta **buat payroll** untuk melihat preview terlebih dahulu.`) };
+    }
+    if (!payroll.details?.length) payroll = { ...payroll, details: generatePayroll(db, period).details };
+    const breakdown = buildPayrollBreakdown(payroll);
+    const componentRows = Object.entries(breakdown.components)
+      .filter(([, value]) => Number(value) !== 0)
+      .map(([name, value]) => `- ${name}: **${formatIDR(Number(value))}**`)
+      .join('\n');
+    const clientRows = Object.entries(breakdown.clients)
+      .map(([name, values]) => `- **${name}** — ${values.count} karyawan · gross ${formatIDR(values.gross)} · net ${formatIDR(values.net)}`)
+      .join('\n');
+    return {
+      reply: renderMarkdown(
+        `**Breakdown payroll ${period}**\n\n` +
+          `Status: **${payroll.status}** · ${payroll.summary?.employeeCount || payroll.details.length} karyawan\n\n` +
+          `**Komponen**\n${componentRows}\n` +
+          `- Total gross: **${formatIDR(payroll.summary?.totalGross || 0)}**\n` +
+          `- Total potongan: **${formatIDR(payroll.summary?.totalDeduction || 0)}**\n` +
+          `- Total net: **${formatIDR(payroll.summary?.totalNet || 0)}**\n\n` +
+          `**Per klien**\n${clientRows || '- Tidak ada data klien'}\n\n` +
+          `_Sumber: payroll ${payroll.id}, payroll lines, dan kalkulasi deterministik. Tidak ada data yang diubah._`
+      ),
+    };
+  }
+
+  if (
     /\b(hitung|buat|generate|calculate)\b.*\b(payroll|gaji)\b/.test(t) ||
-    /\bpayroll\b.*\b(hitung|buat|generate)\b/.test(t)
+    /\bpayroll\b.*\b(hitung|buat|generate)\b/.test(t) ||
+    /^konfirmasi payroll\b/.test(t)
   ) {
     const period = periodOf(db);
     const existing = payrollOf(db, period);
@@ -262,6 +330,26 @@ export function handleIdaIntent(
       };
     }
     const payroll = generatePayroll(db, period);
+    const expectedConfirmation = `konfirmasi payroll ${workflow.confirmedPayrollPlanId || ''}`.trim();
+    const isConfirmed =
+      Boolean(workflow.confirmedPayrollPlanId) &&
+      t === expectedConfirmation.toLowerCase();
+    if (!isConfirmed) {
+      const preview = buildPayrollPreview(payroll, report.errorCount, orchestration.plan.id);
+      return {
+        reply: renderMarkdown(
+          `**Preview payroll ${period} — belum disimpan**\n\n` +
+            `- Karyawan terdampak: **${preview.employeeCount}**\n` +
+            `- Total gross: **${formatIDR(preview.totalGross)}**\n` +
+            `- Total potongan: **${formatIDR(preview.totalDeduction)}**\n` +
+            `- Total net: **${formatIDR(preview.totalNet)}**\n` +
+            `- Validasi: **${preview.validationErrors} error**\n\n` +
+            `Formula: net = gross − potongan. Sumber: data karyawan, kompensasi, dan payroll setup pada database.\n\n` +
+            `Ketik persis **konfirmasi payroll ${preview.planId}** untuk menyimpan, atau **batal**.`
+        ),
+        pendingPayrollPreview: preview,
+      };
+    }
     payroll.status = 'CALCULATED';
     const newDb = { ...db, payrolls: [...(db.payrolls || [])] };
     const idx = newDb.payrolls.findIndex((p: any) => p.period === period);
@@ -275,7 +363,7 @@ export function handleIdaIntent(
         user: 'IDA',
         role: 'AI',
         action: 'PAYROLL_CALCULATED',
-        detail: `Payroll ${period}`,
+        detail: `Payroll ${period} · plan ${workflow.confirmedPayrollPlanId}`,
         entity: 'Payroll',
         entityId: payroll.id,
       },
@@ -284,7 +372,12 @@ export function handleIdaIntent(
     let msg = `Payroll **${period}** beres — ${payroll.summary.employeeCount} org, net **${formatIDR(payroll.summary.totalNet)}** (${report.errorCount} error validasi).`;
     if (!report.ok) msg += ` Payment akan diblokir sampai data dibenerin — ketik **validasi**.`;
     else msg += ` Lanjut **ajukan approval**.`;
-    return { reply: renderMarkdown(msg), dbChanged: true, newDb };
+    return {
+      reply: renderMarkdown(msg),
+      dbChanged: true,
+      newDb,
+      payrollPlanExecuted: workflow.confirmedPayrollPlanId || undefined,
+    };
   }
 
   if (/\b(ajukan approval|approve|approved|setujui|disetujui|approval)\b/.test(t)) {
@@ -492,7 +585,8 @@ export function handleIdaIntent(
 
   if (/\b(umr|umk|upah minimum)\b/.test(t)) {
     for (const [prov, val] of Object.entries(UMR_2025)) {
-      if (t.includes(prov.toLowerCase()) || t.includes(prov.split(' ')[0].toLowerCase())) {
+      const firstWord = prov.split(' ')[0].toLowerCase();
+      if (t.includes(prov.toLowerCase()) || (firstWord.length >= 3 && t.includes(firstWord))) {
         return { reply: renderMarkdown(`UMR **${prov}** 2025: **${formatIDR(val)}**`) };
       }
     }
