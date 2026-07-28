@@ -3,17 +3,12 @@ type SyncOptions = {
   signal?: AbortSignal;
 };
 
-function companiesFromEmployees(employees: any[], existingCompanies: any[]) {
-  const existing = new Map(
-    (existingCompanies || []).map((company: any) => [company.name, company])
-  );
+function companiesFromEmployees(employees: any[]) {
   const names = Array.from(
     new Set(employees.map((employee) => employee.company).filter(Boolean))
   );
 
   return names.map((name, index) => {
-    const current = existing.get(name);
-    if (current) return current;
     const firstEmployee = employees.find((employee) => employee.company === name);
     return {
       id: `CMP-NEON-${index + 1}`,
@@ -31,6 +26,20 @@ function companiesFromEmployees(employees: any[], existingCompanies: any[]) {
         bpjsKetenagakerjaan: true,
         pph21: true,
       },
+    };
+  });
+}
+
+function projectsFromEmployees(employees: any[]) {
+  const keys = Array.from(new Set(employees.map((employee) => employee.project).filter(Boolean)));
+  return keys.map((name, index) => {
+    const firstEmployee = employees.find((employee) => employee.project === name);
+    return {
+      id: `PRJ-NEON-${index + 1}`,
+      name,
+      company: firstEmployee?.company || '',
+      region: firstEmployee?.region || '',
+      status: 'ACTIVE',
     };
   });
 }
@@ -56,21 +65,19 @@ export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
 
   const employees = Array.isArray(data.employees) ? data.employees : [];
   const remoteState = stateResponse.ok && stateData?.state ? stateData.state : {};
-  const hasRemoteState = ['payrolls', 'approvals', 'payments', 'invoices', 'arMonitor', 'auditLogs']
-    .some((key) => Array.isArray(remoteState[key]) && remoteState[key].length > 0);
-  if (!employees.length && !hasRemoteState && !options.requireData) {
-    return { db, count: 0, synced: false };
-  }
+  const canonicalState = Object.fromEntries(
+    ['payrolls', 'approvals', 'payments', 'invoices', 'arMonitor', 'auditLogs'].map((key) => [
+      key,
+      Array.isArray(remoteState[key]) ? remoteState[key] : [],
+    ])
+  );
 
   const nextDb = {
     ...db,
-    ...(employees.length
-      ? {
-          employees,
-          companies: companiesFromEmployees(employees, db.companies || []),
-        }
-      : {}),
-    ...(hasRemoteState ? remoteState : {}),
+    employees,
+    companies: companiesFromEmployees(employees),
+    projects: projectsFromEmployees(employees),
+    ...canonicalState,
     meta: {
       ...db.meta,
       lastNeonSyncAt: Date.now(),
