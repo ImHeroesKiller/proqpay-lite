@@ -87,3 +87,13 @@ export function IconFile(props: React.SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function IconTerminal(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...s} {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m7 9 3 3-3 3" />
+      <path d="M13 15h4" />
+    </svg>
+  );
+}
