@@ -12,6 +12,10 @@ import { identifyProvince, resolveWorkLocation } from './wilayah';
 import { validatePayrollIndonesia, formatValidationMarkdown } from './payroll-validate';
 import { formatBpjsReply } from './bpjs-calc';
 import { loadSettings } from './app-settings';
+import { buildSharedContext, orchestrateRequest } from './ida-os/orchestrator';
+import { executeReadOnlyPlan } from './ida-os/read-workers';
+import type { SharedContext } from './ida-os/contracts';
+import { writeSystemLog } from './system-log';
 
 function periodOf(db: any) {
   return db.meta?.currentPeriod || '2025-07';
@@ -54,10 +58,30 @@ function downloadCsv(filename: string, content: string) {
 
 export function handleIdaIntent(
   text: string,
-  db: any
+  db: any,
+  contextOverrides: Partial<SharedContext> = {}
 ): { reply: string; dbChanged?: boolean; newDb?: any } {
   const t = text.toLowerCase().trim();
   const billing = loadSettings();
+  const orchestration = orchestrateRequest(text, buildSharedContext(db, contextOverrides));
+  if (orchestration.allowed && orchestration.plan.risk === 'READ') {
+    const workerResult = executeReadOnlyPlan(orchestration.plan, db);
+    writeSystemLog(
+      workerResult.errors.length ? 'WARN' : 'INFO',
+      'IDA',
+      'WORKER_RESULT_COLLECTED',
+      `${workerResult.worker} menyelesaikan ${orchestration.plan.intent}`,
+      {
+        planId: orchestration.plan.id,
+        worker: workerResult.worker,
+        facts: workerResult.facts,
+        errors: workerResult.errors.length,
+        warnings: workerResult.warnings.length,
+        evidence: workerResult.evidence,
+        sourceTables: workerResult.sourceTables,
+      }
+    );
+  }
 
   if (/^(halo|hai|hi|hello|hey|pagi|siang|sore|malam)\b/.test(t) && t.length < 25) {
     return {
