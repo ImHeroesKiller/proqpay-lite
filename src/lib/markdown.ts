@@ -22,6 +22,39 @@ export function renderMarkdown(src: string): string {
   // italic *text* (avoid bold leftovers)
   s = s.replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, '$1<em>$2</em>');
 
+  // pipe tables
+  const lines = s.split('\n');
+  const rendered: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const header = lines[index];
+    const divider = lines[index + 1] || '';
+    if (
+      /^\s*\|.+\|\s*$/.test(header) &&
+      /^\s*\|(?:\s*:?-+:?\s*\|)+\s*$/.test(divider)
+    ) {
+      const cells = (line: string) =>
+        line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
+      const headings = cells(header);
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length && /^\s*\|.+\|\s*$/.test(lines[index])) {
+        rows.push(cells(lines[index]));
+        index += 1;
+      }
+      index -= 1;
+      rendered.push(
+        `<div style="margin:8px 0;max-width:100%;overflow-x:auto;border:1px solid var(--border);border-radius:8px">` +
+          `<table style="width:100%;border-collapse:collapse;white-space:nowrap;font-size:11px">` +
+          `<thead><tr>${headings.map((cell) => `<th style="padding:7px 9px;text-align:left;background:var(--bg-sunk);border-bottom:1px solid var(--border)">${cell}</th>`).join('')}</tr></thead>` +
+          `<tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td style="padding:7px 9px;border-bottom:1px solid var(--border-soft)">${cell}</td>`).join('')}</tr>`).join('')}</tbody>` +
+          `</table></div>`
+      );
+      continue;
+    }
+    rendered.push(header);
+  }
+  s = rendered.join('\n');
+
   // unordered lists
   s = s.replace(/(?:^|\n)([-*] .+(\n[-*] .+)*)/g, (block) => {
     const items = block
