@@ -77,7 +77,6 @@ export default function Home() {
     .slice()
     .sort((a: any, b: any) => a.period.localeCompare(b.period))
     .map((p: any) => p.summary?.totalNet || 0);
-  if (payrollTrend.length < 2) payrollTrend.push(...[82000000, 88000000, 91000000, totalNet || 94000000]);
 
   const pad = settings.density === 'compact' ? '18px 16px' : '28px 24px';
 
@@ -117,7 +116,7 @@ export default function Home() {
                     sub={`${clientCount} klien`}
                     accent="#06b6d4"
                     icon={<IconUsers />}
-                    sparkData={settings.showSparklines ? [8, 9, 10, 11, empCount] : undefined}
+                    sparkData={undefined}
                     onClick={() => setPopup('employees')}
                   />
                   <MetricCard
@@ -126,7 +125,7 @@ export default function Home() {
                     sub={`${projectCount} proyek`}
                     accent="#14b8a6"
                     icon={<IconBuilding />}
-                    sparkData={settings.showSparklines ? [1, 1, 2, 2, clientCount] : undefined}
+                    sparkData={undefined}
                     onClick={() => setPopup('clients')}
                   />
                   <MetricCard
@@ -135,7 +134,7 @@ export default function Home() {
                     sub={currentPayroll ? currentPayroll.status : 'Belum dihitung'}
                     accent="#5b5ef0"
                     icon={<IconWallet />}
-                    sparkData={settings.showSparklines ? payrollTrend : undefined}
+                    sparkData={settings.showSparklines && payrollTrend.length > 1 ? payrollTrend : undefined}
                     onClick={() => setPopup('payroll')}
                   />
                   <MetricCard
@@ -144,7 +143,7 @@ export default function Home() {
                     sub={`${outstanding.length} tagihan`}
                     accent="#f97316"
                     icon={<IconClock />}
-                    sparkData={settings.showSparklines ? [120000000, 110000000, 100000000, totalOutstanding] : undefined}
+                    sparkData={undefined}
                     onClick={() => setPopup('outstanding')}
                   />
                 </div>
