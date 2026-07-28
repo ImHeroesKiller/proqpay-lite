@@ -61,6 +61,22 @@ test('origin mode allows same-origin mutations', async () => {
   assert.equal(result.actor.role, 'SUPER_ADMIN');
 });
 
+test('foreign Origin cannot be bypassed with a forged same-origin fetch header', async () => {
+  const request = new Request(url, {
+    method: 'POST',
+    headers: {
+      Origin: 'https://evil.example',
+      'Sec-Fetch-Site': 'same-origin',
+    },
+  });
+  const result = await authorize(request, {}, {
+    mutating: true,
+    roles: ['SUPER_ADMIN'],
+    methods: 'POST, OPTIONS',
+  });
+  assert.equal(result.response.status, 403);
+});
+
 test('access mode fails closed when Access is not configured', async () => {
   const request = new Request(url);
   const result = await authorize(request, { AUTH_MODE: 'access' }, {
