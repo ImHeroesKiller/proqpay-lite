@@ -176,6 +176,27 @@ export function handleIdaIntent(
     };
   }
 
+  if (/\b(perbaiki|koreksi|benahi)\b/.test(t)) {
+    const report = validatePayrollIndonesia(db, { period: periodOf(db) });
+    if (report.ok) {
+      return { reply: renderMarkdown('Tidak ada error validasi payroll yang perlu diperbaiki.') };
+    }
+    const belowUmr = report.issues.filter((item: any) => item.code === 'BELOW_UMR');
+    const missingEmail = report.issues.filter((item: any) => item.code === 'EMAIL_MISSING');
+    return {
+      reply: renderMarkdown(
+        `Saya menemukan **${report.errorCount} error** yang memblokir payment instruction. Saya tidak akan mengubah nominal gaji tanpa persetujuan karena berdampak finansial.\n\n` +
+          (belowUmr.length
+            ? `- **${belowUmr.length} gaji di bawah UMR**: perlu koreksi gaji pokok sesuai wilayah. Sebutkan **setujui penyesuaian UMR** jika Anda ingin IDA menyiapkan perubahan untuk dikonfirmasi.\n`
+            : '') +
+          (missingEmail.length
+            ? `- **${missingEmail.length} email kosong**: hanya informasi dan tidak memblokir pembayaran.\n`
+            : '') +
+          `\nBelum ada data yang diubah. Ketik **validasi** untuk melihat detail lagi.`
+      ),
+    };
+  }
+
   if (/\b(client|klien|perusahaan)\b/.test(t) && /\b(daftar|list|berapa|siapa)\b/.test(t)) {
     const cos = db.companies || [];
     let msg = `**${cos.length} client**\n`;
@@ -336,8 +357,19 @@ export function handleIdaIntent(
     const period = periodOf(db);
     const payroll = payrollOf(db, period);
     if (!payroll) return { reply: renderMarkdown('Belum ada payroll.') };
-    if (!['PAYMENT_INSTRUCTION', 'APPROVED', 'PAID'].includes(payroll.status)) {
+    if (payroll.status === 'PAID') {
+      return { reply: renderMarkdown(`Payroll **${period}** sudah PAID.`) };
+    }
+    if (payroll.status !== 'PAYMENT_INSTRUCTION') {
       return { reply: renderMarkdown(`Status ${payroll.status} — buat payment instruction dulu.`) };
+    }
+    const report = validatePayrollIndonesia(db, { period });
+    if (!report.ok) {
+      return {
+        reply: renderMarkdown(
+          `Pembayaran diblokir karena masih ada **${report.errorCount} error validasi**. Belum ada status yang diubah. Ketik **perbaiki** untuk opsi tindak lanjut.`
+        ),
+      };
     }
     const newDb = {
       ...db,
