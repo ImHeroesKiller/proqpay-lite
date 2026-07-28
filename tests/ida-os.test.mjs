@@ -82,6 +82,10 @@ test('orchestrator routes financial actions to preview with confirmation', async
   const context = orchestrator.buildSharedContext({
     meta: { currentPeriod: '2026-07', orgName: 'ProQPay Lite' },
     payrolls: [{ id: 'PAY-1', period: '2026-07', status: 'CALCULATED' }],
+  }, {
+    currentUser: { email: 'finance@proqpay.id' },
+    currentRole: 'FINANCE',
+    permissions: ['read', 'finance:write'],
   });
   const result = orchestrator.orchestrateRequest('buat payment instruction', context);
   assert.equal(result.allowed, true);
