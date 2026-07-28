@@ -85,6 +85,10 @@ function autoFixImportRows(rows: ParsedEmployee[]) {
   return { rows: fixed, changes };
 }
 
+function looksLikePromptLeak(text: string) {
+  return /no\s+["“](halo|cta)|repetitive explanations|system prompt|developer message|follow these instructions/i.test(text);
+}
+
 function looksLikeLocalAction(text: string) {
   const t = text.toLowerCase();
   return (
@@ -540,7 +544,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         body: JSON.stringify({ message: userMsg, context: buildContext(db), sessionId }),
       });
       const data = await res.json();
-      if (data.ok && data.reply) {
+      if (data.ok && data.reply && !looksLikePromptLeak(String(data.reply))) {
         const cot =
           cleanCot(data.cot?.lines) ||
           cleanCot([
@@ -549,6 +553,9 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           ]);
         await pushIda(data.reply, true, cot);
         return;
+      }
+      if (data?.reply && looksLikePromptLeak(String(data.reply))) {
+        writeSystemLog('ERROR', 'IDA', 'PROMPT_LEAK_BLOCKED', 'Respons model yang memuat instruksi internal diblokir');
       }
       const result = handleIdaIntent(userMsg, db);
       await pushIda(await applyResult(result), false, ['Selesai']);
