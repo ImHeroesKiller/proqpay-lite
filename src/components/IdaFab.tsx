@@ -89,24 +89,34 @@ function looksLikePromptLeak(text: string) {
   return /no\s+["“](halo|cta)|repetitive explanations|system prompt|developer message|follow these instructions/i.test(text);
 }
 
+function looksLikeUnverifiedMutationClaim(text: string) {
+  return /\b(sudah|berhasil|selesai|telah)\b.{0,80}\b(dibuat|diproses|disimpan|diubah|diupdate|dihapus|dibayar|paid|approved|payment instruction)\b/i.test(text);
+}
+
 function looksLikeLocalAction(text: string) {
   const t = text.toLowerCase();
   return (
     /\b(margin|laba|profit|bpjs|iuran|jht|jkk|jkm|jkn|provinsi|wilayah)\b/.test(t) ||
-    /\b(payroll|gaji|approval|approve|approved|setujui|disetujui|payment instruction|buat invoice|invoice|tandai paid|unduh payment)\b/.test(t) ||
-    /\b(help|bantuan|next|status|ringkasan|validasi|cek data|kelengkapan|siap|bersihkan data|resign|nonaktif|import|upload|audit|umr|daftar)\b/.test(t) ||
-    /^(iya|yes|ok|oke|ya|generate|kirim|proses)\b/.test(t)
+    /\b(payroll|gaji|approval|approve|approved|setujui|disetujui|payment|pembayaran|transfer|buat invoice|invoice|tandai paid|unduh)\b/.test(t) ||
+    /\b(help|bantuan|next|status|ringkasan|validasi|cek data|kelengkapan|siap|bersihkan|perbaiki|koreksi|resign|nonaktif|import|upload|audit|umr|daftar)\b/.test(t) ||
+    /^(iya|iy|yes|ok|oke|ya|y|generate|kirim|buatkan|proses|eksekusi)\b/.test(t)
   );
 }
 
 function mapConfirmToAction(text: string, lastUserHint?: string) {
   const t = text.toLowerCase().trim();
-  if (/^(iya|yes|ok|oke|ya|generate|kirim|proses)\b/.test(t)) {
-    if (lastUserHint && /payroll|gaji/.test(lastUserHint)) return 'hitung payroll';
-    if (lastUserHint && /approval|approve|approved|setuju|disetujui/.test(lastUserHint)) return 'ajukan approval';
+  if (/\b(perbaiki|koreksi|benahi)\b/.test(t) && lastUserHint && /validasi/.test(lastUserHint)) {
+    return 'perbaiki error validasi';
+  }
+  if (/^(iya|iy|yes|ok|oke|ya|y|generate|kirim|buatkan|proses|eksekusi)\b/.test(t)) {
     if (lastUserHint && /payment|pembayaran/.test(lastUserHint)) return 'buat payment instruction';
+    if (lastUserHint && /approval|approve|approved|setuju|disetujui/.test(lastUserHint)) return 'ajukan approval';
+    if (lastUserHint && /payroll|gaji/.test(lastUserHint)) return 'hitung payroll';
     if (lastUserHint && /invoice/.test(lastUserHint)) return 'buat invoice';
     return text;
+  }
+  if (/\b(payment|pembayaran|transfer)\b/.test(t) && /\b(mana|buat|buatkan|proses|eksekusi)\b/.test(t)) {
+    return 'buat payment instruction';
   }
   if (/\binvoice\b/.test(t)) return 'buat invoice';
   return text;
@@ -355,7 +365,8 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     setBusy(true);
     setCotLive(['Memahami permintaan…']);
 
-    if (/invoice|payroll|gaji|approval|approve|approved|setuju|payment|upload|bpjs|validasi/.test(userMsg.toLowerCase())) lastTopicRef.current = userMsg.toLowerCase();
+    const incomingTopic = userMsg.toLowerCase();
+    const previousTopic = lastTopicRef.current;
 
     try {
       async function applyResult(result: ReturnType<typeof handleIdaIntent>) {
@@ -529,7 +540,12 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         return;
       }
 
-      const mapped = mapConfirmToAction(userMsg, lastTopicRef.current);
+      const mapped = mapConfirmToAction(userMsg, previousTopic);
+      if (/invoice|payroll|gaji|approval|approve|approved|setuju|payment|pembayaran|upload|bpjs|validasi/.test(incomingTopic)) {
+        lastTopicRef.current = incomingTopic;
+      } else if (mapped !== userMsg) {
+        lastTopicRef.current = mapped;
+      }
       if (looksLikeLocalAction(userMsg) || mapped !== userMsg) {
         setCotLive(['Menyiapkan jawaban…', `Menjalankan: ${mapped}`]);
         const result = handleIdaIntent(mapped, db);
@@ -544,7 +560,12 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         body: JSON.stringify({ message: userMsg, context: buildContext(db), sessionId }),
       });
       const data = await res.json();
-      if (data.ok && data.reply && !looksLikePromptLeak(String(data.reply))) {
+      if (
+        data.ok &&
+        data.reply &&
+        !looksLikePromptLeak(String(data.reply)) &&
+        !looksLikeUnverifiedMutationClaim(String(data.reply))
+      ) {
         const cot =
           cleanCot(data.cot?.lines) ||
           cleanCot([
@@ -556,6 +577,9 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       }
       if (data?.reply && looksLikePromptLeak(String(data.reply))) {
         writeSystemLog('ERROR', 'IDA', 'PROMPT_LEAK_BLOCKED', 'Respons model yang memuat instruksi internal diblokir');
+      }
+      if (data?.reply && looksLikeUnverifiedMutationClaim(String(data.reply))) {
+        writeSystemLog('ERROR', 'IDA', 'UNVERIFIED_MUTATION_BLOCKED', 'Klaim mutasi tanpa transaksi diblokir');
       }
       const result = handleIdaIntent(userMsg, db);
       await pushIda(await applyResult(result), false, ['Selesai']);
