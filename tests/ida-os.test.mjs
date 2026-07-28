@@ -140,3 +140,50 @@ test('workflow blocks execution without evidence and exact confirmation', async 
   assert.match(decision.blockers.join(' '), /evidence/i);
   assert.match(decision.blockers.join(' '), /KONFIRMASI PAYMENT/);
 });
+
+test('payroll preview and breakdown use only deterministic payroll lines', async () => {
+  const preview = await loadTsModule('src/lib/ida-os/payroll-preview.ts');
+  const payroll = {
+    period: '2026-07',
+    summary: {
+      employeeCount: 2,
+      totalGross: 12_000_000,
+      totalDeduction: 600_000,
+      totalNet: 11_400_000,
+    },
+    details: [
+      {
+        company: 'Client A',
+        salaryGross: 5_000_000,
+        allowanceTransport: 500_000,
+        allowanceMeal: 500_000,
+        gross: 6_000_000,
+        net: 5_700_000,
+        deductionBreakdown: { 'BPJS Kesehatan': 100_000, 'BPJS Ketenagakerjaan': 200_000 },
+      },
+      {
+        company: 'Client A',
+        salaryGross: 5_000_000,
+        allowanceTransport: 500_000,
+        allowanceMeal: 500_000,
+        gross: 6_000_000,
+        net: 5_700_000,
+        deductionBreakdown: { 'BPJS Kesehatan': 100_000, 'BPJS Ketenagakerjaan': 200_000 },
+      },
+    ],
+  };
+  const result = preview.buildPayrollPreview(payroll, 3, 'PLAN-1');
+  const breakdown = preview.buildPayrollBreakdown(payroll);
+  assert.deepEqual(result, {
+    planId: 'PLAN-1',
+    period: '2026-07',
+    employeeCount: 2,
+    totalGross: 12_000_000,
+    totalDeduction: 600_000,
+    totalNet: 11_400_000,
+    validationErrors: 3,
+  });
+  assert.equal(breakdown.components['Gaji pokok'], 10_000_000);
+  assert.equal(breakdown.components['Potongan BPJS Kesehatan'], 200_000);
+  assert.deepEqual(breakdown.clients['Client A'], { count: 2, gross: 12_000_000, net: 11_400_000 });
+});
