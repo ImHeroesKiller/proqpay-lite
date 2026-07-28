@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { loadDatabase, saveDatabase } from '@/lib/database';
-import { handleIdaIntent } from '@/lib/ida-simple';
+import { handleIdaIntent, type PendingPayrollPreview } from '@/lib/ida-simple';
 import { emitDbChange } from '@/lib/events';
 import { renderMarkdown } from '@/lib/markdown';
 import { calcMargin } from '@/lib/margin';
@@ -99,7 +99,7 @@ function looksLikeLocalAction(text: string) {
   return (
     /\b(margin|laba|profit|bpjs|iuran|jht|jkk|jkm|jkn|provinsi|wilayah)\b/.test(t) ||
     /\b(payroll|gaji|approval|approve|approved|setujui|disetujui|payment|pembayaran|transfer|buat invoice|invoice|tandai paid|unduh)\b/.test(t) ||
-    /\b(help|bantuan|next|status|ringkasan|validasi|cek data|kelengkapan|siap|bersihkan|perbaiki|koreksi|resign|nonaktif|import|upload|audit|umr|daftar)\b/.test(t) ||
+    /\b(help|bantuan|next|status|ringkasan|validasi|cek data|kelengkapan|siap|bersihkan|perbaiki|koreksi|rincian|perincian|breakdown|komponen|detail|resign|nonaktif|import|upload|audit|umr|daftar)\b/.test(t) ||
     /^(iya|iy|yes|ok|oke|ya|y|generate|kirim|buatkan|proses|eksekusi)\b/.test(t)
   );
 }
@@ -108,6 +108,9 @@ function mapConfirmToAction(text: string, lastUserHint?: string) {
   const t = text.toLowerCase().trim();
   if (/\b(perbaiki|koreksi|benahi)\b/.test(t) && lastUserHint && /validasi/.test(lastUserHint)) {
     return 'perbaiki error validasi';
+  }
+  if (/\b(rincian|perincian|breakdown|komponen|detail)\b/.test(t) && lastUserHint && /payroll|gaji/.test(lastUserHint)) {
+    return 'rincian payroll';
   }
   if (/^(iya|iy|yes|ok|oke|ya|y|generate|kirim|buatkan|proses|eksekusi)\b/.test(t)) {
     if (lastUserHint && /payment|pembayaran/.test(lastUserHint)) return 'buat payment instruction';
@@ -158,6 +161,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     currentRole: 'VIEWER',
     permissions: [],
   });
+  const [pendingPayrollPreview, setPendingPayrollPreview] = useState<PendingPayrollPreview | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const lastTopicRef = useRef('');
@@ -398,6 +402,16 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     try {
       async function applyResult(result: ReturnType<typeof handleIdaIntent>) {
         let reply = result.reply;
+        if (result.pendingPayrollPreview) {
+          setPendingPayrollPreview(result.pendingPayrollPreview);
+          writeSystemLog('INFO', 'PAYROLL', 'PAYROLL_PREVIEW_CREATED', `Preview payroll ${result.pendingPayrollPreview.period}`, {
+            ...result.pendingPayrollPreview,
+          });
+        }
+        if (result.payrollPlanExecuted) {
+          setPendingPayrollPreview(null);
+          writeSystemLog('SUCCESS', 'PAYROLL', 'PAYROLL_PLAN_EXECUTED', `Plan ${result.payrollPlanExecuted} dieksekusi`);
+        }
         if (result.dbChanged && result.newDb) {
           setDb(result.newDb);
           emitDbChange();
@@ -410,6 +424,12 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         return reply;
       }
       const low = userMsg.toLowerCase();
+      if (/^batal$/i.test(userMsg.trim()) && pendingPayrollPreview) {
+        writeSystemLog('INFO', 'PAYROLL', 'PAYROLL_PREVIEW_CANCELLED', `Plan ${pendingPayrollPreview.planId} dibatalkan`);
+        setPendingPayrollPreview(null);
+        await pushIda('Preview payroll dibatalkan. Tidak ada data yang berubah.', true, ['Preview dibatalkan']);
+        return;
+      }
       if (/\b(batal|jangan|tidak jadi)\b.*\b(hapus|delete)|^batal$/.test(low) && pendingClientDelete) {
         setPendingClientDelete(null);
         writeSystemLog('INFO', 'SECURITY', 'CLIENT_DELETE_CANCELLED', 'Penghapusan klien dibatalkan');
@@ -575,7 +595,9 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       }
       if (looksLikeLocalAction(userMsg) || mapped !== userMsg) {
         setCotLive(['Menyiapkan jawaban…', `Menjalankan: ${mapped}`]);
-        const result = handleIdaIntent(mapped, db, actorContext);
+        const result = handleIdaIntent(mapped, db, actorContext, {
+          confirmedPayrollPlanId: pendingPayrollPreview?.planId,
+        });
         await pushIda(await applyResult(result), false, ['Selesai']);
         return;
       }
@@ -608,10 +630,14 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       if (data?.reply && looksLikeUnverifiedMutationClaim(String(data.reply))) {
         writeSystemLog('ERROR', 'IDA', 'UNVERIFIED_MUTATION_BLOCKED', 'Klaim mutasi tanpa transaksi diblokir');
       }
-      const result = handleIdaIntent(userMsg, db, actorContext);
+      const result = handleIdaIntent(userMsg, db, actorContext, {
+        confirmedPayrollPlanId: pendingPayrollPreview?.planId,
+      });
       await pushIda(await applyResult(result), false, ['Selesai']);
     } catch {
-      const result = handleIdaIntent(userMsg, db, actorContext);
+      const result = handleIdaIntent(userMsg, db, actorContext, {
+        confirmedPayrollPlanId: pendingPayrollPreview?.planId,
+      });
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
