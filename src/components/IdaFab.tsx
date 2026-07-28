@@ -58,6 +58,20 @@ function inspectParsedRows(rows: ParsedEmployee[]) {
   return { issues, warnings };
 }
 
+function findClientForDelete(text: string, companies: any[]) {
+  const query = text
+    .toLowerCase()
+    .replace(/\b(tolong|mohon|hapus|delete|data|klien|client|perusahaan|pt|semua|beserta)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  if (!query) return null;
+  const terms = query.split(/\s+/).filter((term) => term.length > 2);
+  return (companies || []).find((company: any) => {
+    const name = String(company.name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+    return terms.every((term) => name.includes(term));
+  }) || null;
+}
+
 function autoFixImportRows(rows: ParsedEmployee[]) {
   const changes: { row: number; field: string; before: string; after: string }[] = [];
   const fixed = rows.map((row, index) => {
@@ -120,6 +134,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   const [pendingRows, setPendingRows] = useState<ParsedEmployee[] | null>(null);
   const [lastImportFailure, setLastImportFailure] = useState('');
   const [pendingFullReset, setPendingFullReset] = useState(false);
+  const [pendingClientDelete, setPendingClientDelete] = useState<{ id: string; name: string; employees: number } | null>(null);
   const [cotLive, setCotLive] = useState<string[] | null>(null);
   const [showCot, setShowCot] = useState(true);
   const [typingMs, setTypingMs] = useState(28);
@@ -353,7 +368,66 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         return reply;
       }
       const low = userMsg.toLowerCase();
-      if (/\b(batal|jangan|tidak jadi)\b.*\b(hapus|reset)|^batal$/.test(low) && pendingFullReset) {
+      if (/\b(batal|jangan|tidak jadi)\b.*\b(hapus|delete)|^batal$/.test(low) && pendingClientDelete) {
+        setPendingClientDelete(null);
+        writeSystemLog('INFO', 'SECURITY', 'CLIENT_DELETE_CANCELLED', 'Penghapusan klien dibatalkan');
+        await pushIda('Penghapusan klien dibatalkan. Tidak ada data yang berubah.', true, ['Membatalkan tindakan']);
+        return;
+      }
+      if (/\b(hapus|delete)\b.*\b(klien|client|perusahaan)\b|\b(klien|client|perusahaan)\b.*\b(hapus|delete)\b/.test(low) && !pendingClientDelete) {
+        const target = findClientForDelete(userMsg, db.companies || []);
+        if (!target) {
+          const names = (db.companies || []).map((company: any) => company.name).join(', ');
+          await pushIda(
+            `Klien yang dimaksud tidak ditemukan. Klien tersedia: **${names || 'tidak ada'}**. Sebutkan nama klien secara spesifik.`,
+            true,
+            ['Mencari klien di database']
+          );
+          return;
+        }
+        const employeeCount = (db.employees || []).filter((employee: any) => employee.company === target.name).length;
+        setPendingClientDelete({ id: target.id, name: target.name, employees: employeeCount });
+        writeSystemLog('WARN', 'SECURITY', 'CLIENT_DELETE_REQUESTED', `Penghapusan ${target.name} diminta`, { employees: employeeCount });
+        await pushIda(
+          `Klien ditemukan: **${target.name}** dengan **${employeeCount} karyawan**. Penghapusan juga menghapus data karyawan, invoice, dan piutang klien tersebut. Detail payroll terkait akan dikeluarkan dan payroll terdampak kembali ke **DRAFT**.\n\nRole akan diverifikasi server. Ketik persis **iya hapus klien** untuk melanjutkan, atau **batal**.`,
+          true,
+          ['Klien ditemukan', 'Menghitung data terdampak', 'Menunggu konfirmasi']
+        );
+        return;
+      }
+      if (pendingClientDelete) {
+        if (!/^iya\s+hapus\s+klien[.!]?$/i.test(userMsg.trim())) {
+          await pushIda('Belum dihapus. Ketik persis **iya hapus klien** atau **batal**.', true, ['Menjaga tindakan destruktif']);
+          return;
+        }
+        setCotLive(['Memverifikasi role…', 'Menghapus klien secara atomik…', 'Menyinkronkan dashboard…']);
+        const response = await fetch('/api/client-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId: pendingClientDelete.id, confirmation: 'HAPUS KLIEN' }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const reason = result.error || result.message || `HTTP ${response.status}`;
+          writeSystemLog('ERROR', 'SECURITY', 'CLIENT_DELETE_REJECTED', reason, { client: pendingClientDelete.name });
+          await pushIda(`Penghapusan ditolak: **${reason}**. Tidak ada data yang berubah.`, true, ['Verifikasi gagal']);
+          return;
+        }
+        const deletedName = pendingClientDelete.name;
+        const synced = await syncDatabaseFromNeon(db, { requireData: true });
+        saveDatabase(synced.db);
+        setDb(synced.db);
+        emitDbChange();
+        setPendingClientDelete(null);
+        writeSystemLog('SUCCESS', 'SECURITY', 'CLIENT_DELETE_COMPLETED', `${deletedName} berhasil dihapus`, { deleted: result.deleted });
+        await pushIda(
+          `Klien **${result.deleted?.clientName || deletedName}** dan **${result.deleted?.employees || 0} karyawan terkait** berhasil dihapus. Payroll terdampak dikembalikan ke DRAFT dan dashboard sudah disinkronkan.`,
+          true,
+          ['Role SUPER_ADMIN terverifikasi', 'Transaksi selesai', 'Dashboard tersinkron']
+        );
+        return;
+      }
+            if (/\b(batal|jangan|tidak jadi)\b.*\b(hapus|reset)|^batal$/.test(low) && pendingFullReset) {
         setPendingFullReset(false);
         writeSystemLog('INFO', 'SECURITY', 'FULL_RESET_CANCELLED', 'Permintaan penghapusan seluruh data dibatalkan');
         await pushIda('Penghapusan dibatalkan. Tidak ada data yang berubah.', true, ['Membatalkan tindakan']);
