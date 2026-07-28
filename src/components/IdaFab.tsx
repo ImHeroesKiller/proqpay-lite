@@ -137,9 +137,10 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         saveDatabase(result.db);
         setDb(result.db);
         emitDbChange();
+        writeSystemLog('SUCCESS', 'DATABASE', 'NEON_SYNC_COMPLETED', `${result.count} karyawan tersinkron`);
       })
-      .catch(() => {
-        // Tetap gunakan mirror lokal saat Neon tidak dapat dijangkau.
+      .catch((error) => {
+        writeSystemLog('ERROR', 'DATABASE', 'NEON_SYNC_FAILED', String(error?.message || error));
       });
     const unsubscribe = onSettingsChange(() => {
       const s = loadSettings();
@@ -324,6 +325,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   async function send() {
     if (!input.trim() || !db || busy || typing) return;
     const userMsg = input.trim();
+    writeSystemLog('INFO', 'IDA', 'MESSAGE_RECEIVED', 'Permintaan pengguna diterima', { characters: userMsg.length });
     setMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
     setInput('');
     setBusy(true);
