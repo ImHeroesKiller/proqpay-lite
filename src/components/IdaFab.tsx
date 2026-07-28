@@ -250,7 +250,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const issueText = formatImportIssues(Array.isArray(data.issues) ? data.issues : [], i);
+          const issueText = formatImportIssues(Array.isArray(data.issues) ? data.issues : [], i + 1);
           const reason = issueText || data.message || data.error || `HTTP ${res.status}`;
           setLastImportFailure(reason);
           throw new Error(reason);
