@@ -87,8 +87,8 @@ export function buildSharedContext(db: any, overrides: Partial<SharedContext> = 
   const payroll = (db?.payrolls || []).find((item: any) => item.period === period);
   return {
     organization: { name: db?.meta?.orgName || 'ProQPay Lite' },
-    currentUser: { email: 'local@proqpay' },
-    currentRole: 'SUPER_ADMIN',
+    currentUser: { email: 'unknown@local' },
+    currentRole: 'VIEWER',
     conversation: {},
     currentClient: undefined,
     currentProject: undefined,
