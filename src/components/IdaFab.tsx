@@ -13,6 +13,7 @@ import { validatePayrollIndonesia, formatValidationMarkdown } from '@/lib/payrol
 import { loadSettings, onSettingsChange } from '@/lib/app-settings';
 import { persistBusinessState, syncDatabaseFromNeon } from '@/lib/neon-sync';
 import { writeSystemLog } from '@/lib/system-log';
+import type { IdaRole, SharedContext } from '@/lib/ida-os/contracts';
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
 
@@ -152,6 +153,11 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   const [cotLive, setCotLive] = useState<string[] | null>(null);
   const [showCot, setShowCot] = useState(true);
   const [typingMs, setTypingMs] = useState(28);
+  const [actorContext, setActorContext] = useState<Partial<SharedContext>>({
+    currentUser: { email: 'unknown@local' },
+    currentRole: 'VIEWER',
+    permissions: [],
+  });
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const lastTopicRef = useRef('');
@@ -165,6 +171,27 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     setShowCot(st.idaShowCot);
     setTypingMs(st.idaTypingMs);
     const controller = new AbortController();
+    fetch('/api/me', { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((identity) => {
+        const user = identity?.user;
+        if (!user?.email || !user?.role) return;
+        setActorContext({
+          currentUser: { id: user.id, email: user.email },
+          currentRole: user.role as IdaRole,
+          permissions: Array.isArray(user.permissions) ? user.permissions : [],
+        });
+      })
+      .catch((error) => {
+        if (error?.name !== 'AbortError') {
+          writeSystemLog('WARN', 'SECURITY', 'IDA_CONTEXT_FALLBACK', 'Identitas IDA menggunakan role VIEWER', {
+            reason: String(error?.message || error),
+          });
+        }
+      });
     syncDatabaseFromNeon(localDb, { signal: controller.signal })
       .then((result) => {
         if (!result.synced) return;
@@ -548,7 +575,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       }
       if (looksLikeLocalAction(userMsg) || mapped !== userMsg) {
         setCotLive(['Menyiapkan jawaban…', `Menjalankan: ${mapped}`]);
-        const result = handleIdaIntent(mapped, db);
+        const result = handleIdaIntent(mapped, db, actorContext);
         await pushIda(await applyResult(result), false, ['Selesai']);
         return;
       }
@@ -581,10 +608,10 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       if (data?.reply && looksLikeUnverifiedMutationClaim(String(data.reply))) {
         writeSystemLog('ERROR', 'IDA', 'UNVERIFIED_MUTATION_BLOCKED', 'Klaim mutasi tanpa transaksi diblokir');
       }
-      const result = handleIdaIntent(userMsg, db);
+      const result = handleIdaIntent(userMsg, db, actorContext);
       await pushIda(await applyResult(result), false, ['Selesai']);
     } catch {
-      const result = handleIdaIntent(userMsg, db);
+      const result = handleIdaIntent(userMsg, db, actorContext);
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
         emitDbChange();
