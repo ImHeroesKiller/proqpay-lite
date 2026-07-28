@@ -30,6 +30,12 @@ function cleanCot(list?: string[] | null) {
 }
 
 type ImportIssue = { row?: number; field?: string; message?: string };
+type PendingEmailFill = {
+  planId: string;
+  domain: string;
+  expectedCount: number;
+  samples: Array<{ name: string; email: string }>;
+};
 
 function formatImportIssues(issues: ImportIssue[], rowOffset = 0) {
   if (!issues.length) return '';
@@ -88,6 +94,33 @@ function autoFixImportRows(rows: ParsedEmployee[]) {
     return next;
   });
   return { rows: fixed, changes };
+}
+
+function companyPlaceholderDomain(name: string) {
+  const slug = String(name || 'perusahaan')
+    .toLowerCase()
+    .replace(/\b(pt|cv|tbk|persero)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, '')
+    .slice(0, 40) || 'perusahaan';
+  return `${slug}.pending.proqpay.invalid`;
+}
+
+function placeholderEmail(employee: any, domain: string) {
+  const local = String(employee.id || employee.name || 'karyawan')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '') || 'karyawan';
+  return `${local}@${domain}`;
+}
+
+function emailFillPlanId(employees: any[], domain: string) {
+  const source = `${domain}|${employees.map((item) => item.id).sort().join('|')}`;
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `PLAN-EMAIL-${(hash >>> 0).toString(16).toUpperCase()}`;
 }
 
 function looksLikePromptLeak(text: string) {
@@ -173,6 +206,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   });
   const [pendingPayrollPreview, setPendingPayrollPreview] = useState<PendingPayrollPreview | null>(null);
   const [pendingApprovalPreview, setPendingApprovalPreview] = useState<PendingApprovalPreview | null>(null);
+  const [pendingEmailFill, setPendingEmailFill] = useState<PendingEmailFill | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const lastTopicRef = useRef('');
@@ -445,6 +479,12 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         return reply;
       }
       const low = userMsg.toLowerCase();
+      if (/^batal$/i.test(userMsg.trim()) && pendingEmailFill) {
+        writeSystemLog('INFO', 'HR', 'EMAIL_FILL_PREVIEW_CANCELLED', `Plan ${pendingEmailFill.planId} dibatalkan`);
+        setPendingEmailFill(null);
+        await pushIda('Preview pengisian email dibatalkan. Tidak ada data yang berubah.', true, ['Preview dibatalkan']);
+        return;
+      }
       if (/^batal$/i.test(userMsg.trim()) && pendingPayrollPreview) {
         writeSystemLog('INFO', 'PAYROLL', 'PAYROLL_PREVIEW_CANCELLED', `Plan ${pendingPayrollPreview.planId} dibatalkan`);
         setPendingPayrollPreview(null);
@@ -592,6 +632,87 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         );
         return;
       }
+      if (
+        /\b(perbaiki|isi|masukkan|buat|tambahkan)\b.*\bemail\b.*\b(kosong|dummy|placeholder)\b/.test(low) ||
+        /\bemail\s+(dummy|placeholder)\b/.test(low)
+      ) {
+        const missing = (db.employees || []).filter((employee: any) => !String(employee.email || '').trim());
+        if (!missing.length) {
+          await pushIda('Tidak ada email karyawan yang kosong. Tidak ada data yang diubah.', true, ['Memeriksa data karyawan']);
+          return;
+        }
+        const company = missing[0]?.company || db.companies?.[0]?.name || 'perusahaan';
+        const domain = companyPlaceholderDomain(company);
+        const preview: PendingEmailFill = {
+          planId: emailFillPlanId(missing, domain),
+          domain,
+          expectedCount: missing.length,
+          samples: missing.slice(0, 5).map((employee: any) => ({
+            name: employee.name,
+            email: placeholderEmail(employee, domain),
+          })),
+        };
+        setPendingEmailFill(preview);
+        writeSystemLog('INFO', 'HR', 'EMAIL_FILL_PREVIEW_CREATED', `Preview ${missing.length} email placeholder`, preview);
+        const samples = preview.samples
+          .map((item) => `- **${item.name}** → \`${item.email}\``)
+          .join('\n');
+        await pushIda(
+          `**Preview pengisian email — belum dieksekusi**\n\n` +
+            `- Karyawan terdampak: **${preview.expectedCount}**\n` +
+            `- Domain placeholder: \`${preview.domain}\`\n` +
+            `- Alamat tidak dapat menerima email karena memakai domain **.invalid**.\n\n` +
+            `**Contoh**\n${samples}\n\n` +
+            `Ketik persis **konfirmasi email ${preview.planId}** untuk menyimpan, atau **batal**.`,
+          true,
+          ['HR Staff memeriksa email kosong', 'Menyiapkan preview', 'Menunggu konfirmasi']
+        );
+        return;
+      }
+      if (pendingEmailFill) {
+        const expected = `konfirmasi email ${pendingEmailFill.planId}`.toLowerCase();
+        if (low !== expected) {
+          await pushIda(
+            `Preview **${pendingEmailFill.expectedCount} email** sudah siap dengan domain \`${pendingEmailFill.domain}\`. ` +
+              `Untuk keamanan, ketik persis **konfirmasi email ${pendingEmailFill.planId}** atau **batal**.`,
+            true,
+            ['Menjaga konfirmasi tindakan HR']
+          );
+          return;
+        }
+        setCotLive(['Memverifikasi role HR…', 'Mengubah email secara atomik…', 'Menyinkronkan dashboard…']);
+        const response = await fetch('/api/employee-email-fill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            confirmation: 'ISI EMAIL DUMMY',
+            planId: pendingEmailFill.planId,
+            domain: pendingEmailFill.domain,
+            expectedCount: pendingEmailFill.expectedCount,
+          }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const reason = result.error || `HTTP ${response.status}`;
+          writeSystemLog('ERROR', 'HR', 'EMAIL_FILL_REJECTED', reason, { planId: pendingEmailFill.planId });
+          if (response.status === 409) setPendingEmailFill(null);
+          await pushIda(`Pengisian email ditolak: **${reason}**. Tidak ada perubahan parsial.`, true, ['Transaksi dibatalkan']);
+          return;
+        }
+        const synced = await syncDatabaseFromNeon(db, { requireData: true });
+        saveDatabase(synced.db);
+        setDb(synced.db);
+        emitDbChange();
+        setPendingEmailFill(null);
+        writeSystemLog('SUCCESS', 'HR', 'EMAIL_FILL_COMPLETED', `${result.updated} email placeholder tersimpan`, result);
+        await pushIda(
+          `Berhasil mengisi **${result.updated} email placeholder** secara atomik dengan domain \`${result.domain}\`. ` +
+            `Dashboard sudah disinkronkan. Alamat tersebut tetap ditandai nonaktif untuk pengiriman payslip.`,
+          true,
+          ['Role terverifikasi', 'Transaksi selesai', 'Dashboard tersinkron']
+        );
+        return;
+      }
       if (/\b(kenapa|mengapa|apa penyebab).*(gagal|error)|\b(gagal|error).*(kenapa|mengapa|penyebab)\b/.test(low) && lastImportFailure) {
         await pushIda(
           `Import terakhir gagal karena:\n\n${lastImportFailure}\n\nTidak terkait database yang masih kosong. Silakan perbaiki baris tersebut lalu unggah ulang.`,
@@ -600,7 +721,10 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         );
         return;
       }
-      if (/\b(import sekarang|simpan import)\b/.test(low)) {
+      if (
+        pendingRows?.length &&
+        /^(?:(?:iya|ya|ok|oke)\s+)?(?:import|simpan)(?:\s+sekarang)?[.!]?$/.test(low)
+      ) {
         await runImport();
         return;
       }
@@ -610,6 +734,14 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         return;
       }
       if (/\b(upload|import|excel|lampir)\b/.test(low) && !pendingRows?.length) {
+        if (/\b(buatkan|buat|ekspor|export)\b.*\bexcel\b/.test(low)) {
+          await pushIda(
+            'Ekspor Excel belum tersedia pada alur chat ini. Saya tidak akan mengklaim file sudah dibuat. Data dapat ditampilkan sebagai tabel faktual di chat.',
+            true,
+            ['Memeriksa kemampuan aplikasi']
+          );
+          return;
+        }
         await pushIda('Gunakan tombol **📎** di bawah, lalu ketik **import sekarang**.', true, ['Arahkan unggah file']);
         return;
       }
