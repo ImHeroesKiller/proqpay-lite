@@ -14,6 +14,7 @@ import ClientDetail from '@/components/ClientDetail';
 import RegionMap from '@/components/RegionMap';
 import MetricPopup from '@/components/MetricPopup';
 import DashFilters from '@/components/DashFilters';
+import SystemLogs from '@/components/SystemLogs';
 import { IconUsers, IconBuilding, IconWallet, IconClock } from '@/components/Icons';
 
 type PopupType = 'employees' | 'clients' | 'payroll' | 'outstanding' | null;
@@ -274,6 +275,8 @@ export default function Home() {
                 </div>
               </section>
             )}
+
+            {view === 'logs' && <SystemLogs auditLogs={db.auditLogs || []} />}
 
             {view === 'reports' && (
               <section>
