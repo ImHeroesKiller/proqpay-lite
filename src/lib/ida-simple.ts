@@ -214,7 +214,7 @@ export function handleIdaIntent(
     return { reply: renderMarkdown(msg), dbChanged: true, newDb };
   }
 
-  if (/\b(ajukan approval|approve|setujui|approval)\b/.test(t)) {
+  if (/\b(ajukan approval|approve|approved|setujui|disetujui|approval)\b/.test(t)) {
     const period = periodOf(db);
     const payroll = payrollOf(db, period);
     if (!payroll) return { reply: renderMarkdown(`Belum ada payroll ${period}. **hitung payroll** dulu.`) };
@@ -239,7 +239,7 @@ export function handleIdaIntent(
     };
     saveDatabase(newDb);
     let msg = `**${period}** sudah APPROVED.`;
-    if (!report.ok) msg += ` Masih ${report.errorCount} error validasi sebelum payment.`;
+    if (!report.ok) msg += ` Approval tercatat, tetapi payment instruction tetap diblokir karena masih ada ${report.errorCount} error validasi. Ketik **validasi** untuk detail.`;
     else msg += ` Lanjut **buat payment instruction**.`;
     return { reply: renderMarkdown(msg), dbChanged: true, newDb };
   }
