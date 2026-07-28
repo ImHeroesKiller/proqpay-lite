@@ -76,7 +76,7 @@ function looksLikeLocalAction(text: string) {
   return (
     /\b(margin|laba|profit|bpjs|iuran|jht|jkk|jkm|jkn|provinsi|wilayah)\b/.test(t) ||
     /\b(payroll|gaji|approval|approve|approved|setujui|disetujui|payment instruction|buat invoice|invoice|tandai paid|unduh payment)\b/.test(t) ||
-    /\b(help|bantuan|next|status|ringkasan|validasi|import|upload|audit|umr|daftar)\b/.test(t) ||
+    /\b(help|bantuan|next|status|ringkasan|validasi|cek data|kelengkapan|siap|bersihkan data|resign|nonaktif|import|upload|audit|umr|daftar)\b/.test(t) ||
     /^(iya|yes|ok|oke|ya|generate|kirim|proses)\b/.test(t)
   );
 }
