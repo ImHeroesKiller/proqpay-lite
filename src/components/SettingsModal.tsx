@@ -8,18 +8,28 @@ import {
   type AppRole,
   type AppUser,
 } from '@/lib/app-settings';
+import { saveDatabase, seedDatabase } from '@/lib/database';
+import { emitDbChange } from '@/lib/events';
+import { writeSystemLog } from '@/lib/system-log';
 
-type Tab = 'umum' | 'tampilan' | 'variabel' | 'users';
+type Tab = 'umum' | 'tampilan' | 'variabel' | 'users' | 'data';
+
+const RESET_CONFIRMATION = 'HAPUS SEMUA DATA';
 
 export default function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>('umum');
   const [s, setS] = useState<AppSettings | null>(null);
   const [saved, setSaved] = useState(false);
+  const [resetConfirmation, setResetConfirmation] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [resetStatus, setResetStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     if (open) {
       setS(loadSettings());
       setSaved(false);
+      setResetConfirmation('');
+      setResetStatus(null);
     }
   }, [open]);
 
@@ -61,11 +71,48 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
     });
   }
 
+  async function resetOperationalData() {
+    if (resetConfirmation !== RESET_CONFIRMATION || resetting) return;
+    setResetting(true);
+    setResetStatus(null);
+    writeSystemLog('WARN', 'SECURITY', 'SETTINGS_RESET_REQUESTED', 'Reset data operasional diminta dari Pengaturan');
+    try {
+      const response = await fetch('/api/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmation: RESET_CONFIRMATION }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || data.message || `HTTP ${response.status}`);
+      }
+      const emptyDb = seedDatabase();
+      saveDatabase(emptyDb);
+      emitDbChange();
+      setResetConfirmation('');
+      setResetStatus({
+        type: 'success',
+        message: `Reset selesai: ${data.deleted?.employees || 0} karyawan, ${data.deleted?.clients || 0} klien, ${data.deleted?.payrolls || 0} payroll, dan ${data.deleted?.invoices || 0} invoice dihapus.`,
+      });
+      writeSystemLog('SUCCESS', 'SECURITY', 'SETTINGS_RESET_COMPLETED', 'Reset data operasional selesai', {
+        deleted: data.deleted,
+        preserved: data.preserved,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Reset gagal';
+      setResetStatus({ type: 'error', message: `Reset gagal: ${message}. Tidak ada data lokal yang diubah.` });
+      writeSystemLog('ERROR', 'SECURITY', 'SETTINGS_RESET_REJECTED', message);
+    } finally {
+      setResetting(false);
+    }
+  }
+
   const tabs: { id: Tab; label: string }[] = [
     { id: 'umum', label: 'Umum' },
     { id: 'tampilan', label: 'Tampilan' },
     { id: 'variabel', label: 'Variabel' },
     { id: 'users', label: 'Users & Roles' },
+    { id: 'data', label: 'Data' },
   ];
 
   return (
@@ -278,6 +325,120 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               </button>
             </div>
           )}
+
+          {tab === 'data' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div
+                style={{
+                  border: '1px solid rgba(220, 38, 38, 0.28)',
+                  borderRadius: 14,
+                  padding: 16,
+                  background: 'rgba(220, 38, 38, 0.045)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 10,
+                      display: 'grid',
+                      placeItems: 'center',
+                      background: 'rgba(220, 38, 38, 0.12)',
+                    }}
+                  >
+                    🗑️
+                  </span>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 750, color: '#b91c1c' }}>Reset data operasional</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text3)' }}>Khusus role SUPER_ADMIN</div>
+                  </div>
+                </div>
+
+                <p style={{ margin: '0 0 12px', fontSize: 12.5, lineHeight: 1.6, color: 'var(--text2)' }}>
+                  Menghapus seluruh data klien, proyek/lokasi, karyawan, payroll, approval, payment, invoice,
+                  piutang, dan audit operasional dari database.
+                </p>
+
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-soft)',
+                    fontSize: 12,
+                    lineHeight: 1.55,
+                    color: 'var(--text2)',
+                    marginBottom: 14,
+                  }}
+                >
+                  <strong>Tetap dipertahankan:</strong> knowledge IDA, memory dan riwayat percakapan IDA,
+                  organisasi, referensi provinsi, serta konfigurasi aplikasi.
+                </div>
+
+                <Field label={`Ketik “${RESET_CONFIRMATION}” untuk konfirmasi`}>
+                  <input
+                    value={resetConfirmation}
+                    onChange={(event) => {
+                      setResetConfirmation(event.target.value);
+                      setResetStatus(null);
+                    }}
+                    placeholder={RESET_CONFIRMATION}
+                    autoComplete="off"
+                    disabled={resetting}
+                    style={{
+                      ...inp,
+                      borderColor:
+                        resetConfirmation && resetConfirmation !== RESET_CONFIRMATION
+                          ? 'rgba(220, 38, 38, 0.5)'
+                          : 'var(--border)',
+                    }}
+                  />
+                </Field>
+
+                <button
+                  type="button"
+                  onClick={resetOperationalData}
+                  disabled={resetConfirmation !== RESET_CONFIRMATION || resetting}
+                  style={{
+                    width: '100%',
+                    marginTop: 12,
+                    border: 'none',
+                    borderRadius: 10,
+                    padding: '10px 14px',
+                    fontSize: 12.5,
+                    fontWeight: 750,
+                    color: '#fff',
+                    background:
+                      resetConfirmation === RESET_CONFIRMATION && !resetting ? '#dc2626' : 'var(--text3)',
+                    opacity: resetConfirmation === RESET_CONFIRMATION && !resetting ? 1 : 0.48,
+                    cursor: resetConfirmation === RESET_CONFIRMATION && !resetting ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  {resetting ? 'Menghapus data…' : 'Reset Semua Data Operasional'}
+                </button>
+
+                {resetStatus && (
+                  <div
+                    role="status"
+                    style={{
+                      marginTop: 12,
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                      color: resetStatus.type === 'success' ? '#166534' : '#b91c1c',
+                      background:
+                        resetStatus.type === 'success' ? 'rgba(22, 163, 74, 0.08)' : 'rgba(220, 38, 38, 0.08)',
+                    }}
+                  >
+                    {resetStatus.message}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div
@@ -291,15 +452,17 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
           }}
         >
           <span style={{ fontSize: 12, color: saved ? 'var(--success)' : 'var(--text3)' }}>
-            {saved ? 'Tersimpan' : 'Belum disimpan'}
+            {tab === 'data' ? 'Knowledge & memory IDA dilindungi' : saved ? 'Tersimpan' : 'Belum disimpan'}
           </span>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" className="btn" onClick={onClose}>
               Tutup
             </button>
-            <button type="button" className="btn btn-primary" onClick={save}>
-              Simpan
-            </button>
+            {tab !== 'data' && (
+              <button type="button" className="btn btn-primary" onClick={save}>
+                Simpan
+              </button>
+            )}
           </div>
         </div>
       </div>
