@@ -103,7 +103,7 @@ function looksLikeLocalAction(text: string) {
   return (
     /\b(margin|laba|profit|bpjs|iuran|jht|jkk|jkm|jkn|provinsi|wilayah)\b/.test(t) ||
     /\b(payroll|gaji|approval|approve|approved|setujui|disetujui|payment|pembayaran|transfer|buat invoice|invoice|tandai paid|unduh)\b/.test(t) ||
-    /\b(help|bantuan|next|status|ringkasan|validasi|cek data|kelengkapan|siap|ready|bersihkan|perbaiki|koreksi|rincian|perincian|breakdown|komponen|detail|tabel|terendah|tertinggi|paling kecil|paling besar|resign|nonaktif|import|upload|audit|umr|daftar)\b/.test(t) ||
+    /\b(help|bantuan|next|status|ringkasan|validasi|cek data|kelengkapan|siap|ready|bersihkan|perbaiki|koreksi|rincian|perincian|breakdown|komponen|detail|tabel|per karyawan|terendah|tertinggi|paling kecil|paling besar|resign|nonaktif|import|upload|audit|umr|daftar)\b/.test(t) ||
     /^(iya|iy|yes|ok|oke|ya|y|generate|kirim|buatkan|proses|eksekusi)\b/.test(t)
   );
 }
