@@ -16,6 +16,7 @@ import MetricPopup from '@/components/MetricPopup';
 import DashFilters from '@/components/DashFilters';
 import SystemLogs from '@/components/SystemLogs';
 import { IconUsers, IconBuilding, IconWallet, IconClock } from '@/components/Icons';
+import { writeSystemLog } from '@/lib/system-log';
 
 type PopupType = 'employees' | 'clients' | 'payroll' | 'outstanding' | null;
 
@@ -31,6 +32,7 @@ export default function Home() {
 
   useEffect(() => {
     setMounted(true);
+    writeSystemLog('INFO', 'APP', 'APPLICATION_STARTED', 'ProQPay Lite dashboard dimuat');
     const data = loadDatabase();
     setDb(data);
     const st = loadSettings();
@@ -51,6 +53,7 @@ export default function Home() {
   }, []);
 
   function handlePeriodChange(p: string) {
+    writeSystemLog('INFO', 'DASHBOARD', 'PERIOD_CHANGED', `Periode aktif diubah ke ${p}`);
     setPeriod(p);
     if (!db) return;
     const next = { ...db, meta: { ...db.meta, currentPeriod: p } };
