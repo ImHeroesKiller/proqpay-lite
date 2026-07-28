@@ -5,6 +5,7 @@ import {
   corsHeaders,
   handlePreflight,
 } from '../functions/api/_security.js';
+import { validateEmailFillRequest } from '../functions/api/employee-email-fill-validation.js';
 
 const url = 'https://proqpay-lite.pages.dev/api/import';
 
@@ -66,4 +67,24 @@ test('access mode fails closed when Access is not configured', async () => {
     roles: ['SUPER_ADMIN'],
   });
   assert.equal(result.response.status, 401);
+});
+
+test('email placeholder mutation requires exact confirmation and safe invalid domain', () => {
+  const valid = validateEmailFillRequest({
+    confirmation: 'ISI EMAIL DUMMY',
+    planId: 'PLAN-EMAIL-ABC123',
+    domain: 'indomarco.pending.proqpay.invalid',
+    expectedCount: 11,
+  });
+  assert.equal(valid.ok, true);
+
+  const unsafe = validateEmailFillRequest({
+    confirmation: 'iya',
+    planId: 'bad',
+    domain: 'indomarco.com',
+    expectedCount: 11,
+  });
+  assert.equal(unsafe.ok, false);
+  assert.match(unsafe.errors.join(' '), /Konfirmasi wajib/);
+  assert.match(unsafe.errors.join(' '), /\.invalid/);
 });
