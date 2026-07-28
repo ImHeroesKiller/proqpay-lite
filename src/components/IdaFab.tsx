@@ -23,6 +23,40 @@ function cleanCot(list?: string[] | null) {
   return x.length ? x : undefined;
 }
 
+type ImportIssue = { row?: number; field?: string; message?: string };
+
+function formatImportIssues(issues: ImportIssue[], rowOffset = 0) {
+  if (!issues.length) return '';
+  return issues
+    .slice(0, 12)
+    .map((issue) => {
+      const row = Number(issue.row || 0);
+      const position = row > 0 ? `Baris ${row + rowOffset}` : 'File';
+      const field = issue.field && issue.field !== 'rows' ? ` · kolom **${issue.field}**` : '';
+      return `- ${position}${field}: ${issue.message || 'Data tidak valid'}`;
+    })
+    .join('\n');
+}
+
+function inspectParsedRows(rows: ParsedEmployee[]) {
+  const issues: ImportIssue[] = [];
+  const warnings: ImportIssue[] = [];
+  const seen = new Map<string, number>();
+  rows.forEach((row, index) => {
+    const rowNo = index + 2;
+    const nrk = String(row.nrk || '').trim().toUpperCase();
+    if (!nrk) issues.push({ row: rowNo, field: 'NRK', message: 'NRK wajib diisi' });
+    else if (seen.has(nrk)) issues.push({ row: rowNo, field: 'NRK', message: `Duplikat dengan baris ${seen.get(nrk)}` });
+    else seen.set(nrk, rowNo);
+    if (!String(row.name || '').trim()) issues.push({ row: rowNo, field: 'Nama', message: 'Nama wajib diisi' });
+    if (!Number.isFinite(row.basicSalary) || row.basicSalary < 0) issues.push({ row: rowNo, field: 'Gaji Pokok', message: 'Gaji harus berupa angka minimal 0' });
+    if (row.basicSalary === 0) warnings.push({ row: rowNo, field: 'Gaji Pokok', message: 'Nilai gaji 0; pastikan memang benar' });
+    if (!row.accountNo) warnings.push({ row: rowNo, field: 'Rekening', message: 'Rekening belum diisi' });
+    if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) issues.push({ row: rowNo, field: 'Email', message: 'Format email tidak valid' });
+  });
+  return { issues, warnings };
+}
+
 function looksLikeLocalAction(text: string) {
   const t = text.toLowerCase();
   return (
@@ -66,6 +100,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   const [busy, setBusy] = useState(false);
   const [typing, setTyping] = useState(false);
   const [pendingRows, setPendingRows] = useState<ParsedEmployee[] | null>(null);
+  const [lastImportFailure, setLastImportFailure] = useState('');
   const [cotLive, setCotLive] = useState<string[] | null>(null);
   const [showCot, setShowCot] = useState(true);
   const [typingMs, setTypingMs] = useState(28);
@@ -171,14 +206,20 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       }
       const parsed = parseIapWorkbook(await file.arrayBuffer());
       setPendingRows(parsed.rows);
+      setLastImportFailure('');
+      const review = inspectParsedRows(parsed.rows);
       const sample = parsed.rows
         .slice(0, 3)
         .map((r) => `- **${r.name}** → **${r.province}**`)
         .join('\n');
+      const validationText = review.issues.length
+        ? `\n\n**Ditemukan ${review.issues.length} masalah yang harus diperbaiki:**\n${formatImportIssues(review.issues)}`
+        : `\n\n**Validasi awal lulus.** ${review.warnings.length} catatan opsional ditemukan.`;
       await pushIda(
-        `File terbaca: **${parsed.rows.length}** baris.\n\n${sample}\n\nKetik **import sekarang** untuk menyimpan.`,
+        `File terbaca: **${parsed.rows.length}** baris; **${parsed.skipped}** baris dilewati karena NRK/nama kosong.\n\n${sample}${validationText}\n\n` +
+          (review.issues.length ? 'Perbaiki data tersebut lalu unggah kembali.' : 'Ketik **import sekarang** untuk menyimpan.'),
         true,
-        ['File dibaca', `${parsed.rows.length} baris siap`]
+        ['Membaca struktur file', 'Memeriksa data wajib', review.issues.length ? 'Perlu perbaikan' : 'Siap diimpor']
       );
     } catch (e: any) {
       await pushIda(`Gagal membaca file: ${e?.message || e}`, true, ['Gagal membaca']);
@@ -208,7 +249,12 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           body: JSON.stringify({ rows: chunk }),
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || `HTTP ${res.status}`);
+        if (!res.ok) {
+          const issueText = formatImportIssues(Array.isArray(data.issues) ? data.issues : [], i);
+          const reason = issueText || data.message || data.error || `HTTP ${res.status}`;
+          setLastImportFailure(reason);
+          throw new Error(reason);
+        }
         inserted += data.inserted || 0;
         updated += data.updated || 0;
         errors += data.errors || 0;
@@ -225,6 +271,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       setDb(newDb);
       emitDbChange();
       setPendingRows(null);
+      setLastImportFailure('');
       const report = validatePayrollIndonesia(newDb);
       await pushIda(
         `Data tersimpan (**${inserted} baru, ${updated} diperbarui, ${errors} gagal**). Dashboard tersinkron **${synced.count} karyawan**.\n\n` +
@@ -233,7 +280,13 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         ['Data disimpan', 'Pemeriksaan selesai']
       );
     } catch (e: any) {
-      await pushIda(`Gagal menyimpan: **${e?.message || e}**`, true, ['Gagal menyimpan']);
+      const reason = String(e?.message || e);
+      setLastImportFailure(reason);
+      await pushIda(
+        `**Import belum disimpan.**\n\n${reason}\n\nPerbaiki baris tersebut pada Excel, lalu unggah ulang. Tidak ada data parsial yang masuk ke database.`,
+        true,
+        ['Validasi gagal', 'Transaksi dibatalkan']
+      );
     } finally {
       setCotLive(null);
       setBusy(false);
@@ -265,6 +318,14 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         return reply;
       }
       const low = userMsg.toLowerCase();
+      if (/\b(kenapa|mengapa|apa penyebab).*(gagal|error)|\b(gagal|error).*(kenapa|mengapa|penyebab)\b/.test(low) && lastImportFailure) {
+        await pushIda(
+          `Import terakhir gagal karena:\n\n${lastImportFailure}\n\nTidak terkait database yang masih kosong. Silakan perbaiki baris tersebut lalu unggah ulang.`,
+          true,
+          ['Membaca hasil validasi terakhir']
+        );
+        return;
+      }
       if (/\b(import sekarang|simpan import)\b/.test(low)) {
         await runImport();
         return;
