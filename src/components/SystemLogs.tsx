@@ -43,7 +43,7 @@ export default function SystemLogs({ auditLogs = [] }: { auditLogs?: any[] }) {
   const merged = useMemo(() => {
     const auditEntries: SystemLogEntry[] = auditLogs.map((item) => ({
       id: `audit-${item.id}`,
-      timestamp: Number(item.timestamp || Date.now()),
+      timestamp: Number(item.timestamp || 0),
       level: 'INFO',
       source: 'BUSINESS',
       event: String(item.action || 'AUDIT'),
