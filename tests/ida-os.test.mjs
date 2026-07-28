@@ -187,3 +187,52 @@ test('payroll preview and breakdown use only deterministic payroll lines', async
   assert.equal(breakdown.components['Potongan BPJS Kesehatan'], 200_000);
   assert.deepEqual(breakdown.clients['Client A'], { count: 2, gross: 12_000_000, net: 11_400_000 });
 });
+
+test('payroll queries return factual readiness, rows, and salary ranking', async () => {
+  const query = await loadTsModule('src/lib/ida-os/payroll-query.ts');
+  const payroll = {
+    status: 'CALCULATED',
+    details: [
+      { name: 'Budi', company: 'Client A', salaryGross: 4_000_000, gross: 4_200_000, net: 4_000_000 },
+      { name: 'Ani', company: 'Client A', salaryGross: 3_000_000, gross: 3_200_000, net: 3_050_000 },
+    ],
+  };
+  assert.deepEqual(query.payrollReadiness(payroll, 2), {
+    readyForApproval: true,
+    readyForPayment: false,
+    reason: '2 error validasi masih memblokir payment instruction.',
+  });
+  assert.equal(query.payrollEmployeeRows(payroll)[0].deduction, 200_000);
+  assert.equal(query.rankPayrollEmployees(payroll, 'LOWEST', 1)[0].name, 'Ani');
+  assert.equal(query.rankPayrollEmployees(payroll, 'HIGHEST', 1)[0].name, 'Budi');
+});
+
+test('approval requires a preview and is idempotent', async () => {
+  const approval = await loadTsModule('src/lib/ida-os/approval-preview.ts');
+  const db = {
+    payrolls: [{
+      id: 'PAY-1',
+      period: '2026-07',
+      status: 'CALCULATED',
+      summary: { employeeCount: 2, totalNet: 10_000_000 },
+    }],
+    approvals: [],
+    auditLogs: [],
+  };
+  const preview = approval.buildApprovalPreview(
+    db.payrolls[0],
+    3,
+    'PLAN-APPROVAL',
+    { email: 'director@proqpay.id', role: 'DIRECTOR' }
+  );
+  assert.equal(preview.currentStatus, 'CALCULATED');
+  assert.equal(preview.validationErrors, 3);
+  const first = approval.applyApproval(db, preview, 1234);
+  assert.equal(first.alreadyApplied, false);
+  assert.equal(first.db.payrolls[0].status, 'APPROVED');
+  assert.equal(first.db.approvals.length, 1);
+  assert.equal(first.db.auditLogs[0].user, 'director@proqpay.id');
+  const second = approval.applyApproval(first.db, preview, 5678);
+  assert.equal(second.alreadyApplied, true);
+  assert.equal(second.db.approvals.length, 1);
+});
