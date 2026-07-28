@@ -75,7 +75,7 @@ function looksLikeLocalAction(text: string) {
   const t = text.toLowerCase();
   return (
     /\b(margin|laba|profit|bpjs|iuran|jht|jkk|jkm|jkn|provinsi|wilayah)\b/.test(t) ||
-    /\b(hitung payroll|ajukan approval|payment instruction|buat invoice|invoice|tandai paid|unduh payment)\b/.test(t) ||
+    /\b(payroll|gaji|ajukan approval|payment instruction|buat invoice|invoice|tandai paid|unduh payment)\b/.test(t) ||
     /\b(help|bantuan|next|status|ringkasan|validasi|import|upload|audit|umr|daftar)\b/.test(t) ||
     /^(iya|yes|ok|oke|ya|generate|kirim|proses)\b/.test(t)
   );
@@ -84,7 +84,11 @@ function looksLikeLocalAction(text: string) {
 function mapConfirmToAction(text: string, lastUserHint?: string) {
   const t = text.toLowerCase().trim();
   if (/^(iya|yes|ok|oke|ya|generate|kirim|proses)\b/.test(t)) {
-    return lastUserHint && /invoice/.test(lastUserHint) ? 'buat invoice' : 'buat invoice';
+    if (lastUserHint && /payroll|gaji/.test(lastUserHint)) return 'hitung payroll';
+    if (lastUserHint && /approval|setuju/.test(lastUserHint)) return 'ajukan approval';
+    if (lastUserHint && /payment|pembayaran/.test(lastUserHint)) return 'buat payment instruction';
+    if (lastUserHint && /invoice/.test(lastUserHint)) return 'buat invoice';
+    return text;
   }
   if (/\binvoice\b/.test(t)) return 'buat invoice';
   return text;
@@ -331,7 +335,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     setBusy(true);
     setCotLive(['Memahami permintaan…']);
 
-    if (/invoice|payroll|upload|bpjs|validasi/.test(userMsg.toLowerCase())) lastTopicRef.current = userMsg.toLowerCase();
+    if (/invoice|payroll|gaji|approval|payment|upload|bpjs|validasi/.test(userMsg.toLowerCase())) lastTopicRef.current = userMsg.toLowerCase();
 
     try {
       async function applyResult(result: ReturnType<typeof handleIdaIntent>) {
