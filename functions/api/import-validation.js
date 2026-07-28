@@ -1,4 +1,4 @@
-export const MAX_IMPORT_ROWS = 50;
+export const MAX_IMPORT_ROWS = 500;
 export const MAX_IMPORT_BYTES = 6 * 1024 * 1024;
 
 const DATE_FIELDS = [
