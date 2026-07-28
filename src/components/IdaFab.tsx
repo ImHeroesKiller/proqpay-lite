@@ -245,7 +245,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         : `\n\n**Validasi awal lulus.** ${review.warnings.length} catatan opsional ditemukan.`;
       await pushIda(
         `File terbaca: **${parsed.rows.length}** baris; **${parsed.skipped}** baris dilewati karena NRK/nama kosong.\n\n${sample}${validationText}\n\n` +
-          (review.issues.length ? 'Perbaiki data tersebut lalu unggah kembali.' : 'Ketik **import sekarang** untuk menyimpan.'),
+          (review.issues.length ? 'Ketik **perbaiki otomatis** untuk koreksi aman, atau unggah ulang jika data wajib yang salah.' : 'Ketik **import sekarang** untuk menyimpan.'),
         true,
         ['Membaca struktur file', 'Memeriksa data wajib', review.issues.length ? 'Perlu perbaikan' : 'Siap diimpor']
       );
@@ -266,27 +266,21 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     setBusy(true);
     setCotLive(['Menyimpan data…', 'Memperbarui ringkasan…']);
     try {
-      let inserted = 0,
-        updated = 0,
-        errors = 0;
-      for (let i = 0; i < pendingRows.length; i += 40) {
-        const chunk = pendingRows.slice(i, i + 40);
-        const res = await fetch('/api/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rows: chunk }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const issueText = formatImportIssues(Array.isArray(data.issues) ? data.issues : [], i + 1);
-          const reason = issueText || data.message || data.error || `HTTP ${res.status}`;
-          setLastImportFailure(reason);
-          throw new Error(reason);
-        }
-        inserted += data.inserted || 0;
-        updated += data.updated || 0;
-        errors += data.errors || 0;
+      const res = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: pendingRows }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const issueText = formatImportIssues(Array.isArray(data.issues) ? data.issues : [], 1);
+        const reason = issueText || data.message || data.error || `HTTP ${res.status}`;
+        setLastImportFailure(reason);
+        throw new Error(reason);
       }
+      const inserted = data.inserted || 0;
+      const updated = data.updated || 0;
+      const errors = data.errors || 0;
       const synced = await syncDatabaseFromNeon(db, { requireData: true });
       const newDb = {
         ...synced.db,
