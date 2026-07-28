@@ -299,8 +299,8 @@ export function handleIdaIntent(
   }
 
   if (
-    /\b(siapa|daftar|tampilkan)\b.*\b(gaji|upah)\b.*\b(paling kecil|terendah|paling besar|tertinggi)\b/.test(t) ||
-    /\b(gaji|upah)\b.*\b(paling kecil|terendah|paling besar|tertinggi)\b/.test(t)
+    /\b(siapa|daftar|tampilkan)\b.*\b(gaji(?:nya)?|upah(?:nya)?)\b.*\b(paling kecil|terendah|paling besar|tertinggi)\b/.test(t) ||
+    /\b(gaji(?:nya)?|upah(?:nya)?)\b.*\b(paling kecil|terendah|paling besar|tertinggi)\b/.test(t)
   ) {
     const period = periodOf(db);
     let payroll = payrollOf(db, period);
