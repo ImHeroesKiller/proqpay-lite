@@ -6,6 +6,15 @@ interface DashFiltersProps {
 }
 
 export default function DashFilters({ period, onPeriodChange }: DashFiltersProps) {
+  const [year, month] = period.split('-').map(Number);
+  const periods = Array.from({ length: 12 }, (_, index) => {
+    const date = new Date(year, month - 1 - index, 1);
+    return date.toISOString().slice(0, 7);
+  });
+  const startDate = `${period}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const endDate = `${period}-${String(lastDay).padStart(2, '0')}`;
+
   return (
     <div style={{
       display: 'flex',
@@ -36,9 +45,9 @@ export default function DashFilters({ period, onPeriodChange }: DashFiltersProps
             outline: 'none',
           }}
         >
-          <option value="2025-07">2025-07</option>
-          <option value="2025-06">2025-06</option>
-          <option value="2025-05">2025-05</option>
+          {periods.map((item) => (
+            <option key={item} value={item}>{item}</option>
+          ))}
         </select>
       </div>
 
@@ -48,7 +57,7 @@ export default function DashFilters({ period, onPeriodChange }: DashFiltersProps
         </label>
         <input
           type="text"
-          defaultValue="2025-01-01 → 2025-07-31"
+          value={`${startDate} → ${endDate}`}
           readOnly
           style={{
             background: 'var(--bg-subtle)',
