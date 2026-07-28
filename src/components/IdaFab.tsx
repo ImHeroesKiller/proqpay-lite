@@ -12,6 +12,7 @@ import { parseIapWorkbook, type ParsedEmployee } from '@/lib/excel-iap';
 import { validatePayrollIndonesia, formatValidationMarkdown } from '@/lib/payroll-validate';
 import { loadSettings, onSettingsChange } from '@/lib/app-settings';
 import { persistBusinessState, syncDatabaseFromNeon } from '@/lib/neon-sync';
+import { writeSystemLog } from '@/lib/system-log';
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
 
@@ -55,6 +56,19 @@ function inspectParsedRows(rows: ParsedEmployee[]) {
     if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) issues.push({ row: rowNo, field: 'Email', message: 'Format email tidak valid' });
   });
   return { issues, warnings };
+}
+
+function autoFixImportRows(rows: ParsedEmployee[]) {
+  const changes: { row: number; field: string; before: string; after: string }[] = [];
+  const fixed = rows.map((row, index) => {
+    const next = { ...row };
+    if (next.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next.email)) {
+      changes.push({ row: index + 2, field: 'Email', before: next.email, after: '-' });
+      next.email = null;
+    }
+    return next;
+  });
+  return { rows: fixed, changes };
 }
 
 function looksLikeLocalAction(text: string) {
@@ -205,6 +219,11 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         throw new Error('Ukuran file maksimal 5 MB');
       }
       const parsed = parseIapWorkbook(await file.arrayBuffer());
+      writeSystemLog('INFO', 'IDA', 'FILE_PARSED', `${file.name}: ${parsed.rows.length} baris terbaca`, {
+        fileName: file.name,
+        rows: parsed.rows.length,
+        skipped: parsed.skipped,
+      });
       setPendingRows(parsed.rows);
       setLastImportFailure('');
       const review = inspectParsedRows(parsed.rows);
@@ -212,8 +231,17 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         .slice(0, 3)
         .map((r) => `- **${r.name}** → **${r.province}**`)
         .join('\n');
+      if (review.issues.length) {
+        writeSystemLog('WARN', 'VALIDATION', 'IMPORT_REVIEW_FAILED', `${review.issues.length} masalah ditemukan sebelum import`, {
+          issues: review.issues.slice(0, 20),
+        });
+      } else {
+        writeSystemLog('SUCCESS', 'VALIDATION', 'IMPORT_REVIEW_PASSED', `${parsed.rows.length} baris lolos validasi awal`, {
+          warnings: review.warnings.length,
+        });
+      }
       const validationText = review.issues.length
-        ? `\n\n**Ditemukan ${review.issues.length} masalah yang harus diperbaiki:**\n${formatImportIssues(review.issues)}`
+        ? `\n\n**Ditemukan ${review.issues.length} masalah yang harus diperbaiki:**\n${formatImportIssues(review.issues)}\n\nKetik **perbaiki otomatis** agar IDA membersihkan field opsional yang aman diperbaiki.`
         : `\n\n**Validasi awal lulus.** ${review.warnings.length} catatan opsional ditemukan.`;
       await pushIda(
         `File terbaca: **${parsed.rows.length}** baris; **${parsed.skipped}** baris dilewati karena NRK/nama kosong.\n\n${sample}${validationText}\n\n` +
@@ -272,6 +300,11 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       emitDbChange();
       setPendingRows(null);
       setLastImportFailure('');
+      writeSystemLog('SUCCESS', 'DATABASE', 'IMPORT_COMMITTED', `Import selesai: ${inserted} baru, ${updated} diperbarui`, {
+        inserted,
+        updated,
+        total: inserted + updated,
+      });
       const report = validatePayrollIndonesia(newDb);
       await pushIda(
         `Data tersimpan (**${inserted} baru, ${updated} diperbarui, ${errors} gagal**). Dashboard tersinkron **${synced.count} karyawan**.\n\n` +
@@ -282,6 +315,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     } catch (e: any) {
       const reason = String(e?.message || e);
       setLastImportFailure(reason);
+      writeSystemLog('ERROR', 'DATABASE', 'IMPORT_REJECTED', reason);
       await pushIda(
         `**Import belum disimpan.**\n\n${reason}\n\nPerbaiki baris tersebut pada Excel, lalu unggah ulang. Tidak ada data parsial yang masuk ke database.`,
         true,
@@ -318,6 +352,28 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         return reply;
       }
       const low = userMsg.toLowerCase();
+      if (/\b(perbaiki|koreksi|bersihkan).*(otomatis|sendiri)?|\b(bisa|dapat).*(perbaiki|koreksi)\b/.test(low) && pendingRows?.length) {
+        const fixed = autoFixImportRows(pendingRows);
+        if (!fixed.changes.length) {
+          await pushIda('Tidak ada field opsional yang dapat diperbaiki otomatis. Masalah pada NRK, nama, atau gaji memerlukan nilai sumber yang benar.', true, ['Memeriksa batas koreksi aman']);
+          return;
+        }
+        setPendingRows(fixed.rows);
+        setLastImportFailure('');
+        writeSystemLog('SUCCESS', 'IDA', 'IMPORT_AUTOFIX_APPLIED', `${fixed.changes.length} field diperbaiki di staging`, {
+          changes: fixed.changes,
+        });
+        const preview = fixed.changes
+          .slice(0, 12)
+          .map((item) => `- Baris ${item.row} · **${item.field}**: \`${item.before}\` → **${item.after}**`)
+          .join('\n');
+        await pushIda(
+          `IDA sudah memperbaiki **${fixed.changes.length} field opsional** pada data staging:\n\n${preview}\n\nNilai **-** disimpan sebagai kosong agar sesuai tipe database. File asli tidak diubah. Ketik **import sekarang** untuk menyimpan hasil koreksi ke database.`,
+          true,
+          ['Mengidentifikasi koreksi aman', 'Memperbaiki data staging', 'Menunggu konfirmasi import']
+        );
+        return;
+      }
       if (/\b(kenapa|mengapa|apa penyebab).*(gagal|error)|\b(gagal|error).*(kenapa|mengapa|penyebab)\b/.test(low) && lastImportFailure) {
         await pushIda(
           `Import terakhir gagal karena:\n\n${lastImportFailure}\n\nTidak terkait database yang masih kosong. Silakan perbaiki baris tersebut lalu unggah ulang.`,
