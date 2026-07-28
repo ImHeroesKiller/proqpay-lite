@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { loadDatabase, saveDatabase } from '@/lib/database';
-import { handleIdaIntent, type PendingPayrollPreview } from '@/lib/ida-simple';
+import {
+  handleIdaIntent,
+  type PendingApprovalPreview,
+  type PendingPayrollPreview,
+} from '@/lib/ida-simple';
 import { emitDbChange } from '@/lib/events';
 import { renderMarkdown } from '@/lib/markdown';
 import { calcMargin } from '@/lib/margin';
@@ -99,13 +103,16 @@ function looksLikeLocalAction(text: string) {
   return (
     /\b(margin|laba|profit|bpjs|iuran|jht|jkk|jkm|jkn|provinsi|wilayah)\b/.test(t) ||
     /\b(payroll|gaji|approval|approve|approved|setujui|disetujui|payment|pembayaran|transfer|buat invoice|invoice|tandai paid|unduh)\b/.test(t) ||
-    /\b(help|bantuan|next|status|ringkasan|validasi|cek data|kelengkapan|siap|bersihkan|perbaiki|koreksi|rincian|perincian|breakdown|komponen|detail|resign|nonaktif|import|upload|audit|umr|daftar)\b/.test(t) ||
+    /\b(help|bantuan|next|status|ringkasan|validasi|cek data|kelengkapan|siap|ready|bersihkan|perbaiki|koreksi|rincian|perincian|breakdown|komponen|detail|tabel|terendah|tertinggi|paling kecil|paling besar|resign|nonaktif|import|upload|audit|umr|daftar)\b/.test(t) ||
     /^(iya|iy|yes|ok|oke|ya|y|generate|kirim|buatkan|proses|eksekusi)\b/.test(t)
   );
 }
 
 function mapConfirmToAction(text: string, lastUserHint?: string) {
   const t = text.toLowerCase().trim();
+  if (/\btabel\b/.test(t) && lastUserHint && /per karyawan|karyawan|pegawai/.test(lastUserHint)) {
+    return 'tabel payroll per karyawan';
+  }
   if (/\b(perbaiki|koreksi|benahi)\b/.test(t) && lastUserHint && /validasi/.test(lastUserHint)) {
     return 'perbaiki error validasi';
   }
@@ -113,6 +120,9 @@ function mapConfirmToAction(text: string, lastUserHint?: string) {
     return 'rincian payroll';
   }
   if (/^(iya|iy|yes|ok|oke|ya|y|generate|kirim|buatkan|proses|eksekusi)\b/.test(t)) {
+    if (lastUserHint && /paling kecil|terendah/.test(lastUserHint)) return 'tampilkan gaji terendah';
+    if (lastUserHint && /paling besar|tertinggi/.test(lastUserHint)) return 'tampilkan gaji tertinggi';
+    if (lastUserHint && /per karyawan|tabel/.test(lastUserHint)) return 'tabel payroll per karyawan';
     if (lastUserHint && /payment|pembayaran/.test(lastUserHint)) return 'buat payment instruction';
     if (lastUserHint && /approval|approve|approved|setuju|disetujui/.test(lastUserHint)) return 'ajukan approval';
     if (lastUserHint && /payroll|gaji/.test(lastUserHint)) return 'hitung payroll';
@@ -162,6 +172,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     permissions: [],
   });
   const [pendingPayrollPreview, setPendingPayrollPreview] = useState<PendingPayrollPreview | null>(null);
+  const [pendingApprovalPreview, setPendingApprovalPreview] = useState<PendingApprovalPreview | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const lastTopicRef = useRef('');
@@ -412,6 +423,16 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           setPendingPayrollPreview(null);
           writeSystemLog('SUCCESS', 'PAYROLL', 'PAYROLL_PLAN_EXECUTED', `Plan ${result.payrollPlanExecuted} dieksekusi`);
         }
+        if (result.pendingApprovalPreview) {
+          setPendingApprovalPreview(result.pendingApprovalPreview);
+          writeSystemLog('INFO', 'PAYROLL', 'APPROVAL_PREVIEW_CREATED', `Preview approval ${result.pendingApprovalPreview.period}`, {
+            ...result.pendingApprovalPreview,
+          });
+        }
+        if (result.approvalPlanExecuted) {
+          setPendingApprovalPreview(null);
+          writeSystemLog('SUCCESS', 'PAYROLL', 'APPROVAL_PLAN_EXECUTED', `Plan ${result.approvalPlanExecuted} dieksekusi`);
+        }
         if (result.dbChanged && result.newDb) {
           setDb(result.newDb);
           emitDbChange();
@@ -428,6 +449,12 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         writeSystemLog('INFO', 'PAYROLL', 'PAYROLL_PREVIEW_CANCELLED', `Plan ${pendingPayrollPreview.planId} dibatalkan`);
         setPendingPayrollPreview(null);
         await pushIda('Preview payroll dibatalkan. Tidak ada data yang berubah.', true, ['Preview dibatalkan']);
+        return;
+      }
+      if (/^batal$/i.test(userMsg.trim()) && pendingApprovalPreview) {
+        writeSystemLog('INFO', 'PAYROLL', 'APPROVAL_PREVIEW_CANCELLED', `Plan ${pendingApprovalPreview.planId} dibatalkan`);
+        setPendingApprovalPreview(null);
+        await pushIda('Preview approval dibatalkan. Tidak ada status yang berubah.', true, ['Preview dibatalkan']);
         return;
       }
       if (/\b(batal|jangan|tidak jadi)\b.*\b(hapus|delete)|^batal$/.test(low) && pendingClientDelete) {
@@ -588,7 +615,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       }
 
       const mapped = mapConfirmToAction(userMsg, previousTopic);
-      if (/invoice|payroll|gaji|approval|approve|approved|setuju|payment|pembayaran|upload|bpjs|validasi/.test(incomingTopic)) {
+      if (/invoice|payroll|gaji|approval|approve|approved|setuju|payment|pembayaran|upload|bpjs|validasi|ready|siap|tabel|per karyawan|terendah|tertinggi|paling kecil|paling besar/.test(incomingTopic)) {
         lastTopicRef.current = incomingTopic;
       } else if (mapped !== userMsg) {
         lastTopicRef.current = mapped;
@@ -597,6 +624,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         setCotLive(['Menyiapkan jawaban…', `Menjalankan: ${mapped}`]);
         const result = handleIdaIntent(mapped, db, actorContext, {
           confirmedPayrollPlanId: pendingPayrollPreview?.planId,
+          confirmedApprovalPlanId: pendingApprovalPreview?.planId,
         });
         await pushIda(await applyResult(result), false, ['Selesai']);
         return;
@@ -632,11 +660,13 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       }
       const result = handleIdaIntent(userMsg, db, actorContext, {
         confirmedPayrollPlanId: pendingPayrollPreview?.planId,
+        confirmedApprovalPlanId: pendingApprovalPreview?.planId,
       });
       await pushIda(await applyResult(result), false, ['Selesai']);
     } catch {
       const result = handleIdaIntent(userMsg, db, actorContext, {
         confirmedPayrollPlanId: pendingPayrollPreview?.planId,
+        confirmedApprovalPlanId: pendingApprovalPreview?.planId,
       });
       if (result.dbChanged && result.newDb) {
         setDb(result.newDb);
