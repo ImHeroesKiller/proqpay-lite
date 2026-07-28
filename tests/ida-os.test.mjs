@@ -236,3 +236,14 @@ test('approval requires a preview and is idempotent', async () => {
   assert.equal(second.alreadyApplied, true);
   assert.equal(second.db.approvals.length, 1);
 });
+
+test('IDA markdown renders payroll pipe data as a responsive table', async () => {
+  const markdown = await loadTsModule('src/lib/markdown.ts');
+  const html = markdown.renderMarkdown(
+    '| Karyawan | Gross | Net |\n|---|---:|---:|\n| Ani | Rp 3.000.000 | Rp 2.900.000 |'
+  );
+  assert.match(html, /<table/);
+  assert.match(html, /<th[^>]*>Karyawan<\/th>/);
+  assert.match(html, /<td[^>]*>Ani<\/td>/);
+  assert.doesNotMatch(html, /\|---\|/);
+});
