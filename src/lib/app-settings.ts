@@ -27,11 +27,11 @@ export type AppSettings = {
   users: AppUser[];
 };
 
-const KEY = 'proqpay_settings_v2';
+const KEY = 'proqpay_settings_v3';
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  orgName: 'ProQPay Demo Corp',
-  defaultPeriod: '2025-07',
+  orgName: 'ProQPay Lite',
+  defaultPeriod: new Date().toISOString().slice(0, 7),
   serviceFeePerEmp: 1_500_000,
   bpjsFeePerEmp: 300_000,
   adminFee: 2_000_000,
@@ -44,14 +44,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showClientDetail: true,
   idaTypingMs: 28,
   idaShowCot: true,
-  currentUserId: 'U1',
-  users: [
-    { id: 'U1', name: 'Super Admin', email: 'admin@proqpay.id', role: 'SUPER_ADMIN', active: true },
-    { id: 'U2', name: 'Rina Payroll', email: 'payroll@proqpay.id', role: 'PAYROLL', active: true },
-    { id: 'U3', name: 'Budi HR', email: 'hr@proqpay.id', role: 'HR', active: true },
-    { id: 'U4', name: 'Sari Finance', email: 'finance@proqpay.id', role: 'FINANCE', active: true },
-    { id: 'U5', name: 'Viewer Demo', email: 'viewer@proqpay.id', role: 'VIEWER', active: false },
-  ],
+  currentUserId: '',
+  users: [],
 };
 
 export function loadSettings(): AppSettings {
@@ -72,7 +66,9 @@ export function saveSettings(s: AppSettings) {
 }
 
 export function currentUser(s: AppSettings): AppUser {
-  return s.users.find((u) => u.id === s.currentUserId) || s.users[0];
+  return s.users.find((u) => u.id === s.currentUserId) || s.users[0] || {
+    id: 'current', name: 'Pengguna', email: '', role: 'VIEWER', active: true,
+  };
 }
 
 export function onSettingsChange(cb: () => void) {
