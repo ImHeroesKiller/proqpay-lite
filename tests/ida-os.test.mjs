@@ -12,6 +12,7 @@ async function loadTsModule(relativePath, injected = {}) {
   const require = (specifier) => {
     if (specifier === './worker-registry') return injected.workerRegistry;
     if (specifier === './contracts') return {};
+    if (specifier === './evidence-query') return injected.evidenceQuery || { answerEvidenceQuery: () => null };
     if (specifier === '../payroll-validate') return injected.payrollValidation;
     throw new Error(`Unexpected import ${specifier}`);
   };
@@ -254,4 +255,95 @@ test('IDA markdown escapes raw HTML before rendering formatting', async () => {
   assert.doesNotMatch(html, /<img/i);
   assert.match(html, /&lt;img src=x onerror="alert\(1\)"&gt;/);
   assert.match(html, /<strong>aman<\/strong>/);
+});
+
+test('evidence worker finds duplicate employee names from records', async () => {
+  const query = await loadTsModule('src/lib/ida-os/evidence-query.ts', {
+    payrollValidation: { validatePayrollIndonesia: () => ({ issues: [], errorCount: 0, warningCount: 0 }) },
+  });
+  const result = query.answerEvidenceQuery('ada berapa karyawan yang punya nama sama?', {
+    employees: [
+      { id: 'EMP-1', name: 'Ani  Wijaya' },
+      { id: 'EMP-2', name: 'ani wijaya' },
+      { id: 'EMP-3', name: 'Budi' },
+    ],
+  });
+  assert.equal(result.worker, 'HR');
+  assert.match(result.markdown, /1 nama duplikat/);
+  assert.match(result.markdown, /2 karyawan/);
+  assert.deepEqual(result.recordIds, ['EMP-1', 'EMP-2']);
+});
+
+test('evidence worker counts expired contracts without subtracting active totals', async () => {
+  const query = await loadTsModule('src/lib/ida-os/evidence-query.ts', {
+    payrollValidation: { validatePayrollIndonesia: () => ({ issues: [], errorCount: 0, warningCount: 0 }) },
+  });
+  const db = {
+    employees: [
+      { id: 'EMP-1', name: 'Ani', contractEnd: '2025-01-31', status: 'KONTRAK' },
+      { id: 'EMP-2', name: 'Budi', contractEnd: '2026-12-31', status: 'KONTRAK' },
+      { id: 'EMP-3', name: 'Citra', status: 'KONTRAK' },
+    ],
+  };
+  const count = query.answerEvidenceQuery('yang kontraknya sudah habis berapa?', db, { referenceDate: '2026-08-10' });
+  assert.match(count.markdown, /1 karyawan/);
+  assert.match(count.markdown, /belum cukup: \*\*1\*\*/);
+  const oldest = query.answerEvidenceQuery('yang paling lama sudah habis siapa?', db, { referenceDate: '2026-08-10' });
+  assert.match(oldest.markdown, /Ani/);
+  assert.match(oldest.markdown, /EMP-1/);
+});
+
+test('evidence worker distinguishes projects from clients', async () => {
+  const query = await loadTsModule('src/lib/ida-os/evidence-query.ts', {
+    payrollValidation: { validatePayrollIndonesia: () => ({ issues: [], errorCount: 0, warningCount: 0 }) },
+  });
+  const result = query.answerEvidenceQuery('ada berapa project sekarang?', {
+    employees: [],
+    companies: [{ id: 'C-1' }],
+    projects: [{ id: 'P-1', name: 'Payroll IAP' }, { id: 'P-2', name: 'BPJS IAP' }],
+  });
+  assert.match(result.markdown, /2 project/);
+  assert.match(result.markdown, /1 klien/);
+});
+
+test('evidence worker reports payroll validation issues and affected employees', async () => {
+  const query = await loadTsModule('src/lib/ida-os/evidence-query.ts', {
+    payrollValidation: {
+      validatePayrollIndonesia: () => ({
+        errorCount: 2,
+        warningCount: 1,
+        issues: [
+          { severity: 'error', code: 'BANK_MISSING', employeeId: 'EMP-1' },
+          { severity: 'error', code: 'NIK_INVALID', employeeId: 'EMP-1' },
+          { severity: 'warning', code: 'EMAIL_MISSING', employeeId: 'EMP-2' },
+        ],
+      }),
+    },
+  });
+  const result = query.answerEvidenceQuery('ada berapa data bermasalah?', {
+    meta: { currentPeriod: '2026-08' }, employees: [], payrolls: [],
+  });
+  assert.match(result.markdown, /Error data\/compliance: \*\*2\*\*/);
+  assert.match(result.markdown, /Karyawan terdampak: \*\*1\*\*/);
+});
+
+test('HR read worker returns the deterministic database answer to the orchestrator', async () => {
+  const registry = await loadTsModule('src/lib/ida-os/worker-registry.ts');
+  const evidenceQuery = await loadTsModule('src/lib/ida-os/evidence-query.ts', {
+    payrollValidation: { validatePayrollIndonesia: () => ({ issues: [], errorCount: 0, warningCount: 0 }) },
+  });
+  const readWorkers = await loadTsModule('src/lib/ida-os/read-workers.ts', {
+    workerRegistry: registry,
+    payrollValidation: { validatePayrollIndonesia: () => ({ issues: [], errorCount: 0, warningCount: 0 }) },
+    evidenceQuery,
+  });
+  const result = readWorkers.executeReadOnlyPlan({
+    risk: 'READ',
+    objective: 'ada berapa karyawan yang punya nama sama?',
+    tasks: [{ worker: 'HR', context: {} }],
+  }, {
+    employees: [{ id: 'EMP-1', name: 'Ani' }, { id: 'EMP-2', name: 'ANI' }],
+  });
+  assert.match(result.answerMarkdown, /1 nama duplikat/);
+  assert.equal(result.worker, 'HR');
 });

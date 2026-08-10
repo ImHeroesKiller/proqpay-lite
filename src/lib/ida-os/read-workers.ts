@@ -1,6 +1,7 @@
 import { validatePayrollIndonesia } from '../payroll-validate';
 import type { ExecutionPlan, WorkerResult } from './contracts';
 import { assertWorkerTableAccess } from './worker-registry';
+import { answerEvidenceQuery } from './evidence-query';
 
 const EMPTY_RESULT = {
   calculations: [],
@@ -64,9 +65,11 @@ export function executeReadOnlyPlan(plan: ExecutionPlan, db: any): WorkerResult 
     const payroll = (db.payrolls || []).find(
       (item: any) => item.period === task.context.payrollPeriod
     );
+    const answer = answerEvidenceQuery(plan.objective, db);
     return {
       ...EMPTY_RESULT,
       worker: 'PAYROLL',
+      answerMarkdown: answer?.worker === 'PAYROLL' ? answer.markdown : undefined,
       facts: payroll
         ? [`Payroll ${payroll.period} berstatus ${payroll.status}.`]
         : [`Payroll ${task.context.payrollPeriod || '-'} belum tersedia.`],
@@ -85,9 +88,11 @@ export function executeReadOnlyPlan(plan: ExecutionPlan, db: any): WorkerResult 
     const tables = ['employees', 'employee_contracts', 'employee_assignments'];
     const access = assertWorkerTableAccess('HR', tables);
     if (!access.allowed) throw new Error(access.blockers.join(' '));
+    const answer = answerEvidenceQuery(plan.objective, db);
     return {
       ...EMPTY_RESULT,
       worker: 'HR',
+      answerMarkdown: answer?.worker === 'HR' ? answer.markdown : undefined,
       facts: [`${db.employees?.length || 0} karyawan ditemukan.`],
       evidence: [{
         source: 'DATABASE',
@@ -103,9 +108,11 @@ export function executeReadOnlyPlan(plan: ExecutionPlan, db: any): WorkerResult 
     const tables = ['clients', 'projects'];
     const access = assertWorkerTableAccess('OPERATIONS', tables);
     if (!access.allowed) throw new Error(access.blockers.join(' '));
+    const answer = answerEvidenceQuery(plan.objective, db);
     return {
       ...EMPTY_RESULT,
       worker: 'OPERATIONS',
+      answerMarkdown: answer?.worker === 'OPERATIONS' ? answer.markdown : undefined,
       facts: [
         `${db.companies?.length || 0} klien ditemukan.`,
         `${db.projects?.length || 0} proyek ditemukan.`,

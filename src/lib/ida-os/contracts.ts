@@ -74,6 +74,7 @@ export type Calculation = {
 
 export type WorkerResult = {
   worker: WorkerId;
+  answerMarkdown?: string;
   facts: string[];
   calculations: Calculation[];
   warnings: string[];

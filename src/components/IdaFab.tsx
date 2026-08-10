@@ -150,6 +150,7 @@ function looksLikeLocalAction(text: string) {
   return (
     /\b(margin|laba|profit|bpjs|iuran|jht|jkk|jkm|jkn|provinsi|wilayah)\b/.test(t) ||
     /\b(payroll|gaji|approval|approve|approved|setujui|disetujui|payment|pembayaran|transfer|buat invoice|invoice|tandai paid|unduh)\b/.test(t) ||
+    /\b(karyawan|pegawai|employee|kontrak|contract|habis|berakhir|expired|project|proyek|klien|client|nama sama|duplikat|bermasalah|invalid)\b/.test(t) ||
     /\b(help|bantuan|next|status|ringkasan|validasi|cek data|kelengkapan|siap|ready|bersihkan|perbaiki|koreksi|rincian|perincian|breakdown|komponen|detail|tabel|per karyawan|terendah|tertinggi|paling kecil|paling besar|resign|nonaktif|import|upload|audit|umr|daftar)\b/.test(t) ||
     /^(iya|iy|yes|ok|oke|ya|y|generate|kirim|buatkan|proses|eksekusi)\b/.test(t)
   );
@@ -157,6 +158,9 @@ function looksLikeLocalAction(text: string) {
 
 function mapConfirmToAction(text: string, lastUserHint?: string) {
   const t = text.toLowerCase().trim();
+  if (lastUserHint && /\b(habis|berakhir|expired)\b/.test(t) && /\b(kontrak|contract)\b/.test(lastUserHint)) {
+    return `${text} kontrak karyawan`;
+  }
   if (/\btabel\b/.test(t) && lastUserHint && /per karyawan|karyawan|pegawai/.test(lastUserHint)) {
     return 'tabel payroll per karyawan';
   }
@@ -167,6 +171,8 @@ function mapConfirmToAction(text: string, lastUserHint?: string) {
     return 'rincian payroll';
   }
   if (/^(iya|iy|yes|ok|oke|ya|y|generate|kirim|buatkan|proses|eksekusi)\b/.test(t)) {
+    if (lastUserHint && /\b(nama sama|duplikat)\b/.test(lastUserHint)) return 'cek nama karyawan yang sama';
+    if (lastUserHint && /\b(kontrak|habis|berakhir|expired)\b/.test(lastUserHint)) return 'cek kontrak karyawan yang sudah habis';
     if (lastUserHint && /paling kecil|terendah/.test(lastUserHint)) return 'tampilkan gaji terendah';
     if (lastUserHint && /paling besar|tertinggi/.test(lastUserHint)) return 'tampilkan gaji tertinggi';
     if (lastUserHint && /per karyawan|tabel/.test(lastUserHint)) return 'tabel payroll per karyawan';
@@ -773,7 +779,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       }
 
       const mapped = mapConfirmToAction(userMsg, previousTopic);
-      if (/invoice|payroll|gaji|approval|approve|approved|setuju|payment|pembayaran|upload|bpjs|validasi|ready|siap|tabel|per karyawan|terendah|tertinggi|paling kecil|paling besar/.test(incomingTopic)) {
+      if (looksLikeLocalAction(userMsg) || /invoice|payroll|gaji|approval|approve|approved|setuju|payment|pembayaran|upload|bpjs|validasi|ready|siap|tabel|per karyawan|terendah|tertinggi|paling kecil|paling besar/.test(incomingTopic)) {
         lastTopicRef.current = incomingTopic;
       } else if (mapped !== userMsg) {
         lastTopicRef.current = mapped;

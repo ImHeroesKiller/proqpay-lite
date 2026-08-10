@@ -61,7 +61,11 @@ export async function onRequest(context) {
           a.pic,
           a.hrbp,
           COALESCE(ec.contract_status, e.status_aktif) AS status,
+          ec.employment_type AS "employmentType",
           ec.join_date AS "joinDate",
+          ec.contract_start AS "contractStart",
+          ec.contract_end AS "contractEnd",
+          ec.resign_date AS "resignDate",
           COALESCE(wl.province, e.province, b.province) AS region,
           COALESCE(wl.province, e.province, b.province) AS province,
           COALESCE(wl.unit_kerja, wl.name) AS project,
@@ -93,7 +97,7 @@ export async function onRequest(context) {
           LIMIT 1
         ) a ON TRUE
         LEFT JOIN LATERAL (
-          SELECT contract_status, join_date
+          SELECT contract_status, employment_type, join_date, contract_start, contract_end, resign_date
           FROM employee_contracts
           WHERE employee_id = e.id AND is_current = TRUE
           ORDER BY created_at DESC

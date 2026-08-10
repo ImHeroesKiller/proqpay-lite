@@ -92,8 +92,10 @@ export function handleIdaIntent(
   const t = text.toLowerCase().trim();
   const billing = loadSettings();
   const orchestration = orchestrateRequest(text, buildSharedContext(db, contextOverrides));
+  let workerAnswer: string | undefined;
   if (orchestration.allowed && orchestration.plan.risk === 'READ') {
     const workerResult = executeReadOnlyPlan(orchestration.plan, db);
+    workerAnswer = workerResult.answerMarkdown;
     writeSystemLog(
       workerResult.errors.length ? 'WARN' : 'INFO',
       'IDA',
@@ -129,6 +131,10 @@ export function handleIdaIntent(
 
   if (/\b(next|lanjut|langkah selanjutnya|apa lagi|selanjutnya)\b/.test(t)) {
     return { reply: renderMarkdown(nextStep(db)) };
+  }
+
+  if (workerAnswer) {
+    return { reply: renderMarkdown(workerAnswer) };
   }
 
   if (/\b(bpjs|iuran)\b/.test(t)) {

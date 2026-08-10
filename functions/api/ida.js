@@ -36,6 +36,8 @@ GAYA (sangat penting):
 FAKTA OPERASIONAL:
 - Dashboard read-only; upload file hanya via chat 📎 — sebutkan itu HANYA saat relevan
 - Angka: pakai CLIENT_CONTEXT / RAG, jangan mengarang detail karyawan
+- CLIENT_CONTEXT hanya ringkasan. Jangan menyimpulkan jumlah kontrak berakhir dari total dikurangi kontrak aktif, jangan mengarang nama/tanggal, dan jangan menyamakan jumlah project dengan jumlah klien
+- Pertanyaan detail database seharusnya dijawab worker deterministik. Jika bukti record tidak ada di context, katakan datanya tidak tersedia; jangan menebak
 
 Regulasi: pakai WEB_OFFICIAL bila ada (confidence ≥95%). Jika tidak ada, pakai pengetahuan standar singkat tanpa mengada-ada update tahun spesifik.`;
 
