@@ -123,6 +123,13 @@ export async function onRequest(context) {
       if (!PROCESSOR_ROLES.has(actor.role)) return respond({ error: 'Insufficient role' }, 403);
       const client = await sql`SELECT id FROM clients WHERE id=${body.clientId} AND org_id=${organizationId} LIMIT 1`;
       if (!client.length) return respond({ error: 'Client not found' }, 404);
+      const overlap = await sql`
+        SELECT id FROM client_service_plans
+        WHERE client_id=${body.clientId} AND status='ACTIVE'
+          AND effective_from <= COALESCE(${body.effectiveUntil || null}::date, 'infinity'::date)
+          AND COALESCE(effective_until, 'infinity'::date) >= ${body.effectiveFrom}::date
+        LIMIT 1`;
+      if (overlap.length) return respond({ error: 'Service plan effective period overlaps an active plan', conflictingPlanId: overlap[0].id }, 409);
       const id = body.id || `SP-${crypto.randomUUID()}`;
       const result = await sql`
         INSERT INTO client_service_plans
@@ -161,6 +168,9 @@ export async function onRequest(context) {
       const submission = current[0];
       if (!assertClientScope(actor, env, submission.client_id)) return respond({ error: 'Client scope denied' }, 403);
       if (!canTransition(submission.state, body.toState)) return respond({ error: `Invalid transition ${submission.state} → ${body.toState}` }, 409);
+      if (submission.service_tier === 'TIER_1_PAYMENT_PROCESSING' && ['INGESTING','PAYROLL_FINALIZED'].includes(body.toState)) {
+        return respond({ error: 'Tier 1 does not include payroll ingestion or calculation' }, 409);
+      }
       if (!roleAllowsTransition(actor.role, submission.state, body.toState)) return respond({ error: 'Role cannot perform transition' }, 403);
       if (['VALIDATED','DATA_APPROVED','PAYROLL_FINALIZED','APPROVED_FOR_PAYMENT'].includes(body.toState)) {
         const blocking = await sql`
