@@ -111,6 +111,9 @@ export async function onRequest(context) {
     ? `CLIENT_CONTEXT: ${JSON.stringify(body.context).slice(0, 1400)}`
     : '';
   const actorBlock = `AUTHORIZED_ACTOR: role=${authorization.actor.role}; permissions=${(authorization.actor.permissions || []).join(',') || 'read'}`;
+  const responseStyle = body.responseStyle === 'compact'
+    ? 'RESPONSE_STYLE: compact; jawab maksimal 2 kalimat atau 4 bullet pendek, dahulukan angka dan tindakan.'
+    : 'RESPONSE_STYLE: standard; tetap ringkas dan lengkap.';
 
   let webBlock = '(tidak dipicu)';
   if (web.used && web.snippets?.length) {
@@ -139,6 +142,8 @@ ${histBlock || '(baru)'}
 ${clientCtx}
 
 ${actorBlock}
+
+${responseStyle}
 
 User: ${userText}
 

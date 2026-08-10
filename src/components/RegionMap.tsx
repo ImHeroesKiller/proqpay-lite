@@ -35,19 +35,31 @@ function getFeatureName(props: any): string {
   );
 }
 
-export default function RegionMap({ employees }: { employees: any[] }) {
+export default function RegionMap({ employees, pageSize = 5, onOpenEmployees }: {
+  employees: any[];
+  pageSize?: number;
+  onOpenEmployees?: (region?: string) => void;
+}) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
+  const [page, setPage] = useState(1);
+  const navigationRef = useRef(onOpenEmployees);
+
+  useEffect(() => {
+    navigationRef.current = onOpenEmployees;
+  }, [onOpenEmployees]);
 
   const byRegion: Record<string, number> = {};
   (employees || []).forEach((e: any) => {
     if (e.region) byRegion[e.region] = (byRegion[e.region] || 0) + 1;
   });
   const regions = Object.entries(byRegion).sort((a, b) => b[1] - a[1]);
-  const maxCount = Math.max(...regions.map(([, c]) => c), 1);
   const total = employees?.length || 0;
+  const pageCount = Math.max(1, Math.ceil(regions.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const visibleRegions = regions.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   // Build lookup: normalized province name -> count
   const countLookup: Record<string, { label: string; count: number }> = {};
@@ -130,6 +142,7 @@ export default function RegionMap({ employees }: { employees: any[] }) {
             mouseout: (e: any) => {
               geoLayer.resetStyle(e.target);
             },
+            click: () => navigationRef.current?.(hit?.label || name),
           });
         }
 
@@ -236,8 +249,8 @@ export default function RegionMap({ employees }: { employees: any[] }) {
       <div style={{
         marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px',
       }}>
-        {regions.slice(0, 5).map(([region, count]) => (
-          <div key={region} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {visibleRegions.map(([region, count]) => (
+          <button type="button" key={region} onClick={() => onOpenEmployees?.(region)} className="region-map-list-row">
             <span style={{
               width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
               background: count >= 3 ? '#f97316' : count >= 2 ? '#f59e0b' : '#818cf8',
@@ -247,8 +260,13 @@ export default function RegionMap({ employees }: { employees: any[] }) {
               fontSize: '11px', fontWeight: 700, color: 'var(--accent)',
               background: 'var(--accent-soft)', padding: '2px 8px', borderRadius: '999px',
             }}>{count}</span>
-          </div>
+          </button>
         ))}
+      </div>
+
+      <div className="dashboard-list-pagination">
+        <span>{regions.length} wilayah</span>
+        <div><button type="button" aria-label="Wilayah sebelumnya" disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>←</button><span>{safePage}/{pageCount}</span><button type="button" aria-label="Wilayah berikutnya" disabled={safePage === pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>→</button></div>
       </div>
 
       <div style={{

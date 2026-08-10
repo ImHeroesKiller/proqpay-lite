@@ -214,6 +214,8 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   const [cotLive, setCotLive] = useState<string[] | null>(null);
   const [showCot, setShowCot] = useState(true);
   const [typingMs, setTypingMs] = useState(28);
+  const [compactResponses, setCompactResponses] = useState(false);
+  const [autoSuggestions, setAutoSuggestions] = useState(true);
   const [actorContext, setActorContext] = useState<Partial<SharedContext>>({
     currentUser: { email: 'unknown@local' },
     currentRole: 'VIEWER',
@@ -235,6 +237,8 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     const st = loadSettings();
     setShowCot(st.idaShowCot);
     setTypingMs(st.idaTypingMs);
+    setCompactResponses(st.idaCompactResponses);
+    setAutoSuggestions(st.idaAutoSuggestions);
     const controller = new AbortController();
     fetch('/api/health', {
       signal: controller.signal,
@@ -286,6 +290,8 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       const s = loadSettings();
       setShowCot(s.idaShowCot);
       setTypingMs(s.idaTypingMs);
+      setCompactResponses(s.idaCompactResponses);
+      setAutoSuggestions(s.idaAutoSuggestions);
     });
     const unsubscribeDb = onDbChange(() => {
       // Keep IDA context aligned with dashboard filters and remote sync.
@@ -799,7 +805,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       const res = await fetch('/api/ida', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg, context: buildContext(db), sessionId }),
+        body: JSON.stringify({ message: userMsg, context: buildContext(db), sessionId, responseStyle: compactResponses ? 'compact' : 'standard' }),
       });
       const data = await res.json();
       if (
@@ -989,7 +995,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
               </div>
             ))}
 
-            {messages.length === 1 && !busy && !typing && (
+            {autoSuggestions && messages.length === 1 && !busy && !typing ? (
               <div className="ida-quick-actions" aria-label="Aksi cepat IDA">
                 {QUICK_ACTIONS.map((action) => (
                   <button key={action.label} type="button" onClick={() => void send(action.prompt)}>
@@ -997,7 +1003,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
                   </button>
                 ))}
               </div>
-            )}
+            ) : null}
 
             {showCot && cotLive && cotLive.length > 0 && (
               <div

@@ -5,9 +5,10 @@ import { formatIDRShort } from '@/lib/format';
 import ActivityTimeline from './ActivityTimeline';
 import { buildClientInsights } from '@/lib/client-insights';
 
-export default function ClientDetail({ db }: { db: any }) {
+export default function ClientDetail({ db, pageSize = 5, onOpenEmployees }: { db: any; pageSize?: number; onOpenEmployees?: () => void }) {
   const clients = db.companies?.map((c: any) => c.name) || [];
   const [selected, setSelected] = useState(clients[0] || '');
+  const [employeePage, setEmployeePage] = useState(1);
 
   const info = {
     employees: db.employees?.filter((e: any) => e.company === selected) || [],
@@ -23,6 +24,9 @@ export default function ClientDetail({ db }: { db: any }) {
   });
 
   const insights = buildClientInsights(db, selected);
+  const employeePageCount = Math.max(1, Math.ceil(info.employees.length / pageSize));
+  const safeEmployeePage = Math.min(employeePage, employeePageCount);
+  const visibleEmployees = info.employees.slice((safeEmployeePage - 1) * pageSize, safeEmployeePage * pageSize);
 
   return (
     <section style={{ marginTop: '36px' }}>
@@ -32,7 +36,7 @@ export default function ClientDetail({ db }: { db: any }) {
         </h2>
         <select
           value={selected}
-          onChange={(e) => setSelected(e.target.value)}
+          onChange={(e) => { setSelected(e.target.value); setEmployeePage(1); }}
           style={{
             background: 'var(--bg-surface)',
             border: '1px solid var(--border)',
@@ -76,8 +80,8 @@ export default function ClientDetail({ db }: { db: any }) {
                 </tr>
               </thead>
               <tbody>
-                {info.employees.slice(0, 5).map((e: any) => (
-                  <tr key={e.id} style={{ borderBottom: '1px solid var(--border-soft)' }}>
+                {visibleEmployees.map((e: any) => (
+                  <tr key={e.id} style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }} onClick={onOpenEmployees} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') onOpenEmployees?.(); }}>
                     <td style={{ padding: '8px 10px' }}>{e.id}</td>
                     <td style={{ padding: '8px 10px', fontWeight: 500 }}>{e.name}</td>
                     <td style={{ padding: '8px 10px' }}>{e.position || '-'}</td>
@@ -95,11 +99,7 @@ export default function ClientDetail({ db }: { db: any }) {
               </tbody>
             </table>
           </div>
-          {info.employees.length > 5 && (
-            <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text3)', textAlign: 'center' }}>
-              Showing 5 of {info.employees.length} employees
-            </div>
-          )}
+          <div className="dashboard-list-pagination"><span>{info.employees.length} karyawan</span><div><button type="button" aria-label="Karyawan sebelumnya" disabled={safeEmployeePage === 1} onClick={() => setEmployeePage((value) => Math.max(1, value - 1))}>←</button><span>{safeEmployeePage}/{employeePageCount}</span><button type="button" aria-label="Karyawan berikutnya" disabled={safeEmployeePage === employeePageCount} onClick={() => setEmployeePage((value) => Math.min(employeePageCount, value + 1))}>→</button></div></div>
         </div>
 
         {/* Area / Region */}

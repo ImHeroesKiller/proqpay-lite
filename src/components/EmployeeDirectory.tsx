@@ -3,7 +3,6 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 
-const PAGE_SIZE = 15;
 const REFERENCE_TIME = Date.now();
 
 function text(value: unknown) {
@@ -37,10 +36,16 @@ function initials(name: unknown) {
   return text(name).split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '—';
 }
 
-export default function EmployeeDirectory({ employees, actor }: { employees: any[]; actor: { role: string } | null }) {
+export default function EmployeeDirectory({ employees, actor, pageSize = 15, initialRegion = 'ALL', maskSensitiveData = false }: {
+  employees: any[];
+  actor: { role: string } | null;
+  pageSize?: number;
+  initialRegion?: string;
+  maskSensitiveData?: boolean;
+}) {
   const [query, setQuery] = useState('');
   const [client, setClient] = useState('ALL');
-  const [region, setRegion] = useState('ALL');
+  const [region, setRegion] = useState(initialRegion);
   const [quality, setQuality] = useState('ALL');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<any | null>(null);
@@ -76,9 +81,9 @@ export default function EmployeeDirectory({ employees, actor }: { employees: any
     return true;
   }).sort((a, b) => text(a.name).localeCompare(text(b.name), 'id-ID')), [employees, deferredQuery, client, region, quality]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount);
-  const visible = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   function updateFilter(setter: (value: string) => void, value: string) {
     setter(value);
@@ -145,16 +150,22 @@ export default function EmployeeDirectory({ employees, actor }: { employees: any
         <div className="employee-pagination"><span>Halaman {safePage} dari {pageCount}</span><div><button type="button" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>← Sebelumnya</button><button type="button" disabled={safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>Berikutnya →</button></div></div>
       </div>
 
-      {selected ? <EmployeeDetail employee={selected} onClose={() => setSelected(null)} /> : null}
+      {selected ? <EmployeeDetail employee={selected} maskSensitiveData={maskSensitiveData} onClose={() => setSelected(null)} /> : null}
     </section>
   );
 }
 
-function EmployeeDetail({ employee, onClose }: { employee: any; onClose: () => void }) {
+function masked(value: unknown, enabled: boolean) {
+  const raw = text(value);
+  if (!enabled || raw.length < 5) return raw;
+  return `${'•'.repeat(Math.min(8, raw.length - 4))}${raw.slice(-4)}`;
+}
+
+function EmployeeDetail({ employee, maskSensitiveData, onClose }: { employee: any; maskSensitiveData: boolean; onClose: () => void }) {
   const groups = [
     { title: 'Pekerjaan', fields: [['NRK', employee.id], ['Klien', employee.company], ['Project', employee.project], ['Posisi', employee.position], ['Status', employee.status], ['Tipe kerja', employee.employmentType]] },
     { title: 'Kontrak', fields: [['Tanggal bergabung', dateLabel(employee.joinDate)], ['Mulai kontrak', dateLabel(employee.contractStart)], ['Akhir kontrak', dateLabel(employee.contractEnd)], ['Tanggal resign', dateLabel(employee.resignDate)], ['Alasan resign', employee.resignReason]] },
-    { title: 'Administrasi', fields: [['NIK', employee.nik], ['NPWP', employee.npwp], ['Rekening', employee.accountNo], ['Bank', employee.bankName], ['BPJS Kesehatan', employee.bpjsKesehatanNo], ['BPJS TK', employee.jamsostekNo]] },
+    { title: 'Administrasi', fields: [['NIK', masked(employee.nik, maskSensitiveData)], ['NPWP', masked(employee.npwp, maskSensitiveData)], ['Rekening', masked(employee.accountNo, maskSensitiveData)], ['Bank', employee.bankName], ['BPJS Kesehatan', masked(employee.bpjsKesehatanNo, maskSensitiveData)], ['BPJS TK', masked(employee.jamsostekNo, maskSensitiveData)]] },
     { title: 'Kontak', fields: [['Email', employee.email], ['Telepon', employee.phone || employee.mobile], ['Alamat', employee.address], ['Wilayah', employee.region || employee.province]] },
   ];
   return (

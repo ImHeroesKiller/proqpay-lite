@@ -1,503 +1,212 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  loadSettings,
-  saveSettings,
-  type AppSettings,
-  type AppRole,
-  type AppUser,
-} from '@/lib/app-settings';
+import { DEFAULT_SETTINGS, loadSettings, saveSettings, type AppRole, type AppSettings, type AppUser } from '@/lib/app-settings';
 import { saveDatabase, seedDatabase } from '@/lib/database';
 import { emitDbChange } from '@/lib/events';
 import { writeSystemLog } from '@/lib/system-log';
 
-type Tab = 'umum' | 'tampilan' | 'variabel' | 'users' | 'data';
-
+type Tab = 'general' | 'dashboard' | 'appearance' | 'ida' | 'billing' | 'users' | 'data';
 const RESET_CONFIRMATION = 'HAPUS SEMUA DATA';
+const TABS: Array<{ id: Tab; label: string; icon: string; description: string }> = [
+  { id: 'general', label: 'Umum', icon: '⌂', description: 'Organisasi dan perilaku awal' },
+  { id: 'dashboard', label: 'Dashboard', icon: '▦', description: 'Widget, pagination, dan refresh' },
+  { id: 'appearance', label: 'Tampilan', icon: '◐', description: 'Tema, warna, dan kepadatan' },
+  { id: 'ida', label: 'IDA Copilot', icon: '✦', description: 'Respons dan saran operasional' },
+  { id: 'billing', label: 'Billing', icon: 'Rp', description: 'Variabel invoice dan margin' },
+  { id: 'users', label: 'Users & Roles', icon: '◎', description: 'Pengguna lokal dan persona' },
+  { id: 'data', label: 'Data & Privasi', icon: '◇', description: 'Masking dan reset operasional' },
+];
 
 export default function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>('umum');
-  const [s, setS] = useState<AppSettings | null>(null);
+  const [tab, setTab] = useState<Tab>('general');
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saved, setSaved] = useState(false);
   const [resetConfirmation, setResetConfirmation] = useState('');
   const [resetting, setResetting] = useState(false);
   const [resetStatus, setResetStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
-    if (open) {
-      setS(loadSettings());
-      setSaved(false);
-      setResetConfirmation('');
-      setResetStatus(null);
-    }
+    if (!open) return;
+    setSettings(loadSettings());
+    setSaved(false);
+    setResetConfirmation('');
+    setResetStatus(null);
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  if (!open || !s) return null;
+  if (!open || !settings) return null;
+  const activeTab = TABS.find((item) => item.id === tab) || TABS[0];
 
-  function patch(p: Partial<AppSettings>) {
-    setS((prev) => (prev ? { ...prev, ...p } : prev));
+  function patch(values: Partial<AppSettings>) {
+    setSettings((current) => current ? { ...current, ...values } : current);
     setSaved(false);
   }
 
   function save() {
-    if (!s) return;
-    saveSettings(s);
+    if (!settings) return;
+    saveSettings(settings);
     setSaved(true);
+    writeSystemLog('SUCCESS', 'SETTINGS', 'PREFERENCES_SAVED', `Pengaturan ${activeTab.label} disimpan`);
   }
 
-  function updateUser(id: string, p: Partial<AppUser>) {
-    if (!s) return;
-    patch({ users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) });
+  function restorePreferences() {
+    if (!settings) return;
+    setSettings({ ...DEFAULT_SETTINGS, orgName: settings.orgName, currentUserId: settings.currentUserId, users: settings.users });
+    setSaved(false);
+  }
+
+  function updateUser(id: string, values: Partial<AppUser>) {
+    if (!settings) return;
+    patch({ users: settings.users.map((user) => user.id === id ? { ...user, ...values } : user) });
   }
 
   function addUser() {
-    if (!s) return;
+    if (!settings) return;
     const id = `U${Date.now().toString(36)}`;
-    patch({
-      users: [
-        ...s.users,
-        { id, name: 'User Baru', email: `user${s.users.length + 1}@proqpay.id`, role: 'VIEWER', active: true },
-      ],
-    });
+    patch({ users: [...settings.users, { id, name: 'User Baru', email: `user${settings.users.length + 1}@proqpay.id`, role: 'VIEWER', active: true }] });
   }
 
   async function resetOperationalData() {
     if (resetConfirmation !== RESET_CONFIRMATION || resetting) return;
     setResetting(true);
     setResetStatus(null);
-    writeSystemLog('WARN', 'SECURITY', 'SETTINGS_RESET_REQUESTED', 'Reset data operasional diminta dari Pengaturan');
     try {
-      const response = await fetch('/api/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmation: RESET_CONFIRMATION }),
-      });
+      const response = await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmation: RESET_CONFIRMATION }) });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error || data.message || `HTTP ${response.status}`);
-      }
-      const emptyDb = seedDatabase();
-      saveDatabase(emptyDb);
+      if (!response.ok) throw new Error(data.error || data.message || `HTTP ${response.status}`);
+      saveDatabase(seedDatabase());
       emitDbChange();
       setResetConfirmation('');
-      setResetStatus({
-        type: 'success',
-        message: `Reset selesai: ${data.deleted?.employees || 0} karyawan, ${data.deleted?.clients || 0} klien, ${data.deleted?.payrolls || 0} payroll, dan ${data.deleted?.invoices || 0} invoice dihapus.`,
-      });
-      writeSystemLog('SUCCESS', 'SECURITY', 'SETTINGS_RESET_COMPLETED', 'Reset data operasional selesai', {
-        deleted: data.deleted,
-        preserved: data.preserved,
-      });
+      setResetStatus({ type: 'success', message: `Reset selesai: ${data.deleted?.employees || 0} karyawan dan ${data.deleted?.clients || 0} klien dihapus.` });
+      writeSystemLog('SUCCESS', 'SECURITY', 'SETTINGS_RESET_COMPLETED', 'Reset data operasional selesai', { deleted: data.deleted });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Reset gagal';
-      setResetStatus({ type: 'error', message: `Reset gagal: ${message}. Tidak ada data lokal yang diubah.` });
+      setResetStatus({ type: 'error', message: `Reset gagal: ${message}. Data lokal tidak diubah.` });
       writeSystemLog('ERROR', 'SECURITY', 'SETTINGS_RESET_REJECTED', message);
     } finally {
       setResetting(false);
     }
   }
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'umum', label: 'Umum' },
-    { id: 'tampilan', label: 'Tampilan' },
-    { id: 'variabel', label: 'Variabel' },
-    { id: 'users', label: 'Users & Roles' },
-    { id: 'data', label: 'Data' },
-  ];
-
   return (
-    <div
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 300,
-        background: 'rgba(15, 23, 42, 0.5)',
-        backdropFilter: 'blur(6px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px',
-      }}
-    >
-      <div
-        style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--r-xl)',
-          boxShadow: 'var(--shadow-lg)',
-          width: '100%',
-          maxWidth: '640px',
-          maxHeight: '88vh',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '16px 20px',
-            borderBottom: '1px solid var(--border)',
-          }}
-        >
-          <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>Pengaturan</h3>
-          <button type="button" onClick={onClose} className="btn" style={{ width: 32, height: 32, padding: 0 }}>
-            ✕
-          </button>
-        </div>
+    <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="settings-modal" role="dialog" aria-modal="true" aria-label="Pengaturan aplikasi">
+        <header className="settings-header">
+          <div><span>PREFERENSI WORKSPACE</span><h2>Pengaturan</h2><p>Sesuaikan ProQPay untuk alur kerja tim Anda.</p></div>
+          <button type="button" onClick={onClose} aria-label="Tutup pengaturan">✕</button>
+        </header>
 
-        <div style={{ display: 'flex', gap: 4, padding: '10px 16px', borderBottom: '1px solid var(--border-soft)' }}>
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              style={{
-                border: 'none',
-                borderRadius: 999,
-                padding: '6px 12px',
-                fontSize: 12,
-                fontWeight: 650,
-                cursor: 'pointer',
-                background: tab === t.id ? 'var(--accent-soft)' : 'transparent',
-                color: tab === t.id ? 'var(--accent)' : 'var(--text2)',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <div className="settings-layout">
+          <nav className="settings-nav" aria-label="Kategori pengaturan">
+            {TABS.map((item) => <button type="button" key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}><i>{item.icon}</i><span><strong>{item.label}</strong><small>{item.description}</small></span></button>)}
+          </nav>
 
-        <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
-          {tab === 'umum' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <Field label="Nama organisasi">
-                <input value={s.orgName} onChange={(e) => patch({ orgName: e.target.value })} style={inp} />
-              </Field>
-              <Field label="Periode default (YYYY-MM)">
-                <input value={s.defaultPeriod} onChange={(e) => patch({ defaultPeriod: e.target.value })} style={inp} />
-              </Field>
-              <Field label="Pengguna aktif">
-                <select
-                  value={s.currentUserId}
-                  onChange={(e) => patch({ currentUserId: e.target.value })}
-                  style={inp}
-                >
-                  {s.users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.role})
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-          )}
+          <main className="settings-content">
+            <div className="settings-section-heading"><span>{activeTab.icon}</span><div><h3>{activeTab.label}</h3><p>{activeTab.description}</p></div></div>
 
-          {tab === 'tampilan' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <Field label="Kepadatan">
-                <select
-                  value={s.density}
-                  onChange={(e) => patch({ density: e.target.value as AppSettings['density'] })}
-                  style={inp}
-                >
-                  <option value="comfortable">Nyaman</option>
-                  <option value="compact">Padat</option>
-                </select>
-              </Field>
-              <Toggle
-                label="Tampilkan grafik kecil"
-                checked={s.showSparklines}
-                onChange={(v) => patch({ showSparklines: v })}
-              />
-              <Toggle label="Tampilkan peta" checked={s.showMap} onChange={(v) => patch({ showMap: v })} />
-              <Toggle
-                label="Tampilkan detail klien"
-                checked={s.showClientDetail}
-                onChange={(v) => patch({ showClientDetail: v })}
-              />
-              <Toggle
-                label="Tampilkan alur berpikir IDA"
-                checked={s.idaShowCot}
-                onChange={(v) => patch({ idaShowCot: v })}
-              />
-              <Field label={`Kecepatan ketik IDA (${s.idaTypingMs} ms/karakter)`}>
-                <input
-                  type="range"
-                  min={10}
-                  max={60}
-                  value={s.idaTypingMs}
-                  onChange={(e) => patch({ idaTypingMs: Number(e.target.value) })}
-                  style={{ width: '100%' }}
-                />
-              </Field>
-            </div>
-          )}
-
-          {tab === 'variabel' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <Field label="Biaya jasa / karyawan (Rp)">
-                <input
-                  type="number"
-                  value={s.serviceFeePerEmp}
-                  onChange={(e) => patch({ serviceFeePerEmp: Number(e.target.value) || 0 })}
-                  style={inp}
-                />
-              </Field>
-              <Field label="Biaya kelola BPJS / karyawan (Rp)">
-                <input
-                  type="number"
-                  value={s.bpjsFeePerEmp}
-                  onChange={(e) => patch({ bpjsFeePerEmp: Number(e.target.value) || 0 })}
-                  style={inp}
-                />
-              </Field>
-              <Field label="Biaya administrasi (Rp)">
-                <input
-                  type="number"
-                  value={s.adminFee}
-                  onChange={(e) => patch({ adminFee: Number(e.target.value) || 0 })}
-                  style={inp}
-                />
-              </Field>
-              <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>
-                Variabel ini dipakai saat membuat invoice dan estimasi margin.
-              </p>
-            </div>
-          )}
-
-          {tab === 'users' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {s.users.map((u) => (
-                <div
-                  key={u.id}
-                  style={{
-                    border: '1px solid var(--border)',
-                    borderRadius: 12,
-                    padding: 12,
-                    background: 'var(--bg-subtle)',
-                  }}
-                >
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <input value={u.name} onChange={(e) => updateUser(u.id, { name: e.target.value })} style={inp} />
-                    <input value={u.email} onChange={(e) => updateUser(u.id, { email: e.target.value })} style={inp} />
-                    <select
-                      value={u.role}
-                      onChange={(e) => updateUser(u.id, { role: e.target.value as AppRole })}
-                      style={inp}
-                    >
-                      {(['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'CLIENT_USER', 'PAYROLL', 'HR', 'FINANCE', 'DIRECTOR', 'VIEWER'] as AppRole[]).map(
-                        (r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        )
-                      )}
-                    </select>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                      <input
-                        type="checkbox"
-                        checked={u.active}
-                        onChange={(e) => updateUser(u.id, { active: e.target.checked })}
-                      />
-                      Aktif
-                    </label>
-                  </div>
-                </div>
-              ))}
-              <button type="button" className="btn" onClick={addUser}>
-                + Tambah pengguna
-              </button>
-            </div>
-          )}
-
-          {tab === 'data' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div
-                style={{
-                  border: '1px solid rgba(220, 38, 38, 0.28)',
-                  borderRadius: 14,
-                  padding: 16,
-                  background: 'rgba(220, 38, 38, 0.045)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 10,
-                      display: 'grid',
-                      placeItems: 'center',
-                      background: 'rgba(220, 38, 38, 0.12)',
-                    }}
-                  >
-                    🗑️
-                  </span>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 750, color: '#b91c1c' }}>Reset data operasional</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text3)' }}>Khusus role SUPER_ADMIN</div>
-                  </div>
-                </div>
-
-                <p style={{ margin: '0 0 12px', fontSize: 12.5, lineHeight: 1.6, color: 'var(--text2)' }}>
-                  Menghapus seluruh data klien, proyek/lokasi, karyawan, payroll, approval, payment, invoice,
-                  piutang, dan audit operasional dari database.
-                </p>
-
-                <div
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: 10,
-                    background: 'var(--bg-surface)',
-                    border: '1px solid var(--border-soft)',
-                    fontSize: 12,
-                    lineHeight: 1.55,
-                    color: 'var(--text2)',
-                    marginBottom: 14,
-                  }}
-                >
-                  <strong>Tetap dipertahankan:</strong> knowledge IDA, memory dan riwayat percakapan IDA,
-                  organisasi, referensi provinsi, serta konfigurasi aplikasi.
-                </div>
-
-                <Field label={`Ketik “${RESET_CONFIRMATION}” untuk konfirmasi`}>
-                  <input
-                    value={resetConfirmation}
-                    onChange={(event) => {
-                      setResetConfirmation(event.target.value);
-                      setResetStatus(null);
-                    }}
-                    placeholder={RESET_CONFIRMATION}
-                    autoComplete="off"
-                    disabled={resetting}
-                    style={{
-                      ...inp,
-                      borderColor:
-                        resetConfirmation && resetConfirmation !== RESET_CONFIRMATION
-                          ? 'rgba(220, 38, 38, 0.5)'
-                          : 'var(--border)',
-                    }}
-                  />
-                </Field>
-
-                <button
-                  type="button"
-                  onClick={resetOperationalData}
-                  disabled={resetConfirmation !== RESET_CONFIRMATION || resetting}
-                  style={{
-                    width: '100%',
-                    marginTop: 12,
-                    border: 'none',
-                    borderRadius: 10,
-                    padding: '10px 14px',
-                    fontSize: 12.5,
-                    fontWeight: 750,
-                    color: '#fff',
-                    background:
-                      resetConfirmation === RESET_CONFIRMATION && !resetting ? '#dc2626' : 'var(--text3)',
-                    opacity: resetConfirmation === RESET_CONFIRMATION && !resetting ? 1 : 0.48,
-                    cursor: resetConfirmation === RESET_CONFIRMATION && !resetting ? 'pointer' : 'not-allowed',
-                  }}
-                >
-                  {resetting ? 'Menghapus data…' : 'Reset Semua Data Operasional'}
-                </button>
-
-                {resetStatus && (
-                  <div
-                    role="status"
-                    style={{
-                      marginTop: 12,
-                      padding: '10px 12px',
-                      borderRadius: 10,
-                      fontSize: 12,
-                      lineHeight: 1.5,
-                      color: resetStatus.type === 'success' ? '#166534' : '#b91c1c',
-                      background:
-                        resetStatus.type === 'success' ? 'rgba(22, 163, 74, 0.08)' : 'rgba(220, 38, 38, 0.08)',
-                    }}
-                  >
-                    {resetStatus.message}
-                  </div>
-                )}
+            {tab === 'general' ? <SettingsSection title="Identitas workspace" description="Pengaturan dasar yang terlihat oleh seluruh pengguna.">
+              <div className="settings-form-grid">
+                <Field label="Nama organisasi"><input value={settings.orgName} onChange={(event) => patch({ orgName: event.target.value })} /></Field>
+                <Field label="Periode default"><input type="month" value={settings.defaultPeriod} onChange={(event) => patch({ defaultPeriod: event.target.value })} /></Field>
+                <Field label="Halaman awal"><select value={settings.defaultView} onChange={(event) => patch({ defaultView: event.target.value as AppSettings['defaultView'] })}><option value="dashboard">Dashboard</option><option value="operations">Payroll Operations</option><option value="employees">Data Karyawan</option><option value="clients">Klien & Project</option><option value="reports">Laporan</option></select></Field>
+                <Field label="Pengguna simulasi lokal"><select value={settings.currentUserId} onChange={(event) => patch({ currentUserId: event.target.value })}><option value="">Pilih pengguna</option>{settings.users.map((user) => <option key={user.id} value={user.id}>{user.name} · {user.role}</option>)}</select></Field>
               </div>
-            </div>
-          )}
+            </SettingsSection> : null}
+
+            {tab === 'dashboard' ? <>
+              <SettingsSection title="Komponen dashboard" description="Sembunyikan widget yang tidak dibutuhkan oleh workflow Anda.">
+                <div className="settings-toggle-list">
+                  <Toggle label="Kartu KPI" description="Karyawan, klien, payroll, dan piutang" checked={settings.showKpis} onChange={(value) => patch({ showKpis: value })} />
+                  <Toggle label="Workforce readiness" description="Kelengkapan data dan sebaran wilayah" checked={settings.showWorkforceInsights} onChange={(value) => patch({ showWorkforceInsights: value })} />
+                  <Toggle label="Peta wilayah" description="Peta interaktif distribusi karyawan" checked={settings.showMap} onChange={(value) => patch({ showMap: value })} />
+                  <Toggle label="Portofolio klien" description="Daftar klien dengan jumlah karyawan dan project" checked={settings.showClientPortfolio} onChange={(value) => patch({ showClientPortfolio: value })} />
+                  <Toggle label="Detail klien" description="Employee list, insight, billing, dan activity" checked={settings.showClientDetail} onChange={(value) => patch({ showClientDetail: value })} />
+                  <Toggle label="Badge sumber data" description="Menampilkan status Live dari Neon" checked={settings.showDataSourceBadges} onChange={(value) => patch({ showDataSourceBadges: value })} />
+                  <Toggle label="Sparkline KPI" description="Grafik tren kecil pada kartu payroll" checked={settings.showSparklines} onChange={(value) => patch({ showSparklines: value })} />
+                </div>
+              </SettingsSection>
+              <SettingsSection title="Pagination & sinkronisasi" description="Mengatur banyaknya data dan interval refresh.">
+                <div className="settings-form-grid">
+                  <Field label="Baris list dashboard"><select value={settings.dashboardPageSize} onChange={(event) => patch({ dashboardPageSize: Number(event.target.value) })}>{[3, 5, 10].map((size) => <option key={size} value={size}>{size} data / halaman</option>)}</select></Field>
+                  <Field label="Baris tabel karyawan"><select value={settings.employeePageSize} onChange={(event) => patch({ employeePageSize: Number(event.target.value) })}>{[10, 15, 25, 50].map((size) => <option key={size} value={size}>{size} data / halaman</option>)}</select></Field>
+                  <Field label="Refresh data otomatis"><select value={settings.autoRefreshMinutes} onChange={(event) => patch({ autoRefreshMinutes: Number(event.target.value) })}><option value={0}>Nonaktif</option><option value={1}>Setiap 1 menit</option><option value={5}>Setiap 5 menit</option><option value={15}>Setiap 15 menit</option></select></Field>
+                </div>
+              </SettingsSection>
+            </> : null}
+
+            {tab === 'appearance' ? <>
+              <SettingsSection title="Tema & navigasi" description="Pilih kontras, warna aksen, dan bentuk sidebar.">
+                <div className="settings-form-grid">
+                  <Field label="Tema"><select value={settings.theme} onChange={(event) => patch({ theme: event.target.value as AppSettings['theme'] })}><option value="light">Light</option><option value="soft">Soft gray</option><option value="contrast">High contrast</option></select></Field>
+                  <Field label="Warna aksen"><select value={settings.accentColor} onChange={(event) => patch({ accentColor: event.target.value as AppSettings['accentColor'] })}><option value="indigo">Indigo</option><option value="blue">Blue</option><option value="teal">Teal</option></select></Field>
+                  <Field label="Kepadatan"><select value={settings.density} onChange={(event) => patch({ density: event.target.value as AppSettings['density'] })}><option value="comfortable">Nyaman</option><option value="compact">Padat</option></select></Field>
+                  <Field label="Sidebar"><select value={settings.sidebarMode} onChange={(event) => patch({ sidebarMode: event.target.value as AppSettings['sidebarMode'] })}><option value="expanded">Label lengkap</option><option value="compact">Ikon ringkas</option></select></Field>
+                </div>
+              </SettingsSection>
+            </> : null}
+
+            {tab === 'ida' ? <>
+              <SettingsSection title="Perilaku percakapan" description="Atur bagaimana IDA menyampaikan hasil operasional.">
+                <div className="settings-toggle-list">
+                  <Toggle label="Tampilkan langkah kerja" description="Ringkasan sumber dan proses yang aman ditampilkan" checked={settings.idaShowCot} onChange={(value) => patch({ idaShowCot: value })} />
+                  <Toggle label="Respons ringkas" description="Prioritaskan jawaban dan angka penting" checked={settings.idaCompactResponses} onChange={(value) => patch({ idaCompactResponses: value })} />
+                  <Toggle label="Saran pertanyaan lanjutan" description="Tampilkan quick action sesuai konteks" checked={settings.idaAutoSuggestions} onChange={(value) => patch({ idaAutoSuggestions: value })} />
+                </div>
+                <Field label={`Kecepatan animasi jawaban · ${settings.idaTypingMs} ms/karakter`}><input type="range" min={10} max={60} value={settings.idaTypingMs} onChange={(event) => patch({ idaTypingMs: Number(event.target.value) })} /></Field>
+              </SettingsSection>
+              <SettingsSection title="Peringatan operasional" description="Preferensi notifikasi yang akan diprioritaskan IDA.">
+                <div className="settings-toggle-list">
+                  <Toggle label="Kualitas data" description="NIK, BPJS, rekening, dan field wajib" checked={settings.notifyDataQuality} onChange={(value) => patch({ notifyDataQuality: value })} />
+                  <Toggle label="Kontrak akan berakhir" description={`${settings.contractAlertDays} hari sebelum akhir kontrak`} checked={settings.notifyContractExpiry} onChange={(value) => patch({ notifyContractExpiry: value })} />
+                  <Toggle label="Payroll perlu approval" description="Submission menunggu Controller atau Approver" checked={settings.notifyPayrollApproval} onChange={(value) => patch({ notifyPayrollApproval: value })} />
+                </div>
+                <Field label="Batas peringatan kontrak"><select value={settings.contractAlertDays} onChange={(event) => patch({ contractAlertDays: Number(event.target.value) })}>{[7, 14, 30, 60, 90].map((days) => <option key={days} value={days}>{days} hari</option>)}</select></Field>
+              </SettingsSection>
+            </> : null}
+
+            {tab === 'billing' ? <SettingsSection title="Variabel komersial" description="Dipakai untuk invoice dan estimasi margin; bukan komponen gaji karyawan.">
+              <div className="settings-form-grid">
+                <Field label="Biaya jasa / karyawan"><div className="currency-input"><span>Rp</span><input type="number" min={0} value={settings.serviceFeePerEmp} onChange={(event) => patch({ serviceFeePerEmp: Number(event.target.value) || 0 })} /></div></Field>
+                <Field label="Kelola BPJS / karyawan"><div className="currency-input"><span>Rp</span><input type="number" min={0} value={settings.bpjsFeePerEmp} onChange={(event) => patch({ bpjsFeePerEmp: Number(event.target.value) || 0 })} /></div></Field>
+                <Field label="Biaya administrasi"><div className="currency-input"><span>Rp</span><input type="number" min={0} value={settings.adminFee} onChange={(event) => patch({ adminFee: Number(event.target.value) || 0 })} /></div></Field>
+              </div>
+            </SettingsSection> : null}
+
+            {tab === 'users' ? <SettingsSection title="Pengguna lokal" description="Simulasi persona UI. Identitas produksi tetap berasal dari Cloudflare Access.">
+              <div className="settings-user-list">{settings.users.map((user) => <div key={user.id}><span className="settings-user-avatar">{user.name.slice(0, 2).toUpperCase()}</span><input aria-label="Nama pengguna" value={user.name} onChange={(event) => updateUser(user.id, { name: event.target.value })} /><input aria-label="Email pengguna" value={user.email} onChange={(event) => updateUser(user.id, { email: event.target.value })} /><select aria-label="Role pengguna" value={user.role} onChange={(event) => updateUser(user.id, { role: event.target.value as AppRole })}>{(['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'CLIENT_USER', 'PAYROLL', 'HR', 'FINANCE', 'DIRECTOR', 'VIEWER'] as AppRole[]).map((role) => <option key={role}>{role}</option>)}</select><label className="user-active"><input type="checkbox" checked={user.active} onChange={(event) => updateUser(user.id, { active: event.target.checked })} /><span>Aktif</span></label></div>)}</div>
+              <button type="button" className="btn" onClick={addUser}>+ Tambah pengguna</button>
+            </SettingsSection> : null}
+
+            {tab === 'data' ? <>
+              <SettingsSection title="Privasi tampilan" description="Mencegah data sensitif terlihat saat layar dibagikan.">
+                <div className="settings-toggle-list"><Toggle label="Masking data sensitif" description="Samarkan NIK, NPWP, rekening, dan nomor BPJS pada detail karyawan" checked={settings.maskSensitiveData} onChange={(value) => patch({ maskSensitiveData: value })} /></div>
+              </SettingsSection>
+              <section className="settings-danger-zone"><span>DANGER ZONE</span><h4>Reset data operasional</h4><p>Menghapus klien, project, karyawan, payroll, pembayaran, invoice, dan audit operasional. Knowledge dan memory IDA dipertahankan.</p><Field label={`Ketik “${RESET_CONFIRMATION}”`}><input value={resetConfirmation} onChange={(event) => { setResetConfirmation(event.target.value); setResetStatus(null); }} placeholder={RESET_CONFIRMATION} disabled={resetting} /></Field><button type="button" disabled={resetConfirmation !== RESET_CONFIRMATION || resetting} onClick={() => void resetOperationalData()}>{resetting ? 'Menghapus…' : 'Reset semua data operasional'}</button>{resetStatus ? <div className={`settings-status ${resetStatus.type}`} role="status">{resetStatus.message}</div> : null}</section>
+            </> : null}
+          </main>
         </div>
 
-        <div
-          style={{
-            padding: '14px 20px',
-            borderTop: '1px solid var(--border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 10,
-          }}
-        >
-          <span style={{ fontSize: 12, color: saved ? 'var(--success)' : 'var(--text3)' }}>
-            {tab === 'data' ? 'Knowledge & memory IDA dilindungi' : saved ? 'Tersimpan' : 'Belum disimpan'}
-          </span>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" className="btn" onClick={onClose}>
-              Tutup
-            </button>
-            {tab !== 'data' && (
-              <button type="button" className="btn btn-primary" onClick={save}>
-                Simpan
-              </button>
-            )}
-          </div>
-        </div>
+        <footer className="settings-footer"><button type="button" className="settings-reset-preferences" onClick={restorePreferences}>Pulihkan preferensi</button><span className={saved ? 'saved' : ''}>{saved ? '✓ Perubahan tersimpan' : 'Ada perubahan yang belum disimpan'}</span><div><button type="button" className="btn" onClick={onClose}>Batal</button><button type="button" className="btn btn-primary" onClick={save}>Simpan perubahan</button></div></footer>
       </div>
     </div>
   );
 }
 
+function SettingsSection({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+  return <section className="settings-section"><div><h4>{title}</h4><p>{description}</p></div>{children}</section>;
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', display: 'block', marginBottom: 6 }}>
-        {label}
-      </label>
-      {children}
-    </div>
-  );
+  return <label className="settings-field"><span>{label}</span>{children}</label>;
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13 }}>
-      <span>{label}</span>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-    </label>
-  );
+function Toggle({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return <label className="settings-toggle"><span><strong>{label}</strong><small>{description}</small></span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i aria-hidden="true" /></label>;
 }
-
-const inp: React.CSSProperties = {
-  width: '100%',
-  padding: '10px 12px',
-  background: 'var(--bg-subtle)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--r-sm)',
-  fontSize: 13,
-  fontFamily: 'inherit',
-  color: 'var(--text)',
-  outline: 'none',
-};

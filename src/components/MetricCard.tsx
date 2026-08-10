@@ -18,31 +18,17 @@ export default function MetricCard({
   onClick?: () => void;
 }) {
   return (
-    <div
+    <button
+      type="button"
       className="card metric-card"
       onClick={onClick}
-      role={onClick ? 'button' : undefined}
-      tabIndex={onClick ? 0 : undefined}
+      disabled={!onClick}
       style={{
         padding: '18px 18px 14px',
         position: 'relative',
         overflow: 'hidden',
         cursor: onClick ? 'pointer' : 'default',
         transition: 'box-shadow 0.22s ease, transform 0.22s ease, border-color 0.22s ease',
-      }}
-      onMouseEnter={(e) => {
-        if (!onClick) return;
-        const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = 'var(--shadow-md)';
-        el.style.transform = 'translateY(-2px)';
-        el.style.borderColor = `color-mix(in srgb, ${accent} 35%, var(--border))`;
-      }}
-      onMouseLeave={(e) => {
-        if (!onClick) return;
-        const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = 'var(--shadow-xs)';
-        el.style.transform = 'translateY(0)';
-        el.style.borderColor = 'var(--border)';
       }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '10px' }}>
@@ -99,6 +85,6 @@ export default function MetricCard({
         background: `linear-gradient(90deg, ${accent}, transparent)`,
         opacity: 0.85,
       }} />
-    </div>
+    </button>
   );
 }

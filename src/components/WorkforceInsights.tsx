@@ -13,7 +13,11 @@ function isExpired(employee: any, now: number) {
   return Number.isFinite(end) && end < now;
 }
 
-export default function WorkforceInsights({ employees }: { employees: any[] }) {
+export default function WorkforceInsights({ employees, onOpenEmployees, showDataSourceBadge = true }: {
+  employees: any[];
+  onOpenEmployees?: (region?: string) => void;
+  showDataSourceBadge?: boolean;
+}) {
   const insight = useMemo(() => {
     const total = employees.length;
     const now = REFERENCE_TIME;
@@ -48,7 +52,7 @@ export default function WorkforceInsights({ employees }: { employees: any[] }) {
           <span className="panel-eyebrow">Kualitas data</span>
           <h3>Workforce readiness</h3>
         </div>
-        <span className="live-chip"><i /> Live dari Neon</span>
+        {showDataSourceBadge ? <span className="live-chip"><i /> Live dari Neon</span> : null}
       </div>
 
       <div className="workforce-insights-body">
@@ -57,11 +61,11 @@ export default function WorkforceInsights({ employees }: { employees: any[] }) {
         </div>
         <div className="readiness-issues">
           {issues.map((issue) => (
-            <div key={issue.label}>
+            <button type="button" key={issue.label} onClick={() => onOpenEmployees?.()}>
               <span className={`issue-dot issue-dot-${issue.tone}`} />
               <span>{issue.label}</span>
               <strong>{issue.count}</strong>
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -69,11 +73,11 @@ export default function WorkforceInsights({ employees }: { employees: any[] }) {
       <div className="region-breakdown">
         <div className="panel-subheading"><span>Sebaran teratas</span><small>{insight.total} karyawan</small></div>
         {insight.topRegions.map(([region, count]) => (
-          <div className="region-bar-row" key={region}>
+          <button type="button" className="region-bar-row" key={region} onClick={() => onOpenEmployees?.(region)}>
             <span>{region}</span>
             <div><i style={{ width: `${Math.max(8, (count / maxRegion) * 100)}%` }} /></div>
             <strong>{count}</strong>
-          </div>
+          </button>
         ))}
       </div>
     </div>

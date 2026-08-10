@@ -11,18 +11,20 @@ export default function Sidebar({
   onView,
   onOpenIda,
   role,
+  compact = false,
 }: {
   view: AppView;
   onView: (v: AppView) => void;
   onOpenIda: () => void;
   role?: string;
+  compact?: boolean;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <>
       <aside
-        className="app-sidebar"
+        className={`app-sidebar${compact ? ' app-sidebar-compact' : ''}`}
       >
         <div className="sidebar-brand">
           <span>PQ</span>

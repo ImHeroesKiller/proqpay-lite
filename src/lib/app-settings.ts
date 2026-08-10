@@ -25,13 +25,30 @@ export type AppSettings = {
   adminFee: number;
   currency: 'IDR';
   locale: 'id-ID';
-  theme: 'light' | 'soft';
+  theme: 'light' | 'soft' | 'contrast';
+  accentColor: 'indigo' | 'blue' | 'teal';
   density: 'comfortable' | 'compact';
+  sidebarMode: 'expanded' | 'compact';
+  defaultView: 'dashboard' | 'operations' | 'employees' | 'clients' | 'reports';
+  dashboardPageSize: number;
+  employeePageSize: number;
+  autoRefreshMinutes: number;
+  showKpis: boolean;
+  showWorkforceInsights: boolean;
+  showClientPortfolio: boolean;
+  showDataSourceBadges: boolean;
   showSparklines: boolean;
   showMap: boolean;
   showClientDetail: boolean;
   idaTypingMs: number;
   idaShowCot: boolean;
+  idaCompactResponses: boolean;
+  idaAutoSuggestions: boolean;
+  maskSensitiveData: boolean;
+  contractAlertDays: number;
+  notifyDataQuality: boolean;
+  notifyContractExpiry: boolean;
+  notifyPayrollApproval: boolean;
   currentUserId: string;
   users: AppUser[];
 };
@@ -47,12 +64,29 @@ export const DEFAULT_SETTINGS: AppSettings = {
   currency: 'IDR',
   locale: 'id-ID',
   theme: 'light',
+  accentColor: 'indigo',
   density: 'comfortable',
+  sidebarMode: 'expanded',
+  defaultView: 'dashboard',
+  dashboardPageSize: 5,
+  employeePageSize: 15,
+  autoRefreshMinutes: 0,
+  showKpis: true,
+  showWorkforceInsights: true,
+  showClientPortfolio: true,
+  showDataSourceBadges: true,
   showSparklines: true,
   showMap: true,
   showClientDetail: true,
   idaTypingMs: 28,
   idaShowCot: true,
+  idaCompactResponses: false,
+  idaAutoSuggestions: true,
+  maskSensitiveData: false,
+  contractAlertDays: 30,
+  notifyDataQuality: true,
+  notifyContractExpiry: true,
+  notifyPayrollApproval: true,
   currentUserId: '',
   users: [],
 };

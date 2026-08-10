@@ -12,7 +12,6 @@ import IdaFab from '@/components/IdaFab';
 import MetricCard from '@/components/MetricCard';
 import ClientDetail from '@/components/ClientDetail';
 import RegionMap from '@/components/RegionMap';
-import MetricPopup from '@/components/MetricPopup';
 import DashFilters from '@/components/DashFilters';
 import SystemLogs from '@/components/SystemLogs';
 import OperatingWorkspace from '@/components/OperatingWorkspace';
@@ -20,23 +19,23 @@ import RoleDashboard from '@/components/RoleDashboard';
 import DirectoryManager from '@/components/DirectoryManager';
 import EmployeeDirectory from '@/components/EmployeeDirectory';
 import WorkforceInsights from '@/components/WorkforceInsights';
+import ClientPortfolio from '@/components/ClientPortfolio';
 import { IconUsers, IconBuilding, IconWallet, IconClock } from '@/components/Icons';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromNeon } from '@/lib/neon-sync';
 
-type PopupType = 'employees' | 'clients' | 'payroll' | 'outstanding' | null;
 type Actor = { id: string; email: string; role: string; permissions: string[] };
 
 export default function Home() {
   const [db, setDb] = useState<any>(null);
   const [mounted, setMounted] = useState(false);
-  const [popup, setPopup] = useState<PopupType>(null);
   const [period, setPeriod] = useState('2025-07');
   const [view, setView] = useState<AppView>('dashboard');
   const [helpOpen, setHelpOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [idaOpenSignal, setIdaOpenSignal] = useState(0);
   const [actor, setActor] = useState<Actor | null>(null);
+  const [employeeRegionFilter, setEmployeeRegionFilter] = useState('ALL');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -66,6 +65,7 @@ export default function Home() {
       });
     const st = loadSettings();
     setSettings(st);
+    setView(st.defaultView);
     if (data?.meta?.currentPeriod) setPeriod(data.meta.currentPeriod);
     else if (st.defaultPeriod) setPeriod(st.defaultPeriod);
 
@@ -82,6 +82,18 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    const minutes = settings?.autoRefreshMinutes || 0;
+    if (!minutes) return;
+    const timer = window.setInterval(() => {
+      const current = loadDatabase();
+      void syncDatabaseFromNeon(current)
+        .then(({ db: canonical }) => { saveDatabase(canonical); setDb(canonical); })
+        .catch(() => writeSystemLog('WARN', 'DATABASE', 'AUTO_REFRESH_FAILED', 'Refresh otomatis gagal'));
+    }, minutes * 60_000);
+    return () => window.clearInterval(timer);
+  }, [settings?.autoRefreshMinutes]);
+
   function handlePeriodChange(p: string) {
     writeSystemLog('INFO', 'DASHBOARD', 'PERIOD_CHANGED', `Periode aktif diubah ke ${p}`);
     setPeriod(p);
@@ -96,6 +108,11 @@ export default function Home() {
     const result = await syncDatabaseFromNeon(db, { requireData: true });
     saveDatabase(result.db);
     setDb(result.db);
+  }
+
+  function openEmployees(region = 'ALL') {
+    setEmployeeRegionFilter(region);
+    setView('employees');
   }
 
   if (!mounted || !db || !settings) {
@@ -122,12 +139,13 @@ export default function Home() {
   const pad = settings.density === 'compact' ? '18px 16px' : '28px 24px';
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <div className={`app-shell theme-${settings.theme} accent-${settings.accentColor} density-${settings.density}`} style={{ display: 'flex', minHeight: '100vh' }}>
       <Sidebar
         view={view}
         onView={setView}
         onOpenIda={() => setIdaOpenSignal((n) => n + 1)}
         role={actor?.role}
+        compact={settings.sidebarMode === 'compact'}
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
@@ -146,7 +164,7 @@ export default function Home() {
                   <DashFilters period={period} onPeriodChange={handlePeriodChange} />
                 </div>
 
-                <div className="dashboard-metrics">
+                {settings.showKpis ? <div className="dashboard-metrics">
                   <MetricCard
                     label="Karyawan"
                     value={String(empCount)}
@@ -154,7 +172,7 @@ export default function Home() {
                     accent="#06b6d4"
                     icon={<IconUsers />}
                     sparkData={undefined}
-                    onClick={() => setPopup('employees')}
+                    onClick={() => openEmployees()}
                   />
                   <MetricCard
                     label="Klien"
@@ -163,7 +181,7 @@ export default function Home() {
                     accent="#14b8a6"
                     icon={<IconBuilding />}
                     sparkData={undefined}
-                    onClick={() => setPopup('clients')}
+                    onClick={() => setView('clients')}
                   />
                   <MetricCard
                     label="Payroll"
@@ -172,7 +190,7 @@ export default function Home() {
                     accent="#5b5ef0"
                     icon={<IconWallet />}
                     sparkData={settings.showSparklines && payrollTrend.length > 1 ? payrollTrend : undefined}
-                    onClick={() => setPopup('payroll')}
+                    onClick={() => setView('operations')}
                   />
                   <MetricCard
                     label="Piutang"
@@ -181,67 +199,26 @@ export default function Home() {
                     accent="#f97316"
                     icon={<IconClock />}
                     sparkData={undefined}
-                    onClick={() => setPopup('outstanding')}
+                    onClick={() => setView('reports')}
                   />
-                </div>
+                </div> : null}
 
                 <div className="dashboard-primary-grid">
-                  <WorkforceInsights employees={db.employees || []} />
+                  {settings.showWorkforceInsights ? <WorkforceInsights employees={db.employees || []} onOpenEmployees={openEmployees} showDataSourceBadge={settings.showDataSourceBadges} /> : null}
                   <RoleDashboard actor={actor} onNavigate={setView} />
                 </div>
 
                 <div className="dashboard-secondary-grid">
-                  {settings.showMap && <RegionMap employees={db.employees} />}
-
-                  <div className="card dashboard-client-card">
-                    <div className="panel-heading"><div><span className="panel-eyebrow">Portofolio</span><h3>Klien aktif</h3></div><button type="button" onClick={() => setView('clients')}>Lihat semua →</button></div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      {db.companies?.map((c: any) => {
-                        const empOfClient = db.employees.filter((e: any) => e.company === c.name).length;
-                        return (
-                          <div
-                            key={c.id}
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              padding: '12px 14px',
-                              background: 'var(--bg-subtle)',
-                              borderRadius: 'var(--r-md)',
-                              border: '1px solid var(--border-soft)',
-                            }}
-                          >
-                            <div>
-                              <div style={{ fontWeight: 650, fontSize: 14 }}>{c.name}</div>
-                              <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>
-                                {empOfClient} karyawan
-                              </div>
-                            </div>
-                            <span
-                              style={{
-                                fontSize: 10.5,
-                                fontWeight: 650,
-                                padding: '3px 10px',
-                                borderRadius: 999,
-                                background: 'rgba(16,185,129,0.12)',
-                                color: '#059669',
-                              }}
-                            >
-                              Aktif
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  {settings.showMap ? <RegionMap employees={db.employees} pageSize={settings.dashboardPageSize} onOpenEmployees={openEmployees} /> : null}
+                  {settings.showClientPortfolio ? <ClientPortfolio companies={db.companies || []} employees={db.employees || []} projects={db.projects || []} pageSize={settings.dashboardPageSize} onOpenDirectory={() => setView('clients')} /> : null}
                 </div>
 
-                {settings.showClientDetail && clientCount > 0 && <ClientDetail db={db} />}
+                {settings.showClientDetail && clientCount > 0 ? <ClientDetail db={db} pageSize={settings.dashboardPageSize} onOpenEmployees={() => openEmployees()} /> : null}
               </section>
             )}
 
             {view === 'employees' && (
-              <EmployeeDirectory employees={db.employees || []} actor={actor} />
+              <EmployeeDirectory employees={db.employees || []} actor={actor} pageSize={settings.employeePageSize} initialRegion={employeeRegionFilter} maskSensitiveData={settings.maskSensitiveData} />
             )}
 
             {view === 'clients' && (
@@ -294,7 +271,6 @@ export default function Home() {
 
       <IdaFab openSignal={idaOpenSignal} />
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
-      {popup && <MetricPopup type={popup} db={db} onClose={() => setPopup(null)} />}
     </div>
   );
 }
