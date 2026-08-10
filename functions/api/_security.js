@@ -2,6 +2,9 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 export const ROLES = Object.freeze([
   'SUPER_ADMIN',
+  'PAYROLL_PROCESSOR',
+  'PAYROLL_CONTROLLER',
+  'CLIENT_USER',
   'PAYROLL',
   'HR',
   'FINANCE',
@@ -10,7 +13,10 @@ export const ROLES = Object.freeze([
 ]);
 
 const ROLE_PERMISSIONS = Object.freeze({
-  SUPER_ADMIN: ['read', 'employees:write', 'import:write', 'schema:write', 'settings:write'],
+  SUPER_ADMIN: ['read', 'employees:write', 'import:write', 'schema:write', 'settings:write', 'service-plan:write', 'submission:write', 'exception:write', 'payment:prepare', 'payment:approve'],
+  PAYROLL_PROCESSOR: ['read', 'employees:write', 'import:write', 'submission:write', 'exception:write', 'payroll:write'],
+  PAYROLL_CONTROLLER: ['read', 'approval:write', 'payment:prepare', 'payment:approve', 'reconciliation:write'],
+  CLIENT_USER: ['read', 'submission:write', 'exception:respond'],
   PAYROLL: ['read', 'employees:write', 'import:write', 'payroll:write'],
   HR: ['read', 'employees:write', 'import:write'],
   FINANCE: ['read', 'finance:write'],
