@@ -644,6 +644,10 @@ export function handleIdaIntent(
         billing
       );
       if (!inv) return;
+      if ('error' in inv) {
+        created.push(`${c.name}: ${inv.error}`);
+        return;
+      }
       inv.status = 'SENT';
       newInvoices.push(inv);
       created.push(`${c.name}: **${inv.id}** ${formatIDR(inv.totalAmount)}`);

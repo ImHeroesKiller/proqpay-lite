@@ -16,12 +16,12 @@ export function calcMargin(db: any, period?: string, billing: BillingSettings = 
     0
   );
 
-  // Jika belum ada invoice periode ini, estimasi service fee standar
-  if (!invoices.length && db.companies?.length) {
+  // Tanpa invoice, revenue hanya boleh dihitung jika rule eksplisit tersedia.
+  if (!invoices.length && db.companies?.length && billing.serviceFeePerEmp != null && billing.bpjsFeePerEmp != null && billing.adminFee != null) {
     const empCount = db.employees?.length || 0;
-    const serviceFeePerEmp = Number(billing.serviceFeePerEmp ?? 1_500_000);
-    const bpjsFeePerEmp = Number(billing.bpjsFeePerEmp ?? 300_000);
-    const adminFeePerClient = Number(billing.adminFee ?? 2_000_000);
+    const serviceFeePerEmp = Number(billing.serviceFeePerEmp);
+    const bpjsFeePerEmp = Number(billing.bpjsFeePerEmp);
+    const adminFeePerClient = Number(billing.adminFee);
     const serviceFee = empCount * serviceFeePerEmp;
     const bpjsFee = empCount * bpjsFeePerEmp;
     const adminFee = adminFeePerClient * (db.companies?.length || 1);
@@ -44,19 +44,22 @@ export function calcMargin(db: any, period?: string, billing: BillingSettings = 
     margin,
     marginPct,
     invoiceCount: invoices.length,
-    estimated: invoices.length === 0,
+    estimated: invoices.length === 0 && revenue > 0,
+    billingRuleMissing: invoices.length === 0 && revenue === 0,
     payrollStatus: payroll?.status || 'BELUM_DIHITUNG',
     employeeCount: payroll?.summary?.employeeCount || db.employees?.length || 0,
     billing: {
-      serviceFeePerEmp: Number(billing.serviceFeePerEmp ?? 1_500_000),
-      bpjsFeePerEmp: Number(billing.bpjsFeePerEmp ?? 300_000),
-      adminFee: Number(billing.adminFee ?? 2_000_000),
+      serviceFeePerEmp: billing.serviceFeePerEmp == null ? null : Number(billing.serviceFeePerEmp),
+      bpjsFeePerEmp: billing.bpjsFeePerEmp == null ? null : Number(billing.bpjsFeePerEmp),
+      adminFee: billing.adminFee == null ? null : Number(billing.adminFee),
     },
   };
 }
 
 export function formatMarginReply(m: ReturnType<typeof calcMargin>) {
-  const note = m.estimated
+  const note = m.billingRuleMissing
+    ? '_Billing rule belum dikonfigurasi untuk client ini. Revenue tidak dihitung._'
+    : m.estimated
     ? `_Invoice periode ini belum diterbitkan — revenue memakai Settings: service fee ${formatIDR(m.billing.serviceFeePerEmp)}/karyawan, BPJS ${formatIDR(m.billing.bpjsFeePerEmp)}/karyawan, dan admin ${formatIDR(m.billing.adminFee)}/client._`
     : `_Dari ${m.invoiceCount} invoice periode ${m.period}._`;
 

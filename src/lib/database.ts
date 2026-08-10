@@ -163,9 +163,12 @@ export function generateInvoice(
   const payroll = db.payrolls.find((p: any) => p.period === period);
   if (!payroll) return null;
   const companyDetails = payroll.details.filter((d: any) => d.company === company);
-  const serviceFeePerEmp = nonNegative(billing.serviceFeePerEmp, 1_500_000);
-  const bpjsFeePerEmp = nonNegative(billing.bpjsFeePerEmp, 300_000);
-  const adminFee = nonNegative(billing.adminFee, 2_000_000);
+  if (billing.serviceFeePerEmp == null || billing.bpjsFeePerEmp == null || billing.adminFee == null) {
+    return { error: 'Billing rule belum dikonfigurasi untuk client ini.' };
+  }
+  const serviceFeePerEmp = nonNegative(billing.serviceFeePerEmp, 0);
+  const bpjsFeePerEmp = nonNegative(billing.bpjsFeePerEmp, 0);
+  const adminFee = nonNegative(billing.adminFee, 0);
   const serviceFee = companyDetails.length * serviceFeePerEmp;
   const bpjsFee = companyDetails.length * bpjsFeePerEmp;
   const subtotal = serviceFee + bpjsFee + adminFee;

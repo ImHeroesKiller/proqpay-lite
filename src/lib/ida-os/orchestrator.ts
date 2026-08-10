@@ -15,6 +15,8 @@ type IntentRoute = {
   confirmationPhrase?: string;
 };
 
+type IntentPlan = { intent: string; routes: IntentRoute[] };
+
 const ROUTES: Array<{ match: RegExp; route: IntentRoute }> = [
   { match: /\b(hapus|delete|reset)\b/, route: { intent: 'DELETE_DATA', worker: 'HR', capability: 'update_employee', risk: 'DESTRUCTIVE', confirmationPhrase: 'KONFIRMASI HAPUS' } },
   { match: /\b(import|unggah|upload|excel|csv|pdf)\b/, route: { intent: 'READ_DOCUMENT', worker: 'DOCUMENT', capability: 'generate_import_preview', risk: 'READ' } },
@@ -29,22 +31,29 @@ const ROUTES: Array<{ match: RegExp; route: IntentRoute }> = [
   { match: /\b(ar|piutang|cashflow|rekonsiliasi|outstanding)\b/, route: { intent: 'READ_FINANCE', worker: 'FINANCE', capability: 'read_ar', risk: 'READ' } },
 ];
 
-function routeIntent(text: string): IntentRoute {
+function routeIntent(text: string): IntentPlan {
   const normalized = text.toLowerCase().trim();
-  return ROUTES.find(({ match }) => match.test(normalized))?.route || {
+  if (/\b(revenue|pendapatan)\b/.test(normalized) && /\b(payroll|gaji|indomarco)\b/.test(normalized)) {
+    return { intent: 'EXPLAIN_PAYROLL_REVENUE', routes: [
+      { intent: 'READ_PAYROLL_DETAIL', worker: 'PAYROLL', capability: 'read_payroll', risk: 'READ' },
+      { intent: 'READ_BILLING_RULE', worker: 'OPERATIONS', capability: 'read_billing_rule', risk: 'READ' },
+    ] };
+  }
+  const route = ROUTES.find(({ match }) => match.test(normalized))?.route || {
     intent: 'GENERAL_ASSISTANCE',
     worker: 'PAYROLL',
     capability: 'read_payroll',
     risk: 'READ',
   };
+  return { intent: route.intent, routes: [route] };
 }
 
-function stablePlanId(context: SharedContext, route: IntentRoute, objective: string) {
+function stablePlanId(context: SharedContext, intent: string, objective: string) {
   const key = [
     context.organization.id || context.organization.name,
     context.currentUser.id || context.currentUser.email,
     context.payrollPeriod || '-',
-    route.intent,
+    intent,
     objective.toLowerCase().replace(/\s+/g, ' ').trim(),
   ].join('|');
   let hash = 2166136261;
@@ -56,31 +65,33 @@ function stablePlanId(context: SharedContext, route: IntentRoute, objective: str
 }
 
 export function orchestrateRequest(text: string, context: SharedContext): OrchestrationResult {
-  const route = routeIntent(text);
-  const permission = validateWorkerTask(route.worker, route.capability, context.currentRole, route.risk);
-  const planId = stablePlanId(context, route, text);
-  const requiresConfirmation = route.risk !== 'READ';
+  const routed = routeIntent(text);
+  const permissions = routed.routes.map((route) => validateWorkerTask(route.worker, route.capability, context.currentRole, route.risk));
+  const blockers = permissions.flatMap((permission) => permission.blockers);
+  const planId = stablePlanId(context, routed.intent, text);
+  const risk = routed.routes.some((route) => route.risk === 'DESTRUCTIVE') ? 'DESTRUCTIVE'
+    : routed.routes.some((route) => route.risk === 'FINANCIAL') ? 'FINANCIAL'
+    : routed.routes.some((route) => route.risk === 'WRITE') ? 'WRITE' : 'READ';
+  const requiresConfirmation = risk !== 'READ';
+  const confirmationPhrase = routed.routes.find((route) => route.confirmationPhrase)?.confirmationPhrase;
   const plan: ExecutionPlan = {
     id: planId,
-    intent: route.intent,
+    intent: routed.intent,
     objective: text.trim(),
-    stage: permission.allowed ? (requiresConfirmation ? 'PREVIEW' : 'DELEGATE') : 'BLOCKED',
-    tasks: [{
-      id: `${planId}-1`,
-      worker: route.worker,
-      capability: route.capability,
-      objective: text.trim(),
-      risk: route.risk,
+    stage: blockers.length === 0 ? (requiresConfirmation ? 'PREVIEW' : 'DELEGATE') : 'BLOCKED',
+    tasks: routed.routes.map((route, index) => ({
+      id: `${planId}-${index + 1}`,
+      worker: route.worker, capability: route.capability, objective: text.trim(), risk: route.risk,
       context,
       input: {},
-    }],
-    risk: route.risk,
+    })),
+    risk,
     requiresConfirmation,
-    confirmationPhrase: route.confirmationPhrase,
+    confirmationPhrase,
     affectedRecords: [],
     createdAt: Date.now(),
   };
-  return { plan, allowed: permission.allowed, blockers: permission.blockers };
+  return { plan, allowed: blockers.length === 0, blockers };
 }
 
 export function buildSharedContext(db: any, overrides: Partial<SharedContext> = {}): SharedContext {
@@ -88,14 +99,14 @@ export function buildSharedContext(db: any, overrides: Partial<SharedContext> = 
   const payroll = (db?.payrolls || []).find((item: any) => item.period === period);
   return {
     organization: { name: db?.meta?.orgName || 'ProQPay Lite' },
-    currentUser: { email: 'unknown@local' },
+    currentUser: { email: 'anonymous@unauthenticated' },
     currentRole: 'VIEWER',
     conversation: {},
     currentClient: undefined,
     currentProject: undefined,
     payrollPeriod: period,
     currentPayrollRun: payroll ? { id: payroll.id, status: payroll.status } : undefined,
-    permissions: ['*'],
+    permissions: [],
     language: 'id',
     timezone: 'Asia/Jakarta',
     ...overrides,

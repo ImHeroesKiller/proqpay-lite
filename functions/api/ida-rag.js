@@ -13,7 +13,7 @@ const KNOWLEDGE = [
   {
     id: 'margin',
     tags: ['margin', 'laba', 'profit', 'invoice', 'revenue'],
-    text: 'Margin outsourcing = total invoice ke client − total payroll net. Service fee default estimasi Rp1.5jt/karyawan + BPJS fee + admin + PPN 10% bila invoice belum terbit.',
+    text: 'Margin outsourcing = total invoice ke client − total payroll net. Jika invoice belum terbit, revenue hanya boleh dihitung dari billing rule client yang tersimpan dan masih efektif; tanpa rule, perhitungan harus dihentikan.',
   },
   {
     id: 'umr',

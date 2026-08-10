@@ -8,6 +8,9 @@ export type WorkerId =
 
 export type IdaRole =
   | 'SUPER_ADMIN'
+  | 'PAYROLL_PROCESSOR'
+  | 'PAYROLL_CONTROLLER'
+  | 'CLIENT_USER'
   | 'HR'
   | 'PAYROLL'
   | 'DIRECTOR'
@@ -38,8 +41,15 @@ export type SharedContext = {
   conversation: { id?: string; recentMessages?: string[] };
   currentClient?: { id?: string; name: string };
   currentProject?: { id?: string; name: string };
+  servicePlanId?: string;
+  serviceTier?: 'TIER_1_PAYMENT_PROCESSING' | 'TIER_2_MANAGED_PAYROLL' | 'TIER_3_INTEGRATED_AUTOMATION';
   payrollPeriod?: string;
   currentPayrollRun?: { id?: string; status?: string };
+  submissionId?: string;
+  workflowStage?: string;
+  pendingExceptionIds?: string[];
+  pendingConfirmation?: string;
+  recentFileId?: string;
   permissions: string[];
   language: 'id' | 'en';
   timezone: string;
@@ -59,6 +69,7 @@ export type Calculation = {
   inputs: Record<string, number | string>;
   result: number;
   currency?: 'IDR';
+  ruleVersion?: string;
 };
 
 export type WorkerResult = {

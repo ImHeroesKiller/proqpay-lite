@@ -2,14 +2,13 @@
 
 **AI Payroll Operating System** — Conversation-first payroll platform with IDA AI Assistant.
 
-Built with **Next.js 16** · static export for **Netlify** & **GitHub Pages**.
+Built with **Next.js 16** · static export for **Cloudflare Pages** with Pages Functions.
 
-## Deploy targets
+## Production
 
-| Host | URL pattern | Config |
-|------|-------------|--------|
-| **Netlify** (recommended) | `https://yoursite.netlify.app` | `netlify.toml` — root path |
-| GitHub Pages | `https://imheroeskiller.github.io/proqpay-lite/` | `GITHUB_PAGES=true` + `basePath` |
+| Host | URL | Build |
+|------|-----|-------|
+| Cloudflare Pages | `https://proqpay-lite.pages.dev/` | `npm run build` → `out` |
 
 ## Features
 
@@ -17,7 +16,7 @@ Built with **Next.js 16** · static export for **Netlify** & **GitHub Pages**.
 - Metric cards + searchable popup
 - Region distribution, client detail, AI insight, timeline
 - Floating **Ask IDA** (rule-based): `help`, `status`, `hitung payroll`, `ajukan approval`, `buat payment instruction`, …
-- Payroll calc (BPJS + PPh 21) + localStorage
+- Payroll calc (BPJS + PPh 21) with Neon-backed operational persistence
 - Period / bundling filters, Settings modal
 
 ## Local development
@@ -27,30 +26,14 @@ npm install
 npm run dev
 ```
 
-## Deploy to Netlify
+## Deploy to Cloudflare Pages
 
-### Option A — Connect GitHub (recommended)
+Repository `ImHeroesKiller/proqpay-lite` terhubung ke Cloudflare Pages. Push ke
+`main` memicu build production dengan Node.js 22, command `npm run build`, dan
+output directory `out`. Jangan set `GITHUB_PAGES=true`.
 
-1. [app.netlify.com](https://app.netlify.com) → **Add new site** → **Import an existing project**
-2. Pilih repo `ImHeroesKiller/proqpay-lite`
-3. Build settings (auto from `netlify.toml`):
-   - **Build command:** `npm run build`
-   - **Publish directory:** `out`
-4. Deploy — jangan set `GITHUB_PAGES`
-
-### Option B — Netlify CLI
-
-```bash
-npm install -g netlify-cli
-netlify login
-netlify init
-netlify deploy --prod
-```
-
-## GitHub Pages
-
-Settings → Pages → Source: **GitHub Actions**.  
-Workflow sets `GITHUB_PAGES=true` so assets use `/proqpay-lite/`.
+Konfigurasi environment, Cloudflare Access, binding rate limiter, dan smoke test
+tersedia di [CLOUDFLARE.md](./CLOUDFLARE.md).
 
 ## Project structure
 
@@ -58,7 +41,8 @@ Workflow sets `GITHUB_PAGES=true` so assets use `/proqpay-lite/`.
 src/app/          # Next.js App Router
 src/components/   # UI
 src/lib/          # database, ida-simple, format, events
-netlify.toml      # Netlify build
+functions/api/    # Cloudflare Pages Functions
+db/migrations/   # additive PostgreSQL migrations
 ```
 
 ## License

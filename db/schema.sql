@@ -200,3 +200,6 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 COMMIT;
+
+-- The managed payroll operating model is additive and maintained in:
+-- db/migrations/001_managed_payroll_operating_model.sql
