@@ -247,3 +247,11 @@ test('IDA markdown renders payroll pipe data as a responsive table', async () =>
   assert.match(html, /<td[^>]*>Ani<\/td>/);
   assert.doesNotMatch(html, /\|---\|/);
 });
+
+test('IDA markdown escapes raw HTML before rendering formatting', async () => {
+  const markdown = await loadTsModule('src/lib/markdown.ts');
+  const html = markdown.renderMarkdown('<img src=x onerror="alert(1)"> **aman**');
+  assert.doesNotMatch(html, /<img/i);
+  assert.match(html, /&lt;img src=x onerror="alert\(1\)"&gt;/);
+  assert.match(html, /<strong>aman<\/strong>/);
+});

@@ -21,7 +21,21 @@ import type { IdaRole, SharedContext } from '@/lib/ida-os/contracts';
 
 const IDA_AVATAR = 'https://user.uploads.dev/file/bf193782176dd9739d8c52e33f3b1378.jpg';
 
+const INITIAL_MESSAGE: Msg = {
+  role: 'ida',
+  text: renderMarkdown('Hai, aku **IDA** — copilot operasional untuk payroll, BPJS, invoice, validasi, dan impor data.'),
+  html: true,
+};
+
+const QUICK_ACTIONS = [
+  { label: 'Validasi data', prompt: 'validasi data payroll periode aktif' },
+  { label: 'Ringkasan payroll', prompt: 'ringkasan payroll periode aktif' },
+  { label: 'Cek BPJS', prompt: 'cek BPJS perusahaan dan karyawan' },
+  { label: 'Langkah berikutnya', prompt: 'next' },
+] as const;
+
 type Msg = { role: 'ida' | 'user'; text: string; cot?: string[]; html?: boolean };
+type HealthState = 'checking' | 'online' | 'degraded';
 
 function cleanCot(list?: string[] | null) {
   if (!list) return undefined;
@@ -181,13 +195,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sessionId, setSessionId] = useState('default');
-  const [messages, setMessages] = useState<Msg[]>([
-    {
-      role: 'ida',
-      text: renderMarkdown('Hai, aku **IDA**. Bisa bantu payroll, BPJS, invoice, atau unggah data lewat 📎.'),
-      html: true,
-    },
-  ]);
+  const [messages, setMessages] = useState<Msg[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState('');
   const [db, setDb] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -207,6 +215,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   const [pendingPayrollPreview, setPendingPayrollPreview] = useState<PendingPayrollPreview | null>(null);
   const [pendingApprovalPreview, setPendingApprovalPreview] = useState<PendingApprovalPreview | null>(null);
   const [pendingEmailFill, setPendingEmailFill] = useState<PendingEmailFill | null>(null);
+  const [health, setHealth] = useState<HealthState>('checking');
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const lastTopicRef = useRef('');
@@ -220,6 +229,20 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     setShowCot(st.idaShowCot);
     setTypingMs(st.idaTypingMs);
     const controller = new AbortController();
+    fetch('/api/health', {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((result) => {
+        setHealth(result?.ready && result?.database === 'connected' ? 'online' : 'degraded');
+      })
+      .catch((error) => {
+        if (error?.name !== 'AbortError') setHealth('degraded');
+      });
     fetch('/api/me', { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -401,10 +424,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       const synced = await syncDatabaseFromNeon(db, { requireData: true });
       const newDb = {
         ...synced.db,
-        meta: {
-          ...synced.db.meta,
-          lastImportAt: Date.now(),
-        },
+        meta: { ...synced.db.meta },
       };
       saveDatabase(newDb);
       setDb(newDb);
@@ -438,9 +458,9 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     }
   }
 
-  async function send() {
-    if (!input.trim() || !db || busy || typing) return;
-    const userMsg = input.trim();
+  async function send(messageOverride?: string) {
+    const userMsg = (messageOverride ?? input).trim();
+    if (!userMsg || !db || busy || typing) return;
     writeSystemLog('INFO', 'IDA', 'MESSAGE_RECEIVED', 'Permintaan pengguna diterima', { characters: userMsg.length });
     setMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
     setInput('');
@@ -820,25 +840,45 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     }
   }
 
+  function clearConversation() {
+    typingCancel.current = true;
+    setMessages([INITIAL_MESSAGE]);
+    setInput('');
+    setCotLive(null);
+    setPendingRows(null);
+    setLastImportFailure('');
+    setPendingPayrollPreview(null);
+    setPendingApprovalPreview(null);
+    setPendingEmailFill(null);
+    lastTopicRef.current = '';
+  }
+
   const panelStyle: React.CSSProperties = expanded
-    ? { position: 'fixed', top: 0, right: 0, width: '50vw', minWidth: 320, height: '100vh', borderRadius: 0, zIndex: 90 }
+    ? { position: 'fixed', top: 0, right: 0, width: 'min(640px, 52vw)', minWidth: 360, height: '100dvh', borderRadius: 0, zIndex: 90 }
     : {
         position: 'fixed',
         bottom: 90,
         right: 26,
-        width: 400,
+        width: 440,
         maxWidth: 'calc(100vw - 52px)',
-        height: 540,
+        height: 620,
         maxHeight: 'calc(100vh - 140px)',
         borderRadius: 'var(--r-xl)',
         zIndex: 90,
       };
+
+  const currentPeriod = db?.meta?.currentPeriod || 'Belum dipilih';
+  const employeeCount = Array.isArray(db?.employees) ? db.employees.length : 0;
+  const healthLabel = health === 'online' ? 'Database terhubung' : health === 'checking' ? 'Memeriksa sistem' : 'Koneksi terbatas';
 
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        className="ida-fab"
+        aria-label={open ? 'Tutup IDA' : 'Buka IDA'}
+        aria-expanded={open}
         style={{
           position: 'fixed',
           bottom: 26,
@@ -864,6 +904,9 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
 
       {open && (
         <div
+          className="ida-panel"
+          role="dialog"
+          aria-label="IDA Payroll Copilot"
           style={{
             ...panelStyle,
             background: 'var(--bg-surface)',
@@ -874,21 +917,25 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
             overflow: 'hidden',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
-            <img src={IDA_AVATAR} alt="IDA" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} />
+          <div className="ida-header">
+            <img src={IDA_AVATAR} alt="" style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,.55)' }} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>IDA</div>
-              <div style={{ fontSize: 12, color: 'var(--text2)' }}>
-                {busy || typing ? 'Mengetik…' : pendingRows ? `${pendingRows.length} file siap` : 'Online'}
+              <div style={{ fontSize: 15, fontWeight: 750 }}>IDA Payroll Copilot</div>
+              <div className="ida-system-status" aria-live="polite">
+                <span className={`ida-status-dot ida-status-${health}`} />
+                {busy || typing ? 'Sedang bekerja' : pendingRows ? `${pendingRows.length} baris siap diimpor` : healthLabel}
               </div>
             </div>
-            <button type="button" className="btn" style={{ width: 30, height: 30, padding: 0 }} onClick={() => setExpanded((e) => !e)}>
+            <button type="button" className="ida-icon-button" aria-label="Mulai percakapan baru" title="Percakapan baru" onClick={clearConversation}>
+              ↻
+            </button>
+            <button type="button" className="ida-icon-button" aria-label={expanded ? 'Kecilkan panel IDA' : 'Perbesar panel IDA'} onClick={() => setExpanded((e) => !e)}>
               {expanded ? '⛶' : '⤢'}
             </button>
             <button
               type="button"
-              className="btn"
-              style={{ width: 30, height: 30, padding: 0 }}
+              className="ida-icon-button"
+              aria-label="Tutup IDA"
               onClick={() => {
                 setOpen(false);
                 setExpanded(false);
@@ -898,12 +945,18 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
             </button>
           </div>
 
-          <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="ida-context-bar">
+            <span><small>Periode</small>{currentPeriod}</span>
+            <span><small>Karyawan</small>{employeeCount}</span>
+            <span><small>Akses</small>{actorContext.currentRole || 'VIEWER'}</span>
+          </div>
+
+          <div ref={scrollRef} className="ida-message-list" role="log" aria-live="polite" aria-relevant="additions">
             {messages.map((m, i) => (
               <div key={i} style={{ maxWidth: '92%', alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                 {showCot && m.role === 'ida' && m.cot && m.cot.length > 0 && (
                   <details style={{ marginBottom: 6, fontSize: 11, color: 'var(--text3)' }}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 650 }}>Alur berpikir</summary>
+                    <summary style={{ cursor: 'pointer', fontWeight: 650 }}>Langkah kerja</summary>
                     <ol style={{ margin: '6px 0 0', paddingLeft: 18 }}>
                       {m.cot.map((c, j) => (
                         <li key={j}>{c}</li>
@@ -922,12 +975,22 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
                     border: m.role === 'ida' ? '1px solid var(--border-soft)' : 'none',
                     whiteSpace: m.html ? undefined : 'pre-wrap',
                   }}
-                  {...(m.html || m.role === 'ida'
-                    ? { dangerouslySetInnerHTML: { __html: m.role === 'user' ? m.text.replace(/</g, '<') : m.text } }
+                  {...(m.html
+                    ? { dangerouslySetInnerHTML: { __html: m.text } }
                     : { children: m.text })}
                 />
               </div>
             ))}
+
+            {messages.length === 1 && !busy && !typing && (
+              <div className="ida-quick-actions" aria-label="Aksi cepat IDA">
+                {QUICK_ACTIONS.map((action) => (
+                  <button key={action.label} type="button" onClick={() => void send(action.prompt)}>
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {showCot && cotLive && cotLive.length > 0 && (
               <div
@@ -951,8 +1014,8 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
             )}
           </div>
 
-          <div style={{ padding: '12px 16px 16px', borderTop: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: 6 }}>
+          <div className="ida-footer">
+            <div className="ida-composer">
               <input
                 ref={fileRef}
                 type="file"
@@ -964,34 +1027,34 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
                   e.target.value = '';
                 }}
               />
-              <button type="button" disabled={busy || typing} onClick={() => fileRef.current?.click()} style={{ width: 34, height: 34, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-surface)', cursor: 'pointer' }}>
+              <button type="button" className="ida-attach-button" aria-label="Unggah file Excel" title="Unggah Excel" disabled={busy || typing} onClick={() => fileRef.current?.click()}>
                 📎
               </button>
-              <input
+              <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder="Tulis pesan…"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+                rows={1}
+                aria-label="Pesan untuk IDA"
+                placeholder="Tanyakan payroll, BPJS, invoice, atau data…"
                 disabled={busy || typing}
-                style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', fontSize: 13, fontFamily: 'inherit' }}
               />
               <button
                 type="button"
-                onClick={send}
-                disabled={busy || typing}
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: 8,
-                  border: 'none',
-                  background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
-                  color: '#fff',
-                  cursor: 'pointer',
-                }}
+                className="ida-send-button"
+                aria-label="Kirim pesan"
+                onClick={() => void send()}
+                disabled={busy || typing || !input.trim()}
               >
                 ➤
               </button>
             </div>
+            <div className="ida-input-hint">Enter untuk kirim · Shift+Enter untuk baris baru</div>
           </div>
         </div>
       )}

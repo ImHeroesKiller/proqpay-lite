@@ -4,9 +4,9 @@ export function renderMarkdown(src: string): string {
   if (!src) return '';
 
   let s = src
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 
   // fenced code blocks
   s = s.replace(/```[\w]*\n([\s\S]*?)```/g, (_m, code) => {
