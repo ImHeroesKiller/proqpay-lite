@@ -22,39 +22,14 @@ export default function Sidebar({
   return (
     <>
       <aside
-        style={{
-          width: 60,
-          background: 'var(--bg-surface)',
-          borderRight: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          padding: '16px 0',
-          gap: 4,
-          flexShrink: 0,
-          height: '100vh',
-          position: 'sticky',
-          top: 0,
-          zIndex: 30,
-        }}
+        className="app-sidebar"
       >
-        <div
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 11,
-            background: 'linear-gradient(135deg, var(--accent), var(--violet))',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontWeight: 800,
-            fontSize: 12,
-            color: '#fff',
-            marginBottom: 14,
-          }}
-        >
-          PQ
+        <div className="sidebar-brand">
+          <span>PQ</span>
+          <div><strong>ProQPay</strong><small>Payroll operations</small></div>
         </div>
+
+        <div className="sidebar-label">Workspace</div>
 
         <NavBtn active={view === 'dashboard'} icon={<IconDashboard />} title="Dashboard" onClick={() => onView('dashboard')} />
         <NavBtn icon={<IconMessage />} title="Chat IDA" onClick={onOpenIda} />
@@ -64,7 +39,7 @@ export default function Sidebar({
         <NavBtn active={view === 'reports'} icon={<IconChart />} title="Laporan" onClick={() => onView('reports')} />
         {role === 'SUPER_ADMIN' && <NavBtn active={view === 'logs'} icon={<IconTerminal />} title="System Logs" onClick={() => onView('logs')} />}
 
-        <div style={{ flex: 1 }} />
+        <div className="sidebar-spacer" />
 
         {role === 'SUPER_ADMIN' && <NavBtn icon={<IconSettings />} title="Pengaturan" onClick={() => setSettingsOpen(true)} />}
       </aside>
@@ -90,35 +65,11 @@ function NavBtn({
       title={title}
       type="button"
       onClick={onClick}
-      style={{
-        width: 42,
-        height: 42,
-        borderRadius: 12,
-        border: 'none',
-        background: active ? 'var(--accent-soft)' : 'transparent',
-        color: active ? 'var(--accent)' : 'var(--text3)',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        position: 'relative',
-      }}
+      className={`sidebar-nav-button${active ? ' sidebar-nav-active' : ''}`}
+      aria-current={active ? 'page' : undefined}
     >
       {icon}
-      {active && (
-        <span
-          style={{
-            position: 'absolute',
-            left: -9,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            width: 3,
-            height: 18,
-            borderRadius: '0 3px 3px 0',
-            background: 'var(--accent)',
-          }}
-        />
-      )}
+      <span>{title}</span>
     </button>
   );
 }

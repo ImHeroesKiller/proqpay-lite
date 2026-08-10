@@ -18,6 +18,8 @@ import SystemLogs from '@/components/SystemLogs';
 import OperatingWorkspace from '@/components/OperatingWorkspace';
 import RoleDashboard from '@/components/RoleDashboard';
 import DirectoryManager from '@/components/DirectoryManager';
+import EmployeeDirectory from '@/components/EmployeeDirectory';
+import WorkforceInsights from '@/components/WorkforceInsights';
 import { IconUsers, IconBuilding, IconWallet, IconClock } from '@/components/Icons';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromNeon } from '@/lib/neon-sync';
@@ -134,23 +136,17 @@ export default function Home() {
         <div style={{ flex: 1, overflowY: 'auto', padding: pad }}>
           <div style={{ maxWidth: 1180, margin: '0 auto' }}>
             {view === 'dashboard' && (
-              <section>
-                <RoleDashboard actor={actor} onNavigate={setView} />
-                <h2 style={{ fontSize: 22, fontWeight: 720, marginBottom: 4 }}>Ringkasan</h2>
-                <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 16 }}>
-                  Periode {period}
-                </p>
+              <section className="dashboard-page">
+                <div className="page-heading dashboard-heading">
+                  <div>
+                    <span className="page-eyebrow">Operational command center</span>
+                    <h1>Ringkasan bisnis</h1>
+                    <p>Data payroll, tenaga kerja, dan kesiapan operasional dalam satu tampilan.</p>
+                  </div>
+                  <DashFilters period={period} onPeriodChange={handlePeriodChange} />
+                </div>
 
-                <DashFilters period={period} onPeriodChange={handlePeriodChange} />
-
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                    gap: 14,
-                    marginBottom: 20,
-                  }}
-                >
+                <div className="dashboard-metrics">
                   <MetricCard
                     label="Karyawan"
                     value={String(empCount)}
@@ -189,27 +185,16 @@ export default function Home() {
                   />
                 </div>
 
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                    gap: 16,
-                  }}
-                >
+                <div className="dashboard-primary-grid">
+                  <WorkforceInsights employees={db.employees || []} />
+                  <RoleDashboard actor={actor} onNavigate={setView} />
+                </div>
+
+                <div className="dashboard-secondary-grid">
                   {settings.showMap && <RegionMap employees={db.employees} />}
 
-                  <div className="card" style={{ padding: 20 }}>
-                    <h3
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 650,
-                        marginBottom: 14,
-                        color: 'var(--text2)',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      Klien
-                    </h3>
+                  <div className="card dashboard-client-card">
+                    <div className="panel-heading"><div><span className="panel-eyebrow">Portofolio</span><h3>Klien aktif</h3></div><button type="button" onClick={() => setView('clients')}>Lihat semua →</button></div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {db.companies?.map((c: any) => {
                         const empOfClient = db.employees.filter((e: any) => e.company === c.name).length;
@@ -256,34 +241,7 @@ export default function Home() {
             )}
 
             {view === 'employees' && (
-              <section>
-                <h2 style={{ fontSize: 22, fontWeight: 720 }}>Karyawan</h2>
-                <p style={{ color: 'var(--text3)', fontSize: 13 }}>{empCount} data</p>
-                <div className="card" style={{ marginTop: 16, overflow: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr>
-                        {['ID', 'Nama', 'Klien', 'Wilayah', 'Gaji'].map((h) => (
-                          <th key={h} style={th}>
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(db.employees || []).map((e: any) => (
-                        <tr key={e.id} style={{ borderBottom: '1px solid var(--border-soft)' }}>
-                          <td style={td}>{e.id}</td>
-                          <td style={td}>{e.name}</td>
-                          <td style={td}>{e.company}</td>
-                          <td style={td}>{e.region || e.province || '-'}</td>
-                          <td style={td}>{formatIDR(e.salaryGross || 0)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
+              <EmployeeDirectory employees={db.employees || []} actor={actor} />
             )}
 
             {view === 'clients' && (
@@ -340,13 +298,3 @@ export default function Home() {
     </div>
   );
 }
-
-const th: React.CSSProperties = {
-  textAlign: 'left',
-  padding: '10px 14px',
-  background: 'var(--bg-subtle)',
-  color: 'var(--text2)',
-  fontSize: 11,
-  textTransform: 'uppercase',
-};
-const td: React.CSSProperties = { padding: '10px 14px' };
