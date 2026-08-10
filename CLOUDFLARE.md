@@ -24,6 +24,8 @@ Minimal:
 | `GEMINI_WORKER_1..5` | secret | Kunci fallback Gemini |
 | `NODE_VERSION` | variable | `22` |
 | `APP_ORIGINS` | variable | Origin tambahan, dipisahkan koma |
+| `DEFAULT_ORG_ID` | variable | Organization scope default untuk API operasional |
+| `CLIENT_SCOPE_JSON` | variable | Pemetaan email CLIENT_USER ke daftar client ID |
 
 Connection string Neon yang pernah dibagikan harus dirotasi. Rotasi juga semua
 kunci Gemini yang pernah muncul di log/chat. Jangan commit nilainya ke repo.
@@ -45,8 +47,9 @@ domain aplikasi, lalu set:
 | `ROLE_MAP_JSON` | `{"admin@contoh.id":"SUPER_ADMIN","hr@contoh.id":"HR"}` |
 | `APP_ORIGINS` | `https://proqpay-lite.pages.dev` |
 
-Role yang dikenali: `SUPER_ADMIN`, `PAYROLL`, `HR`, `FINANCE`, `DIRECTOR`,
-dan `VIEWER`. Email yang tidak ada di `ROLE_MAP_JSON` mendapat role `VIEWER`.
+Role utama yang dikenali: `PAYROLL_PROCESSOR`, `PAYROLL_CONTROLLER`, dan
+`CLIENT_USER`. Role lama `SUPER_ADMIN`, `PAYROLL`, `HR`, `FINANCE`, `DIRECTOR`,
+dan `VIEWER` tetap dipertahankan untuk kompatibilitas. Email yang tidak ada di `ROLE_MAP_JSON` mendapat role `VIEWER`.
 Jika konfigurasi Access tidak lengkap, API gagal tertutup dengan HTTP 401.
 
 Hak akses API:
@@ -113,3 +116,22 @@ temuan tersebut pada audit ini. Mitigasi saat ini: static export, file Excel
 maksimal 5 MB, validasi baris server-side, payload import dibatasi, dan tidak
 memproses workbook di server. Pantau rilis upstream dan prioritaskan migrasi parser
 Excel apabila versi aman yang kompatibel tersedia.
+
+
+## Managed payroll operating API
+
+Endpoint `/api/operating-model` menyediakan operasi terkontrol untuk service plan,
+submission, exception, payment instruction, dan maker-checker approval. Semua
+mutasi memerlukan same-origin/Cloudflare Access, role yang sesuai, validasi state,
+client scope, serta idempotency key untuk payment instruction.
+
+Setelah deployment kode, jalankan migrasi additive satu kali menggunakan sesi
+`SUPER_ADMIN`:
+
+```bash
+curl -X POST https://proqpay-lite.pages.dev/api/schema \
+  -H 'Origin: https://proqpay-lite.pages.dev'
+```
+
+Pada mode Cloudflare Access, gunakan sesi/token Access yang valid. Jangan mengubah
+`AUTH_MODE` menjadi `origin` hanya untuk menjalankan migrasi.
