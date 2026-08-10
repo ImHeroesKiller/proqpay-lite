@@ -47,6 +47,12 @@ domain aplikasi, lalu set:
 | `ROLE_MAP_JSON` | `{"admin@contoh.id":"SUPER_ADMIN","hr@contoh.id":"HR"}` |
 | `APP_ORIGINS` | `https://proqpay-lite.pages.dev` |
 
+Binding R2 production wajib bernama `PAYMENT_PROOFS` dan mengarah ke bucket
+private `proqpay-payment-proofs`. Bukti pembayaran diunggah melalui
+`POST /api/payment-proof` (multipart, PDF/JPG/PNG, maksimal 5 MB) dan hanya
+dapat diunduh melalui `GET /api/payment-proof?id=...` setelah otorisasi role
+dan client scope. Object key tidak pernah dikirim sebagai URL publik.
+
 Role utama yang dikenali: `PAYROLL_PROCESSOR`, `PAYROLL_CONTROLLER`, dan
 `CLIENT_USER`. Role lama `SUPER_ADMIN`, `PAYROLL`, `HR`, `FINANCE`, `DIRECTOR`,
 dan `VIEWER` tetap dipertahankan untuk kompatibilitas. Email yang tidak ada di `ROLE_MAP_JSON` mendapat role `VIEWER`.

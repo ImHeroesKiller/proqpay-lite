@@ -18,6 +18,7 @@ import SystemLogs from '@/components/SystemLogs';
 import OperatingWorkspace from '@/components/OperatingWorkspace';
 import { IconUsers, IconBuilding, IconWallet, IconClock } from '@/components/Icons';
 import { writeSystemLog } from '@/lib/system-log';
+import { syncDatabaseFromNeon } from '@/lib/neon-sync';
 
 type PopupType = 'employees' | 'clients' | 'payroll' | 'outstanding' | null;
 
@@ -32,10 +33,22 @@ export default function Home() {
   const [idaOpenSignal, setIdaOpenSignal] = useState(0);
 
   useEffect(() => {
+    const controller = new AbortController();
     setMounted(true);
     writeSystemLog('INFO', 'APP', 'APPLICATION_STARTED', 'ProQPay Lite dashboard dimuat');
     const data = loadDatabase();
     setDb(data);
+    void syncDatabaseFromNeon(data, { signal: controller.signal })
+      .then(({ db: canonical }) => {
+        saveDatabase(canonical);
+        setDb(canonical);
+        if (canonical?.meta?.currentPeriod) setPeriod(canonical.meta.currentPeriod);
+      })
+      .catch((error) => {
+        if (error?.name !== 'AbortError') {
+          writeSystemLog('WARN', 'DATABASE', 'NEON_SYNC_FAILED', error instanceof Error ? error.message : 'Sinkronisasi Neon gagal');
+        }
+      });
     const st = loadSettings();
     setSettings(st);
     if (data?.meta?.currentPeriod) setPeriod(data.meta.currentPeriod);
@@ -48,6 +61,7 @@ export default function Home() {
     });
     const unsubS = onSettingsChange(() => setSettings(loadSettings()));
     return () => {
+      controller.abort();
       unsub();
       unsubS();
     };

@@ -51,7 +51,7 @@ export default function OperatingWorkspace() {
   async function act(payload: Record<string, unknown>, success: string) {
     setMessage('Memproses…');
     try {
-      await executeOperatingAction(payload);
+      if (Object.keys(payload).length) await executeOperatingAction(payload);
       setMessage(success);
       await load();
     } catch (error) {
@@ -121,6 +121,9 @@ function Exceptions({ rows, canResolve, act }: { rows: any[]; canResolve: boolea
 function Payments({ instructions, proofs, reconciliations, canAct, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; canAct:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
   const [proofFor, setProofFor] = useState<string | null>(null);
   const [proof, setProof] = useState({ bank:'BCA', reference:'', transactionDate:new Date().toISOString().slice(0,10), amount:'' });
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   if (!instructions.length) return <Empty title="Belum ada payment instruction" detail="Payment instruction akan tersedia setelah payroll selesai divalidasi dan disetujui." />;
   return <div style={{ display:'grid', gap:16 }}>
     <CardTable headers={['Instruction','Nilai','Status','Dibuat','Aksi']} rows={instructions.map((r) => {
@@ -138,14 +141,36 @@ function Payments({ instructions, proofs, reconciliations, canAct, act }: { inst
         <input aria-label="Tanggal transaksi" type="date" value={proof.transactionDate} onChange={(e) => setProof({ ...proof, transactionDate:e.target.value })} style={input} />
         <input aria-label="Nominal bukti" type="number" placeholder="Nominal" value={proof.amount} onChange={(e) => setProof({ ...proof, amount:e.target.value })} style={input} />
       </div>
-      <p style={{ ...small, margin:'10px 0' }}>Lampiran fisik tetap mengikuti penyimpanan dokumen bank; ProQPay menyimpan referensi bukti yang immutable untuk rekonsiliasi.</p>
-      <button style={actionButton} disabled={!proof.reference || !Number(proof.amount)} onClick={() => void act({ action:'UPLOAD_PAYMENT_PROOF', paymentInstructionId:proofFor, bank:proof.bank, reference:proof.reference, transactionDate:proof.transactionDate, amount:Number(proof.amount), uploadedFileId:`EVIDENCE-${Date.now()}` }, 'Bukti pembayaran tercatat')}>Simpan Bukti</button>
+      <input aria-label="File bukti pembayaran" type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ ...input, marginTop:10, width:'100%' }} />
+      <p style={{ ...small, margin:'8px 0 10px' }}>{file ? `${file.name} · ${(file.size / 1024).toFixed(1)} KB` : 'PDF, JPG, atau PNG · maksimal 5 MB · tersimpan private di R2'}</p>
+      {uploadError && <p style={{ color:'#dc2626', fontSize:12 }}>{uploadError}</p>}
+      <button style={actionButton} disabled={uploading || !file || !proof.reference || !Number(proof.amount)} onClick={() => { setUploadError(''); void uploadProof(proofFor, proof, file, setUploading, () => { setProofFor(null); setFile(null); void act({}, 'Bukti pembayaran tersimpan di R2'); }).catch((error) => setUploadError(error instanceof Error ? error.message : 'Upload gagal')); }}>{uploading ? 'Mengunggah…' : 'Upload Bukti'}</button>
     </div>}
     <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
-      <Summary title="Bukti Pembayaran" value={proofs.length} note={proofs.length ? `${proofs[0].bank} · ${proofs[0].reference}` : 'Belum ada bukti'} />
+      <div className="card" style={{ padding:18 }}><span style={small}>Bukti Pembayaran</span><div style={{ fontSize:26, fontWeight:750, margin:'6px 0' }}>{proofs.length}</div>{proofs.length ? <a style={{ ...actionButton, display:'inline-block', textDecoration:'none', background:'var(--bg-subtle)', color:'var(--accent)' }} href={`/api/payment-proof?id=${encodeURIComponent(proofs[0].id)}`} target="_blank" rel="noreferrer">Unduh bukti terbaru</a> : <span style={small}>Belum ada bukti</span>}</div>
       <Summary title="Rekonsiliasi" value={reconciliations.length} note={reconciliations.length ? `${reconciliations[0].status} · Selisih ${formatIDR(Number(reconciliations[0].difference || 0))}` : 'Belum direkonsiliasi'} />
     </div>
   </div>;
+}
+
+async function uploadProof(paymentInstructionId:string, proof:{bank:string;reference:string;transactionDate:string;amount:string}, file:File | null, setUploading:(value:boolean)=>void, done:()=>void) {
+  if (!file) return;
+  setUploading(true);
+  try {
+    const form = new FormData();
+    form.set('paymentInstructionId', paymentInstructionId);
+    form.set('bank', proof.bank);
+    form.set('reference', proof.reference);
+    form.set('transactionDate', proof.transactionDate);
+    form.set('amount', proof.amount);
+    form.set('file', file);
+    const response = await fetch('/api/payment-proof', { method:'POST', body:form });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    done();
+  } finally {
+    setUploading(false);
+  }
 }
 
 function Integrations({ rows, canCreate }: { rows:any[]; canCreate:boolean }) {

@@ -105,7 +105,10 @@ export async function onRequest(context) {
         return respond({ ok: true, paymentInstructions: rows });
       }
       if (resource === 'payment-proofs') {
-        const rows = await sql`SELECT pp.* FROM payment_proofs pp JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id WHERE pi.org_id=${organizationId} ORDER BY pp.created_at DESC LIMIT 200`;
+        const rows = await sql`SELECT pp.id, pp.payment_instruction_id, pp.bank, pp.reference,
+          pp.transaction_date, pp.amount, pp.created_at
+          FROM payment_proofs pp JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id
+          WHERE pi.org_id=${organizationId} ORDER BY pp.created_at DESC LIMIT 200`;
         return respond({ ok: true, paymentProofs: rows });
       }
       if (resource === 'reconciliations') {
@@ -283,18 +286,7 @@ export async function onRequest(context) {
     }
 
     if (body.action === 'UPLOAD_PAYMENT_PROOF') {
-      if (!CONTROLLER_ROLES.has(actor.role)) return respond({ error: 'Insufficient role' }, 403);
-      const payments = await sql`SELECT * FROM payment_instructions WHERE id=${body.paymentInstructionId} AND org_id=${organizationId} LIMIT 1`;
-      if (!payments.length) return respond({ error: 'Payment instruction not found' }, 404);
-      if (!['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(payments[0].status)) {
-        return respond({ error: 'Payment instruction is not ready for proof' }, 409);
-      }
-      const id = body.id || `PP-${crypto.randomUUID()}`;
-      const rows = await sql`INSERT INTO payment_proofs
-        (id, payment_instruction_id, bank, reference, transaction_date, amount, uploaded_file_id)
-        VALUES (${id}, ${body.paymentInstructionId}, ${body.bank}, ${body.reference}, ${body.transactionDate}, ${body.amount}, ${body.uploadedFileId}) RETURNING *`;
-      await sql`UPDATE payment_instructions SET status='PROOF_UPLOADED', updated_at=NOW() WHERE id=${body.paymentInstructionId}`;
-      return respond({ ok: true, paymentProof: rows[0] }, 201);
+      return respond({ error: 'Use /api/payment-proof multipart upload so evidence is stored in R2' }, 409);
     }
 
     if (body.action === 'RECONCILE_PAYMENT') {
