@@ -105,14 +105,21 @@ export async function onRequest(context) {
         return respond({ ok: true, paymentInstructions: rows });
       }
       if (resource === 'payment-proofs') {
-        const rows = await sql`SELECT pp.id, pp.payment_instruction_id, pp.bank, pp.reference,
-          pp.transaction_date, pp.amount, pp.created_at
-          FROM payment_proofs pp JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id
-          WHERE pi.org_id=${organizationId} ORDER BY pp.created_at DESC LIMIT 200`;
+        const rows = clientId
+          ? await sql`SELECT pp.id, pp.payment_instruction_id, pp.bank, pp.reference,
+              pp.transaction_date, pp.amount, pp.created_at
+              FROM payment_proofs pp JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id
+              WHERE pi.org_id=${organizationId} AND pi.client_id=${clientId} ORDER BY pp.created_at DESC LIMIT 200`
+          : await sql`SELECT pp.id, pp.payment_instruction_id, pp.bank, pp.reference,
+              pp.transaction_date, pp.amount, pp.created_at
+              FROM payment_proofs pp JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id
+              WHERE pi.org_id=${organizationId} ORDER BY pp.created_at DESC LIMIT 200`;
         return respond({ ok: true, paymentProofs: rows });
       }
       if (resource === 'reconciliations') {
-        const rows = await sql`SELECT r.* FROM reconciliations r JOIN payment_instructions pi ON pi.id=r.payment_instruction_id WHERE pi.org_id=${organizationId} ORDER BY r.created_at DESC LIMIT 200`;
+        const rows = clientId
+          ? await sql`SELECT r.* FROM reconciliations r JOIN payment_instructions pi ON pi.id=r.payment_instruction_id WHERE pi.org_id=${organizationId} AND pi.client_id=${clientId} ORDER BY r.created_at DESC LIMIT 200`
+          : await sql`SELECT r.* FROM reconciliations r JOIN payment_instructions pi ON pi.id=r.payment_instruction_id WHERE pi.org_id=${organizationId} ORDER BY r.created_at DESC LIMIT 200`;
         return respond({ ok: true, reconciliations: rows });
       }
       if (resource === 'integrations') {
