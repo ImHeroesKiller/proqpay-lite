@@ -5,6 +5,7 @@ import {
 } from './import-validation.js';
 import {
   authorize,
+  clientIdsFor,
   enforceRateLimit,
   handlePreflight,
   publicError,
@@ -36,7 +37,7 @@ export async function onRequest(context) {
   }
 
   const authorization = await authorize(request, env, {
-    roles: ['SUPER_ADMIN', 'HR', 'PAYROLL'],
+    roles: ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'CLIENT_USER', 'HR', 'PAYROLL'],
     mutating: true,
     methods: METHODS,
   });
@@ -88,8 +89,37 @@ export async function onRequest(context) {
   const rows = validation.rows;
   const sql = neon(url);
   const orgId = 'ORG-OTSINDO';
+  const actor = authorization.actor;
+  const rowClientId = (row) =>
+    `CLI-${slug(row.clientCode || row.client || row.company || 'GEN')}`;
 
   try {
+    if (actor.role === 'CLIENT_USER') {
+      const allowedClientIds = clientIdsFor(actor, env) || [];
+      const requestedClientIds = [...new Set(rows.map(rowClientId))];
+      if (
+        !allowedClientIds.length ||
+        requestedClientIds.some((clientId) => !allowedClientIds.includes(clientId))
+      ) {
+        return respond(
+          { error: 'Import hanya boleh untuk klien yang ditetapkan pada akun Anda.' },
+          403
+        );
+      }
+
+      const scopedEmployees = await sql`
+        SELECT id, client_id AS "clientId"
+        FROM employees
+        WHERE id = ANY(${rows.map((row) => row.nrk)}::text[])
+      `;
+      if (scopedEmployees.some((employee) => !allowedClientIds.includes(employee.clientId))) {
+        return respond(
+          { error: 'Import memuat ID karyawan milik klien lain.' },
+          403
+        );
+      }
+    }
+
     const existing = await sql`
       SELECT id FROM employees
       WHERE id = ANY(${rows.map((row) => row.nrk)}::text[])
@@ -113,7 +143,7 @@ export async function onRequest(context) {
       ];
 
       for (const row of rows) {
-        const clientId = `CLI-${slug(row.clientCode || row.client || row.company || 'GEN')}`;
+        const clientId = rowClientId(row);
         const branchId = `BR-${slug(row.branch || 'NA')}`;
         const locationId = `LOC-${slug(row.lokasi || row.branch || row.nrk)}`;
         const contractId = `CTR-${row.nrk}`;
@@ -128,7 +158,11 @@ export async function onRequest(context) {
               ${String(row.clientCode || '000')},
               ${String(row.client || row.company || 'Unknown')}
             )
-            ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+            ON CONFLICT (id) DO UPDATE SET
+              name = CASE
+                WHEN ${actor.role === 'CLIENT_USER'} THEN clients.name
+                ELSE EXCLUDED.name
+              END
           `,
           tx`
             INSERT INTO branches (id, org_id, name, city_umk, province)

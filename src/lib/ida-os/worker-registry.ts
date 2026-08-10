@@ -24,7 +24,7 @@ export const WORKER_REGISTRY: Record<WorkerId, WorkerPolicy> = {
     capabilities: ['find_employee', 'analyze_employee', 'update_employee', 'manage_contract', 'summarize_attendance'],
     tables: ['employees', 'employee_contracts', 'employee_assignments', 'employee_compensations', 'attendance'],
     forbidden: ['calculate_payroll', 'generate_invoice', 'execute_payment'],
-    roles: ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'CLIENT_USER', 'HR', 'PAYROLL', 'VIEWER'],
+    roles: ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'CLIENT_USER', 'HR', 'PAYROLL', 'VIEWER'],
   },
   OPERATIONS: {
     id: 'OPERATIONS',

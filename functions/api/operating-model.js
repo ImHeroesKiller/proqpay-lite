@@ -268,7 +268,7 @@ export async function onRequest(context) {
     }
 
     if (body.action === 'APPROVE_PAYMENT') {
-      if (!CONTROLLER_ROLES.has(actor.role)) return respond({ error: 'Insufficient role' }, 403);
+      if (!actor.permissions?.includes('payment:approve')) return respond({ error: 'PAYMENT_APPROVER permission required' }, 403);
       const rows = await sql`
         SELECT pi.*, COALESCE(SUM(pil.amount),0)::bigint AS instruction_total
         FROM payment_instructions pi LEFT JOIN payment_instruction_lines pil ON pil.payment_instruction_id=pi.id

@@ -7,14 +7,119 @@ export type EvidenceQueryResult = {
   recordIds: string[];
 };
 
-type QueryOptions = { referenceDate?: string | number | Date };
+type QueryOptions = {
+  referenceDate?: string | number | Date;
+  currentRole?: string;
+  permissions?: string[];
+};
 
 function normalizedName(value: unknown) {
   return String(value || '')
     .normalize('NFKC')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .trim()
     .replace(/\s+/g, ' ')
     .toLocaleUpperCase('id-ID');
+}
+
+function editDistance(a: string, b: string) {
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= a.length; row += 1) {
+    let diagonal = previous[0];
+    previous[0] = row;
+    for (let column = 1; column <= b.length; column += 1) {
+      const above = previous[column];
+      previous[column] = Math.min(
+        previous[column] + 1,
+        previous[column - 1] + 1,
+        diagonal + (a[row - 1] === b[column - 1] ? 0 : 1)
+      );
+      diagonal = above;
+    }
+  }
+  return previous[b.length];
+}
+
+function similarNameAnswer(text: string, employees: any[]): EvidenceQueryResult | null {
+  if (!/\b(nama mirip|bernama mirip|mirip namanya|kemiripan nama|nama serupa)\b/.test(text)) return null;
+  const pairs: Array<{ left: any; right: any; score: number }> = [];
+  for (let leftIndex = 0; leftIndex < employees.length; leftIndex += 1) {
+    const leftName = normalizedName(employees[leftIndex].name);
+    if (leftName.length < 4) continue;
+    for (let rightIndex = leftIndex + 1; rightIndex < employees.length; rightIndex += 1) {
+      const rightName = normalizedName(employees[rightIndex].name);
+      if (leftName === rightName || rightName.length < 4) continue;
+      const score = 1 - editDistance(leftName, rightName) / Math.max(leftName.length, rightName.length);
+      const leftTokens = new Set(leftName.split(' ').filter((token) => token.length > 2));
+      const rightTokens = new Set(rightName.split(' ').filter((token) => token.length > 2));
+      const sharedTokens = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+      const tokenScore = sharedTokens / Math.max(leftTokens.size, rightTokens.size, 1);
+      const bestScore = Math.max(score, tokenScore);
+      if (bestScore >= 0.72 && (score >= 0.78 || sharedTokens >= 1)) {
+        pairs.push({ left: employees[leftIndex], right: employees[rightIndex], score: bestScore });
+      }
+    }
+  }
+  pairs.sort((a, b) => b.score - a.score);
+  const rows = pairs.slice(0, 20).map((pair, index) =>
+    `| ${index + 1} | ${pair.left.name} (${pair.left.id}) | ${pair.right.name} (${pair.right.id}) | ${Math.round(pair.score * 100)}% |`
+  ).join('\n');
+  return {
+    markdown: pairs.length
+      ? `Ditemukan **${pairs.length} pasangan nama mirip** untuk ditinjau.\n\n| No | Karyawan 1 | Karyawan 2 | Kemiripan |\n|---:|---|---|---:|\n${rows}\n\n_Sumber: employees; ini kandidat pencocokan, bukan keputusan bahwa orangnya sama._`
+      : `Tidak ditemukan nama yang cukup mirip pada **${employees.length} karyawan** dengan ambang pencocokan saat ini.\n\n_Sumber: employees; perbandingan ejaan dan token nama._`,
+    worker: 'HR',
+    sourceTables: ['employees'],
+    recordIds: pairs.slice(0, 20).flatMap((pair) => [String(pair.left.id), String(pair.right.id)]),
+  };
+}
+
+function bankAccountAnswer(text: string, employees: any[]): EvidenceQueryResult | null {
+  const asksMissingBank =
+    /\b(tidak ada|tanpa|belum ada|kosong|missing)\b.*\b(nomor )?(rekening(?:nya)?|akun bank)\b/.test(text) ||
+    /\b(nomor )?(rekening(?:nya)?|akun bank)\b.*\b(tidak ada|belum ada|kosong|missing)\b/.test(text);
+  if (!asksMissingBank) return null;
+  const missing = employees.filter((employee) => !String(employee.accountNo || employee.bankAccount || '').trim());
+  const sample = missing.slice(0, 20).map((employee) => `- **${employee.name}** (${employee.id})`).join('\n');
+  return {
+    markdown:
+      `Ada **${missing.length} dari ${employees.length} karyawan** yang belum memiliki nomor rekening bank.` +
+      (sample ? `\n\n${sample}${missing.length > 20 ? `\n…+${missing.length - 20} lainnya` : ''}` : '') +
+      `\n\n_Sumber: employee_bank_accounts.account_no melalui endpoint employees._`,
+    worker: 'HR',
+    sourceTables: ['employees', 'employee_bank_accounts'],
+    recordIds: missing.map((employee) => String(employee.id)),
+  };
+}
+
+function dataCatalogAnswer(text: string, db: any, options: QueryOptions): EvidenceQueryResult | null {
+  if (!/\b(endpoint|kolom|field|akses data|data apa|baca database|membaca database|datasheet|knowledge|pengetahuan data)\b/.test(text)) return null;
+  const role = options.currentRole || 'VIEWER';
+  const permissions = options.permissions || [];
+  const fields = db.employees?.[0] ? Object.keys(db.employees[0]).sort() : [];
+  const endpointsByRole: Record<string, string[]> = {
+    SUPER_ADMIN: ['health', 'me', 'employees', 'clients-projects', 'state', 'operating-model', 'payment-proof', 'wilayah', 'ida', 'schema', 'reset'],
+    PAYROLL_PROCESSOR: ['health', 'me', 'employees', 'state', 'operating-model', 'wilayah', 'ida'],
+    PAYROLL_CONTROLLER: ['health', 'me', 'employees', 'state', 'operating-model', 'payment-proof', 'ida'],
+    CLIENT_USER: ['health', 'me', 'employees (sesuai client scope)', 'operating-model (sesuai client scope)', 'payment-proof', 'ida'],
+  };
+  const endpoints = endpointsByRole[role] || ['health', 'me', 'employees (read-only sesuai role)', 'ida'];
+  const fieldLines = fields.length
+    ? fields.reduce<string[]>((lines, field, index) => {
+        const group = Math.floor(index / 12);
+        lines[group] = [...(lines[group] ? [lines[group]] : []), `\`${field}\``].join(' · ');
+        return lines;
+      }, []).join('\n')
+    : 'Belum ada record karyawan yang bisa digunakan untuk membaca katalog kolom.';
+  return {
+    markdown:
+      `**Akses IDA untuk role ${role}**\n\n` +
+      `Endpoint: ${endpoints.map((endpoint) => `\`${endpoint}\``).join(' · ')}\n\n` +
+      `**Kolom employee yang tersedia (${fields.length})**\n${fieldLines}\n\n` +
+      `**Permission aktif**\n${permissions.length ? permissions.map((permission) => `\`${permission}\``).join(' · ') : '`read`'}\n\n` +
+      `_IDA hanya menampilkan data sesuai role dan client scope. Secret, API key, token, dan environment variable tidak pernah dibuka._`,
+    worker: 'HR', sourceTables: ['employees', 'employee_contracts', 'employee_identity', 'employee_bank_accounts'], recordIds: [],
+  };
 }
 
 function dateStamp(value: unknown) {
@@ -197,7 +302,10 @@ export function answerEvidenceQuery(text: string, db: any, options: QueryOptions
   const referenceValue = options.referenceDate ?? Date.now();
   const referenceStamp = referenceValue instanceof Date ? referenceValue.getTime() : typeof referenceValue === 'number' ? referenceValue : Date.parse(referenceValue);
   return (
+    dataCatalogAnswer(normalized, db, options) ||
+    similarNameAnswer(normalized, employees) ||
     duplicateNameAnswer(normalized, employees) ||
+    bankAccountAnswer(normalized, employees) ||
     contractAnswer(normalized, employees, Number.isFinite(referenceStamp) ? referenceStamp : Date.now()) ||
     payrollProblemAnswer(normalized, db) ||
     operationsAnswer(normalized, db)

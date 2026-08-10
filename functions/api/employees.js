@@ -2,6 +2,7 @@ import { neon } from '@neondatabase/serverless';
 import {
   ROLES,
   authorize,
+  clientIdsFor,
   enforceRateLimit,
   handlePreflight,
   publicError,
@@ -12,6 +13,24 @@ const METHODS = 'GET, POST, OPTIONS';
 
 function getUrl(env) {
   return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
+}
+
+const BASIC_FIELDS = new Set([
+  'id', 'clientId', 'company', 'name', 'status', 'employmentType', 'joinDate',
+  'contractStart', 'contractEnd', 'resignDate', 'region', 'province', 'project', 'position',
+]);
+const CONTROLLER_BLOCKED_FIELDS = new Set([
+  'motherName', 'religion', 'birthPlace', 'birthDate', 'address', 'educationLevel',
+  'schoolName', 'major', 'hrisUser', 'inputUser', 'inputAt',
+]);
+
+function employeeView(row, actor) {
+  if (['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'HR', 'PAYROLL'].includes(actor.role)) return row;
+  if (actor.role === 'PAYROLL_CONTROLLER' || actor.role === 'FINANCE' || actor.role === 'DIRECTOR') {
+    return Object.fromEntries(Object.entries(row).filter(([key]) => !CONTROLLER_BLOCKED_FIELDS.has(key)));
+  }
+  if (actor.role === 'CLIENT_USER') return row;
+  return Object.fromEntries(Object.entries(row).filter(([key]) => BASIC_FIELDS.has(key)));
 }
 
 export async function onRequest(context) {
@@ -26,7 +45,7 @@ export async function onRequest(context) {
   }
 
   const authorization = await authorize(request, env, {
-    roles: request.method === 'POST' ? ['SUPER_ADMIN', 'HR', 'PAYROLL'] : ROLES,
+    roles: request.method === 'POST' ? ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'HR', 'PAYROLL'] : ROLES,
     mutating: request.method === 'POST',
     methods: METHODS,
   });
@@ -50,22 +69,36 @@ export async function onRequest(context) {
     if (!url) return respond({ status: 'error', message: 'Service unavailable', requestId }, 503);
 
     const sql = neon(url);
+    const actor = authorization.actor;
 
     if (request.method === 'GET') {
+      const scopedClientIds = clientIdsFor(actor, env);
+      const clientScopeCsv = (scopedClientIds || []).join(',');
       const rows = await sql`
         SELECT
           e.id,
+          e.client_id AS "clientId",
           c.name AS company,
           e.name,
+          e.gender,
+          e.birth_place AS "birthPlace",
+          e.birth_date AS "birthDate",
+          e.religion,
+          e.phone,
+          e.mobile,
+          e.mother_name AS "motherName",
           a.position,
           a.pic,
           a.hrbp,
           COALESCE(ec.contract_status, e.status_aktif) AS status,
           ec.employment_type AS "employmentType",
           ec.join_date AS "joinDate",
+          ec.accepted_date AS "acceptedDate",
           ec.contract_start AS "contractStart",
           ec.contract_end AS "contractEnd",
           ec.resign_date AS "resignDate",
+          ec.resign_reason AS "resignReason",
+          ec.candidate_source AS "candidateSource",
           COALESCE(wl.province, e.province, b.province) AS region,
           COALESCE(wl.province, e.province, b.province) AS province,
           COALESCE(wl.unit_kerja, wl.name) AS project,
@@ -81,9 +114,27 @@ export async function onRequest(context) {
           ba.bank_name AS "bankName",
           ei.ktp_no AS nik,
           ei.npwp_no AS npwp,
+          ei.address,
+          ei.marital_status AS "maritalStatus",
+          ei.ptkp_claimed AS "ptkpClaimed",
+          ei.ptkp_updated AS "ptkpUpdated",
           e.email,
+          bp.bpjs_kesehatan_no AS "bpjsKesehatanNo",
+          bp.bpjs_kesehatan_effective AS "bpjsKesehatanEffective",
+          bp.jamsostek_no AS "jamsostekNo",
           (bp.bpjs_kesehatan_no IS NOT NULL) AS "bpjsKesehatan",
           (bp.jamsostek_no IS NOT NULL) AS "bpjsKetenagakerjaan",
+          edu.level AS "educationLevel",
+          edu.school_name AS "schoolName",
+          edu.major,
+          edu.graduate_year AS "graduateYear",
+          hm.input_user AS "inputUser",
+          hm.input_at AS "inputAt",
+          hm.fj_input_at AS "fjInputAt",
+          hm.fj_input_user AS "fjInputUser",
+          hm.es_input_at AS "esInputAt",
+          hm.es_input_user AS "esInputUser",
+          hm.hris_user AS "hrisUser",
           TRUE AS pph21
         FROM employees e
         LEFT JOIN clients c ON c.id = e.client_id
@@ -97,7 +148,8 @@ export async function onRequest(context) {
           LIMIT 1
         ) a ON TRUE
         LEFT JOIN LATERAL (
-          SELECT contract_status, employment_type, join_date, contract_start, contract_end, resign_date
+          SELECT contract_status, employment_type, join_date, accepted_date, contract_start,
+            contract_end, resign_date, resign_reason, candidate_source
           FROM employee_contracts
           WHERE employee_id = e.id AND is_current = TRUE
           ORDER BY created_at DESC
@@ -113,10 +165,21 @@ export async function onRequest(context) {
         ) ba ON TRUE
         LEFT JOIN employee_identity ei ON ei.employee_id = e.id
         LEFT JOIN employee_bpjs bp ON bp.employee_id = e.id
+        LEFT JOIN LATERAL (
+          SELECT level, school_name, major, graduate_year
+          FROM employee_education
+          WHERE employee_id = e.id
+          ORDER BY is_highest DESC, graduate_year DESC NULLS LAST
+          LIMIT 1
+        ) edu ON TRUE
+        LEFT JOIN employee_hris_meta hm ON hm.employee_id = e.id
+        WHERE ${actor.role !== 'CLIENT_USER'}
+          OR e.client_id = ANY(string_to_array(${clientScopeCsv}, ','))
         ORDER BY e.name ASC
         LIMIT 500
       `;
-      return respond({ employees: rows, count: rows.length });
+      const visibleRows = rows.map((row) => employeeView(row, actor));
+      return respond({ employees: visibleRows, count: visibleRows.length, role: actor.role });
     }
 
     if (request.method === 'POST') {

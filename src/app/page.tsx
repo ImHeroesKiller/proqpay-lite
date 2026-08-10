@@ -16,11 +16,14 @@ import MetricPopup from '@/components/MetricPopup';
 import DashFilters from '@/components/DashFilters';
 import SystemLogs from '@/components/SystemLogs';
 import OperatingWorkspace from '@/components/OperatingWorkspace';
+import RoleDashboard from '@/components/RoleDashboard';
+import DirectoryManager from '@/components/DirectoryManager';
 import { IconUsers, IconBuilding, IconWallet, IconClock } from '@/components/Icons';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromNeon } from '@/lib/neon-sync';
 
 type PopupType = 'employees' | 'clients' | 'payroll' | 'outstanding' | null;
+type Actor = { id: string; email: string; role: string; permissions: string[] };
 
 export default function Home() {
   const [db, setDb] = useState<any>(null);
@@ -31,6 +34,7 @@ export default function Home() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [idaOpenSignal, setIdaOpenSignal] = useState(0);
+  const [actor, setActor] = useState<Actor | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -38,6 +42,15 @@ export default function Home() {
     writeSystemLog('INFO', 'APP', 'APPLICATION_STARTED', 'ProQPay Lite dashboard dimuat');
     const data = loadDatabase();
     setDb(data);
+    void fetch('/api/me', { signal: controller.signal, headers: { Accept: 'application/json' } })
+      .then(async (response) => {
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        setActor(result.user || null);
+      })
+      .catch((error) => {
+        if (error?.name !== 'AbortError') writeSystemLog('WARN', 'SECURITY', 'USER_CONTEXT_FAILED', 'Gagal memuat role pengguna');
+      });
     void syncDatabaseFromNeon(data, { signal: controller.signal })
       .then(({ db: canonical }) => {
         saveDatabase(canonical);
@@ -76,6 +89,13 @@ export default function Home() {
     setDb(next);
   }
 
+  async function refreshCanonical() {
+    if (!db) return;
+    const result = await syncDatabaseFromNeon(db, { requireData: true });
+    saveDatabase(result.db);
+    setDb(result.db);
+  }
+
   if (!mounted || !db || !settings) {
     return (
       <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
@@ -105,6 +125,7 @@ export default function Home() {
         view={view}
         onView={setView}
         onOpenIda={() => setIdaOpenSignal((n) => n + 1)}
+        role={actor?.role}
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
@@ -114,6 +135,7 @@ export default function Home() {
           <div style={{ maxWidth: 1180, margin: '0 auto' }}>
             {view === 'dashboard' && (
               <section>
+                <RoleDashboard actor={actor} onNavigate={setView} />
                 <h2 style={{ fontSize: 22, fontWeight: 720, marginBottom: 4 }}>Ringkasan</h2>
                 <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 16 }}>
                   Periode {period}
@@ -265,33 +287,12 @@ export default function Home() {
             )}
 
             {view === 'clients' && (
-              <section>
-                <h2 style={{ fontSize: 22, fontWeight: 720 }}>Klien</h2>
-                <div className="card" style={{ marginTop: 16, overflow: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr>
-                        {['ID', 'Nama', 'PIC', 'Telepon', 'Tipe'].map((h) => (
-                          <th key={h} style={th}>
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(db.companies || []).map((c: any) => (
-                        <tr key={c.id} style={{ borderBottom: '1px solid var(--border-soft)' }}>
-                          <td style={td}>{c.id}</td>
-                          <td style={td}>{c.name}</td>
-                          <td style={td}>{c.pic || '-'}</td>
-                          <td style={td}>{c.phone || '-'}</td>
-                          <td style={td}>{c.payrollType || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
+              <DirectoryManager
+                actor={actor}
+                onChanged={refreshCanonical}
+                existingClients={db.companies || []}
+                existingProjects={db.projects || []}
+              />
             )}
 
             {view === 'logs' && <SystemLogs auditLogs={db.auditLogs || []} />}

@@ -1,4 +1,13 @@
-export type AppRole = 'SUPER_ADMIN' | 'PAYROLL' | 'HR' | 'FINANCE' | 'DIRECTOR' | 'VIEWER';
+export type AppRole =
+  | 'SUPER_ADMIN'
+  | 'PAYROLL_PROCESSOR'
+  | 'PAYROLL_CONTROLLER'
+  | 'CLIENT_USER'
+  | 'PAYROLL'
+  | 'HR'
+  | 'FINANCE'
+  | 'DIRECTOR'
+  | 'VIEWER';
 
 export type AppUser = {
   id: string;

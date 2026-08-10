@@ -80,6 +80,7 @@ export async function onRequest(context) {
       tx`DELETE FROM employees`,
       tx`DELETE FROM work_locations`,
       tx`DELETE FROM branches`,
+      tx`DELETE FROM projects`,
       tx`DELETE FROM clients`,
       tx`
         INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity)

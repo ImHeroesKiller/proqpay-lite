@@ -18,6 +18,7 @@ type IntentRoute = {
 type IntentPlan = { intent: string; routes: IntentRoute[] };
 
 const ROUTES: Array<{ match: RegExp; route: IntentRoute }> = [
+  { match: /\b(endpoint|kolom|field|akses data|data apa|baca database|datasheet|knowledge|pengetahuan data)\b/, route: { intent: 'READ_DATA_CATALOG', worker: 'HR', capability: 'analyze_employee', risk: 'READ' } },
   { match: /\b(hapus|delete|reset)\b/, route: { intent: 'DELETE_DATA', worker: 'HR', capability: 'update_employee', risk: 'DESTRUCTIVE', confirmationPhrase: 'KONFIRMASI HAPUS' } },
   { match: /\b(import|unggah|upload|excel|csv|pdf)\b/, route: { intent: 'READ_DOCUMENT', worker: 'DOCUMENT', capability: 'generate_import_preview', risk: 'READ' } },
   { match: /\b(payment instruction|instruksi pembayaran)\b/, route: { intent: 'GENERATE_PAYMENT_INSTRUCTION', worker: 'OPERATIONS', capability: 'generate_payment_instruction', risk: 'FINANCIAL', confirmationPhrase: 'KONFIRMASI PAYMENT' } },
@@ -26,7 +27,7 @@ const ROUTES: Array<{ match: RegExp; route: IntentRoute }> = [
   { match: /\b(hitung|buat|generate)\b.*\b(payroll|gaji)\b|\bpayroll\b.*\b(hitung|buat|generate)\b/, route: { intent: 'CALCULATE_PAYROLL', worker: 'PAYROLL', capability: 'calculate_payroll', risk: 'FINANCIAL', confirmationPhrase: 'KONFIRMASI PAYROLL' } },
   { match: /\b(payroll|gaji)\b.*\b(ready|siap|rincian|detail|tabel|terendah|tertinggi|paling kecil|paling besar)\b|\b(rincian|detail|tabel|terendah|tertinggi|paling kecil|paling besar)\b.*\b(payroll|gaji|karyawan)\b/, route: { intent: 'READ_PAYROLL_DETAIL', worker: 'PAYROLL', capability: 'read_payroll', risk: 'READ' } },
   { match: /\b(validasi|compliance|regulasi|umr|umk|bpjs|pph21)\b/, route: { intent: 'VALIDATE_COMPLIANCE', worker: 'COMPLIANCE', capability: 'validate_compliance', risk: 'READ' } },
-  { match: /\b(karyawan|pegawai|employee|kontrak|resign)\b/, route: { intent: 'MANAGE_EMPLOYEE', worker: 'HR', capability: 'analyze_employee', risk: 'READ' } },
+  { match: /\b(karyawan|pegawai|employee|kontrak|resign|rekening|nama mirip|nama sama)\b/, route: { intent: 'MANAGE_EMPLOYEE', worker: 'HR', capability: 'analyze_employee', risk: 'READ' } },
   { match: /\b(client|klien|project|proyek|margin)\b/, route: { intent: 'READ_OPERATIONS', worker: 'OPERATIONS', capability: 'read_client', risk: 'READ' } },
   { match: /\b(ar|piutang|cashflow|rekonsiliasi|outstanding)\b/, route: { intent: 'READ_FINANCE', worker: 'FINANCE', capability: 'read_ar', risk: 'READ' } },
 ];

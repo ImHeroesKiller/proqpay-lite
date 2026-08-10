@@ -306,3 +306,64 @@ a:hover { text-decoration: underline; }
   .ida-icon-button,
   .ida-quick-actions button { transition: none; }
 }
+
+/* Role-aware dashboard */
+.role-dashboard-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.8fr);
+  gap: 20px;
+  margin-bottom: 18px;
+  padding: 24px;
+  overflow: hidden;
+  border-radius: 18px;
+  color: #fff;
+  background: radial-gradient(circle at 88% -10%, rgba(129, 140, 248, 0.55), transparent 36%), linear-gradient(135deg, #172554, #312e81 58%, #4f46e5);
+  box-shadow: 0 14px 34px rgba(30, 41, 99, 0.2);
+}
+.role-dashboard-kicker { margin-bottom: 7px; color: #c7d2fe; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; }
+.role-dashboard-card h2 { margin: 0; font-size: 22px; }
+.role-dashboard-card p { max-width: 660px; margin: 8px 0 16px; color: rgba(255,255,255,.76); font-size: 13px; line-height: 1.55; }
+.role-dashboard-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.role-dashboard-actions button { padding: 8px 11px; border: 1px solid rgba(255,255,255,.22); border-radius: 9px; color: #fff; background: rgba(255,255,255,.1); font: 650 11px inherit; cursor: pointer; }
+.role-dashboard-actions button:hover { background: rgba(255,255,255,.18); }
+.role-dashboard-tasks { display: grid; align-content: center; gap: 7px; padding: 14px; border: 1px solid rgba(255,255,255,.14); border-radius: 14px; background: rgba(15,23,42,.22); }
+.role-dashboard-tasks > span { margin-bottom: 3px; color: #c7d2fe; font-size: 10px; font-weight: 750; text-transform: uppercase; }
+.role-dashboard-tasks > div { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
+.role-dashboard-tasks b { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: rgba(255,255,255,.14); font-size: 10px; }
+.role-dashboard-tasks em { margin-top: 5px; color: #6ee7b7; font-size: 10.5px; font-style: normal; }
+
+/* Client and project directory */
+.directory-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.directory-header h2 { margin: 0; font-size: 22px; }
+.directory-header p { margin: 5px 0 0; color: var(--text3); font-size: 13px; }
+.directory-header > div:last-child { display: flex; gap: 8px; }
+.directory-message { margin-top: 14px; padding: 10px 13px; border: 1px solid #c7d2fe; border-radius: 10px; color: #3730a3; background: #eef2ff; font-size: 12px; }
+.directory-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.directory-section { padding: 18px; }
+.directory-section h3 { display: flex; justify-content: space-between; margin: 0 0 12px; font-size: 14px; }
+.directory-section h3 span { color: var(--text3); }
+.directory-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--border-soft); }
+.directory-row:last-child { border-bottom: 0; }
+.directory-row > div { min-width: 0; }
+.directory-row > div:last-child { text-align: right; }
+.directory-row b { display: block; overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.directory-row strong { font-size: 14px; }
+.directory-row small { display: block; margin-top: 3px; color: var(--text3); font-size: 10.5px; }
+.directory-badge { display: inline-block; padding: 3px 7px; border-radius: 99px; color: #047857; background: #d1fae5; font-size: 9px; font-weight: 750; }
+.directory-empty { padding: 32px; color: var(--text3); font-size: 12px; text-align: center; }
+.directory-modal-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 20px; background: rgba(15,23,42,.5); backdrop-filter: blur(4px); }
+.directory-modal { width: min(480px, 100%); max-height: calc(100dvh - 40px); padding: 22px; overflow-y: auto; border: 1px solid var(--border); border-radius: 18px; background: var(--bg-surface); box-shadow: var(--shadow-lg); }
+.directory-modal-title { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+.directory-modal-title span { color: var(--accent); font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+.directory-modal-title h3 { margin: 3px 0 0; font-size: 19px; }
+.directory-modal-title button { width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-subtle); cursor: pointer; }
+.directory-modal label { display: grid; gap: 6px; margin-top: 12px; color: var(--text2); font-size: 11px; font-weight: 650; }
+.directory-modal input, .directory-modal select { width: 100%; padding: 10px 11px; border: 1px solid var(--border-strong); border-radius: 9px; color: var(--text); background: var(--bg-surface); font: 12px inherit; }
+.directory-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.directory-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border); }
+
+@media (max-width: 760px) {
+  .role-dashboard-card, .directory-grid { grid-template-columns: 1fr; }
+  .role-dashboard-card { padding: 19px; }
+  .directory-form-grid { grid-template-columns: 1fr; }
+}

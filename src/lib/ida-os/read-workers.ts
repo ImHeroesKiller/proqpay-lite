@@ -65,7 +65,10 @@ export function executeReadOnlyPlan(plan: ExecutionPlan, db: any): WorkerResult 
     const payroll = (db.payrolls || []).find(
       (item: any) => item.period === task.context.payrollPeriod
     );
-    const answer = answerEvidenceQuery(plan.objective, db);
+    const answer = answerEvidenceQuery(plan.objective, db, {
+      currentRole: task.context.currentRole,
+      permissions: task.context.permissions,
+    });
     return {
       ...EMPTY_RESULT,
       worker: 'PAYROLL',
@@ -88,7 +91,10 @@ export function executeReadOnlyPlan(plan: ExecutionPlan, db: any): WorkerResult 
     const tables = ['employees', 'employee_contracts', 'employee_assignments'];
     const access = assertWorkerTableAccess('HR', tables);
     if (!access.allowed) throw new Error(access.blockers.join(' '));
-    const answer = answerEvidenceQuery(plan.objective, db);
+    const answer = answerEvidenceQuery(plan.objective, db, {
+      currentRole: task.context.currentRole,
+      permissions: task.context.permissions,
+    });
     return {
       ...EMPTY_RESULT,
       worker: 'HR',
@@ -108,7 +114,10 @@ export function executeReadOnlyPlan(plan: ExecutionPlan, db: any): WorkerResult 
     const tables = ['clients', 'projects'];
     const access = assertWorkerTableAccess('OPERATIONS', tables);
     if (!access.allowed) throw new Error(access.blockers.join(' '));
-    const answer = answerEvidenceQuery(plan.objective, db);
+    const answer = answerEvidenceQuery(plan.objective, db, {
+      currentRole: task.context.currentRole,
+      permissions: task.context.permissions,
+    });
     return {
       ...EMPTY_RESULT,
       worker: 'OPERATIONS',

@@ -57,6 +57,12 @@ export async function onRequest(context) {
         id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
         code TEXT NOT NULL, name TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE (org_id, code))`,
+      `CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES organizations(id),
+        client_id TEXT NOT NULL REFERENCES clients(id), code TEXT NOT NULL, name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'ACTIVE', start_date DATE, end_date DATE, province TEXT,
+        created_by TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (org_id, code))`,
       `CREATE TABLE IF NOT EXISTS provinces (
         code TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE)`,
       `CREATE TABLE IF NOT EXISTS branches (
@@ -237,6 +243,7 @@ export async function onRequest(context) {
       tables: [
         'organizations',
         'clients',
+        'projects',
         'provinces',
         'branches',
         'work_locations',

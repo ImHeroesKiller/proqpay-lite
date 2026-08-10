@@ -62,6 +62,8 @@ export default function OperatingWorkspace() {
   const role = actor?.role || 'UNKNOWN';
   const isProcessor = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL'].includes(role);
   const isController = ['SUPER_ADMIN','PAYROLL_CONTROLLER','FINANCE','DIRECTOR'].includes(role);
+  const isClient = role === 'CLIENT_USER';
+  const canApprovePayment = actor?.permissions?.includes('payment:approve') || false;
 
   return (
     <section>
@@ -85,9 +87,9 @@ export default function OperatingWorkspace() {
       {message && <div style={{ padding: '10px 13px', borderRadius: 10, marginBottom: 14, background: 'var(--accent-soft)', color: 'var(--text2)', fontSize: 13 }}>{message}</div>}
       {loading ? <Empty title="Memuat data operasional…" /> : (
         <>
-          {tab === 'submissions' && <Submissions rows={data.submissions || []} canAct={isProcessor || isController} act={act} />}
-          {tab === 'exceptions' && <Exceptions rows={data.exceptions || []} canResolve={isProcessor || isController} act={act} />}
-          {tab === 'payments' && <Payments instructions={data.paymentInstructions || []} proofs={data.paymentProofs || []} reconciliations={data.reconciliations || []} canAct={isController} act={act} />}
+          {tab === 'submissions' && <Submissions rows={data.submissions || []} role={role} act={act} />}
+          {tab === 'exceptions' && <Exceptions rows={data.exceptions || []} canResolve={isProcessor || isController || isClient} act={act} />}
+          {tab === 'payments' && <Payments instructions={data.paymentInstructions || []} proofs={data.paymentProofs || []} reconciliations={data.reconciliations || []} canReview={isController} canApprove={canApprovePayment} act={act} />}
           {tab === 'integrations' && <Integrations rows={data.integrations || []} canCreate={isProcessor} />}
         </>
       )}
@@ -95,15 +97,22 @@ export default function OperatingWorkspace() {
   );
 }
 
-function Submissions({ rows, canAct, act }: { rows: any[]; canAct: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
   if (!rows.length) return <Empty title="Belum ada payroll submission" detail="Submission baru akan tampil setelah service plan klien aktif dan data periode dikirim." />;
-  const next: Record<string, string> = { DRAFT:'SUBMITTED', SUBMITTED:'INGESTING', INGESTING:'AI_VALIDATING', VALIDATED:'STANDARDIZED', STANDARDIZED:'CONTROLLER_REVIEW', CONTROLLER_REVIEW:'DATA_APPROVED', DATA_APPROVED:'PAYROLL_FINALIZED', PAYROLL_FINALIZED:'PAYMENT_INSTRUCTION_READY' };
+  const processorNext: Record<string, string> = { DRAFT:'SUBMITTED', SUBMITTED:'INGESTING', INGESTING:'AI_VALIDATING', AI_VALIDATING:'VALIDATED', VALIDATED:'STANDARDIZED', STANDARDIZED:'CONTROLLER_REVIEW', REVISION_REQUIRED:'AI_VALIDATING' };
+  const controllerNext: Record<string, string> = { CONTROLLER_REVIEW:'DATA_APPROVED', DATA_APPROVED:'PAYROLL_FINALIZED', PAYROLL_FINALIZED:'PAYMENT_INSTRUCTION_READY' };
+  const clientNext: Record<string, string> = { DRAFT:'SUBMITTED', CLIENT_ACTION_REQUIRED:'CLIENT_RESUBMITTED' };
   return <CardTable headers={['ID / Periode','Tier','Status','Dibuat','Aksi']} rows={rows.map((r) => [
     <div key="id"><strong>{r.id}</strong><small style={small}>{r.period} · {r.client_id}</small></div>,
     String(r.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' '),
     <Badge key="state" text={r.state} />,
     date(r.created_at),
-    next[r.state] && canAct ? <button key="action" style={actionButton} onClick={() => void act({ action:'TRANSITION_SUBMISSION', submissionId:r.id, toState:next[r.state] }, `Status diperbarui ke ${next[r.state]}`)}>Lanjutkan</button> : <span key="none" style={small}>Tidak ada aksi</span>,
+    (() => {
+      const next = role === 'CLIENT_USER' ? clientNext[r.state]
+        : ['SUPER_ADMIN','PAYROLL_CONTROLLER','FINANCE','DIRECTOR'].includes(role) && controllerNext[r.state]
+          ? controllerNext[r.state] : processorNext[r.state];
+      return next ? <button key="action" style={actionButton} onClick={() => void act({ action:'TRANSITION_SUBMISSION', submissionId:r.id, toState:next }, `Status diperbarui ke ${next}`)}>Lanjutkan</button> : <span key="none" style={small}>Tidak ada aksi</span>;
+    })(),
   ])} />;
 }
 
@@ -118,7 +127,7 @@ function Exceptions({ rows, canResolve, act }: { rows: any[]; canResolve: boolea
   ])} />;
 }
 
-function Payments({ instructions, proofs, reconciliations, canAct, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; canAct:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
+function Payments({ instructions, proofs, reconciliations, canReview, canApprove, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; canReview:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
   const [proofFor, setProofFor] = useState<string | null>(null);
   const [proof, setProof] = useState({ bank:'BCA', reference:'', transactionDate:new Date().toISOString().slice(0,10), amount:'' });
   const [file, setFile] = useState<File | null>(null);
@@ -128,9 +137,11 @@ function Payments({ instructions, proofs, reconciliations, canAct, act }: { inst
   return <div style={{ display:'grid', gap:16 }}>
     <CardTable headers={['Instruction','Nilai','Status','Dibuat','Aksi']} rows={instructions.map((r) => {
       let action: React.ReactNode = <span style={small}>Menunggu tahap berikutnya</span>;
-      if (canAct && r.status === 'PAYMENT_APPROVAL_PENDING') action = <button style={actionButton} onClick={() => void act({ action:'APPROVE_PAYMENT', paymentInstructionId:r.id, actionHash:`approve-${r.id}`, confirmation:'KONFIRMASI PAYMENT' }, 'Payment disetujui')}>Approve</button>;
-      if (canAct && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
-      if (canAct && r.status === 'PROOF_UPLOADED') action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
+      if (r.status === 'PAYMENT_APPROVAL_PENDING') action = canApprove
+        ? <button style={actionButton} onClick={() => void act({ action:'APPROVE_PAYMENT', paymentInstructionId:r.id, actionHash:`approve-${r.id}`, confirmation:'KONFIRMASI PAYMENT' }, 'Payment disetujui')}>Approve</button>
+        : <span style={small}>Menunggu PAYMENT_APPROVER</span>;
+      if (canReview && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
+      if (canReview && r.status === 'PROOF_UPLOADED') action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
       return [<strong key="id">{r.id}</strong>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
     })} />
     {proofFor && <div className="card" style={{ padding:18 }}>

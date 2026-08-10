@@ -30,7 +30,7 @@ export async function onRequest({ request, env }) {
         id: actor.id,
         email: actor.email,
         role: actor.role,
-        permissions: permissionsFor(actor.role),
+        permissions: actor.permissions || permissionsFor(actor.role, actor.email, env),
       },
     },
     200,

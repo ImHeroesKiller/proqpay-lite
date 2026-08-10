@@ -7,7 +7,14 @@ import { permissionsFor } from '../functions/api/_security.js';
 
 test('managed payroll roles receive scoped permissions', () => {
   assert.equal(permissionsFor('PAYROLL_PROCESSOR').includes('payment:approve'), false);
-  assert.equal(permissionsFor('PAYROLL_CONTROLLER').includes('payment:approve'), true);
+  assert.equal(permissionsFor('PAYROLL_CONTROLLER').includes('payment:approve'), false);
+  assert.equal(permissionsFor('SUPER_ADMIN').includes('PAYMENT_APPROVER'), true);
+  const granted = permissionsFor('PAYROLL_CONTROLLER', 'controller@proqpay.id', {
+    ROLE_MAP_JSON: JSON.stringify({
+      'controller@proqpay.id': { role: 'PAYROLL_CONTROLLER', permissions: ['PAYMENT_APPROVER'] },
+    }),
+  });
+  assert.equal(granted.includes('payment:approve'), true);
   assert.equal(permissionsFor('CLIENT_USER').includes('exception:respond'), true);
 });
 

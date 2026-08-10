@@ -10,10 +10,12 @@ export default function Sidebar({
   view,
   onView,
   onOpenIda,
+  role,
 }: {
   view: AppView;
   onView: (v: AppView) => void;
   onOpenIda: () => void;
+  role?: string;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -57,14 +59,14 @@ export default function Sidebar({
         <NavBtn active={view === 'dashboard'} icon={<IconDashboard />} title="Dashboard" onClick={() => onView('dashboard')} />
         <NavBtn icon={<IconMessage />} title="Chat IDA" onClick={onOpenIda} />
         <NavBtn active={view === 'operations'} icon={<IconWallet />} title="Payroll Operations" onClick={() => onView('operations')} />
-        <NavBtn active={view === 'employees'} icon={<IconUsers />} title="Karyawan" onClick={() => onView('employees')} />
-        <NavBtn active={view === 'clients'} icon={<IconBuilding />} title="Klien" onClick={() => onView('clients')} />
+        {role !== 'CLIENT_USER' && <NavBtn active={view === 'employees'} icon={<IconUsers />} title="Karyawan" onClick={() => onView('employees')} />}
+        {['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL', 'HR'].includes(role || '') && <NavBtn active={view === 'clients'} icon={<IconBuilding />} title="Klien & Project" onClick={() => onView('clients')} />}
         <NavBtn active={view === 'reports'} icon={<IconChart />} title="Laporan" onClick={() => onView('reports')} />
-        <NavBtn active={view === 'logs'} icon={<IconTerminal />} title="System Logs" onClick={() => onView('logs')} />
+        {role === 'SUPER_ADMIN' && <NavBtn active={view === 'logs'} icon={<IconTerminal />} title="System Logs" onClick={() => onView('logs')} />}
 
         <div style={{ flex: 1 }} />
 
-        <NavBtn icon={<IconSettings />} title="Pengaturan" onClick={() => setSettingsOpen(true)} />
+        {role === 'SUPER_ADMIN' && <NavBtn icon={<IconSettings />} title="Pengaturan" onClick={() => setSettingsOpen(true)} />}
       </aside>
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />

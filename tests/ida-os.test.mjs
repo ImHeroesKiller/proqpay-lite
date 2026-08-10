@@ -347,3 +347,23 @@ test('HR read worker returns the deterministic database answer to the orchestrat
   assert.match(result.answerMarkdown, /1 nama duplikat/);
   assert.equal(result.worker, 'HR');
 });
+
+test('evidence worker finds similar names, missing banks, and role-aware catalog', async () => {
+  const query = await loadTsModule('src/lib/ida-os/evidence-query.ts', {
+    payrollValidation: { validatePayrollIndonesia: () => ({ issues: [], errorCount: 0, warningCount: 0 }) },
+  });
+  const db = { employees: [
+    { id: 'EMP-1', name: 'Agus Setiawan', accountNo: '', contractEnd: '2026-12-31' },
+    { id: 'EMP-2', name: 'Agung Setiawan', accountNo: '123', contractEnd: '2026-12-31' },
+  ] };
+  const similar = query.answerEvidenceQuery('bagaimana dengan karyawan bernama mirip', db);
+  assert.match(similar.markdown, /pasangan nama mirip/);
+  const bank = query.answerEvidenceQuery('berapa yang tidak ada nomor rekeningnya?', db);
+  assert.match(bank.markdown, /1 dari 2 karyawan/);
+  const catalog = query.answerEvidenceQuery('endpoint dan kolom apa yang bisa saya akses?', db, {
+    currentRole: 'SUPER_ADMIN', permissions: ['schema:write', 'client:write'],
+  });
+  assert.match(catalog.markdown, /SUPER_ADMIN/);
+  assert.match(catalog.markdown, /clients-projects/);
+  assert.match(catalog.markdown, /accountNo/);
+});

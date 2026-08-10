@@ -45,7 +45,7 @@ function projectsFromEmployees(employees: any[]) {
 }
 
 export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
-  const [response, stateResponse] = await Promise.all([
+  const [response, stateResponse, directoryResponse] = await Promise.all([
     fetch('/api/employees', {
       method: 'GET',
       headers: { Accept: 'application/json' },
@@ -56,14 +56,41 @@ export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
       headers: { Accept: 'application/json' },
       signal: options.signal,
     }),
+    fetch('/api/client-projects', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: options.signal,
+    }).catch(() => null),
   ]);
-  const [data, stateData] = await Promise.all([
+  const [data, stateData, directoryData] = await Promise.all([
     response.json().catch(() => ({})),
     stateResponse.json().catch(() => ({})),
+    directoryResponse?.json().catch(() => ({})) || {},
   ]);
   if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
 
   const employees = Array.isArray(data.employees) ? data.employees : [];
+  const directory = directoryData as any;
+  const derivedCompanies = companiesFromEmployees(employees);
+  const directoryClients = Array.isArray(directory.clients) ? directory.clients : [];
+  const companies = directoryClients.length
+    ? directoryClients.map((client: any) => {
+        const derived = derivedCompanies.find((item: any) => item.name === client.name);
+        return { ...derived, ...client, id: client.id, name: client.name };
+      })
+    : derivedCompanies;
+  const derivedProjects = projectsFromEmployees(employees);
+  const directoryProjects = Array.isArray(directory.projects) ? directory.projects : [];
+  const projectNames = new Set(directoryProjects.map((project: any) => String(project.name).toLowerCase()));
+  const projects = [
+    ...directoryProjects.map((project: any) => ({
+      ...project,
+      company: project.client_name || project.company || '',
+      region: project.province || project.region || '',
+      status: project.status || 'ACTIVE',
+    })),
+    ...derivedProjects.filter((project: any) => !projectNames.has(String(project.name).toLowerCase())),
+  ];
   const remoteState = stateResponse.ok && stateData?.state ? stateData.state : {};
   const canonicalState = Object.fromEntries(
     ['payrolls', 'approvals', 'payments', 'invoices', 'arMonitor', 'auditLogs'].map((key) => [
@@ -75,8 +102,8 @@ export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
   const nextDb = {
     ...db,
     employees,
-    companies: companiesFromEmployees(employees),
-    projects: projectsFromEmployees(employees),
+    companies,
+    projects,
     ...canonicalState,
     meta: {
       ...db.meta,

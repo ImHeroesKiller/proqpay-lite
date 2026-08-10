@@ -110,6 +110,7 @@ export async function onRequest(context) {
   const clientCtx = body.context
     ? `CLIENT_CONTEXT: ${JSON.stringify(body.context).slice(0, 1400)}`
     : '';
+  const actorBlock = `AUTHORIZED_ACTOR: role=${authorization.actor.role}; permissions=${(authorization.actor.permissions || []).join(',') || 'read'}`;
 
   let webBlock = '(tidak dipicu)';
   if (web.used && web.snippets?.length) {
@@ -136,6 +137,8 @@ RECENT_CHAT (jangan mengulang poin yang sudah ada di sini):
 ${histBlock || '(baru)'}
 
 ${clientCtx}
+
+${actorBlock}
 
 User: ${userText}
 

@@ -301,7 +301,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                       onChange={(e) => updateUser(u.id, { role: e.target.value as AppRole })}
                       style={inp}
                     >
-                      {(['SUPER_ADMIN', 'PAYROLL', 'HR', 'FINANCE', 'DIRECTOR', 'VIEWER'] as AppRole[]).map(
+                      {(['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'CLIENT_USER', 'PAYROLL', 'HR', 'FINANCE', 'DIRECTOR', 'VIEWER'] as AppRole[]).map(
                         (r) => (
                           <option key={r} value={r}>
                             {r}
