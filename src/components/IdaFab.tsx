@@ -7,7 +7,7 @@ import {
   type PendingApprovalPreview,
   type PendingPayrollPreview,
 } from '@/lib/ida-simple';
-import { emitDbChange } from '@/lib/events';
+import { emitDbChange, onDbChange } from '@/lib/events';
 import { renderMarkdown } from '@/lib/markdown';
 import { calcMargin } from '@/lib/margin';
 import { formatIDR } from '@/lib/format';
@@ -257,9 +257,15 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       setShowCot(s.idaShowCot);
       setTypingMs(s.idaTypingMs);
     });
+    const unsubscribeDb = onDbChange(() => {
+      // Keep IDA context aligned with dashboard filters and remote sync.
+      // Without this subscription IDA keeps the database snapshot from mount.
+      setDb(loadDatabase());
+    });
     return () => {
       controller.abort();
       unsubscribe();
+      unsubscribeDb();
     };
   }, []);
 

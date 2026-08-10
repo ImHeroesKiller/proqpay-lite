@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { formatIDRShort } from '@/lib/format';
 import ActivityTimeline from './ActivityTimeline';
+import { buildClientInsights } from '@/lib/client-insights';
 
 export default function ClientDetail({ db }: { db: any }) {
   const clients = db.companies?.map((c: any) => c.name) || [];
@@ -21,14 +22,7 @@ export default function ClientDetail({ db }: { db: any }) {
     if (e.region) regions[e.region] = (regions[e.region] || 0) + 1;
   });
 
-  // Simple AI insights
-  const insights: { icon: string; text: string }[] = [];
-  if (!info.company?.payrollSetup) insights.push({ icon: '⚙️', text: `Payroll belum di-setup untuk ${selected}.` });
-  const noBank = info.employees.filter((e: any) => !e.bankAccount).length;
-  if (noBank > 0) insights.push({ icon: '⚠️', text: `${noBank} karyawan belum punya rekening bank.` });
-  if (info.invoice && info.invoice.status !== 'PAID') insights.push({ icon: '📄', text: `Invoice ${info.invoice.id} berstatus ${info.invoice.status}.` });
-  if (info.ar) insights.push({ icon: '⏳', text: `AR outstanding ${formatIDRShort(info.ar.amount)}.` });
-  if (insights.length === 0) insights.push({ icon: '✨', text: 'Semua data lengkap. Tidak ada action diperlukan.' });
+  const insights = buildClientInsights(db, selected);
 
   return (
     <section style={{ marginTop: '36px' }}>
