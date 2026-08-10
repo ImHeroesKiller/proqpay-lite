@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import SettingsModal from './SettingsModal';
-import { IconDashboard, IconMessage, IconUsers, IconBuilding, IconChart, IconSettings, IconTerminal } from './Icons';
+import { IconDashboard, IconMessage, IconUsers, IconBuilding, IconChart, IconSettings, IconTerminal, IconWallet } from './Icons';
 
-export type AppView = 'dashboard' | 'employees' | 'clients' | 'reports' | 'logs';
+export type AppView = 'dashboard' | 'operations' | 'employees' | 'clients' | 'reports' | 'logs';
 
 export default function Sidebar({
   view,
@@ -56,6 +56,7 @@ export default function Sidebar({
 
         <NavBtn active={view === 'dashboard'} icon={<IconDashboard />} title="Dashboard" onClick={() => onView('dashboard')} />
         <NavBtn icon={<IconMessage />} title="Chat IDA" onClick={onOpenIda} />
+        <NavBtn active={view === 'operations'} icon={<IconWallet />} title="Payroll Operations" onClick={() => onView('operations')} />
         <NavBtn active={view === 'employees'} icon={<IconUsers />} title="Karyawan" onClick={() => onView('employees')} />
         <NavBtn active={view === 'clients'} icon={<IconBuilding />} title="Klien" onClick={() => onView('clients')} />
         <NavBtn active={view === 'reports'} icon={<IconChart />} title="Laporan" onClick={() => onView('reports')} />

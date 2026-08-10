@@ -67,3 +67,15 @@ test('service plan and exception payloads validate required business fields', ()
     severity: 'CRITICAL',
   }).ok, true);
 });
+
+test('proof, reconciliation, and integration actions validate controlled inputs', () => {
+  const proof = validateOperatingAction({
+    action: 'UPLOAD_PAYMENT_PROOF', paymentInstructionId: 'PI-1', bank: 'BCA',
+    reference: 'REF-202607', transactionDate: '2026-07-31', amount: 100000,
+    uploadedFileId: 'FILE-1',
+  });
+  assert.equal(proof.ok, true);
+  assert.equal(validateOperatingAction({ action: 'RECONCILE_PAYMENT', paymentInstructionId: 'PI-1' }).ok, true);
+  assert.equal(validateOperatingAction({ action: 'CREATE_INTEGRATION', clientId: 'CL-1', servicePlanId: 'SP-1', connectorType: 'HRIS' }).ok, true);
+  assert.equal(validateOperatingAction({ action: 'CREATE_INTEGRATION', clientId: 'CL-1', servicePlanId: 'SP-1', connectorType: 'UNKNOWN' }).ok, false);
+});

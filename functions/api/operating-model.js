@@ -104,6 +104,20 @@ export async function onRequest(context) {
           : await sql`SELECT * FROM payment_instructions WHERE org_id=${organizationId} ORDER BY created_at DESC LIMIT 100`;
         return respond({ ok: true, paymentInstructions: rows });
       }
+      if (resource === 'payment-proofs') {
+        const rows = await sql`SELECT pp.* FROM payment_proofs pp JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id WHERE pi.org_id=${organizationId} ORDER BY pp.created_at DESC LIMIT 200`;
+        return respond({ ok: true, paymentProofs: rows });
+      }
+      if (resource === 'reconciliations') {
+        const rows = await sql`SELECT r.* FROM reconciliations r JOIN payment_instructions pi ON pi.id=r.payment_instruction_id WHERE pi.org_id=${organizationId} ORDER BY r.created_at DESC LIMIT 200`;
+        return respond({ ok: true, reconciliations: rows });
+      }
+      if (resource === 'integrations') {
+        const rows = clientId
+          ? await sql`SELECT * FROM integration_connections WHERE org_id=${organizationId} AND client_id=${clientId} ORDER BY created_at DESC LIMIT 100`
+          : await sql`SELECT * FROM integration_connections WHERE org_id=${organizationId} ORDER BY created_at DESC LIMIT 100`;
+        return respond({ ok: true, integrations: rows });
+      }
       const rows = clientId
         ? await sql`SELECT * FROM payroll_submissions WHERE org_id=${organizationId} AND client_id=${clientId} ORDER BY created_at DESC LIMIT 200`
         : await sql`SELECT * FROM payroll_submissions WHERE org_id=${organizationId} ORDER BY created_at DESC LIMIT 200`;
@@ -266,6 +280,50 @@ export async function onRequest(context) {
             'PAYMENT_APPROVED', 'Maker-checker approval passed', 'payment_instruction', ${payment.id})`,
       ]);
       return respond({ ok: true, approval: { id: approvalId, paymentInstructionId: payment.id, status: 'APPROVED' } });
+    }
+
+    if (body.action === 'UPLOAD_PAYMENT_PROOF') {
+      if (!CONTROLLER_ROLES.has(actor.role)) return respond({ error: 'Insufficient role' }, 403);
+      const payments = await sql`SELECT * FROM payment_instructions WHERE id=${body.paymentInstructionId} AND org_id=${organizationId} LIMIT 1`;
+      if (!payments.length) return respond({ error: 'Payment instruction not found' }, 404);
+      if (!['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(payments[0].status)) {
+        return respond({ error: 'Payment instruction is not ready for proof' }, 409);
+      }
+      const id = body.id || `PP-${crypto.randomUUID()}`;
+      const rows = await sql`INSERT INTO payment_proofs
+        (id, payment_instruction_id, bank, reference, transaction_date, amount, uploaded_file_id)
+        VALUES (${id}, ${body.paymentInstructionId}, ${body.bank}, ${body.reference}, ${body.transactionDate}, ${body.amount}, ${body.uploadedFileId}) RETURNING *`;
+      await sql`UPDATE payment_instructions SET status='PROOF_UPLOADED', updated_at=NOW() WHERE id=${body.paymentInstructionId}`;
+      return respond({ ok: true, paymentProof: rows[0] }, 201);
+    }
+
+    if (body.action === 'RECONCILE_PAYMENT') {
+      if (!CONTROLLER_ROLES.has(actor.role)) return respond({ error: 'Insufficient role' }, 403);
+      const totals = await sql`SELECT pi.id, pi.expected_total,
+        COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0)::bigint AS instruction_total,
+        COALESCE((SELECT SUM(amount) FROM payment_proofs WHERE payment_instruction_id=pi.id),0)::bigint AS proof_total
+        FROM payment_instructions pi WHERE pi.id=${body.paymentInstructionId} AND pi.org_id=${organizationId} LIMIT 1`;
+      if (!totals.length) return respond({ error: 'Payment instruction not found' }, 404);
+      const payment = totals[0];
+      const difference = Number(payment.proof_total) - Number(payment.expected_total);
+      const status = difference === 0 && Number(payment.instruction_total) === Number(payment.expected_total) ? 'MATCHED' : 'EXCEPTION';
+      const id = `REC-${crypto.randomUUID()}`;
+      const rows = await sql`INSERT INTO reconciliations
+        (id, payment_instruction_id, expected_total, instruction_total, proof_total, difference, status, reviewed_by)
+        VALUES (${id}, ${payment.id}, ${payment.expected_total}, ${payment.instruction_total}, ${payment.proof_total}, ${difference}, ${status}, ${actor.email}) RETURNING *`;
+      await sql`UPDATE payment_instructions SET status=${status === 'MATCHED' ? 'COMPLETED' : 'PAYMENT_EXCEPTION'}, updated_at=NOW() WHERE id=${payment.id}`;
+      return respond({ ok: true, reconciliation: rows[0] }, 201);
+    }
+
+    if (body.action === 'CREATE_INTEGRATION') {
+      if (!PROCESSOR_ROLES.has(actor.role)) return respond({ error: 'Insufficient role' }, 403);
+      const plan = await sql`SELECT id FROM client_service_plans WHERE id=${body.servicePlanId} AND client_id=${body.clientId} AND status='ACTIVE' LIMIT 1`;
+      if (!plan.length) return respond({ error: 'Active service plan not found' }, 409);
+      const id = body.id || `INT-${crypto.randomUUID()}`;
+      const rows = await sql`INSERT INTO integration_connections
+        (id, org_id, client_id, service_plan_id, connector_type, status, config)
+        VALUES (${id}, ${organizationId}, ${body.clientId}, ${body.servicePlanId}, ${body.connectorType}, 'INACTIVE', ${JSON.stringify(body.config || {})}::jsonb) RETURNING *`;
+      return respond({ ok: true, integration: rows[0] }, 201);
     }
 
     return respond({ error: 'Action not implemented' }, 422);

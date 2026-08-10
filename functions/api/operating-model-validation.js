@@ -81,6 +81,18 @@ export function validateOperatingAction(input) {
     if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
     if (!validId(input.actionHash)) errors.push('actionHash tidak valid');
     if (input.confirmation !== 'KONFIRMASI PAYMENT') errors.push('Konfirmasi wajib: KONFIRMASI PAYMENT');
+  } else if (action === 'UPLOAD_PAYMENT_PROOF') {
+    if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
+    if (!String(input.bank || '').trim()) errors.push('bank wajib diisi');
+    if (!String(input.reference || '').trim()) errors.push('reference wajib diisi');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.transactionDate || ''))) errors.push('transactionDate tidak valid');
+    if (!Number.isSafeInteger(input.amount) || input.amount <= 0) errors.push('amount tidak valid');
+    if (!validId(input.uploadedFileId)) errors.push('uploadedFileId tidak valid');
+  } else if (action === 'RECONCILE_PAYMENT') {
+    if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
+  } else if (action === 'CREATE_INTEGRATION') {
+    for (const key of ['clientId', 'servicePlanId']) if (!validId(input[key])) errors.push(`${key} tidak valid`);
+    if (!['HRIS','ATTENDANCE','ACCOUNTING','BANK'].includes(input.connectorType)) errors.push('connectorType tidak valid');
   } else if (action) {
     errors.push('action tidak dikenal');
   }

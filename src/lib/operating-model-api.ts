@@ -2,7 +2,10 @@ export type OperatingResource =
   | 'service-plans'
   | 'submissions'
   | 'exceptions'
-  | 'payment-instructions';
+  | 'payment-instructions'
+  | 'payment-proofs'
+  | 'reconciliations'
+  | 'integrations';
 
 async function parseResponse(response: Response) {
   const data = await response.json().catch(() => ({}));

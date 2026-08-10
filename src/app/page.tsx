@@ -15,6 +15,7 @@ import RegionMap from '@/components/RegionMap';
 import MetricPopup from '@/components/MetricPopup';
 import DashFilters from '@/components/DashFilters';
 import SystemLogs from '@/components/SystemLogs';
+import OperatingWorkspace from '@/components/OperatingWorkspace';
 import { IconUsers, IconBuilding, IconWallet, IconClock } from '@/components/Icons';
 import { writeSystemLog } from '@/lib/system-log';
 
@@ -280,6 +281,8 @@ export default function Home() {
             )}
 
             {view === 'logs' && <SystemLogs auditLogs={db.auditLogs || []} />}
+
+            {view === 'operations' && <OperatingWorkspace />}
 
             {view === 'reports' && (
               <section>

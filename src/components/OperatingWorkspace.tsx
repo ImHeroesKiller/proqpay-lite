@@ -1,0 +1,173 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { executeOperatingAction, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
+import { formatIDR } from '@/lib/format';
+
+type Tab = 'submissions' | 'exceptions' | 'payments' | 'integrations';
+type Actor = { email: string; role: string; permissions?: string[] };
+
+const labels: Record<Tab, string> = {
+  submissions: 'Payroll Workspace',
+  exceptions: 'Exception Center',
+  payments: 'Payment & Rekonsiliasi',
+  integrations: 'Integrasi',
+};
+
+const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') ? '#dc2626'
+  : state.includes('APPROVED') || state === 'COMPLETED' || state === 'MATCHED' ? '#059669' : '#4f46e5';
+
+export default function OperatingWorkspace() {
+  const [tab, setTab] = useState<Tab>('submissions');
+  const [actor, setActor] = useState<Actor | null>(null);
+  const [data, setData] = useState<Record<string, any[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setMessage('');
+    try {
+      const resources: OperatingResource[] = ['submissions','exceptions','payment-instructions','payment-proofs','reconciliations','integrations'];
+      const [me, ...results] = await Promise.all([
+        fetch('/api/me').then((r) => r.json()),
+        ...resources.map((resource) => listOperatingResource(resource)),
+      ]);
+      setActor(me.user || null);
+      const merged: Record<string, any[]> = {};
+      results.forEach((result: any) => Object.entries(result).forEach(([key, value]) => {
+        if (Array.isArray(value)) merged[key] = value;
+      }));
+      setData(merged);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Gagal memuat workspace');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function act(payload: Record<string, unknown>, success: string) {
+    setMessage('Memproses…');
+    try {
+      await executeOperatingAction(payload);
+      setMessage(success);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Aksi gagal');
+    }
+  }
+
+  const role = actor?.role || 'UNKNOWN';
+  const isProcessor = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL'].includes(role);
+  const isController = ['SUPER_ADMIN','PAYROLL_CONTROLLER','FINANCE','DIRECTOR'].includes(role);
+
+  return (
+    <section>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div>
+          <h2 style={{ fontSize: 22, fontWeight: 720, margin: 0 }}>Payroll Operations</h2>
+          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>Controlled workflow dari submission sampai rekonsiliasi.</p>
+        </div>
+        <div className="card" style={{ padding: '8px 12px', fontSize: 12 }}>
+          <strong>{actor?.email || 'Memuat pengguna…'}</strong>
+          <span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, margin: '18px 0', overflowX: 'auto' }}>
+        {(Object.keys(labels) as Tab[]).map((item) => (
+          <button key={item} type="button" onClick={() => setTab(item)} style={tabButton(tab === item)}>{labels[item]}</button>
+        ))}
+      </div>
+
+      {message && <div style={{ padding: '10px 13px', borderRadius: 10, marginBottom: 14, background: 'var(--accent-soft)', color: 'var(--text2)', fontSize: 13 }}>{message}</div>}
+      {loading ? <Empty title="Memuat data operasional…" /> : (
+        <>
+          {tab === 'submissions' && <Submissions rows={data.submissions || []} canAct={isProcessor || isController} act={act} />}
+          {tab === 'exceptions' && <Exceptions rows={data.exceptions || []} canResolve={isProcessor || isController} act={act} />}
+          {tab === 'payments' && <Payments instructions={data.paymentInstructions || []} proofs={data.paymentProofs || []} reconciliations={data.reconciliations || []} canAct={isController} act={act} />}
+          {tab === 'integrations' && <Integrations rows={data.integrations || []} canCreate={isProcessor} />}
+        </>
+      )}
+    </section>
+  );
+}
+
+function Submissions({ rows, canAct, act }: { rows: any[]; canAct: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+  if (!rows.length) return <Empty title="Belum ada payroll submission" detail="Submission baru akan tampil setelah service plan klien aktif dan data periode dikirim." />;
+  const next: Record<string, string> = { DRAFT:'SUBMITTED', SUBMITTED:'INGESTING', INGESTING:'AI_VALIDATING', VALIDATED:'STANDARDIZED', STANDARDIZED:'CONTROLLER_REVIEW', CONTROLLER_REVIEW:'DATA_APPROVED', DATA_APPROVED:'PAYROLL_FINALIZED', PAYROLL_FINALIZED:'PAYMENT_INSTRUCTION_READY' };
+  return <CardTable headers={['ID / Periode','Tier','Status','Dibuat','Aksi']} rows={rows.map((r) => [
+    <div key="id"><strong>{r.id}</strong><small style={small}>{r.period} · {r.client_id}</small></div>,
+    String(r.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' '),
+    <Badge key="state" text={r.state} />,
+    date(r.created_at),
+    next[r.state] && canAct ? <button key="action" style={actionButton} onClick={() => void act({ action:'TRANSITION_SUBMISSION', submissionId:r.id, toState:next[r.state] }, `Status diperbarui ke ${next[r.state]}`)}>Lanjutkan</button> : <span key="none" style={small}>Tidak ada aksi</span>,
+  ])} />;
+}
+
+function Exceptions({ rows, canResolve, act }: { rows: any[]; canResolve: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+  if (!rows.length) return <Empty title="Tidak ada exception operasional" detail="Temuan validasi akan masuk ke antrean ini dan diblokir berdasarkan tingkat severity." />;
+  return <CardTable headers={['Temuan','Severity','Owner','Status','Resolusi']} rows={rows.map((r) => [
+    <div key="finding"><strong>{r.category}</strong><small style={small}>{r.employee_id || 'Submission'} · {r.reason || r.field || '-'}</small></div>,
+    <Badge key="severity" text={r.severity} />,
+    r.owner || '-',
+    r.status,
+    canResolve && r.status === 'OPEN' ? <button key="resolve" style={actionButton} onClick={() => void act({ action:'RESOLVE_EXCEPTION', exceptionId:r.id, status:'RESOLVED', resolutionNote:'Diverifikasi dan diselesaikan melalui Exception Center' }, 'Exception diselesaikan')}>Selesaikan</button> : <span key="done" style={small}>{r.resolved_by || '-'}</span>,
+  ])} />;
+}
+
+function Payments({ instructions, proofs, reconciliations, canAct, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; canAct:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
+  const [proofFor, setProofFor] = useState<string | null>(null);
+  const [proof, setProof] = useState({ bank:'BCA', reference:'', transactionDate:new Date().toISOString().slice(0,10), amount:'' });
+  if (!instructions.length) return <Empty title="Belum ada payment instruction" detail="Payment instruction akan tersedia setelah payroll selesai divalidasi dan disetujui." />;
+  return <div style={{ display:'grid', gap:16 }}>
+    <CardTable headers={['Instruction','Nilai','Status','Dibuat','Aksi']} rows={instructions.map((r) => {
+      let action: React.ReactNode = <span style={small}>Menunggu tahap berikutnya</span>;
+      if (canAct && r.status === 'PAYMENT_APPROVAL_PENDING') action = <button style={actionButton} onClick={() => void act({ action:'APPROVE_PAYMENT', paymentInstructionId:r.id, actionHash:`approve-${r.id}`, confirmation:'KONFIRMASI PAYMENT' }, 'Payment disetujui')}>Approve</button>;
+      if (canAct && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
+      if (canAct && r.status === 'PROOF_UPLOADED') action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
+      return [<strong key="id">{r.id}</strong>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
+    })} />
+    {proofFor && <div className="card" style={{ padding:18 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', gap:12 }}><strong>Bukti Pembayaran · {proofFor}</strong><button type="button" onClick={() => setProofFor(null)} style={{ border:0, background:'transparent', cursor:'pointer' }}>✕</button></div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:10, marginTop:14 }}>
+        <select aria-label="Bank" value={proof.bank} onChange={(e) => setProof({ ...proof, bank:e.target.value })} style={input}><option>BCA</option><option>Mandiri</option><option>BRI</option><option>BNI</option><option>Lainnya</option></select>
+        <input aria-label="Referensi bank" placeholder="Referensi bank" value={proof.reference} onChange={(e) => setProof({ ...proof, reference:e.target.value })} style={input} />
+        <input aria-label="Tanggal transaksi" type="date" value={proof.transactionDate} onChange={(e) => setProof({ ...proof, transactionDate:e.target.value })} style={input} />
+        <input aria-label="Nominal bukti" type="number" placeholder="Nominal" value={proof.amount} onChange={(e) => setProof({ ...proof, amount:e.target.value })} style={input} />
+      </div>
+      <p style={{ ...small, margin:'10px 0' }}>Lampiran fisik tetap mengikuti penyimpanan dokumen bank; ProQPay menyimpan referensi bukti yang immutable untuk rekonsiliasi.</p>
+      <button style={actionButton} disabled={!proof.reference || !Number(proof.amount)} onClick={() => void act({ action:'UPLOAD_PAYMENT_PROOF', paymentInstructionId:proofFor, bank:proof.bank, reference:proof.reference, transactionDate:proof.transactionDate, amount:Number(proof.amount), uploadedFileId:`EVIDENCE-${Date.now()}` }, 'Bukti pembayaran tercatat')}>Simpan Bukti</button>
+    </div>}
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
+      <Summary title="Bukti Pembayaran" value={proofs.length} note={proofs.length ? `${proofs[0].bank} · ${proofs[0].reference}` : 'Belum ada bukti'} />
+      <Summary title="Rekonsiliasi" value={reconciliations.length} note={reconciliations.length ? `${reconciliations[0].status} · Selisih ${formatIDR(Number(reconciliations[0].difference || 0))}` : 'Belum direkonsiliasi'} />
+    </div>
+  </div>;
+}
+
+function Integrations({ rows, canCreate }: { rows:any[]; canCreate:boolean }) {
+  return <div style={{ display:'grid', gap:14 }}>
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))', gap:12 }}>
+      {['HRIS','ATTENDANCE','ACCOUNTING','BANK'].map((type) => {
+        const connection = rows.find((r) => r.connector_type === type);
+        return <div key={type} className="card" style={{ padding:18 }}><strong>{type === 'ATTENDANCE' ? 'Attendance' : type}</strong><p style={{ ...small, margin:'8px 0 0' }}>{connection ? `Status: ${connection.status}` : 'Belum terhubung'}</p></div>;
+      })}
+    </div>
+    {!rows.length && <Empty title="Belum ada koneksi integrasi" detail={canCreate ? 'Koneksi dibuat setelah service plan Tier 3 aktif. Kredensial tidak pernah ditampilkan di UI.' : 'Hubungi Payroll Processor untuk mengaktifkan koneksi.'} />}
+  </div>;
+}
+
+function CardTable({ headers, rows }: { headers:string[]; rows:React.ReactNode[][] }) { return <div className="card" style={{ overflowX:'auto' }}><table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}><thead><tr>{headers.map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i) => <tr key={i} style={{ borderBottom:'1px solid var(--border-soft)' }}>{row.map((cell,j) => <td key={j} style={td}>{cell}</td>)}</tr>)}</tbody></table></div>; }
+function Empty({ title, detail }: { title:string; detail?:string }) { return <div className="card" style={{ padding:'34px 24px', textAlign:'center' }}><strong>{title}</strong>{detail && <p style={{ color:'var(--text3)', fontSize:13, margin:'8px auto 0', maxWidth:520 }}>{detail}</p>}</div>; }
+function Summary({ title,value,note }: { title:string; value:number; note:string }) { return <div className="card" style={{ padding:18 }}><span style={small}>{title}</span><div style={{ fontSize:26, fontWeight:750, margin:'6px 0' }}>{value}</div><span style={small}>{note}</span></div>; }
+function Badge({ text }: { text:string }) { return <span style={{ display:'inline-block', color:stateTone(text), background:`${stateTone(text)}14`, borderRadius:999, padding:'4px 9px', fontWeight:700, fontSize:10 }}>{text.replaceAll('_',' ')}</span>; }
+const date = (value:string) => value ? new Date(value).toLocaleDateString('id-ID') : '-';
+const small: React.CSSProperties = { display:'block', color:'var(--text3)', fontSize:11, marginTop:3 };
+const th: React.CSSProperties = { textAlign:'left', padding:'11px 14px', background:'var(--bg-subtle)', color:'var(--text2)', fontSize:10.5, textTransform:'uppercase', whiteSpace:'nowrap' };
+const td: React.CSSProperties = { padding:'12px 14px', verticalAlign:'middle' };
+const actionButton: React.CSSProperties = { border:0, borderRadius:8, background:'var(--accent)', color:'#fff', padding:'7px 11px', fontSize:11, fontWeight:650, cursor:'pointer', whiteSpace:'nowrap' };
+const input: React.CSSProperties = { border:'1px solid var(--border)', borderRadius:8, background:'var(--bg-surface)', color:'var(--text)', padding:'9px 10px', fontSize:12, minWidth:0 };
+const tabButton = (active:boolean):React.CSSProperties => ({ border:`1px solid ${active ? 'var(--accent)' : 'var(--border)'}`, borderRadius:9, background:active ? 'var(--accent-soft)' : 'var(--bg-surface)', color:active ? 'var(--accent)' : 'var(--text2)', padding:'9px 12px', fontSize:12, fontWeight:650, cursor:'pointer', whiteSpace:'nowrap' });
