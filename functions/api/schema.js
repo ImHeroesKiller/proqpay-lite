@@ -1,107 +1,3 @@
-import { neon } from '@neondatabase/serverless';
-import {
-  authorize,
-  enforceRateLimit,
-  handlePreflight,
-  publicError,
-  secureJson,
-} from './_security.js';
-
-const METHODS = 'POST, OPTIONS';
-
-function getUrl(env) {
-  return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
-}
-
-export async function onRequest(context) {
-  const { request, env } = context;
-
-  if (request.method === 'OPTIONS') {
-    return handlePreflight(request, env, METHODS);
-  }
-
-  if (request.method !== 'POST') {
-    return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
-  }
-
-  const authorization = await authorize(request, env, {
-    roles: ['SUPER_ADMIN'],
-    mutating: true,
-    methods: METHODS,
-  });
-  if (authorization.response) return authorization.response;
-
-  const rateLimited = await enforceRateLimit(
-    request,
-    env,
-    authorization.actor,
-    'schema-migration',
-    METHODS
-  );
-  if (rateLimited) return rateLimited;
-
-  const respond = (data, status = 200) =>
-    secureJson(data, status, request, env, METHODS);
-  const requestId = crypto.randomUUID();
-  try {
-    const url = getUrl(env);
-    if (!url) return respond({ status: 'error', message: 'Service unavailable', requestId }, 503);
-
-    const sql = neon(url);
-
-    const statements = [
-      `CREATE TABLE IF NOT EXISTS organizations (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, code TEXT UNIQUE,
-        created_at TIMESTAMPTZ DEFAULT NOW())`,
-      `CREATE TABLE IF NOT EXISTS clients (
-        id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
-        code TEXT NOT NULL, name TEXT NOT NULL, website TEXT, industry TEXT,
-        contact_name TEXT, contact_email TEXT, contact_phone TEXT, logo_url TEXT,
-        status TEXT NOT NULL DEFAULT 'ACTIVE',
-        created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE (org_id, code))`,
-      `CREATE TABLE IF NOT EXISTS projects (
-        id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES organizations(id),
-        client_id TEXT NOT NULL REFERENCES clients(id), code TEXT NOT NULL, name TEXT NOT NULL,
-        description TEXT, service_type TEXT, status TEXT NOT NULL DEFAULT 'ACTIVE', start_date DATE, end_date DATE, province TEXT,
-        created_by TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE (org_id, code))`,
-      `CREATE TABLE IF NOT EXISTS provinces (
-        code TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE)`,
-      `CREATE TABLE IF NOT EXISTS branches (
-        id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
-        name TEXT NOT NULL, city_umk TEXT, province TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE (org_id, name))`,
-      `CREATE TABLE IF NOT EXISTS work_locations (
-        id TEXT PRIMARY KEY, branch_id TEXT REFERENCES branches(id),
-        name TEXT NOT NULL, unit_kerja TEXT, province TEXT, city_umk TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW())`,
-      `CREATE TABLE IF NOT EXISTS employees (
-        id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
-        client_id TEXT REFERENCES clients(id), branch_id TEXT REFERENCES branches(id),
-        location_id TEXT REFERENCES work_locations(id), employee_code TEXT, name TEXT NOT NULL,
-        gender TEXT, birth_place TEXT, birth_date DATE, religion TEXT,
-        phone TEXT, mobile TEXT, email TEXT, mother_name TEXT, status_aktif TEXT,
-        province TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`,
-      `CREATE TABLE IF NOT EXISTS employee_identity (
-        employee_id TEXT PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
-        ktp_no TEXT, npwp_no TEXT, address TEXT,
-        marital_status TEXT, ptkp_claimed TEXT, ptkp_updated TEXT)`,
-      `CREATE TABLE IF NOT EXISTS employee_contracts (
-        id TEXT PRIMARY KEY, employee_id TEXT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-        employment_type TEXT, contract_status TEXT, join_date DATE, accepted_date DATE,
-        contract_start DATE, contract_end DATE, resign_date DATE, resign_reason TEXT,
-        candidate_source TEXT, is_current BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMPTZ DEFAULT NOW())`,
-      `CREATE TABLE IF NOT EXISTS employee_assignments (
-        id TEXT PRIMARY KEY, employee_id TEXT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-        position TEXT, pic TEXT, hrbp TEXT, effective_from DATE, effective_to DATE,
-        is_current BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT NOW())`,
-      `CREATE TABLE IF NOT EXISTS employee_compensation (
-        employee_id TEXT PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
-        basic_salary BIGINT DEFAULT 0, salary_start DATE, currency TEXT DEFAULT 'IDR',
-        updated_at TIMESTAMPTZ DEFAULT NOW())`,
-      `CREATE TABLE IF NOT EXISTS employee_bank_accounts (
         id TEXT PRIMARY KEY, employee_id TEXT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
         bank_name TEXT, account_no TEXT, is_primary BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMPTZ DEFAULT NOW())`,
@@ -274,6 +170,45 @@ export async function onRequest(context) {
       `ALTER TABLE clients ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ACTIVE'`,
       `ALTER TABLE projects ADD COLUMN IF NOT EXISTS description TEXT`,
       `ALTER TABLE projects ADD COLUMN IF NOT EXISTS service_type TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS npwp TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS nitku TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_address TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_email TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS payment_terms_days INT NOT NULL DEFAULT 30`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS tax_status TEXT NOT NULL DEFAULT 'NON_PKP'`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS purchase_order TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_method TEXT NOT NULL DEFAULT 'PER_EMPLOYEE'`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_rate NUMERIC(18,4) NOT NULL DEFAULT 0`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_admin_fee BIGINT NOT NULL DEFAULT 0`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_tax_rate NUMERIC(8,4) NOT NULL DEFAULT 0`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_instruction_id TEXT REFERENCES payment_instructions(id)`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS invoice_number TEXT`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS subtotal BIGINT DEFAULT 0`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(8,4) DEFAULT 0`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS due_date DATE`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reviewed_by TEXT`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS review_note TEXT`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS approved_by TEXT`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS created_by TEXT`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS tax_invoice_status TEXT DEFAULT 'PENDING'`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS tax_invoice_number TEXT`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS tax_invoice_date DATE`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS coretax_reference TEXT`,
+      `ALTER TABLE ar_monitor ADD COLUMN IF NOT EXISTS client_id TEXT REFERENCES clients(id)`,
+      `ALTER TABLE ar_monitor ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`,
+      `ALTER TABLE ar_monitor ADD COLUMN IF NOT EXISTS paid_amount BIGINT DEFAULT 0`,
+      `ALTER TABLE ar_monitor ADD COLUMN IF NOT EXISTS balance BIGINT DEFAULT 0`,
+      `ALTER TABLE ar_monitor ADD COLUMN IF NOT EXISTS last_follow_up_at TIMESTAMPTZ`,
+      `ALTER TABLE ar_monitor ADD COLUMN IF NOT EXISTS next_follow_up_at DATE`,
+      `ALTER TABLE ar_monitor ADD COLUMN IF NOT EXISTS dispute_reason TEXT`,
+      `ALTER TABLE ar_monitor ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_payment_instruction ON invoices(payment_instruction_id) WHERE payment_instruction_id IS NOT NULL`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_number_org ON invoices(org_id, invoice_number) WHERE invoice_number IS NOT NULL`,
     ];
     for (const a of alters) {
       try {
@@ -288,51 +223,3 @@ export async function onRequest(context) {
       VALUES ('ORG-OTSINDO', 'OTSINDO', 'OTSINDO')
       ON CONFLICT (id) DO NOTHING
     `;
-    return respond({
-      status: 'ok',
-      message: 'Schema ready — work_locations.province via IDA wilayah',
-      host: 'cloudflare-pages',
-      tables: [
-        'organizations',
-        'clients',
-        'projects',
-        'provinces',
-        'branches',
-        'work_locations',
-        'employees',
-        'employee_identity',
-        'employee_contracts',
-        'employee_assignments',
-        'employee_compensation',
-        'employee_bank_accounts',
-        'employee_bpjs',
-        'employee_education',
-        'employee_hris_meta',
-        'payrolls',
-        'invoices',
-        'approvals',
-        'payments',
-        'ar_monitor',
-        'audit_logs',
-        'client_service_plans',
-        'payroll_submissions',
-        'submission_versions',
-        'payroll_exceptions',
-        'billing_rules',
-        'payment_instructions',
-        'payment_instruction_lines',
-        'payment_approvals',
-        'payment_proofs',
-        'reconciliations',
-        'integration_connections',
-        'integration_sync_runs',
-        'app_users',
-        'user_client_scopes',
-        'user_project_scopes',
-        'app_sessions',
-      ],
-    });
-  } catch (error) {
-    return respond(publicError(error, requestId), 500);
-  }
-}

@@ -805,3 +805,12 @@ a:hover { text-decoration: underline; }
 .system-health-warning { border-color: #fde68a; color: #78350f; background: rgba(255,251,235,.98); }
 .app-notice-info { border-color: #c7d2fe; color: #3730a3; background: rgba(238,242,255,.98); }.app-notice-error { border-color: #fecaca; color: #991b1b; background: rgba(254,242,242,.98); }
 @media (max-width: 640px) { .system-health-bubble, .app-notice-bubble { top: 66px; right: 10px; width: calc(100vw - 20px); } }
+
+
+/* Billing document print view */
+@media print {
+  body * { visibility: hidden !important; }
+  .billing-print-area, .billing-print-area * { visibility: visible !important; }
+  .billing-print-area { position: fixed; inset: 0; width: 100%; padding: 28px !important; color: #0f172a; background: #fff; }
+  .billing-print-area .card { border: 0; box-shadow: none; }
+}

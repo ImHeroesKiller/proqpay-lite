@@ -4,14 +4,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { executeOperatingAction, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
+import BillingWorkspace from '@/components/BillingWorkspace';
 
-type Tab = 'submissions' | 'exceptions' | 'payments' | 'integrations';
+type Tab = 'submissions' | 'exceptions' | 'payments' | 'billing' | 'integrations';
 type Actor = { email: string; role: string; permissions?: string[]; clientIds?: string[]; projectIds?: string[] };
 
 const labels: Record<Tab, string> = {
   submissions: 'Payroll Workspace',
   exceptions: 'Exception Center',
   payments: 'Payment & Rekonsiliasi',
+  billing: 'Billing & AR',
   integrations: 'Integrasi',
 };
 
@@ -71,8 +73,8 @@ export default function OperatingWorkspace() {
     <section>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ fontSize: 22, fontWeight: 720, margin: 0 }}>Payroll Operations</h2>
-          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>Controlled workflow dari submission sampai rekonsiliasi.</p>
+          <h2 style={{ fontSize: 22, fontWeight: 720, margin: 0 }}>Operations Center</h2>
+          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>Controlled workflow dari submission, payment, sampai invoice dan AR.</p>
         </div>
         <div className="card" style={{ padding: '8px 12px', fontSize: 12 }}>
           <strong>{actor?.email || 'Memuat pengguna…'}</strong>
@@ -92,6 +94,7 @@ export default function OperatingWorkspace() {
           {tab === 'submissions' && <Submissions rows={data.submissions || []} role={role} act={act} />}
           {tab === 'exceptions' && <Exceptions rows={data.exceptions || []} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
           {tab === 'payments' && <Payments instructions={data.paymentInstructions || []} proofs={data.paymentProofs || []} reconciliations={data.reconciliations || []} canReview={isController} canApprove={canApprovePayment} act={act} />}
+          {tab === 'billing' && <BillingWorkspace actor={actor} />}
           {tab === 'integrations' && <Integrations rows={data.integrations || []} canCreate={isProcessor} />}
         </>
       )}
