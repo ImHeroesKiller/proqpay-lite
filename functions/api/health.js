@@ -28,6 +28,10 @@ export async function onRequest({ request, env }) {
     ? check('ida_ai','IDA AI','ok','Minimal satu Gemini worker tersedia.')
     : check('ida_ai','IDA AI','warning','Fallback AI generatif belum dikonfigurasi.','Tambahkan minimal GEMINI_WORKER_1 sebagai secret Production.'));
 
+  checks.push(env.TAVILY_API_KEY
+    ? check('ida_web','IDA Web Search','ok','DuckDuckGo aktif dengan fallback Tavily.')
+    : check('ida_web','IDA Web Search','warning','DuckDuckGo aktif, tetapi fallback Tavily belum dikonfigurasi.','Tambahkan TAVILY_API_KEY sebagai secret Production agar pencarian otomatis memiliki fallback.'));
+
   const authMode = String(env.AUTH_MODE || 'origin').toLowerCase();
   const accessReady = authMode !== 'access' || Boolean(env.CF_ACCESS_TEAM_DOMAIN && env.CF_ACCESS_AUD);
   checks.push(accessReady
