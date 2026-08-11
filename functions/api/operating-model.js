@@ -38,6 +38,11 @@ function assertClientScope(actor, env, clientId) {
   return !scope || scope.has(String(clientId));
 }
 
+function assertProjectScope(actor, projectId) {
+  if (actor.role !== 'CLIENT_USER' || !Array.isArray(actor.projectIds) || !actor.projectIds.length) return true;
+  return Boolean(projectId && actor.projectIds.map(String).includes(String(projectId)));
+}
+
 function roleAllowsTransition(role, from, to) {
   if (CLIENT_ROLES.has(role)) return from === 'DRAFT' && to === 'SUBMITTED'
     || from === 'CLIENT_ACTION_REQUIRED' && to === 'CLIENT_RESUBMITTED';
@@ -85,6 +90,8 @@ export async function onRequest(context) {
       const params = new URL(request.url).searchParams;
       const resource = params.get('resource') || 'submissions';
       const clientId = params.get('clientId');
+      const scopedProjects = actor.role === 'CLIENT_USER' && Array.isArray(actor.projectIds) ? actor.projectIds.map(String) : [];
+      const projectScopeCsv = scopedProjects.join(',');
       if (actor.role === 'CLIENT_USER' && (!clientId || !assertClientScope(actor, env, clientId))) {
         return respond({ error: 'Client scope required' }, 403);
       }
@@ -101,6 +108,7 @@ export async function onRequest(context) {
                 WHERE ucs.client_id=s.client_id AND au.role='CLIENT_USER' AND au.status='ACTIVE' ORDER BY au.created_at LIMIT 1) AS client_email
               FROM payroll_exceptions e JOIN payroll_submissions s ON s.id=e.submission_id JOIN clients c ON c.id=s.client_id
               LEFT JOIN projects p ON p.id=s.project_id WHERE s.org_id=${organizationId} AND s.client_id=${clientId}
+              AND (${!scopedProjects.length} OR s.project_id=ANY(string_to_array(${projectScopeCsv}, ',')))
               ORDER BY e.created_at DESC LIMIT 2000`
           : await sql`SELECT e.*, s.client_id, s.project_id, s.period, s.service_tier, c.name AS client_name,
               p.name AS project_name, (SELECT au.email FROM app_users au JOIN user_client_scopes ucs ON ucs.user_id=au.id
@@ -140,7 +148,8 @@ export async function onRequest(context) {
         return respond({ ok: true, integrations: rows });
       }
       const rows = clientId
-        ? await sql`SELECT * FROM payroll_submissions WHERE org_id=${organizationId} AND client_id=${clientId} ORDER BY created_at DESC LIMIT 200`
+        ? await sql`SELECT * FROM payroll_submissions WHERE org_id=${organizationId} AND client_id=${clientId}
+            AND (${!scopedProjects.length} OR project_id=ANY(string_to_array(${projectScopeCsv}, ','))) ORDER BY created_at DESC LIMIT 200`
         : await sql`SELECT * FROM payroll_submissions WHERE org_id=${organizationId} ORDER BY created_at DESC LIMIT 200`;
       return respond({ ok: true, submissions: rows });
     }
@@ -202,6 +211,7 @@ export async function onRequest(context) {
       if (!current.length) return respond({ error: 'Submission not found' }, 404);
       const submission = current[0];
       if (!assertClientScope(actor, env, submission.client_id)) return respond({ error: 'Client scope denied' }, 403);
+      if (!assertProjectScope(actor, submission.project_id)) return respond({ error: 'Project scope denied' }, 403);
       if (!canTransition(submission.state, body.toState)) return respond({ error: `Invalid transition ${submission.state} → ${body.toState}` }, 409);
       if (submission.service_tier === 'TIER_1_PAYMENT_PROCESSING' && ['INGESTING','PAYROLL_FINALIZED'].includes(body.toState)) {
         return respond({ error: 'Tier 1 does not include payroll ingestion or calculation' }, 409);
@@ -261,10 +271,11 @@ export async function onRequest(context) {
     }
 
     if (body.action === 'REQUEST_CLIENT_ACTION' || body.action === 'ADD_EXCEPTION_NOTE') {
-      const current = await sql`SELECT e.*, s.client_id FROM payroll_exceptions e JOIN payroll_submissions s ON s.id=e.submission_id
+      const current = await sql`SELECT e.*, s.client_id, s.project_id FROM payroll_exceptions e JOIN payroll_submissions s ON s.id=e.submission_id
         WHERE e.id=${body.exceptionId} AND s.org_id=${organizationId} LIMIT 1`;
       if (!current.length) return respond({ error: 'Exception not found' }, 404);
       if (!assertClientScope(actor, env, current[0].client_id)) return respond({ error: 'Client scope denied' }, 403);
+      if (!assertProjectScope(actor, current[0].project_id)) return respond({ error: 'Project scope denied' }, 403);
       const status = body.action === 'REQUEST_CLIENT_ACTION' ? 'CLIENT_ACTION_REQUIRED' : current[0].status;
       const note = `${current[0].resolution_note ? `${current[0].resolution_note}\n` : ''}[${new Date().toISOString()}] ${actor.email}: ${String(body.message).slice(0, 1000)}`;
       const rows = await sql`UPDATE payroll_exceptions SET status=${status}, owner=${body.action === 'REQUEST_CLIENT_ACTION' ? 'CLIENT_USER' : current[0].owner},
@@ -274,11 +285,12 @@ export async function onRequest(context) {
 
     if (body.action === 'RESOLVE_EXCEPTION') {
       const current = await sql`
-        SELECT e.*, s.client_id FROM payroll_exceptions e
+        SELECT e.*, s.client_id, s.project_id FROM payroll_exceptions e
         JOIN payroll_submissions s ON s.id=e.submission_id
         WHERE e.id=${body.exceptionId} AND s.org_id=${organizationId} LIMIT 1`;
       if (!current.length) return respond({ error: 'Exception not found' }, 404);
       if (!assertClientScope(actor, env, current[0].client_id)) return respond({ error: 'Client scope denied' }, 403);
+      if (!assertProjectScope(actor, current[0].project_id)) return respond({ error: 'Project scope denied' }, 403);
       const rows = await sql`
         UPDATE payroll_exceptions SET status=${body.status}, resolution_note=${body.resolutionNote},
           resolved_at=NOW(), resolved_by=${actor.email} WHERE id=${body.exceptionId} RETURNING *`;

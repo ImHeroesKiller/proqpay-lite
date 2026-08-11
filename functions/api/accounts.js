@@ -20,6 +20,11 @@ function validClientIds(value) {
   return [...new Set(value.map(String).filter(Boolean))].slice(0, 200);
 }
 
+function validProjectIds(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(String).filter(Boolean))].slice(0, 500);
+}
+
 async function replaceClientScopes(sql, userId, clientIds) {
   await sql.transaction((tx) => [
     tx`DELETE FROM user_client_scopes WHERE user_id=${userId}`,
@@ -28,6 +33,23 @@ async function replaceClientScopes(sql, userId, clientIds) {
       SELECT ${userId}, id FROM clients WHERE id=${clientId} AND org_id=${ORG_ID}
       ON CONFLICT DO NOTHING`),
   ]);
+}
+
+async function replaceProjectScopes(sql, userId, projectIds, clientIds) {
+  await sql.transaction((tx) => [
+    tx`DELETE FROM user_project_scopes WHERE user_id=${userId}`,
+    ...projectIds.map((projectId) => tx`
+      INSERT INTO user_project_scopes (user_id, project_id)
+      SELECT ${userId}, id FROM projects WHERE id=${projectId} AND org_id=${ORG_ID} AND client_id=ANY(${clientIds}::text[])
+      ON CONFLICT DO NOTHING`),
+  ]);
+}
+
+async function projectScopesAreValid(sql, projectIds, clientIds) {
+  if (!projectIds.length) return true;
+  const rows = await sql`SELECT COUNT(*)::int AS count FROM projects
+    WHERE org_id=${ORG_ID} AND id=ANY(${projectIds}::text[]) AND client_id=ANY(${clientIds}::text[])`;
+  return Number(rows[0]?.count || 0) === projectIds.length;
 }
 
 async function activeSuperAdminCount(sql) {
@@ -56,13 +78,14 @@ export async function onRequest({ request, env }) {
     await ensureAccountSchema(sql);
     if (request.method === 'GET') {
       if (actor.role !== 'SUPER_ADMIN') return respond({ error: 'Insufficient role' }, 403);
-      const [users, clients] = await Promise.all([
+      const [users, clients, projects] = await Promise.all([
         sql`SELECT u.id, u.name, u.email, u.role, u.status, u.must_change_password,
           u.payment_approver, u.last_login_at, u.created_at,
-          COALESCE(array_agg(ucs.client_id) FILTER (WHERE ucs.client_id IS NOT NULL), ARRAY[]::text[]) AS client_ids
-          FROM app_users u LEFT JOIN user_client_scopes ucs ON ucs.user_id=u.id
-          WHERE u.org_id=${ORG_ID} GROUP BY u.id ORDER BY u.created_at ASC`,
+          COALESCE((SELECT array_agg(ucs.client_id) FROM user_client_scopes ucs WHERE ucs.user_id=u.id), ARRAY[]::text[]) AS client_ids,
+          COALESCE((SELECT array_agg(ups.project_id) FROM user_project_scopes ups WHERE ups.user_id=u.id), ARRAY[]::text[]) AS project_ids
+          FROM app_users u WHERE u.org_id=${ORG_ID} ORDER BY u.created_at ASC`,
         sql`SELECT id, name FROM clients WHERE org_id=${ORG_ID} ORDER BY name ASC`,
+        sql`SELECT id, client_id, code, name, status FROM projects WHERE org_id=${ORG_ID} ORDER BY name ASC`,
       ]);
       return respond({
         ok: true,
@@ -70,9 +93,10 @@ export async function onRequest({ request, env }) {
           id: user.id, name: user.name, email: user.email, role: user.role,
           status: user.status, mustChangePassword: user.must_change_password,
           paymentApprover: user.payment_approver, clientIds: user.client_ids || [],
+          projectIds: user.project_ids || [],
           lastLoginAt: user.last_login_at, createdAt: user.created_at,
         })),
-        clients,
+        clients, projects,
         roles: ACCOUNT_ROLES,
       });
     }
@@ -108,7 +132,9 @@ export async function onRequest({ request, env }) {
       const role = String(body.role || 'CLIENT_USER').toUpperCase();
       if (!name || !email || !ACCOUNT_ROLES.includes(role)) return respond({ error: 'Nama, email, atau role tidak valid' }, 422);
       const clientIds = role === 'CLIENT_USER' ? validClientIds(body.clientIds) : [];
+      const projectIds = role === 'CLIENT_USER' ? validProjectIds(body.projectIds) : [];
       if (role === 'CLIENT_USER' && !clientIds.length) return respond({ error: 'CLIENT_USER wajib memiliki minimal satu client scope' }, 422);
+      if (!await projectScopesAreValid(sql, projectIds, clientIds)) return respond({ error: 'Project scope harus berasal dari klien yang dipilih' }, 422);
       const password = generateTemporaryPassword();
       const record = await passwordRecord(password);
       const id = `USR-${crypto.randomUUID()}`;
@@ -118,10 +144,11 @@ export async function onRequest({ request, env }) {
         VALUES (${id}, ${ORG_ID}, ${name}, ${email}, ${role}, 'ACTIVE', ${record.hash}, ${record.salt},
           ${record.iterations}, TRUE, ${role === 'PAYROLL_CONTROLLER' && Boolean(body.paymentApprover)}, ${actor.email})`;
       await replaceClientScopes(sql, id, clientIds);
+      await replaceProjectScopes(sql, id, projectIds, clientIds);
       await sql`INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
         VALUES (${`AUD-${crypto.randomUUID()}`}, ${ORG_ID}, ${actor.email}, ${actor.role}, 'ACCOUNT_CREATED',
           ${`${email} · ${role}`}, 'app_user', ${id})`;
-      return respond({ ok: true, user: { id, name, email, role, status: 'ACTIVE', clientIds }, temporaryPassword: password }, 201);
+      return respond({ ok: true, user: { id, name, email, role, status: 'ACTIVE', clientIds, projectIds }, temporaryPassword: password }, 201);
     }
 
     if (body.action === 'UPDATE') {
@@ -136,11 +163,14 @@ export async function onRequest({ request, env }) {
       }
       const name = String(body.name || existing.name).trim().slice(0, 120);
       const clientIds = role === 'CLIENT_USER' ? validClientIds(body.clientIds) : [];
+      const projectIds = role === 'CLIENT_USER' ? validProjectIds(body.projectIds) : [];
       if (role === 'CLIENT_USER' && !clientIds.length) return respond({ error: 'CLIENT_USER wajib memiliki minimal satu client scope' }, 422);
+      if (!await projectScopesAreValid(sql, projectIds, clientIds)) return respond({ error: 'Project scope harus berasal dari klien yang dipilih' }, 422);
       await sql`UPDATE app_users SET name=${name}, role=${role}, status=${status},
         payment_approver=${role === 'PAYROLL_CONTROLLER' && Boolean(body.paymentApprover)}, updated_at=NOW()
         WHERE id=${userId}`;
       await replaceClientScopes(sql, userId, clientIds);
+      await replaceProjectScopes(sql, userId, projectIds, clientIds);
       if (status !== 'ACTIVE' || role !== existing.role) await sql`DELETE FROM app_sessions WHERE user_id=${userId}`;
       await sql`INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
         VALUES (${`AUD-${crypto.randomUUID()}`}, ${ORG_ID}, ${actor.email}, ${actor.role}, 'ACCOUNT_UPDATED',

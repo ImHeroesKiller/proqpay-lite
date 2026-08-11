@@ -5,8 +5,12 @@ import { validateDirectoryAction } from '../functions/api/client-projects-valida
 test('client directory accepts controlled client and project payloads', () => {
   assert.equal(validateDirectoryAction({ action: 'CREATE_CLIENT', code: 'iap', name: 'PT Indomarco Adi Prima' }).ok, true);
   assert.equal(validateDirectoryAction({
-    action: 'CREATE_PROJECT', code: 'IAP-SUMUT', name: 'Payroll Sumatera Utara',
-    clientId: 'CLI-039', province: 'Sumatera Utara', startDate: '2026-08-10',
+    action: 'CREATE_PROJECT', code: 'IAP-PAYROLL', name: 'Payroll Nasional',
+    clientId: 'CLI-039', startDate: '2026-08-10',
+  }).ok, true);
+  assert.equal(validateDirectoryAction({
+    action: 'UPDATE_PROJECT', id: 'PRJ-1', code: 'IAP-PAYROLL', name: 'Payroll Nasional',
+    clientId: 'CLI-039', status: 'ON_HOLD',
   }).ok, true);
 });
 

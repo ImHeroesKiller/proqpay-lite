@@ -14,10 +14,12 @@ export function validateDirectoryAction(input) {
   const errors = [];
   const code = String(input.code || '').trim().toUpperCase();
   const name = cleanText(input.name, 160);
-  if (!['CREATE_CLIENT', 'CREATE_PROJECT'].includes(action)) errors.push('action tidak dikenal');
+  if (!['CREATE_CLIENT', 'CREATE_PROJECT', 'UPDATE_CLIENT', 'UPDATE_PROJECT'].includes(action)) errors.push('action tidak dikenal');
   if (!CODE.test(code)) errors.push('code wajib 2-30 karakter A-Z, angka, _ atau -');
   if (!name) errors.push('name wajib diisi maksimal 160 karakter');
-  if (action === 'CREATE_PROJECT' && !ID.test(String(input.clientId || ''))) errors.push('clientId tidak valid');
+  if (['CREATE_PROJECT', 'UPDATE_PROJECT'].includes(action) && !ID.test(String(input.clientId || ''))) errors.push('clientId tidak valid');
+  if (action.startsWith('UPDATE_') && !ID.test(String(input.id || ''))) errors.push('id tidak valid');
+  if (action === 'UPDATE_PROJECT' && input.status && !['ACTIVE','ON_HOLD','COMPLETED','INACTIVE'].includes(String(input.status))) errors.push('status tidak valid');
   if (input.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(String(input.startDate))) errors.push('startDate tidak valid');
   if (input.endDate && !/^\d{4}-\d{2}-\d{2}$/.test(String(input.endDate))) errors.push('endDate tidak valid');
   return { ok: errors.length === 0, errors, value: { ...input, code, name } };

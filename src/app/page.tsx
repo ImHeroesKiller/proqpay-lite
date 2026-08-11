@@ -25,7 +25,7 @@ import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromNeon } from '@/lib/neon-sync';
 import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
 
-type Actor = { id: string; name?: string; email: string; role: string; permissions: string[]; mustChangePassword?: boolean; clientIds?: string[] | null; authMode?: string };
+type Actor = { id: string; name?: string; email: string; role: string; permissions: string[]; mustChangePassword?: boolean; clientIds?: string[] | null; projectIds?: string[] | null; authMode?: string };
 
 export default function Home() {
   const [db, setDb] = useState<any>(null);

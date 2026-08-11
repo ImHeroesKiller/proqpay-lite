@@ -118,6 +118,12 @@ export async function ensureAccountSchema(sql) {
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, client_id)
   )`);
+  await sql.query(`CREATE TABLE IF NOT EXISTS user_project_scopes (
+    user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, project_id)
+  )`);
   await sql.query(`CREATE TABLE IF NOT EXISTS app_sessions (
     token_hash TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
@@ -166,14 +172,20 @@ export async function authenticateSession(request, env) {
   const token = cookieValue(request, SESSION_COOKIE);
   if (!url || !token) return null;
   const sql = neon(url);
+  await sql.query(`CREATE TABLE IF NOT EXISTS user_project_scopes (
+    user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, project_id)
+  )`);
   const tokenHash = await sha256(token);
   const rows = await sql`
     SELECT u.id, u.name, u.email, u.role, u.status, u.must_change_password,
       u.payment_approver, s.expires_at,
-      COALESCE(array_agg(ucs.client_id) FILTER (WHERE ucs.client_id IS NOT NULL), ARRAY[]::text[]) AS client_ids
+      COALESCE((SELECT array_agg(ucs.client_id) FROM user_client_scopes ucs WHERE ucs.user_id=u.id), ARRAY[]::text[]) AS client_ids,
+      COALESCE((SELECT array_agg(ups.project_id) FROM user_project_scopes ups WHERE ups.user_id=u.id), ARRAY[]::text[]) AS project_ids
     FROM app_sessions s
     JOIN app_users u ON u.id=s.user_id
-    LEFT JOIN user_client_scopes ucs ON ucs.user_id=u.id
     WHERE s.token_hash=${tokenHash} AND s.expires_at>NOW() AND u.status='ACTIVE'
     GROUP BY u.id, s.expires_at
     LIMIT 1`;
@@ -188,6 +200,7 @@ export async function authenticateSession(request, env) {
     mustChangePassword: Boolean(user.must_change_password),
     paymentApprover: Boolean(user.payment_approver),
     clientIds: user.client_ids || [],
+    projectIds: user.project_ids || [],
     authSource: 'database',
   };
 }

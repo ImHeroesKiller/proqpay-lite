@@ -6,6 +6,7 @@ import {
 import {
   authorize,
   clientIdsFor,
+  projectIdsFor,
   enforceRateLimit,
   handlePreflight,
   publicError,
@@ -123,9 +124,11 @@ export async function onRequest(context) {
     await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_net BIGINT DEFAULT 0`);
     await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_components JSONB DEFAULT '{}'::jsonb`);
     await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`);
+    await sql.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`);
 
     if (actor.role === 'CLIENT_USER') {
       const allowedClientIds = clientIdsFor(actor, env) || [];
+      const allowedProjectIds = projectIdsFor(actor) || [];
       const requestedClientIds = [...new Set(rows.map(rowClientId))];
       if (
         !allowedClientIds.length ||
@@ -135,6 +138,9 @@ export async function onRequest(context) {
           { error: 'Import hanya boleh untuk klien yang ditetapkan pada akun Anda.' },
           403
         );
+      }
+      if (allowedProjectIds.length && (!projectId || !allowedProjectIds.includes(projectId))) {
+        return respond({ error: 'Import hanya boleh untuk project yang ditetapkan pada akun Anda.' }, 403);
       }
 
       const scopedEmployees = await sql`
@@ -217,11 +223,11 @@ export async function onRequest(context) {
           `,
           tx`
             INSERT INTO employees (
-              id, org_id, client_id, branch_id, location_id, name, gender,
+              id, org_id, client_id, project_id, branch_id, location_id, name, gender,
               birth_place, birth_date, religion, phone, mobile, email, mother_name,
               status_aktif, province, updated_at
             ) VALUES (
-              ${row.nrk}, ${orgId}, ${clientId}, ${branchId}, ${locationId}, ${row.name},
+              ${row.nrk}, ${orgId}, ${clientId}, ${projectId}, ${branchId}, ${locationId}, ${row.name},
               ${row.gender || null}, ${row.birthPlace || null}, ${row.birthDate || null},
               ${row.religion || null}, ${row.phone || null}, ${row.mobile || null},
               ${row.email || null}, ${row.motherName || null}, ${row.statusAktif || null},
@@ -230,6 +236,7 @@ export async function onRequest(context) {
             ON CONFLICT (id) DO UPDATE SET
               name = EXCLUDED.name,
               client_id = EXCLUDED.client_id,
+              project_id = COALESCE(EXCLUDED.project_id, employees.project_id),
               branch_id = EXCLUDED.branch_id,
               location_id = EXCLUDED.location_id,
               gender = EXCLUDED.gender,

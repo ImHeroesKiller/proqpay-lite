@@ -36,6 +36,7 @@ export async function onRequest({ request, env }) {
         permissions: actor.permissions || permissionsFor(actor.role, actor.email, env),
         mustChangePassword: Boolean(actor.mustChangePassword),
         clientIds: actor.role === 'CLIENT_USER' ? (actor.clientIds || []) : null,
+        projectIds: actor.role === 'CLIENT_USER' ? (actor.projectIds || []) : null,
       },
     },
     200,

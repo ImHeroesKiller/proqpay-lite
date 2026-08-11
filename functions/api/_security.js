@@ -125,6 +125,11 @@ export function clientIdsFor(actor, env) {
   }
 }
 
+export function projectIdsFor(actor) {
+  if (actor?.role !== 'CLIENT_USER') return null;
+  return Array.isArray(actor.projectIds) ? actor.projectIds.map(String) : [];
+}
+
 async function verifyAccess(request, env) {
   const teamDomain = String(env.CF_ACCESS_TEAM_DOMAIN || '').replace(/\/+$/, '');
   const audience = String(env.CF_ACCESS_AUD || '');

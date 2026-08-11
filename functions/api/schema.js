@@ -214,6 +214,10 @@ export async function onRequest(context) {
         user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
         client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (user_id, client_id))`,
+      `CREATE TABLE IF NOT EXISTS user_project_scopes (
+        user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (user_id, project_id))`,
       `CREATE TABLE IF NOT EXISTS app_sessions (
         token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
         expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -245,6 +249,7 @@ export async function onRequest(context) {
       `ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_net BIGINT DEFAULT 0`,
       `ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_components JSONB DEFAULT '{}'::jsonb`,
       `ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`,
+      `ALTER TABLE employees ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`,
     ];
     for (const a of alters) {
       try {
@@ -299,6 +304,7 @@ export async function onRequest(context) {
         'integration_sync_runs',
         'app_users',
         'user_client_scopes',
+        'user_project_scopes',
         'app_sessions',
       ],
     });

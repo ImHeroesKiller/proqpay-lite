@@ -5,7 +5,7 @@ import { executeOperatingAction, listOperatingResource, type OperatingResource }
 import { formatIDR } from '@/lib/format';
 
 type Tab = 'submissions' | 'exceptions' | 'payments' | 'integrations';
-type Actor = { email: string; role: string; permissions?: string[] };
+type Actor = { email: string; role: string; permissions?: string[]; clientIds?: string[]; projectIds?: string[] };
 
 const labels: Record<Tab, string> = {
   submissions: 'Payroll Workspace',
@@ -29,14 +29,15 @@ export default function OperatingWorkspace() {
     setMessage('');
     try {
       const resources: OperatingResource[] = ['submissions','exceptions','payment-instructions','payment-proofs','reconciliations','integrations'];
-      const [me, ...results] = await Promise.all([
-        fetch('/api/me').then((r) => r.json()),
-        ...resources.map((resource) => listOperatingResource(resource)),
-      ]);
+      const meResponse = await fetch('/api/me');
+      const me = await meResponse.json();
+      if (!meResponse.ok) throw new Error(me.error || `HTTP ${meResponse.status}`);
       setActor(me.user || null);
+      const clientIds = me.user?.role === 'CLIENT_USER' ? (me.user.clientIds || []) : [undefined];
+      const results = await Promise.all(clientIds.flatMap((clientId: string | undefined) => resources.map((resource) => listOperatingResource(resource, clientId))));
       const merged: Record<string, any[]> = {};
       results.forEach((result: any) => Object.entries(result).forEach(([key, value]) => {
-        if (Array.isArray(value)) merged[key] = value;
+        if (Array.isArray(value)) merged[key] = [...(merged[key] || []), ...value];
       }));
       setData(merged);
     } catch (error) {

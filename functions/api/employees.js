@@ -3,6 +3,7 @@ import {
   ROLES,
   authorize,
   clientIdsFor,
+  projectIdsFor,
   enforceRateLimit,
   handlePreflight,
   publicError,
@@ -75,10 +76,13 @@ export async function onRequest(context) {
     await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_deduction BIGINT DEFAULT 0`);
     await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_net BIGINT DEFAULT 0`);
     await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_components JSONB DEFAULT '{}'::jsonb`);
+    await sql.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`);
 
     if (request.method === 'GET') {
       const scopedClientIds = clientIdsFor(actor, env);
       const clientScopeCsv = (scopedClientIds || []).join(',');
+      const scopedProjectIds = projectIdsFor(actor);
+      const projectScopeCsv = (scopedProjectIds || []).join(',');
       const rows = await sql`
         SELECT
           e.id,
@@ -106,7 +110,8 @@ export async function onRequest(context) {
           ec.candidate_source AS "candidateSource",
           COALESCE(wl.province, e.province, b.province) AS region,
           COALESCE(wl.province, e.province, b.province) AS province,
-          COALESCE(wl.unit_kerja, wl.name) AS project,
+          COALESCE(p.name, wl.unit_kerja, wl.name) AS project,
+          e.project_id AS "projectId",
           COALESCE(cp.basic_salary, 0)::float8 AS "salaryGross",
           cp.payroll_source_period AS "payrollSourcePeriod",
           COALESCE(cp.imported_gross, 0)::float8 AS "importedGross",
@@ -148,6 +153,7 @@ export async function onRequest(context) {
           TRUE AS pph21
         FROM employees e
         LEFT JOIN clients c ON c.id = e.client_id
+        LEFT JOIN projects p ON p.id = e.project_id
         LEFT JOIN branches b ON b.id = e.branch_id
         LEFT JOIN work_locations wl ON wl.id = e.location_id
         LEFT JOIN LATERAL (
@@ -184,7 +190,8 @@ export async function onRequest(context) {
         ) edu ON TRUE
         LEFT JOIN employee_hris_meta hm ON hm.employee_id = e.id
         WHERE ${actor.role !== 'CLIENT_USER'}
-          OR e.client_id = ANY(string_to_array(${clientScopeCsv}, ','))
+          OR (e.client_id = ANY(string_to_array(${clientScopeCsv}, ','))
+            AND (${!scopedProjectIds?.length} OR e.project_id = ANY(string_to_array(${projectScopeCsv}, ','))))
         ORDER BY e.name ASC
         LIMIT 500
       `;
@@ -208,16 +215,22 @@ export async function onRequest(context) {
       const clientId = body.clientId || body.client_id || null;
       const branchId = body.branchId || body.branch_id || null;
       const locationId = body.locationId || body.location_id || null;
+      const projectId = body.projectId || body.project_id || null;
       const status = body.statusAktif || body.status_aktif || body.status || 'TETAP';
       const province = body.province || body.region || null;
       const salaryGross = Number(body.salaryGross ?? body.salary_gross ?? body.basicSalary ?? 0) || 0;
 
       if (actor.role === 'CLIENT_USER') {
         const scope = clientIdsFor(actor, env) || [];
-        const existing = await sql`SELECT client_id FROM employees WHERE id=${id} LIMIT 1`;
+        const projectScope = projectIdsFor(actor) || [];
+        const existing = await sql`SELECT client_id, project_id FROM employees WHERE id=${id} LIMIT 1`;
         const targetClientId = existing[0]?.client_id || clientId;
+        const targetProjectId = existing[0]?.project_id || projectId;
         if (!targetClientId || !scope.includes(String(targetClientId))) {
           return respond({ error: 'Karyawan berada di luar client scope Anda.' }, 403);
+        }
+        if (projectScope.length && (!targetProjectId || !projectScope.includes(String(targetProjectId)))) {
+          return respond({ error: 'Karyawan berada di luar project scope Anda.' }, 403);
         }
       }
 
@@ -229,12 +242,13 @@ export async function onRequest(context) {
 
       await sql`
         INSERT INTO employees (
-          id, org_id, client_id, branch_id, location_id, name, status_aktif, province, updated_at
+          id, org_id, client_id, project_id, branch_id, location_id, name, status_aktif, province, updated_at
         )
         VALUES (
           ${id},
           ${orgId},
           ${clientId},
+          ${projectId},
           ${branchId},
           ${locationId},
           ${String(body.name).trim()},
@@ -245,6 +259,7 @@ export async function onRequest(context) {
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           client_id = EXCLUDED.client_id,
+          project_id = COALESCE(EXCLUDED.project_id, employees.project_id),
           branch_id = EXCLUDED.branch_id,
           location_id = EXCLUDED.location_id,
           status_aktif = EXCLUDED.status_aktif,
