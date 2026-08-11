@@ -29,6 +29,7 @@ export type AppSettings = {
   accentColor: 'indigo' | 'blue' | 'teal';
   density: 'comfortable' | 'compact';
   sidebarMode: 'expanded' | 'compact';
+  enableAnimations: boolean;
   defaultView: 'dashboard' | 'operations' | 'employees' | 'clients' | 'reports';
   dashboardPageSize: number;
   employeePageSize: number;
@@ -67,6 +68,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   accentColor: 'indigo',
   density: 'comfortable',
   sidebarMode: 'expanded',
+  enableAnimations: true,
   defaultView: 'dashboard',
   dashboardPageSize: 5,
   employeePageSize: 15,

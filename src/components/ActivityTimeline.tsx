@@ -1,54 +1,33 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { formatDate } from '@/lib/format';
+import PanelPagination from './PanelPagination';
 
-export default function ActivityTimeline({ logs }: { logs: any[] }) {
-  const items = (logs || []).slice(-6).reverse();
-
-  if (items.length === 0) {
-    return (
-      <div className="card" style={{ padding: '18px' }}>
-        <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
-          Activity Timeline
-        </div>
-        <div style={{ fontSize: '13px', color: 'var(--text3)' }}>No recent activity</div>
-      </div>
-    );
-  }
+export default function ActivityTimeline({ logs, pageSize = 5 }: { logs: any[]; pageSize?: number }) {
+  const [page, setPage] = useState(1);
+  const items = useMemo(() => [...(logs || [])].reverse(), [logs]);
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const visible = items.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   return (
-    <div className="card" style={{ padding: '18px' }}>
-      <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
-        Activity Timeline
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '13px' }}>
-        {items.map((l: any) => {
-          const color =
-            l.action?.includes('PAYROLL') ? '#3b82f6' :
-            l.action?.includes('PAYMENT') ? '#10b981' :
-            l.action?.includes('APPROVED') ? '#8b5cf6' : '#94a3b8';
-          return (
-            <div key={l.id} style={{ display: 'flex', gap: '11px' }}>
-              <div style={{
-                width: '9px', height: '9px', borderRadius: '50%',
-                background: color, marginTop: '4px', flexShrink: 0,
-                boxShadow: `0 0 0 3px ${color}22`
-              }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '11.5px', fontWeight: 600, textTransform: 'capitalize' }}>
-                  {(l.action || '').replace(/_/g, ' ').toLowerCase()}
-                </div>
-                <div style={{ fontSize: '11.5px', color: 'var(--text2)', marginTop: '2px', lineHeight: 1.45 }}>
-                  {l.detail}
-                </div>
-                <div style={{ fontSize: '10.5px', color: 'var(--text3)', marginTop: '2px' }}>
-                  {formatDate(l.timestamp)} · {l.user}
-                </div>
+    <div className="card client-detail-panel activity-panel">
+      <div className="client-panel-heading"><div><span>Audit</span><h3>Activity Timeline</h3></div><small>{items.length} event</small></div>
+      {!items.length ? <div className="client-panel-empty">Belum ada aktivitas terbaru.</div> : (
+        <div key={safePage} className="activity-list paginated-content">
+          {visible.map((log: any) => {
+            const color = log.action?.includes('PAYROLL') ? '#3b82f6' : log.action?.includes('PAYMENT') ? '#10b981' : log.action?.includes('APPROVED') ? '#8b5cf6' : '#94a3b8';
+            return (
+              <div key={log.id} className="activity-item">
+                <i style={{ background: color, boxShadow: `0 0 0 3px ${color}22` }} />
+                <div><strong>{(log.action || '').replace(/_/g, ' ').toLowerCase()}</strong><p>{log.detail}</p><small>{formatDate(log.timestamp)} · {log.user}</small></div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
+      <PanelPagination page={safePage} pageCount={pageCount} total={items.length} label="aktivitas" onPage={setPage} />
     </div>
   );
 }

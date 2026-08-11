@@ -27,7 +27,7 @@ export default function Sidebar({
         className={`app-sidebar${compact ? ' app-sidebar-compact' : ''}`}
       >
         <div className="sidebar-brand">
-          <span>PQ</span>
+          <span aria-hidden="true" />
           <div><strong>ProQPay</strong><small>Payroll operations</small></div>
         </div>
 

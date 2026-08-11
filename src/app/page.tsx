@@ -65,7 +65,9 @@ export default function Home() {
       });
     const st = loadSettings();
     setSettings(st);
-    setView(st.defaultView);
+    const requestedView = new URLSearchParams(window.location.search).get('view');
+    const allowedViews: AppView[] = ['dashboard', 'operations', 'employees', 'clients', 'reports', 'logs'];
+    setView(allowedViews.includes(requestedView as AppView) ? requestedView as AppView : st.defaultView);
     if (data?.meta?.currentPeriod) setPeriod(data.meta.currentPeriod);
     else if (st.defaultPeriod) setPeriod(st.defaultPeriod);
 
@@ -110,9 +112,16 @@ export default function Home() {
     setDb(result.db);
   }
 
+  function navigate(nextView: AppView) {
+    setView(nextView);
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', nextView);
+    window.history.replaceState({}, '', url);
+  }
+
   function openEmployees(region = 'ALL') {
     setEmployeeRegionFilter(region);
-    setView('employees');
+    navigate('employees');
   }
 
   if (!mounted || !db || !settings) {
@@ -139,10 +148,10 @@ export default function Home() {
   const pad = settings.density === 'compact' ? '18px 16px' : '28px 24px';
 
   return (
-    <div className={`app-shell theme-${settings.theme} accent-${settings.accentColor} density-${settings.density}`} style={{ display: 'flex', minHeight: '100vh' }}>
+    <div className={`app-shell theme-${settings.theme} accent-${settings.accentColor} density-${settings.density}${settings.enableAnimations ? '' : ' animations-off'}`} style={{ display: 'flex', minHeight: '100vh' }}>
       <Sidebar
         view={view}
-        onView={setView}
+        onView={navigate}
         onOpenIda={() => setIdaOpenSignal((n) => n + 1)}
         role={actor?.role}
         compact={settings.sidebarMode === 'compact'}
@@ -152,7 +161,7 @@ export default function Home() {
         <AppHeader period={period} onHelp={() => setHelpOpen(true)} />
 
         <div style={{ flex: 1, overflowY: 'auto', padding: pad }}>
-          <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+          <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
             {view === 'dashboard' && (
               <section className="dashboard-page">
                 <div className="page-heading dashboard-heading">
@@ -181,7 +190,7 @@ export default function Home() {
                     accent="#14b8a6"
                     icon={<IconBuilding />}
                     sparkData={undefined}
-                    onClick={() => setView('clients')}
+                    onClick={() => navigate('clients')}
                   />
                   <MetricCard
                     label="Payroll"
@@ -190,7 +199,7 @@ export default function Home() {
                     accent="#5b5ef0"
                     icon={<IconWallet />}
                     sparkData={settings.showSparklines && payrollTrend.length > 1 ? payrollTrend : undefined}
-                    onClick={() => setView('operations')}
+                    onClick={() => navigate('operations')}
                   />
                   <MetricCard
                     label="Piutang"
@@ -199,21 +208,21 @@ export default function Home() {
                     accent="#f97316"
                     icon={<IconClock />}
                     sparkData={undefined}
-                    onClick={() => setView('reports')}
+                    onClick={() => navigate('reports')}
                   />
                 </div> : null}
 
                 <div className="dashboard-primary-grid">
                   {settings.showWorkforceInsights ? <WorkforceInsights employees={db.employees || []} onOpenEmployees={openEmployees} showDataSourceBadge={settings.showDataSourceBadges} /> : null}
-                  <RoleDashboard actor={actor} onNavigate={setView} />
+                  <RoleDashboard actor={actor} onNavigate={navigate} />
                 </div>
 
                 <div className="dashboard-secondary-grid">
                   {settings.showMap ? <RegionMap employees={db.employees} pageSize={settings.dashboardPageSize} onOpenEmployees={openEmployees} /> : null}
-                  {settings.showClientPortfolio ? <ClientPortfolio companies={db.companies || []} employees={db.employees || []} projects={db.projects || []} pageSize={settings.dashboardPageSize} onOpenDirectory={() => setView('clients')} /> : null}
+                  {settings.showClientPortfolio ? <ClientPortfolio companies={db.companies || []} employees={db.employees || []} projects={db.projects || []} pageSize={settings.dashboardPageSize} onOpenDirectory={() => navigate('clients')} /> : null}
                 </div>
 
-                {settings.showClientDetail && clientCount > 0 ? <ClientDetail db={db} pageSize={settings.dashboardPageSize} onOpenEmployees={() => openEmployees()} /> : null}
+                {settings.showClientDetail && clientCount > 0 ? <ClientDetail db={db} pageSize={settings.dashboardPageSize} onOpenEmployees={openEmployees} /> : null}
               </section>
             )}
 

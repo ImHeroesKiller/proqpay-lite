@@ -1,0 +1,26 @@
+{
+  "name": "ProQPay Lite — AI Payroll OS",
+  "short_name": "ProQPay",
+  "description": "Payroll operations, employee data, BPJS, invoices, and IDA operational copilot.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5f6fa",
+  "theme_color": "#4f46e5",
+  "lang": "id-ID",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "/assets/proqpay-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Dashboard", "short_name": "Dashboard", "url": "/?view=dashboard" },
+    { "name": "Data Karyawan", "short_name": "Karyawan", "url": "/?view=employees" },
+    { "name": "Payroll Operations", "short_name": "Payroll", "url": "/?view=operations" }
+  ]
+}

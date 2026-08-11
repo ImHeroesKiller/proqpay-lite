@@ -149,6 +149,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                   <Field label="Kepadatan"><select value={settings.density} onChange={(event) => patch({ density: event.target.value as AppSettings['density'] })}><option value="comfortable">Nyaman</option><option value="compact">Padat</option></select></Field>
                   <Field label="Sidebar"><select value={settings.sidebarMode} onChange={(event) => patch({ sidebarMode: event.target.value as AppSettings['sidebarMode'] })}><option value="expanded">Label lengkap</option><option value="compact">Ikon ringkas</option></select></Field>
                 </div>
+                <div className="settings-toggle-list"><Toggle label="Animasi transisi" description="Transisi halaman, widget, pagination, dan hover" checked={settings.enableAnimations} onChange={(value) => patch({ enableAnimations: value })} /></div>
               </SettingsSection>
             </> : null}
 

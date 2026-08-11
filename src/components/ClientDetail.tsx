@@ -1,187 +1,104 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { formatIDRShort } from '@/lib/format';
 import ActivityTimeline from './ActivityTimeline';
+import PanelPagination from './PanelPagination';
 import { buildClientInsights } from '@/lib/client-insights';
 
-export default function ClientDetail({ db, pageSize = 5, onOpenEmployees }: { db: any; pageSize?: number; onOpenEmployees?: () => void }) {
-  const clients = db.companies?.map((c: any) => c.name) || [];
+function pageOf<T>(items: T[], page: number, size: number) {
+  const pageCount = Math.max(1, Math.ceil(items.length / size));
+  const safePage = Math.min(page, pageCount);
+  return { pageCount, safePage, visible: items.slice((safePage - 1) * size, safePage * size) };
+}
+
+export default function ClientDetail({ db, pageSize = 5, onOpenEmployees }: { db: any; pageSize?: number; onOpenEmployees?: (region?: string) => void }) {
+  const clients = db.companies?.map((company: any) => company.name) || [];
   const [selected, setSelected] = useState(clients[0] || '');
   const [employeePage, setEmployeePage] = useState(1);
+  const [regionPage, setRegionPage] = useState(1);
+  const [insightPage, setInsightPage] = useState(1);
+  const [billingPage, setBillingPage] = useState(1);
 
-  const info = {
-    employees: db.employees?.filter((e: any) => e.company === selected) || [],
-    projects: db.projects?.filter((p: any) => p.company === selected) || [],
-    company: db.companies?.find((c: any) => c.name === selected),
-    invoice: (db.invoices || []).find((i: any) => i.company === selected),
-    ar: (db.arMonitor || []).find((a: any) => a.company === selected && a.status === 'OUTSTANDING'),
-  };
+  const info = useMemo(() => {
+    const employees = db.employees?.filter((employee: any) => employee.company === selected) || [];
+    const regionCounts = new Map<string, number>();
+    employees.forEach((employee: any) => {
+      const region = employee.region || employee.province;
+      if (region) regionCounts.set(region, (regionCounts.get(region) || 0) + 1);
+    });
+    const regions = [...regionCounts.entries()].sort((a, b) => b[1] - a[1]);
+    const invoices = (db.invoices || []).filter((invoice: any) => invoice.company === selected);
+    const billing = invoices.map((invoice: any) => ({
+      ...invoice,
+      ar: (db.arMonitor || []).find((item: any) => item.company === selected && item.invoiceId === invoice.id),
+    }));
+    return { employees, regions, billing, insights: buildClientInsights(db, selected) };
+  }, [db, selected]);
 
-  const regions: Record<string, number> = {};
-  info.employees.forEach((e: any) => {
-    if (e.region) regions[e.region] = (regions[e.region] || 0) + 1;
-  });
+  const employeeData = pageOf(info.employees, employeePage, pageSize);
+  const regionData = pageOf(info.regions, regionPage, pageSize);
+  const insightData = pageOf(info.insights, insightPage, pageSize);
+  const billingData = pageOf(info.billing, billingPage, pageSize);
 
-  const insights = buildClientInsights(db, selected);
-  const employeePageCount = Math.max(1, Math.ceil(info.employees.length / pageSize));
-  const safeEmployeePage = Math.min(employeePage, employeePageCount);
-  const visibleEmployees = info.employees.slice((safeEmployeePage - 1) * pageSize, safeEmployeePage * pageSize);
+  function changeClient(value: string) {
+    setSelected(value);
+    setEmployeePage(1);
+    setRegionPage(1);
+    setInsightPage(1);
+    setBillingPage(1);
+  }
 
   return (
-    <section style={{ marginTop: '36px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', gap: '16px', flexWrap: 'wrap' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.02em' }}>
-          Client Detail
-        </h2>
-        <select
-          value={selected}
-          onChange={(e) => { setSelected(e.target.value); setEmployeePage(1); }}
-          style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border)',
-            color: 'var(--text)',
-            padding: '8px 14px',
-            borderRadius: 'var(--r-sm)',
-            fontSize: '13px',
-            fontWeight: 500,
-            fontFamily: 'inherit',
-            minWidth: '220px',
-            outline: 'none',
-          }}
-        >
-          {clients.map((c: string) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
+    <section className="client-detail dashboard-animated-section">
+      <div className="client-detail-header">
+        <div><span className="page-eyebrow">Client intelligence</span><h2>Detail Klien</h2><p>Tenaga kerja, area, insight, billing, dan aktivitas dalam satu konteks.</p></div>
+        <label><span>Klien aktif</span><select value={selected} onChange={(event) => changeClient(event.target.value)}>{clients.map((client: string) => <option key={client}>{client}</option>)}</select></label>
       </div>
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-        gap: '16px',
-      }}>
-        {/* Employee List */}
-        <div className="card" style={{ padding: '18px', gridColumn: '1 / -1' }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
-            Employee List <span style={{ fontWeight: 500, color: 'var(--text3)' }}>({info.employees.length})</span>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
-              <thead>
-                <tr>
-                  {['ID', 'Name', 'Position', 'Status', 'Region', 'Salary'].map(h => (
-                    <th key={h} style={{
-                      textAlign: 'left', padding: '8px 10px',
-                      background: 'var(--bg-subtle)', color: 'var(--text2)',
-                      fontWeight: 600, fontSize: '11px', textTransform: 'uppercase'
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {visibleEmployees.map((e: any) => (
-                  <tr key={e.id} style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }} onClick={onOpenEmployees} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') onOpenEmployees?.(); }}>
-                    <td style={{ padding: '8px 10px' }}>{e.id}</td>
-                    <td style={{ padding: '8px 10px', fontWeight: 500 }}>{e.name}</td>
-                    <td style={{ padding: '8px 10px' }}>{e.position || '-'}</td>
-                    <td style={{ padding: '8px 10px' }}>
-                      <span style={{
-                        fontSize: '10px', padding: '2px 8px', borderRadius: '999px',
-                        background: e.status === 'TETAP' ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
-                        color: e.status === 'TETAP' ? '#059669' : '#d97706', fontWeight: 600
-                      }}>{e.status}</span>
-                    </td>
-                    <td style={{ padding: '8px 10px' }}>{e.region || '-'}</td>
-                    <td style={{ padding: '8px 10px' }}>{formatIDRShort(e.salaryGross)}</td>
-                  </tr>
-                ))}
+      <div className="client-detail-grid">
+        <div className="card client-detail-panel client-employees-panel">
+          <div className="client-panel-heading"><div><span>Workforce</span><h3>Employee List</h3></div><small>{info.employees.length} karyawan</small></div>
+          <div className="client-employee-scroll">
+            <table className="client-employee-table">
+              <thead><tr>{['ID', 'Nama', 'Posisi', 'Status', 'Wilayah', 'Gaji'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
+              <tbody key={employeeData.safePage} className="paginated-content">
+                {employeeData.visible.map((employee: any) => <tr key={employee.id} onClick={() => onOpenEmployees?.()} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') onOpenEmployees?.(); }}><td>{employee.id}</td><td><strong>{employee.name}</strong></td><td>{employee.position || '-'}</td><td><span className={employee.status === 'TETAP' ? 'client-status active' : 'client-status'}>{employee.status || '-'}</span></td><td>{employee.region || '-'}</td><td>{formatIDRShort(employee.salaryGross)}</td></tr>)}
               </tbody>
             </table>
+            {!info.employees.length ? <div className="client-panel-empty">Belum ada karyawan.</div> : null}
           </div>
-          <div className="dashboard-list-pagination"><span>{info.employees.length} karyawan</span><div><button type="button" aria-label="Karyawan sebelumnya" disabled={safeEmployeePage === 1} onClick={() => setEmployeePage((value) => Math.max(1, value - 1))}>←</button><span>{safeEmployeePage}/{employeePageCount}</span><button type="button" aria-label="Karyawan berikutnya" disabled={safeEmployeePage === employeePageCount} onClick={() => setEmployeePage((value) => Math.min(employeePageCount, value + 1))}>→</button></div></div>
+          <PanelPagination page={employeeData.safePage} pageCount={employeeData.pageCount} total={info.employees.length} label="karyawan" onPage={setEmployeePage} />
         </div>
 
-        {/* Area / Region */}
-        <div className="card" style={{ padding: '18px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
-            Area / Region
+        <div className="card client-detail-panel">
+          <div className="client-panel-heading"><div><span>Coverage</span><h3>Area / Region</h3></div><small>{info.regions.length} wilayah</small></div>
+          <div key={regionData.safePage} className="client-region-list paginated-content">
+            {regionData.visible.map(([region, count]) => <button type="button" key={region} onClick={() => onOpenEmployees?.(region)}><span><i />{region}</span><strong>{count}</strong></button>)}
+            {!info.regions.length ? <div className="client-panel-empty">Wilayah belum tersedia.</div> : null}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {Object.entries(regions).length === 0 && (
-              <div style={{ fontSize: '13px', color: 'var(--text3)' }}>No regions</div>
-            )}
-            {Object.entries(regions).map(([r, c]) => (
-              <div key={r} style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '8px 12px', background: 'var(--bg-subtle)', borderRadius: 'var(--r-sm)'
-              }}>
-                <span style={{ fontSize: '12.5px', fontWeight: 600 }}>{r}</span>
-                <span style={{
-                  background: 'var(--accent-soft)', color: 'var(--accent)',
-                  padding: '2px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700
-                }}>{c}</span>
-              </div>
-            ))}
-          </div>
+          <PanelPagination page={regionData.safePage} pageCount={regionData.pageCount} total={info.regions.length} label="wilayah" onPage={setRegionPage} />
         </div>
 
-        {/* AI Insight */}
-        <div className="card" style={{ padding: '18px', borderColor: 'color-mix(in srgb, var(--violet) 22%, var(--border))' }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
-            🧠 AI Insight
+        <div className="card client-detail-panel insight-panel">
+          <div className="client-panel-heading"><div><span>Deterministic insight</span><h3>AI Insight</h3></div><small>{info.insights.length} temuan</small></div>
+          <div key={insightData.safePage} className="client-insight-list paginated-content">
+            {insightData.visible.map((insight, index) => <div key={`${insight.text}-${index}`}><span>{insight.icon}</span><p>{insight.text}</p></div>)}
+            {!info.insights.length ? <div className="client-panel-empty">Belum ada insight.</div> : null}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {insights.map((i, idx) => (
-              <div key={idx} style={{
-                display: 'flex', gap: '9px', alignItems: 'flex-start',
-                padding: '10px 12px', background: 'var(--bg-subtle)',
-                borderRadius: 'var(--r-md)', border: '1px solid var(--border-soft)'
-              }}>
-                <span style={{ fontSize: '15px', flexShrink: 0 }}>{i.icon}</span>
-                <span style={{ fontSize: '12.5px', lineHeight: 1.45 }}>{i.text}</span>
-              </div>
-            ))}
-          </div>
+          <PanelPagination page={insightData.safePage} pageCount={insightData.pageCount} total={info.insights.length} label="insight" onPage={setInsightPage} />
         </div>
 
-        {/* Billing */}
-        <div className="card" style={{ padding: '18px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
-            Billing Information
+        <div className="card client-detail-panel billing-panel">
+          <div className="client-panel-heading"><div><span>Receivables</span><h3>Billing Information</h3></div><small>{info.billing.length} invoice</small></div>
+          <div key={billingData.safePage} className="client-billing-list paginated-content">
+            {billingData.visible.map((invoice: any) => <div key={invoice.id}><header><strong>{invoice.id}</strong><span className={invoice.status === 'PAID' ? 'paid' : ''}>{invoice.status}</span></header><dl><div><dt>Nilai invoice</dt><dd>{formatIDRShort(invoice.totalAmount)}</dd></div><div><dt>Outstanding</dt><dd>{formatIDRShort(invoice.ar?.amount || 0)}</dd></div></dl></div>)}
+            {!info.billing.length ? <div className="client-panel-empty">Belum ada invoice pada klien ini.</div> : null}
           </div>
-          {info.invoice ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12.5px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text2)' }}>Invoice ID</span>
-                <strong>{info.invoice.id}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text2)' }}>Amount</span>
-                <strong>{formatIDRShort(info.invoice.totalAmount)}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text2)' }}>Status</span>
-                <span style={{
-                  fontSize: '10px', padding: '2px 8px', borderRadius: '999px', fontWeight: 600,
-                  background: info.invoice.status === 'PAID' ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
-                  color: info.invoice.status === 'PAID' ? '#059669' : '#d97706'
-                }}>{info.invoice.status}</span>
-              </div>
-              {info.ar && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '8px', borderTop: '1px solid var(--border-soft)' }}>
-                  <span style={{ color: 'var(--text2)' }}>AR Outstanding</span>
-                  <strong style={{ color: 'var(--orange)' }}>{formatIDRShort(info.ar.amount)}</strong>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div style={{ fontSize: '13px', color: 'var(--text3)' }}>No invoice this period</div>
-          )}
+          <PanelPagination page={billingData.safePage} pageCount={billingData.pageCount} total={info.billing.length} label="invoice" onPage={setBillingPage} />
         </div>
 
-        {/* Activity Timeline */}
-        <ActivityTimeline logs={db.auditLogs || []} />
+        <ActivityTimeline logs={db.auditLogs || []} pageSize={pageSize} />
       </div>
     </section>
   );
