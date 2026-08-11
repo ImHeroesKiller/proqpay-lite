@@ -17,6 +17,7 @@ import SystemLogs from '@/components/SystemLogs';
 import OperatingWorkspace from '@/components/OperatingWorkspace';
 import RoleDashboard from '@/components/RoleDashboard';
 import DirectoryManager from '@/components/DirectoryManager';
+import ReportsWorkspace from '@/components/ReportsWorkspace';
 import EmployeeDirectory from '@/components/EmployeeDirectory';
 import WorkforceInsights from '@/components/WorkforceInsights';
 import ClientPortfolio from '@/components/ClientPortfolio';
@@ -245,37 +246,7 @@ export default function Home() {
 
             {view === 'operations' && <OperatingWorkspace />}
 
-            {view === 'reports' && (
-              <section>
-                <h2 style={{ fontSize: 22, fontWeight: 720 }}>Laporan</h2>
-                <div style={{ display: 'grid', gap: 16, marginTop: 16 }}>
-                  <div className="card" style={{ padding: 20 }}>
-                    <h3 style={{ marginTop: 0, fontSize: 15 }}>Payroll</h3>
-                    {(db.payrolls || []).length === 0 && <p style={{ color: 'var(--text3)' }}>Belum ada data.</p>}
-                    {(db.payrolls || []).map((p: any) => (
-                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border-soft)' }}>
-                        <span>
-                          {p.period} · {p.status}
-                        </span>
-                        <strong>{formatIDR(p.summary?.totalNet || 0)}</strong>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="card" style={{ padding: 20 }}>
-                    <h3 style={{ marginTop: 0, fontSize: 15 }}>Piutang</h3>
-                    {outstanding.length === 0 && <p style={{ color: 'var(--text3)' }}>Tidak ada piutang.</p>}
-                    {outstanding.map((a: any) => (
-                      <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border-soft)' }}>
-                        <span>
-                          {a.company} · {a.invoiceId}
-                        </span>
-                        <strong>{formatIDR(a.amount)}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
-            )}
+            {view === 'reports' && <ReportsWorkspace />}
           </div>
         </div>
       </div>

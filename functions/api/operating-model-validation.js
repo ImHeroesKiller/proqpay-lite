@@ -59,6 +59,15 @@ export function validateOperatingAction(input) {
   } else if (action === 'TRANSITION_SUBMISSION') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (!STATES.has(input.toState)) errors.push('toState tidak valid');
+    if (input.reviewConfirmed !== undefined && input.reviewConfirmed !== true) errors.push('reviewConfirmed tidak valid');
+    if (input.reviewNote && String(input.reviewNote).trim().length > 1000) errors.push('reviewNote terlalu panjang');
+  } else if (action === 'UPDATE_SUBMISSION_PERIODS') {
+    if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+    if (!PERIOD.test(String(input.paymentPeriod || ''))) errors.push('paymentPeriod tidak valid');
+    if (!Array.isArray(input.arrearsPeriods) || input.arrearsPeriods.length > 24
+      || input.arrearsPeriods.some((period) => !PERIOD.test(String(period)))) errors.push('arrearsPeriods tidak valid');
+  } else if (action === 'GENERATE_PAYMENT_INSTRUCTION') {
+    if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
   } else if (action === 'CREATE_EXCEPTION') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (!['CRITICAL', 'WARNING', 'INFO'].includes(input.severity)) errors.push('severity tidak valid');
@@ -110,6 +119,12 @@ export function validateOperatingAction(input) {
 
 export function canTransition(from, to) {
   return Boolean(TRANSITIONS[from]?.includes(to));
+}
+
+export function resolveTierTransition(tier, from, requestedTo) {
+  if (tier === 'TIER_1_PAYMENT_PROCESSING' && from === 'SUBMITTED' && requestedTo === 'INGESTING') return 'AI_VALIDATING';
+  if (tier === 'TIER_1_PAYMENT_PROCESSING' && from === 'DATA_APPROVED' && requestedTo === 'PAYROLL_FINALIZED') return 'PAYMENT_INSTRUCTION_READY';
+  return requestedTo;
 }
 
 export function instructionTotal(lines) {

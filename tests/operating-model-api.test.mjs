@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  canTransition, instructionTotal, validateOperatingAction,
+  canTransition, instructionTotal, resolveTierTransition, validateOperatingAction,
 } from '../functions/api/operating-model-validation.js';
 import { permissionsFor } from '../functions/api/_security.js';
 
@@ -22,6 +22,15 @@ test('submission transition registry rejects skipped workflow states', () => {
   assert.equal(canTransition('DRAFT', 'SUBMITTED'), true);
   assert.equal(canTransition('DRAFT', 'DATA_APPROVED'), false);
   assert.equal(canTransition('CLIENT_ACTION_REQUIRED', 'CLIENT_RESUBMITTED'), true);
+  assert.equal(canTransition('SUBMITTED', 'AI_VALIDATING'), true);
+  assert.equal(canTransition('DATA_APPROVED', 'PAYMENT_INSTRUCTION_READY'), true);
+  assert.equal(validateOperatingAction({ action: 'TRANSITION_SUBMISSION', submissionId: 'SUB-1', toState: 'CONTROLLER_REVIEW', reviewConfirmed: true, reviewNote: 'Sudah diperiksa' }).ok, true);
+  assert.equal(validateOperatingAction({ action: 'UPDATE_SUBMISSION_PERIODS', submissionId: 'SUB-1', paymentPeriod: '2026-08', arrearsPeriods: ['2026-05','2026-06'] }).ok, true);
+  assert.equal(validateOperatingAction({ action: 'UPDATE_SUBMISSION_PERIODS', submissionId: 'SUB-1', paymentPeriod: 'Agustus', arrearsPeriods: [] }).ok, false);
+  assert.equal(resolveTierTransition('TIER_1_PAYMENT_PROCESSING', 'SUBMITTED', 'INGESTING'), 'AI_VALIDATING');
+  assert.equal(resolveTierTransition('TIER_1_PAYMENT_PROCESSING', 'DATA_APPROVED', 'PAYROLL_FINALIZED'), 'PAYMENT_INSTRUCTION_READY');
+  assert.equal(resolveTierTransition('TIER_2_MANAGED_PAYROLL', 'DATA_APPROVED', 'PAYROLL_FINALIZED'), 'PAYROLL_FINALIZED');
+  assert.equal(validateOperatingAction({ action: 'GENERATE_PAYMENT_INSTRUCTION', submissionId: 'SUB-1' }).ok, true);
 });
 
 test('payment instruction requires exact deterministic total', () => {

@@ -3,7 +3,7 @@ import {
   authorize, enforceRateLimit, handlePreflight, publicError, secureJson,
 } from './_security.js';
 import {
-  canTransition, instructionTotal, validateOperatingAction,
+  canTransition, instructionTotal, resolveTierTransition, validateOperatingAction,
 } from './operating-model-validation.js';
 
 const METHODS = 'GET, POST, OPTIONS';
@@ -86,6 +86,14 @@ export async function onRequest(context) {
 
   try {
     await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`);
+    await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS payment_period TEXT`);
+    await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS arrears_periods JSONB NOT NULL DEFAULT '[]'::jsonb`);
+    await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS processor_reviewed_at TIMESTAMPTZ`);
+    await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS processor_reviewed_by TEXT`);
+    await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS processor_review_note TEXT`);
+    await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS controller_reviewed_at TIMESTAMPTZ`);
+    await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS controller_reviewed_by TEXT`);
+    await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS controller_review_note TEXT`);
     if (request.method === 'GET') {
       const params = new URL(request.url).searchParams;
       const resource = params.get('resource') || 'submissions';
@@ -119,8 +127,16 @@ export async function onRequest(context) {
       }
       if (resource === 'payment-instructions') {
         const rows = clientId
-          ? await sql`SELECT * FROM payment_instructions WHERE org_id=${organizationId} AND client_id=${clientId} ORDER BY created_at DESC LIMIT 100`
-          : await sql`SELECT * FROM payment_instructions WHERE org_id=${organizationId} ORDER BY created_at DESC LIMIT 100`;
+          ? await sql`SELECT pi.*, s.period AS payroll_period, COALESCE(s.payment_period,s.period) AS payment_period,
+              COALESCE(s.arrears_periods,'[]'::jsonb) AS arrears_periods, c.name AS client_name, p.name AS project_name
+            FROM payment_instructions pi LEFT JOIN payroll_submissions s ON s.id=pi.submission_id
+            JOIN clients c ON c.id=pi.client_id LEFT JOIN projects p ON p.id=s.project_id
+            WHERE pi.org_id=${organizationId} AND pi.client_id=${clientId} ORDER BY pi.created_at DESC LIMIT 100`
+          : await sql`SELECT pi.*, s.period AS payroll_period, COALESCE(s.payment_period,s.period) AS payment_period,
+              COALESCE(s.arrears_periods,'[]'::jsonb) AS arrears_periods, c.name AS client_name, p.name AS project_name
+            FROM payment_instructions pi LEFT JOIN payroll_submissions s ON s.id=pi.submission_id
+            JOIN clients c ON c.id=pi.client_id LEFT JOIN projects p ON p.id=s.project_id
+            WHERE pi.org_id=${organizationId} ORDER BY pi.created_at DESC LIMIT 100`;
         return respond({ ok: true, paymentInstructions: rows });
       }
       if (resource === 'payment-proofs') {
@@ -147,10 +163,67 @@ export async function onRequest(context) {
           : await sql`SELECT * FROM integration_connections WHERE org_id=${organizationId} ORDER BY created_at DESC LIMIT 100`;
         return respond({ ok: true, integrations: rows });
       }
+      if (resource === 'payment-reports') {
+        const rows = clientId
+          ? await sql`SELECT pi.id, pi.client_id, c.name AS client_name, s.project_id, p.name AS project_name,
+              s.period AS payroll_period, COALESCE(s.payment_period,s.period) AS payment_period,
+              COALESCE(s.arrears_periods,'[]'::jsonb) AS arrears_periods, pi.status, pi.expected_total,
+              COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0)::bigint AS paid_total,
+              (SELECT MAX(pp.transaction_date) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id) AS payment_date,
+              (SELECT pp.id FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id ORDER BY pp.created_at DESC LIMIT 1) AS proof_id,
+              (SELECT r.status FROM reconciliations r WHERE r.payment_instruction_id=pi.id ORDER BY r.created_at DESC LIMIT 1) AS reconciliation_status,
+              (SELECT r.difference FROM reconciliations r WHERE r.payment_instruction_id=pi.id ORDER BY r.created_at DESC LIMIT 1) AS difference,
+              (SELECT COUNT(*)::int FROM payment_instruction_lines pil WHERE pil.payment_instruction_id=pi.id) AS employee_count,
+              pi.created_at, pi.updated_at
+            FROM payment_instructions pi LEFT JOIN payroll_submissions s ON s.id=pi.submission_id
+            JOIN clients c ON c.id=pi.client_id LEFT JOIN projects p ON p.id=s.project_id
+            WHERE pi.org_id=${organizationId} AND pi.client_id=${clientId}
+              AND (${!scopedProjects.length} OR s.project_id=ANY(string_to_array(${projectScopeCsv}, ',')))
+            ORDER BY COALESCE(s.payment_period,s.period) DESC, pi.created_at DESC LIMIT 500`
+          : await sql`SELECT pi.id, pi.client_id, c.name AS client_name, s.project_id, p.name AS project_name,
+              s.period AS payroll_period, COALESCE(s.payment_period,s.period) AS payment_period,
+              COALESCE(s.arrears_periods,'[]'::jsonb) AS arrears_periods, pi.status, pi.expected_total,
+              COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0)::bigint AS paid_total,
+              (SELECT MAX(pp.transaction_date) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id) AS payment_date,
+              (SELECT pp.id FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id ORDER BY pp.created_at DESC LIMIT 1) AS proof_id,
+              (SELECT r.status FROM reconciliations r WHERE r.payment_instruction_id=pi.id ORDER BY r.created_at DESC LIMIT 1) AS reconciliation_status,
+              (SELECT r.difference FROM reconciliations r WHERE r.payment_instruction_id=pi.id ORDER BY r.created_at DESC LIMIT 1) AS difference,
+              (SELECT COUNT(*)::int FROM payment_instruction_lines pil WHERE pil.payment_instruction_id=pi.id) AS employee_count,
+              pi.created_at, pi.updated_at
+            FROM payment_instructions pi LEFT JOIN payroll_submissions s ON s.id=pi.submission_id
+            JOIN clients c ON c.id=pi.client_id LEFT JOIN projects p ON p.id=s.project_id
+            WHERE pi.org_id=${organizationId}
+            ORDER BY COALESCE(s.payment_period,s.period) DESC, pi.created_at DESC LIMIT 500`;
+        return respond({ ok: true, paymentReports: rows });
+      }
       const rows = clientId
-        ? await sql`SELECT * FROM payroll_submissions WHERE org_id=${organizationId} AND client_id=${clientId}
-            AND (${!scopedProjects.length} OR project_id=ANY(string_to_array(${projectScopeCsv}, ','))) ORDER BY created_at DESC LIMIT 200`
-        : await sql`SELECT * FROM payroll_submissions WHERE org_id=${organizationId} ORDER BY created_at DESC LIMIT 200`;
+        ? await sql`SELECT s.*, c.name AS client_name, p.name AS project_name,
+            COALESCE((SELECT COUNT(*) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+              WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id) AND ec.payroll_source_period=s.period),0)::int AS employee_count,
+            COALESCE((SELECT SUM(ec.imported_gross) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+              WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id) AND ec.payroll_source_period=s.period),0)::bigint AS total_gross,
+            COALESCE((SELECT SUM(ec.imported_deduction) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+              WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id) AND ec.payroll_source_period=s.period),0)::bigint AS total_deduction,
+            COALESCE((SELECT SUM(ec.imported_net) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+              WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id) AND ec.payroll_source_period=s.period),0)::bigint AS total_net,
+            (SELECT COUNT(*)::int FROM payroll_exceptions pe WHERE pe.submission_id=s.id) AS exception_count,
+            (SELECT COUNT(*)::int FROM payroll_exceptions pe WHERE pe.submission_id=s.id AND pe.severity='CRITICAL' AND pe.status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')) AS blocking_count
+          FROM payroll_submissions s JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id
+          WHERE s.org_id=${organizationId} AND s.client_id=${clientId}
+            AND (${!scopedProjects.length} OR s.project_id=ANY(string_to_array(${projectScopeCsv}, ','))) ORDER BY s.created_at DESC LIMIT 200`
+        : await sql`SELECT s.*, c.name AS client_name, p.name AS project_name,
+            COALESCE((SELECT COUNT(*) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+              WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id) AND ec.payroll_source_period=s.period),0)::int AS employee_count,
+            COALESCE((SELECT SUM(ec.imported_gross) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+              WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id) AND ec.payroll_source_period=s.period),0)::bigint AS total_gross,
+            COALESCE((SELECT SUM(ec.imported_deduction) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+              WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id) AND ec.payroll_source_period=s.period),0)::bigint AS total_deduction,
+            COALESCE((SELECT SUM(ec.imported_net) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+              WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id) AND ec.payroll_source_period=s.period),0)::bigint AS total_net,
+            (SELECT COUNT(*)::int FROM payroll_exceptions pe WHERE pe.submission_id=s.id) AS exception_count,
+            (SELECT COUNT(*)::int FROM payroll_exceptions pe WHERE pe.submission_id=s.id AND pe.severity='CRITICAL' AND pe.status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')) AS blocking_count
+          FROM payroll_submissions s JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id
+          WHERE s.org_id=${organizationId} ORDER BY s.created_at DESC LIMIT 200`;
       return respond({ ok: true, submissions: rows });
     }
 
@@ -198,10 +271,10 @@ export async function onRequest(context) {
       const id = body.id || `SUB-${crypto.randomUUID()}`;
       const rows = await sql`
         INSERT INTO payroll_submissions
-          (id, org_id, client_id, service_plan_id, service_tier, period, state, created_by)
+          (id, org_id, client_id, service_plan_id, service_tier, period, payment_period, state, created_by)
         VALUES
           (${id}, ${organizationId}, ${body.clientId}, ${body.servicePlanId}, ${plan[0].tier},
-           ${body.period}, 'DRAFT', ${actor.email})
+           ${body.period}, ${body.period}, 'DRAFT', ${actor.email})
         RETURNING *`;
       return respond({ ok: true, submission: rows[0] }, 201);
     }
@@ -212,23 +285,78 @@ export async function onRequest(context) {
       const submission = current[0];
       if (!assertClientScope(actor, env, submission.client_id)) return respond({ error: 'Client scope denied' }, 403);
       if (!assertProjectScope(actor, submission.project_id)) return respond({ error: 'Project scope denied' }, 403);
-      if (!canTransition(submission.state, body.toState)) return respond({ error: `Invalid transition ${submission.state} → ${body.toState}` }, 409);
-      if (submission.service_tier === 'TIER_1_PAYMENT_PROCESSING' && ['INGESTING','PAYROLL_FINALIZED'].includes(body.toState)) {
-        return respond({ error: 'Tier 1 does not include payroll ingestion or calculation' }, 409);
+      const tierOne = submission.service_tier === 'TIER_1_PAYMENT_PROCESSING';
+      const targetState = resolveTierTransition(submission.service_tier, submission.state, body.toState);
+      if (!canTransition(submission.state, targetState)) return respond({ error: `Invalid transition ${submission.state} → ${targetState}` }, 409);
+      if (tierOne && ['INGESTING','PAYROLL_FINALIZED'].includes(targetState)) return respond({ error: 'Tier 1 langsung menggunakan data final klien tanpa kalkulasi ulang' }, 409);
+      if (!roleAllowsTransition(actor.role, submission.state, targetState)) return respond({ error: 'Role cannot perform transition' }, 403);
+      const processorReview = submission.state === 'STANDARDIZED' && targetState === 'CONTROLLER_REVIEW';
+      const controllerReview = submission.state === 'CONTROLLER_REVIEW' && targetState === 'DATA_APPROVED';
+      if ((processorReview || controllerReview) && body.reviewConfirmed !== true) {
+        return respond({ error: 'Preview dan konfirmasi review wajib dilakukan sebelum melanjutkan' }, 409);
       }
-      if (!roleAllowsTransition(actor.role, submission.state, body.toState)) return respond({ error: 'Role cannot perform transition' }, 403);
-      if (['VALIDATED','DATA_APPROVED','PAYROLL_FINALIZED','APPROVED_FOR_PAYMENT'].includes(body.toState)) {
+      if (['VALIDATED','DATA_APPROVED','PAYROLL_FINALIZED','APPROVED_FOR_PAYMENT'].includes(targetState)) {
         const blocking = await sql`
           SELECT COUNT(*)::int AS count FROM payroll_exceptions
           WHERE submission_id=${submission.id} AND severity='CRITICAL'
             AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`;
         if (Number(blocking[0]?.count || 0) > 0) return respond({ error: 'Critical exceptions still open' }, 409);
       }
-      const rows = await sql`UPDATE payroll_submissions SET state=${body.toState}, updated_at=NOW() WHERE id=${submission.id} RETURNING *`;
+      const rows = processorReview
+        ? await sql`UPDATE payroll_submissions SET state=${targetState}, processor_reviewed_at=NOW(), processor_reviewed_by=${actor.email}, processor_review_note=${String(body.reviewNote || '').slice(0,1000)}, updated_at=NOW() WHERE id=${submission.id} RETURNING *`
+        : controllerReview
+          ? await sql`UPDATE payroll_submissions SET state=${targetState}, controller_reviewed_at=NOW(), controller_reviewed_by=${actor.email}, controller_review_note=${String(body.reviewNote || '').slice(0,1000)}, updated_at=NOW() WHERE id=${submission.id} RETURNING *`
+          : await sql`UPDATE payroll_submissions SET state=${targetState}, updated_at=NOW() WHERE id=${submission.id} RETURNING *`;
       await sql`INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
         VALUES (${`AUD-${crypto.randomUUID()}`}, ${organizationId}, ${actor.email}, ${actor.role},
-          'SUBMISSION_TRANSITION', ${`${submission.state} → ${body.toState}`}, 'payroll_submission', ${submission.id})`;
+          'SUBMISSION_TRANSITION', ${`${submission.state} → ${targetState}`}, 'payroll_submission', ${submission.id})`;
       return respond({ ok: true, submission: rows[0] });
+    }
+
+    if (body.action === 'UPDATE_SUBMISSION_PERIODS') {
+      const current = await sql`SELECT * FROM payroll_submissions WHERE id=${body.submissionId} AND org_id=${organizationId} LIMIT 1`;
+      if (!current.length) return respond({ error: 'Submission not found' }, 404);
+      if (!assertClientScope(actor, env, current[0].client_id) || !assertProjectScope(actor, current[0].project_id)) return respond({ error: 'Scope denied' }, 403);
+      if (['PAYMENT_INSTRUCTION_READY','PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','COMPLETED'].includes(current[0].state)) {
+        return respond({ error: 'Periode pembayaran sudah terkunci pada tahap payment' }, 409);
+      }
+      const arrears = [...new Set(body.arrearsPeriods.map(String))].filter((period) => period !== current[0].period && period !== body.paymentPeriod);
+      const rows = await sql`UPDATE payroll_submissions SET payment_period=${body.paymentPeriod}, arrears_periods=${JSON.stringify(arrears)}::jsonb, updated_at=NOW() WHERE id=${body.submissionId} RETURNING *`;
+      return respond({ ok: true, submission: rows[0] });
+    }
+
+    if (body.action === 'GENERATE_PAYMENT_INSTRUCTION') {
+      if (!CONTROLLER_ROLES.has(actor.role)) return respond({ error: 'Insufficient role' }, 403);
+      const submissions = await sql`SELECT * FROM payroll_submissions WHERE id=${body.submissionId} AND org_id=${organizationId} LIMIT 1`;
+      if (!submissions.length) return respond({ error: 'Submission not found' }, 404);
+      const submission = submissions[0];
+      if (submission.state !== 'PAYMENT_INSTRUCTION_READY') return respond({ error: 'Submission belum siap dibuatkan payment instruction' }, 409);
+      const existing = await sql`SELECT * FROM payment_instructions WHERE submission_id=${submission.id} AND org_id=${organizationId} LIMIT 1`;
+      if (existing.length) return respond({ ok:true, paymentInstruction:existing[0], idempotentReplay:true });
+      const source = await sql`SELECT e.id, e.name, COALESCE(ec.imported_net,0)::bigint AS amount,
+          ba.bank_name, ba.account_no
+        FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+        LEFT JOIN employee_bank_accounts ba ON ba.employee_id=e.id AND ba.is_primary=TRUE
+        WHERE e.client_id=${submission.client_id} AND (${submission.project_id || null}::text IS NULL OR e.project_id=${submission.project_id || null})
+          AND ec.payroll_source_period=${submission.period} ORDER BY e.name`;
+      const invalid = source.filter((row) => Number(row.amount || 0) <= 0 || !row.bank_name || !row.account_no);
+      if (!source.length) return respond({ error: 'Tidak ada data payroll final untuk periode submission' }, 409);
+      if (invalid.length) return respond({ error: `${invalid.length} karyawan belum memiliki THP atau rekening bank yang valid` }, 409);
+      const expectedTotal = source.reduce((sum,row) => sum + Number(row.amount), 0);
+      const id = `PI-${crypto.randomUUID()}`;
+      const idempotencyKey = `PI-${submission.id}-${submission.payment_period || submission.period}`.slice(0,120);
+      await sql.transaction((tx) => {
+        const queries = [tx`INSERT INTO payment_instructions
+          (id, org_id, client_id, submission_id, status, expected_total, creator_user_id, idempotency_key)
+          VALUES (${id}, ${organizationId}, ${submission.client_id}, ${submission.id}, 'PAYMENT_APPROVAL_PENDING', ${expectedTotal}, ${actor.id}, ${idempotencyKey})`];
+        source.forEach((row) => queries.push(tx`INSERT INTO payment_instruction_lines
+          (id, payment_instruction_id, employee_id, beneficiary_name, bank_name, masked_account, amount)
+          VALUES (${`PIL-${crypto.randomUUID()}`}, ${id}, ${row.id}, ${row.name}, ${row.bank_name}, ${`****${String(row.account_no).slice(-4)}`}, ${Number(row.amount)})`));
+        queries.push(tx`UPDATE payroll_submissions SET state='PAYMENT_APPROVAL_PENDING', updated_at=NOW() WHERE id=${submission.id}`);
+        return queries;
+      });
+      const rows = await sql`SELECT * FROM payment_instructions WHERE id=${id}`;
+      return respond({ ok:true, paymentInstruction:rows[0] }, 201);
     }
 
     if (body.action === 'CREATE_EXCEPTION') {

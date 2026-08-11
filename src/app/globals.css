@@ -709,11 +709,32 @@ a:hover { text-decoration: underline; }
 .directory-hint { margin: 10px 0 0; color: var(--text3); font-size: 10.5px; line-height: 1.5; }
 .directory-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .directory-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border); }
+.payroll-review-modal { width: min(700px, 100%); }
+.payroll-review-meta, .payroll-review-totals { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 9px; margin-bottom: 12px; }
+.payroll-review-meta > div, .payroll-review-totals > div { display: grid; gap: 4px; min-width: 0; padding: 11px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--bg-subtle); }
+.payroll-review-meta span, .payroll-review-totals span { color: var(--text3); font-size: 9.5px; }
+.payroll-review-meta strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.payroll-review-totals strong { font-size: 13px; }
+.payroll-review-alert { display: grid; gap: 3px; margin: 12px 0; padding: 11px 13px; border: 1px solid #fde68a; border-radius: 10px; color: #92400e; background: #fffbeb; }
+.payroll-review-alert strong { font-size: 11.5px; }.payroll-review-alert span { font-size: 10.5px; }
+.payroll-review-confirm { display: flex !important; grid-template-columns: auto 1fr; align-items: flex-start; gap: 8px !important; padding: 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-subtle); line-height: 1.5; }
+.payroll-review-confirm input { width: auto; margin-top: 2px; }
+.reports-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.reports-heading h2 { margin: 0; font-size: 22px; }.reports-heading p { margin: 5px 0 0; color: var(--text3); font-size: 13px; }
+.report-summary-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin: 18px 0 14px; }
+.report-summary { display: grid; gap: 7px; padding: 16px; }.report-summary span { color: var(--text3); font-size: 10.5px; }.report-summary strong { font-size: 19px; }
+.report-filter { display: grid; grid-template-columns: minmax(220px,1fr) repeat(2,minmax(160px,.4fr)); gap: 9px; margin-bottom: 14px; padding: 12px; }
+.report-filter input, .report-filter select { width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--bg-surface); font: 11px inherit; }
+.report-table-wrap { overflow-x: auto; }.report-table { width: 100%; border-collapse: collapse; font-size: 11px; }.report-table th { padding: 10px 12px; color: var(--text3); background: var(--bg-subtle); font-size: 9px; letter-spacing: .04em; text-align: left; text-transform: uppercase; }.report-table td { padding: 12px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }.report-table td strong, .report-table td small { display: block; white-space: nowrap; }.report-table td small { margin-top: 3px; color: var(--text3); font-size: 9.5px; }
+.report-status { display: inline-block; padding: 4px 7px; border-radius: 99px; font-size: 8.5px; font-weight: 750; white-space: nowrap; }.report-status-done { color: #047857; background: #d1fae5; }.report-status-progress { color: #4338ca; background: #eef2ff; }.report-status-error { color: #b91c1c; background: #fee2e2; }
+.report-proof-link { display: block; margin-top: 6px; color: var(--accent); font-size: 9.5px; font-weight: 650; text-decoration: none; }
 
 @media (max-width: 760px) {
   .role-dashboard-card, .directory-grid { grid-template-columns: 1fr; }
   .role-dashboard-card { padding: 19px; }
   .directory-form-grid { grid-template-columns: 1fr; }
+  .payroll-review-meta, .payroll-review-totals, .report-summary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .report-filter { grid-template-columns: 1fr; }
   .directory-modal-backdrop { padding: 10px; }
   .directory-modal { max-height: calc(100dvh - 78px); padding: 18px; border-radius: 14px; }
   .app-sidebar { width: 60px; flex-basis: 60px; align-items: center; padding: 14px 8px; }

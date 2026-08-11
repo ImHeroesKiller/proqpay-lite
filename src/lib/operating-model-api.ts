@@ -5,6 +5,7 @@ export type OperatingResource =
   | 'payment-instructions'
   | 'payment-proofs'
   | 'reconciliations'
+  | 'payment-reports'
   | 'integrations';
 
 async function parseResponse(response: Response) {

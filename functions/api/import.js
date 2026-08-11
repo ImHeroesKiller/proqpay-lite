@@ -378,9 +378,9 @@ export async function onRequest(context) {
       }
       if (submissionId) {
         queries.push(tx`INSERT INTO payroll_submissions
-          (id, org_id, client_id, project_id, service_plan_id, service_tier, period, state, created_by)
+          (id, org_id, client_id, project_id, service_plan_id, service_tier, period, payment_period, state, created_by)
           VALUES (${submissionId}, ${orgId}, ${contextClientId}, ${projectId}, ${servicePlanId}, ${serviceTier},
-            ${period}, 'AI_VALIDATING', ${actor.email})`);
+            ${period}, ${period}, 'AI_VALIDATING', ${actor.email})`);
       }
       queries.push(tx`
         INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity)

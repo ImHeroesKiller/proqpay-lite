@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { executeOperatingAction, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
 
@@ -53,8 +54,8 @@ export default function OperatingWorkspace() {
     setMessage('Memproses…');
     try {
       if (Object.keys(payload).length) await executeOperatingAction(payload);
-      setMessage(success);
       await load();
+      setMessage(success);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Aksi gagal');
     }
@@ -99,22 +100,59 @@ export default function OperatingWorkspace() {
 }
 
 function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+  const [selected, setSelected] = useState<any | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [reviewNote, setReviewNote] = useState('');
+  const [paymentPeriod, setPaymentPeriod] = useState('');
+  const [arrearsText, setArrearsText] = useState('');
   if (!rows.length) return <Empty title="Belum ada payroll submission" detail="Submission baru akan tampil setelah service plan klien aktif dan data periode dikirim." />;
   const processorNext: Record<string, string> = { DRAFT:'SUBMITTED', SUBMITTED:'INGESTING', INGESTING:'AI_VALIDATING', AI_VALIDATING:'VALIDATED', EXCEPTION_FOUND:'CLIENT_ACTION_REQUIRED', CLIENT_RESUBMITTED:'AI_VALIDATING', VALIDATED:'STANDARDIZED', STANDARDIZED:'CONTROLLER_REVIEW', REVISION_REQUIRED:'AI_VALIDATING' };
   const controllerNext: Record<string, string> = { CONTROLLER_REVIEW:'DATA_APPROVED', DATA_APPROVED:'PAYROLL_FINALIZED', PAYROLL_FINALIZED:'PAYMENT_INSTRUCTION_READY' };
   const clientNext: Record<string, string> = { DRAFT:'SUBMITTED', CLIENT_ACTION_REQUIRED:'CLIENT_RESUBMITTED' };
-  return <CardTable headers={['ID / Periode','Tier','Status','Dibuat','Aksi']} rows={rows.map((r) => [
-    <div key="id"><strong>{r.id}</strong><small style={small}>{r.period} · {r.client_id}</small></div>,
+  function nextFor(row:any) {
+    if (role === 'CLIENT_USER') return clientNext[row.state];
+    if (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && controllerNext[row.state]) {
+      return row.service_tier === 'TIER_1_PAYMENT_PROCESSING' && row.state === 'DATA_APPROVED' ? 'PAYMENT_INSTRUCTION_READY' : controllerNext[row.state];
+    }
+    if (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && row.state === 'PAYMENT_INSTRUCTION_READY') return 'GENERATE_PAYMENT_INSTRUCTION';
+    const next = processorNext[row.state];
+    return row.service_tier === 'TIER_1_PAYMENT_PROCESSING' && row.state === 'SUBMITTED' ? 'AI_VALIDATING' : next;
+  }
+  function openReview(row:any) {
+    setSelected(row); setConfirmed(false); setReviewNote('');
+    setPaymentPeriod(row.payment_period || row.period || '');
+    setArrearsText(Array.isArray(row.arrears_periods) ? row.arrears_periods.join(', ') : '');
+  }
+  const actionName = (state:string) => ({ DRAFT:'Review & submit', SUBMITTED:'Periksa submission', INGESTING:'Mulai validasi', AI_VALIDATING:'Review validasi', EXCEPTION_FOUND:'Minta perbaikan klien', VALIDATED:'Standardisasi data', STANDARDIZED:'Review akhir Processor', CONTROLLER_REVIEW:'Review Controller', DATA_APPROVED:'Siapkan payment', PAYROLL_FINALIZED:'Siapkan payment', PAYMENT_INSTRUCTION_READY:'Buat payment instruction', CLIENT_ACTION_REQUIRED:'Kirim perbaikan' }[state] || 'Lihat detail');
+  const table = <CardTable headers={['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={rows.map((r) => [
+    <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id}</small></div>,
     String(r.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' '),
     <Badge key="state" text={r.state} />,
-    date(r.created_at),
+    <div key="summary"><strong>{Number(r.employee_count || 0)} karyawan</strong><small style={small}>{formatIDR(Number(r.total_net || 0))} · {Number(r.blocking_count || 0)} blocker</small></div>,
     (() => {
-      const next = role === 'CLIENT_USER' ? clientNext[r.state]
-        : ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && controllerNext[r.state]
-          ? controllerNext[r.state] : processorNext[r.state];
-      return next ? <button key="action" style={actionButton} onClick={() => void act({ action:'TRANSITION_SUBMISSION', submissionId:r.id, toState:next }, `Status diperbarui ke ${next}`)}>Lanjutkan</button> : <span key="none" style={small}>Tidak ada aksi</span>;
+      const next = nextFor(r);
+      return <button key="action" style={actionButton} onClick={() => openReview(r)}>{next ? actionName(r.state) : 'Lihat detail'}</button>;
     })(),
   ])} />;
+  if (!selected) return table;
+  const next = nextFor(selected);
+  const reviewCheckpoint = selected.state === 'STANDARDIZED' && next === 'CONTROLLER_REVIEW'
+    || selected.state === 'CONTROLLER_REVIEW' && next === 'DATA_APPROVED';
+  const arrears = [...new Set(arrearsText.split(/[,;\s]+/).map((item) => item.trim()).filter(Boolean))];
+  return <>{table}{createPortal(<div className="directory-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
+    <div className="directory-modal payroll-review-modal" role="dialog" aria-modal="true" aria-label="Review payroll submission">
+      <div className="directory-modal-title"><div><span>PAYROLL REVIEW</span><h3>{selected.client_name || selected.client_id}</h3></div><button type="button" onClick={() => setSelected(null)}>✕</button></div>
+      <div className="payroll-review-meta"><div><span>Payroll</span><strong>{selected.period}</strong></div><div><span>Project</span><strong>{selected.project_name || '-'}</strong></div><div><span>Tier</span><strong>{String(selected.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' ')}</strong></div><div><span>Status</span><strong>{selected.state}</strong></div></div>
+      <div className="payroll-review-totals"><div><span>Karyawan</span><strong>{Number(selected.employee_count || 0)}</strong></div><div><span>Gross</span><strong>{formatIDR(Number(selected.total_gross || 0))}</strong></div><div><span>Potongan</span><strong>{formatIDR(Number(selected.total_deduction || 0))}</strong></div><div><span>Net/THP</span><strong>{formatIDR(Number(selected.total_net || 0))}</strong></div></div>
+      <div className="payroll-review-alert"><strong>{Number(selected.blocking_count || 0)} blocker · {Number(selected.exception_count || 0)} total temuan</strong><span>{Number(selected.blocking_count || 0) ? 'Temuan kritis harus diselesaikan sebelum approval.' : 'Tidak ada temuan kritis yang memblokir tahap berikutnya.'}</span></div>
+      <div className="directory-form-grid"><label>Periode payroll<input type="month" value={selected.period} readOnly /></label><label>Periode pembayaran<input type="month" value={paymentPeriod} onChange={(event) => setPaymentPeriod(event.target.value)} /></label></div>
+      <label>Periode rapel (opsional)<input value={arrearsText} placeholder="Contoh: 2026-05, 2026-06" onChange={(event) => setArrearsText(event.target.value)} /></label>
+      <p className="directory-hint">Periode payroll mengikuti sumber data. Periode pembayaran menentukan bulan pencairan; rapel mencatat periode tambahan yang dibayarkan bersamaan.</p>
+      <button type="button" className="btn" onClick={() => void act({ action:'UPDATE_SUBMISSION_PERIODS', submissionId:selected.id, paymentPeriod, arrearsPeriods:arrears }, 'Periode pembayaran dan rapel diperbarui')}>Simpan periode</button>
+      {reviewCheckpoint ? <><label>Catatan review<textarea rows={3} maxLength={1000} value={reviewNote} placeholder="Catatan akhir sebelum diserahkan ke tahap berikutnya" onChange={(event) => setReviewNote(event.target.value)} /></label><label className="payroll-review-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />Saya sudah memeriksa periode, jumlah karyawan, nilai payroll, dan exception.</label></> : null}
+      <div className="directory-modal-actions"><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button>{next ? <button type="button" className="btn btn-primary" disabled={reviewCheckpoint && !confirmed} onClick={() => void act(next === 'GENERATE_PAYMENT_INSTRUCTION' ? { action:next, submissionId:selected.id } : { action:'TRANSITION_SUBMISSION', submissionId:selected.id, toState:next, reviewConfirmed:reviewCheckpoint || undefined, reviewNote:reviewNote || undefined }, next === 'GENERATE_PAYMENT_INSTRUCTION' ? 'Payment instruction berhasil dibuat dan menunggu approval' : `Status diperbarui ke ${next}`).then(() => setSelected(null))}>{actionName(selected.state)}</button> : null}</div>
+    </div>
+  </div>, document.body)}</>;
 }
 
 function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string; canResolve: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
@@ -166,14 +204,14 @@ function Payments({ instructions, proofs, reconciliations, canReview, canApprove
   const [uploadError, setUploadError] = useState('');
   if (!instructions.length) return <Empty title="Belum ada payment instruction" detail="Payment instruction akan tersedia setelah payroll selesai divalidasi dan disetujui." />;
   return <div style={{ display:'grid', gap:16 }}>
-    <CardTable headers={['Instruction','Nilai','Status','Dibuat','Aksi']} rows={instructions.map((r) => {
+    <CardTable headers={['Instruction / Periode','Nilai','Status','Dibuat','Aksi']} rows={instructions.map((r) => {
       let action: React.ReactNode = <span style={small}>Menunggu tahap berikutnya</span>;
       if (r.status === 'PAYMENT_APPROVAL_PENDING') action = canApprove
         ? <button style={actionButton} onClick={() => void act({ action:'APPROVE_PAYMENT', paymentInstructionId:r.id, actionHash:`approve-${r.id}`, confirmation:'KONFIRMASI PAYMENT' }, 'Payment disetujui')}>Approve</button>
         : <span style={small}>Menunggu PAYMENT_APPROVER</span>;
       if (canReview && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
       if (canReview && r.status === 'PROOF_UPLOADED') action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
-      return [<strong key="id">{r.id}</strong>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
+      return [<div key="id"><strong>{r.client_name || r.id}</strong><small style={small}>Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small></div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
     })} />
     {proofFor && <div className="card" style={{ padding:18 }}>
       <div style={{ display:'flex', justifyContent:'space-between', gap:12 }}><strong>Bukti Pembayaran · {proofFor}</strong><button type="button" onClick={() => setProofFor(null)} style={{ border:0, background:'transparent', cursor:'pointer' }}>✕</button></div>
