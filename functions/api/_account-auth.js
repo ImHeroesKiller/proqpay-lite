@@ -9,7 +9,9 @@ export const ACCOUNT_ROLES = Object.freeze([
 ]);
 
 const encoder = new TextEncoder();
-const PASSWORD_ITERATIONS = 210_000;
+// Keep the KDF inside Cloudflare Pages' CPU budget. Generated passwords carry
+// high entropy, while lockout and mandatory first-login rotation limit guessing.
+const PASSWORD_ITERATIONS = 100_000;
 
 export function databaseUrl(env) {
   return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
@@ -96,7 +98,7 @@ export async function ensureAccountSchema(sql) {
     status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','SUSPENDED','INACTIVE')),
     password_hash TEXT NOT NULL,
     password_salt TEXT NOT NULL,
-    password_iterations INT NOT NULL DEFAULT 210000,
+    password_iterations INT NOT NULL DEFAULT 100000,
     must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
     payment_approver BOOLEAN NOT NULL DEFAULT FALSE,
     created_by TEXT NOT NULL,

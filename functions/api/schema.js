@@ -205,7 +205,7 @@ export async function onRequest(context) {
         email TEXT NOT NULL UNIQUE,
         role TEXT NOT NULL CHECK (role IN ('SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER')),
         status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','SUSPENDED','INACTIVE')),
-        password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, password_iterations INT NOT NULL DEFAULT 210000,
+        password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, password_iterations INT NOT NULL DEFAULT 100000,
         must_change_password BOOLEAN NOT NULL DEFAULT TRUE, payment_approver BOOLEAN NOT NULL DEFAULT FALSE,
         created_by TEXT NOT NULL, failed_login_attempts INT NOT NULL DEFAULT 0, locked_until TIMESTAMPTZ,
         last_login_at TIMESTAMPTZ, password_changed_at TIMESTAMPTZ,

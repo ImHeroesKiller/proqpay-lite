@@ -34,7 +34,7 @@ kunci Gemini yang pernah muncul di log/chat. Jangan commit nilainya ke repo.
 ## Mode keamanan dan aktivasi login
 
 Account Management menggunakan tabel `app_users`, `user_client_scopes`, dan
-`app_sessions` di Neon. Password disimpan sebagai hash PBKDF2-SHA256 dengan salt,
+`app_sessions` di Neon. Password disimpan sebagai hash PBKDF2-SHA256 100.000 iterasi dengan salt,
 password sementara wajib diganti pada login pertama, lima kegagalan login akan
 mengunci akun selama 15 menit, dan cookie sesi bersifat HttpOnly/Secure/SameSite.
 

@@ -15,7 +15,7 @@ test('temporary password is strong and stored as PBKDF2 material', async () => {
   assert.equal(validatePassword(password), null);
   const record = await passwordRecord(password);
   assert.notEqual(record.hash, password);
-  assert.ok(record.iterations >= 200_000);
+  assert.ok(record.iterations >= 100_000);
   assert.equal(await verifyPassword(password, {
     password_hash: record.hash,
     password_salt: record.salt,
