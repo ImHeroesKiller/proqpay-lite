@@ -58,26 +58,26 @@ export async function onRequest({ request, env }) {
   const respond = (data, status = 200) => secureJson(data, status, request, env, METHODS);
   const requestId = crypto.randomUUID();
   if (!env.PAYMENT_PROOFS?.put || !env.PAYMENT_PROOFS?.get) {
-    return respond({ error: 'Payment proof storage unavailable', requestId }, 503);
+    return respond({ error: 'Penyimpanan bukti pembayaran belum terhubung. Tambahkan R2 binding PAYMENT_PROOFS di Cloudflare Pages.', requestId }, 503);
   }
   const url = databaseUrl(env);
-  if (!url) return respond({ error: 'Database unavailable', requestId }, 503);
+  if (!url) return respond({ error: 'Database belum terhubung. Periksa DATABASE_URL pada environment Production.', requestId }, 503);
   const sql = neon(url);
   const organizationId = orgId(env);
 
   try {
     if (request.method === 'GET') {
       const proofId = new URL(request.url).searchParams.get('id');
-      if (!proofId) return respond({ error: 'Proof id required' }, 400);
+      if (!proofId) return respond({ error: 'ID bukti pembayaran wajib diisi' }, 400);
       const rows = await sql`
         SELECT pp.*, pi.org_id, pi.client_id FROM payment_proofs pp
         JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id
         WHERE pp.id=${proofId} AND pi.org_id=${organizationId} LIMIT 1`;
-      if (!rows.length) return respond({ error: 'Payment proof not found' }, 404);
+      if (!rows.length) return respond({ error: 'Bukti pembayaran tidak ditemukan' }, 404);
       const proof = rows[0];
-      if (!canAccessClient(authorization.actor, env, proof.client_id)) return respond({ error: 'Client scope denied' }, 403);
+      if (!canAccessClient(authorization.actor, env, proof.client_id)) return respond({ error: 'Akun tidak memiliki akses ke data klien ini' }, 403);
       const object = await env.PAYMENT_PROOFS.get(proof.uploaded_file_id);
-      if (!object) return respond({ error: 'Payment proof object not found' }, 404);
+      if (!object) return respond({ error: 'File bukti pembayaran tidak ditemukan di R2' }, 404);
       const headers = new Headers({
         'Cache-Control': 'private, no-store',
         'Content-Disposition': `attachment; filename="${safeProofFilename(object.customMetadata?.originalName || `${proof.id}.bin`)}"`,
@@ -88,7 +88,7 @@ export async function onRequest({ request, env }) {
     }
 
     const length = Number(request.headers.get('content-length') || 0);
-    if (length > 6 * 1024 * 1024) return respond({ error: 'Payload too large' }, 413);
+    if (length > 6 * 1024 * 1024) return respond({ error: 'Ukuran file terlalu besar. Maksimal 5 MB.' }, 413);
     const form = await request.formData();
     const file = form.get('file');
     const validation = validatePaymentProofFile(file);
@@ -103,10 +103,10 @@ export async function onRequest({ request, env }) {
     }
 
     const payments = await sql`SELECT * FROM payment_instructions WHERE id=${paymentInstructionId} AND org_id=${organizationId} LIMIT 1`;
-    if (!payments.length) return respond({ error: 'Payment instruction not found' }, 404);
-    if (!canAccessClient(authorization.actor, env, payments[0].client_id)) return respond({ error: 'Client scope denied' }, 403);
+    if (!payments.length) return respond({ error: 'Payment instruction tidak ditemukan' }, 404);
+    if (!canAccessClient(authorization.actor, env, payments[0].client_id)) return respond({ error: 'Akun tidak memiliki akses ke data klien ini' }, 403);
     if (!['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(payments[0].status)) {
-      return respond({ error: 'Payment instruction is not ready for proof' }, 409);
+      return respond({ error: 'Payment instruction belum disetujui atau belum siap menerima bukti pembayaran' }, 409);
     }
     const proofId = `PP-${crypto.randomUUID()}`;
     const key = paymentProofObjectKey(organizationId, paymentInstructionId, file.name);

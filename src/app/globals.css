@@ -787,3 +787,21 @@ a:hover { text-decoration: underline; }
   .employee-drawer-pay { margin: 14px 18px; }
   .employee-detail-groups { padding: 0 18px 24px; }
 }
+
+
+/* System readiness and operational notices */
+.system-health-bubble, .app-notice-bubble {
+  position: fixed; top: 72px; right: 20px; z-index: 460; display: grid; width: min(380px, calc(100vw - 40px));
+  gap: 8px; padding: 14px 42px 14px 15px; border: 1px solid #fecaca; border-radius: 14px;
+  color: #7f1d1d; background: rgba(254,242,242,.98); box-shadow: 0 18px 42px rgba(15,23,42,.16); backdrop-filter: blur(14px);
+}
+.system-health-bubble > button, .app-notice-bubble > button { position: absolute; top: 9px; right: 9px; width: 26px; height: 26px; border: 0; border-radius: 7px; color: inherit; background: transparent; cursor: pointer; }
+.system-health-bubble h3, .app-notice-bubble strong { margin: 0; font-size: 12px; }
+.system-health-bubble ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.system-health-bubble li { display: grid; gap: 2px; }
+.system-health-bubble li strong { font-size: 10.5px; }.system-health-bubble li span, .app-notice-bubble span { font-size: 10.5px; line-height: 1.45; }
+.system-health-bubble li small { color: #991b1b; font-size: 9.5px; line-height: 1.4; }
+.system-health-actions { display: flex; gap: 7px; margin-top: 2px; }.system-health-actions button { padding: 6px 8px; border: 1px solid currentColor; border-radius: 7px; color: inherit; background: transparent; font: 650 9.5px inherit; cursor: pointer; }
+.system-health-warning { border-color: #fde68a; color: #78350f; background: rgba(255,251,235,.98); }
+.app-notice-info { border-color: #c7d2fe; color: #3730a3; background: rgba(238,242,255,.98); }.app-notice-error { border-color: #fecaca; color: #991b1b; background: rgba(254,242,242,.98); }
+@media (max-width: 640px) { .system-health-bubble, .app-notice-bubble { top: 66px; right: 10px; width: calc(100vw - 20px); } }

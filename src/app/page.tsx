@@ -18,6 +18,7 @@ import OperatingWorkspace from '@/components/OperatingWorkspace';
 import RoleDashboard from '@/components/RoleDashboard';
 import DirectoryManager from '@/components/DirectoryManager';
 import ReportsWorkspace from '@/components/ReportsWorkspace';
+import SystemHealthBubble from '@/components/SystemHealthBubble';
 import EmployeeDirectory from '@/components/EmployeeDirectory';
 import WorkforceInsights from '@/components/WorkforceInsights';
 import ClientPortfolio from '@/components/ClientPortfolio';
@@ -252,6 +253,7 @@ export default function Home() {
       </div>
       {actor.mustChangePassword && ['database', 'session'].includes(actor.authMode || '') ? <ChangePasswordModal forced /> : null}
 
+      <SystemHealthBubble />
       <IdaFab openSignal={idaOpenSignal} />
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>

@@ -86,7 +86,7 @@ export default function OperatingWorkspace() {
         ))}
       </div>
 
-      {message && <div style={{ padding: '10px 13px', borderRadius: 10, marginBottom: 14, background: 'var(--accent-soft)', color: 'var(--text2)', fontSize: 13 }}>{message}</div>}
+      {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
       {loading ? <Empty title="Memuat data operasional…" /> : (
         <>
           {tab === 'submissions' && <Submissions rows={data.submissions || []} role={role} act={act} />}
@@ -223,7 +223,7 @@ function Payments({ instructions, proofs, reconciliations, canReview, canApprove
       </div>
       <input aria-label="File bukti pembayaran" type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ ...input, marginTop:10, width:'100%' }} />
       <p style={{ ...small, margin:'8px 0 10px' }}>{file ? `${file.name} · ${(file.size / 1024).toFixed(1)} KB` : 'PDF, JPG, atau PNG · maksimal 5 MB · tersimpan private di R2'}</p>
-      {uploadError && <p style={{ color:'#dc2626', fontSize:12 }}>{uploadError}</p>}
+      {uploadError && <div className="app-notice-bubble app-notice-error" role="alert"><strong>Upload bukti gagal</strong><span>{uploadError}</span><button type="button" aria-label="Tutup pesan" onClick={() => setUploadError('')}>✕</button></div>}
       <button style={actionButton} disabled={uploading || !file || !proof.reference || !Number(proof.amount)} onClick={() => { setUploadError(''); void uploadProof(proofFor, proof, file, setUploading, () => { setProofFor(null); setFile(null); void act({}, 'Bukti pembayaran tersimpan di R2'); }).catch((error) => setUploadError(error instanceof Error ? error.message : 'Upload gagal')); }}>{uploading ? 'Mengunggah…' : 'Upload Bukti'}</button>
     </div>}
     <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
