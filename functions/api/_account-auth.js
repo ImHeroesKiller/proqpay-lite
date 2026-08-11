@@ -188,5 +188,16 @@ export async function authenticateSession(request, env) {
     mustChangePassword: Boolean(user.must_change_password),
     paymentApprover: Boolean(user.payment_approver),
     clientIds: user.client_ids || [],
+    authSource: 'database',
   };
+}
+
+export async function hasActiveAccounts(env) {
+  const url = databaseUrl(env);
+  if (!url) return false;
+  const sql = neon(url);
+  const rows = await sql`SELECT EXISTS(
+    SELECT 1 FROM app_users WHERE status='ACTIVE'
+  ) AS configured`;
+  return Boolean(rows[0]?.configured);
 }

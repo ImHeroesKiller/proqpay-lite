@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { ACCOUNT_ROLES, authenticateSession } from './_account-auth.js';
+import { ACCOUNT_ROLES, authenticateSession, hasActiveAccounts } from './_account-auth.js';
 
 export const ROLES = ACCOUNT_ROLES;
 
@@ -165,6 +165,7 @@ export async function authorize(
   if (mode === 'access') {
     try {
       actor = await verifyAccess(request, env);
+      actor.authSource = 'access';
     } catch {
       return {
         response: secureJson(
@@ -195,6 +196,24 @@ export async function authorize(
       };
     }
   } else {
+    try {
+      const databaseActor = await authenticateSession(request, env);
+      if (databaseActor) {
+        actor = databaseActor;
+      } else if (await hasActiveAccounts(env)) {
+        return {
+          response: secureJson(
+            { error: 'Authentication required' }, 401, request, env, methods
+          ),
+        };
+      }
+    } catch {
+      return {
+        response: secureJson(
+          { error: 'Authentication service unavailable' }, 503, request, env, methods
+        ),
+      };
+    }
     if (mutating && !sameOriginMutation(request)) {
       return {
         response: secureJson(
@@ -206,7 +225,7 @@ export async function authorize(
         ),
       };
     }
-    actor = { id: 'origin-session', email: 'local@proqpay', role: 'SUPER_ADMIN' };
+    if (!actor) actor = { id: 'origin-session', email: 'local@proqpay', role: 'SUPER_ADMIN', authSource: 'origin' };
   }
 
   if (!roles.includes(actor.role)) {

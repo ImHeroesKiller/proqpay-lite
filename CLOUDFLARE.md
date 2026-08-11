@@ -43,8 +43,10 @@ Urutan aktivasi production:
 1. Deploy awal dengan `AUTH_MODE=origin`.
 2. Buka **Pengaturan → Account Management**, lalu buat akun `SUPER_ADMIN` pertama.
 3. Salin password sementara yang hanya ditampilkan sekali.
-4. Ubah variable Cloudflare menjadi `AUTH_MODE=database`, lalu redeploy.
-5. Login dan ganti password sementara.
+4. Logout; begitu akun aktif pertama tersedia, mode bootstrap `origin` otomatis
+   berhenti dan aplikasi menampilkan halaman login database.
+5. Login dan ganti password sementara. Setelah berhasil, ubah variable Cloudflare
+   menjadi `AUTH_MODE=database` agar konfigurasi production menjadi eksplisit.
 
 Jangan mengaktifkan `database` sebelum akun Super Admin pertama tersedia karena
 seluruh endpoint akan gagal tertutup dengan HTTP 401. Mode `access` tetap tersedia

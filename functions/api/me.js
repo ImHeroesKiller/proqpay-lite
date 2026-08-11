@@ -23,10 +23,11 @@ export async function onRequest({ request, env }) {
   if (authorization.response) return authorization.response;
 
   const actor = authorization.actor;
+  const effectiveAuthMode = actor.authSource || String(env.AUTH_MODE || 'origin').toLowerCase();
   return secureJson(
     {
-      authenticated: ['access', 'database', 'session'].includes(String(env.AUTH_MODE || 'origin').toLowerCase()),
-      authMode: String(env.AUTH_MODE || 'origin').toLowerCase(),
+      authenticated: ['access', 'database', 'session'].includes(effectiveAuthMode),
+      authMode: effectiveAuthMode,
       user: {
         id: actor.id,
         name: actor.name || String(actor.email || '').split('@')[0],
