@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   icons: {
     icon: [{ url: '/assets/proqpay-mark.svg', type: 'image/svg+xml' }],
     shortcut: '/assets/proqpay-mark.svg',
-    apple: '/assets/proqpay-mark.svg',
+    apple: [{ url: '/assets/proqpay-apple-180.png', sizes: '180x180', type: 'image/png' }],
   },
   appleWebApp: { capable: true, statusBarStyle: 'default', title: 'ProQPay' },
 };

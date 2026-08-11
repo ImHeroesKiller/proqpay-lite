@@ -1,5 +1,5 @@
 const CACHE = 'proqpay-shell-v1';
-const SHELL = ['/offline.html', '/assets/proqpay-mark.svg', '/manifest.webmanifest'];
+const SHELL = ['/offline.html', '/assets/proqpay-mark.svg', '/assets/proqpay-192.png', '/assets/proqpay-512.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
