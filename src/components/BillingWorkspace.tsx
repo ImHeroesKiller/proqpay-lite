@@ -103,7 +103,7 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
 
     {notice && <div className={`app-notice-bubble ${/gagal|error|tidak|wajib|belum/i.test(notice)?'app-notice-error':'app-notice-info'}`} role="status"><strong>Billing & AR</strong><span>{notice}</span><button type="button" onClick={()=>setNotice('')}>✕</button></div>}
 
-    {section==='invoice' && <InvoiceSection data={data} canPrepare={canPrepare} canControl={canControl} act={act} generate={openGenerate} revise={revise} tax={openTax} detail={(row)=>setModal({kind:'detail',row})}/>}
+    {section==='invoice' && <InvoiceSection data={data} canPrepare={canPrepare} canControl={canControl} act={act} generate={openGenerate} revise={revise} tax={openTax} detail={(row:any)=>setModal({kind:'detail',row})}/>}
     {section==='tax' && <TaxSection rows={data.invoices} canControl={canControl} openTax={openTax} exportCoretax={exportCoretax}/>}
     {section==='ar' && <ARSection rows={data.arItems} canControl={canControl} canFollow={canControl||canPrepare} payment={openPayment} follow={followUp}/>}
     {section==='setup' && <SetupSection clients={data.clients} canEdit={canPrepare} open={openSetup}/>}
@@ -178,34 +178,34 @@ function SetupSection({clients,canEdit,open}:any){return <Panel title="Billing p
 
 function GenerateForm({row,form,setForm,submit}:any){return <Form submit={submit} buttonText="Buat draft invoice">
   <Info label="Payment" value={row.instruction_number}/><Info label="Klien" value={row.company}/><Info label="Payroll" value={formatIDR(Number(row.payroll_total||0))}/>
-  <Field label="Reimbursement / pass-through" type="number" value={form.reimbursement} onChange={(v)=>setForm({...form,reimbursement:v})}/>
-  <Field label="Diskon" type="number" value={form.discount} onChange={(v)=>setForm({...form,discount:v})}/>
+  <Field label="Reimbursement / pass-through" type="number" value={form.reimbursement} onChange={(v:any)=>setForm({...form,reimbursement:v})}/>
+  <Field label="Diskon" type="number" value={form.discount} onChange={(v:any)=>setForm({...form,discount:v})}/>
 </Form>}
 
 function TaxForm({form,setForm,submit}:any){return <Form submit={submit} buttonText="Simpan hasil Coretax">
-  <Select label="Status Coretax" value={form.status} options={['SUBMITTED','APPROVED','REJECTED']} onChange={(v)=>setForm({...form,status:v})}/>
-  <Field label="Nomor faktur pajak" value={form.taxInvoiceNumber} onChange={(v)=>setForm({...form,taxInvoiceNumber:v})}/>
-  <Field label="Tanggal faktur" type="date" value={form.taxInvoiceDate} onChange={(v)=>setForm({...form,taxInvoiceDate:v})}/>
-  <Field label="Referensi Coretax" value={form.coretaxReference} onChange={(v)=>setForm({...form,coretaxReference:v})}/>
+  <Select label="Status Coretax" value={form.status} options={['SUBMITTED','APPROVED','REJECTED']} onChange={(v:any)=>setForm({...form,status:v})}/>
+  <Field label="Nomor faktur pajak" value={form.taxInvoiceNumber} onChange={(v:any)=>setForm({...form,taxInvoiceNumber:v})}/>
+  <Field label="Tanggal faktur" type="date" value={form.taxInvoiceDate} onChange={(v:any)=>setForm({...form,taxInvoiceDate:v})}/>
+  <Field label="Referensi Coretax" value={form.coretaxReference} onChange={(v:any)=>setForm({...form,coretaxReference:v})}/>
 </Form>}
 
 function PaymentForm({row,form,setForm,submit}:any){return <Form submit={submit} buttonText="Catat penerimaan">
   <Info label="Saldo AR" value={formatIDR(Number(row.balance||0))}/>
-  <Field label="Jumlah diterima" type="number" value={form.amount} onChange={(v)=>setForm({...form,amount:v})}/>
-  <Field label="Tanggal diterima" type="date" value={form.paidAt} onChange={(v)=>setForm({...form,paidAt:v})}/>
-  <Field label="Referensi bank" value={form.reference} onChange={(v)=>setForm({...form,reference:v})}/>
-  <Field label="Catatan" value={form.notes} onChange={(v)=>setForm({...form,notes:v})}/>
+  <Field label="Jumlah diterima" type="number" value={form.amount} onChange={(v:any)=>setForm({...form,amount:v})}/>
+  <Field label="Tanggal diterima" type="date" value={form.paidAt} onChange={(v:any)=>setForm({...form,paidAt:v})}/>
+  <Field label="Referensi bank" value={form.reference} onChange={(v:any)=>setForm({...form,reference:v})}/>
+  <Field label="Catatan" value={form.notes} onChange={(v:any)=>setForm({...form,notes:v})}/>
 </Form>}
 
 function SetupForm({form,setForm,submit}:any){return <Form submit={submit} buttonText="Simpan billing profile">
-  <div style={grid2}><Field label="NPWP" value={form.npwp||''} onChange={(v)=>setForm({...form,npwp:v})}/><Field label="NITKU" value={form.nitku||''} onChange={(v)=>setForm({...form,nitku:v})}/></div>
-  <Field label="Alamat tagihan" value={form.billing_address||''} onChange={(v)=>setForm({...form,billingAddress:v,billing_address:v})}/>
-  <Field label="Email tagihan" type="email" value={form.billing_email||''} onChange={(v)=>setForm({...form,billingEmail:v,billing_email:v})}/>
-  <div style={grid2}><Field label="TOP (hari)" type="number" value={form.paymentTermsDays} onChange={(v)=>setForm({...form,paymentTermsDays:v})}/><Select label="Status pajak" value={form.taxStatus} options={['NON_PKP','PKP']} onChange={(v)=>setForm({...form,taxStatus:v})}/></div>
-  <Field label="Nomor PO / kontrak" value={form.purchase_order||''} onChange={(v)=>setForm({...form,purchaseOrder:v,purchase_order:v})}/>
-  <Select label="Metode billing" value={form.billingMethod} options={['FIXED','PER_EMPLOYEE','PERCENTAGE_OF_PAYROLL']} onChange={(v)=>setForm({...form,billingMethod:v})}/>
-  <div style={grid2}><Field label="Rate" type="number" value={form.billingRate} onChange={(v)=>setForm({...form,billingRate:v})}/><Field label="Admin fee" type="number" value={form.billingAdminFee} onChange={(v)=>setForm({...form,billingAdminFee:v})}/></div>
-  <Field label="Tarif PPN (%)" type="number" value={form.billingTaxRate} onChange={(v)=>setForm({...form,billingTaxRate:v})}/>
+  <div style={grid2}><Field label="NPWP" value={form.npwp||''} onChange={(v:any)=>setForm({...form,npwp:v})}/><Field label="NITKU" value={form.nitku||''} onChange={(v:any)=>setForm({...form,nitku:v})}/></div>
+  <Field label="Alamat tagihan" value={form.billing_address||''} onChange={(v:any)=>setForm({...form,billingAddress:v,billing_address:v})}/>
+  <Field label="Email tagihan" type="email" value={form.billing_email||''} onChange={(v:any)=>setForm({...form,billingEmail:v,billing_email:v})}/>
+  <div style={grid2}><Field label="TOP (hari)" type="number" value={form.paymentTermsDays} onChange={(v:any)=>setForm({...form,paymentTermsDays:v})}/><Select label="Status pajak" value={form.taxStatus} options={['NON_PKP','PKP']} onChange={(v:any)=>setForm({...form,taxStatus:v})}/></div>
+  <Field label="Nomor PO / kontrak" value={form.purchase_order||''} onChange={(v:any)=>setForm({...form,purchaseOrder:v,purchase_order:v})}/>
+  <Select label="Metode billing" value={form.billingMethod} options={['FIXED','PER_EMPLOYEE','PERCENTAGE_OF_PAYROLL']} onChange={(v:any)=>setForm({...form,billingMethod:v})}/>
+  <div style={grid2}><Field label="Rate" type="number" value={form.billingRate} onChange={(v:any)=>setForm({...form,billingRate:v})}/><Field label="Admin fee" type="number" value={form.billingAdminFee} onChange={(v:any)=>setForm({...form,billingAdminFee:v})}/></div>
+  <Field label="Tarif PPN (%)" type="number" value={form.billingTaxRate} onChange={(v:any)=>setForm({...form,billingTaxRate:v})}/>
 </Form>}
 
 function InvoiceDetail({row}:any){return <div>
