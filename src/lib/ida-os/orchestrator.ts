@@ -101,7 +101,7 @@ export function buildSharedContext(db: any, overrides: Partial<SharedContext> = 
   return {
     organization: { name: db?.meta?.orgName || 'ProQPay Lite' },
     currentUser: { email: 'anonymous@unauthenticated' },
-    currentRole: 'VIEWER',
+    currentRole: 'CLIENT_USER',
     conversation: {},
     currentClient: undefined,
     currentProject: undefined,

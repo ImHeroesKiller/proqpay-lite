@@ -96,7 +96,7 @@ export async function onRequest(context) {
   const sessionId = `${authorization.actor.id}:${rawSessionId}`.slice(0, 120);
 
   const [ragChunks, history, facts, web] = await Promise.all([
-    retrieveRag(env, userText, 8),
+    retrieveRag(env, userText, 8, authorization.actor),
     loadMemory(env, sessionId, 10),
     loadFacts(env, sessionId, 6),
     fetchRegulatoryWeb(userText),

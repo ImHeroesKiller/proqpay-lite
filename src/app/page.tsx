@@ -23,8 +23,9 @@ import ClientPortfolio from '@/components/ClientPortfolio';
 import { IconUsers, IconBuilding, IconWallet, IconClock } from '@/components/Icons';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromNeon } from '@/lib/neon-sync';
+import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
 
-type Actor = { id: string; email: string; role: string; permissions: string[] };
+type Actor = { id: string; name?: string; email: string; role: string; permissions: string[]; mustChangePassword?: boolean; clientIds?: string[] | null; authMode?: string };
 
 export default function Home() {
   const [db, setDb] = useState<any>(null);
@@ -35,6 +36,8 @@ export default function Home() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [idaOpenSignal, setIdaOpenSignal] = useState(0);
   const [actor, setActor] = useState<Actor | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [employeeRegionFilter, setEmployeeRegionFilter] = useState('ALL');
 
   useEffect(() => {
@@ -46,23 +49,20 @@ export default function Home() {
     void fetch('/api/me', { signal: controller.signal, headers: { Accept: 'application/json' } })
       .then(async (response) => {
         const result = await response.json().catch(() => ({}));
+        if (response.status === 401) { setAuthRequired(true); return; }
         if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-        setActor(result.user || null);
-      })
-      .catch((error) => {
-        if (error?.name !== 'AbortError') writeSystemLog('WARN', 'SECURITY', 'USER_CONTEXT_FAILED', 'Gagal memuat role pengguna');
-      });
-    void syncDatabaseFromNeon(data, { signal: controller.signal })
-      .then(({ db: canonical }) => {
+        const authenticatedActor = { ...(result.user || {}), authMode: result.authMode || 'origin' };
+        setActor(authenticatedActor);
+        setAuthRequired(false);
+        const { db: canonical } = await syncDatabaseFromNeon(data, { signal: controller.signal });
         saveDatabase(canonical);
         setDb(canonical);
         if (canonical?.meta?.currentPeriod) setPeriod(canonical.meta.currentPeriod);
       })
       .catch((error) => {
-        if (error?.name !== 'AbortError') {
-          writeSystemLog('WARN', 'DATABASE', 'NEON_SYNC_FAILED', error instanceof Error ? error.message : 'Sinkronisasi Neon gagal');
-        }
-      });
+        if (error?.name !== 'AbortError') writeSystemLog('WARN', 'SECURITY', 'USER_CONTEXT_FAILED', 'Gagal memuat role pengguna');
+      })
+      .finally(() => setAuthChecked(true));
     const st = loadSettings();
     setSettings(st);
     const requestedView = new URLSearchParams(window.location.search).get('view');
@@ -124,7 +124,9 @@ export default function Home() {
     navigate('employees');
   }
 
-  if (!mounted || !db || !settings) {
+  if (mounted && authChecked && authRequired) return <LoginScreen />;
+
+  if (!mounted || !db || !settings || !authChecked || !actor) {
     return (
       <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
         <p style={{ color: 'var(--text3)', fontSize: 13 }}>Memuat…</p>
@@ -158,7 +160,7 @@ export default function Home() {
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-        <AppHeader period={period} onHelp={() => setHelpOpen(true)} />
+        <AppHeader period={period} onHelp={() => setHelpOpen(true)} actor={actor} />
 
         <div style={{ flex: 1, overflowY: 'auto', padding: pad }}>
           <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
@@ -277,6 +279,7 @@ export default function Home() {
           </div>
         </div>
       </div>
+      {actor.mustChangePassword && ['database', 'session'].includes(actor.authMode || '') ? <ChangePasswordModal forced /> : null}
 
       <IdaFab openSignal={idaOpenSignal} />
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />

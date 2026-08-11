@@ -2,12 +2,7 @@ export type AppRole =
   | 'SUPER_ADMIN'
   | 'PAYROLL_PROCESSOR'
   | 'PAYROLL_CONTROLLER'
-  | 'CLIENT_USER'
-  | 'PAYROLL'
-  | 'HR'
-  | 'FINANCE'
-  | 'DIRECTOR'
-  | 'VIEWER';
+  | 'CLIENT_USER';
 
 export type AppUser = {
   id: string;
@@ -50,8 +45,6 @@ export type AppSettings = {
   notifyDataQuality: boolean;
   notifyContractExpiry: boolean;
   notifyPayrollApproval: boolean;
-  currentUserId: string;
-  users: AppUser[];
 };
 
 const KEY = 'proqpay_settings_v3';
@@ -89,8 +82,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifyDataQuality: true,
   notifyContractExpiry: true,
   notifyPayrollApproval: true,
-  currentUserId: '',
-  users: [],
 };
 
 export function loadSettings(): AppSettings {
@@ -98,7 +89,7 @@ export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw), users: JSON.parse(raw).users || DEFAULT_SETTINGS.users };
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -108,12 +99,6 @@ export function saveSettings(s: AppSettings) {
   if (typeof window === 'undefined') return;
   localStorage.setItem(KEY, JSON.stringify(s));
   window.dispatchEvent(new CustomEvent('proqpay-settings'));
-}
-
-export function currentUser(s: AppSettings): AppUser {
-  return s.users.find((u) => u.id === s.currentUserId) || s.users[0] || {
-    id: 'current', name: 'Pengguna', email: '', role: 'VIEWER', active: true,
-  };
 }
 
 export function onSettingsChange(cb: () => void) {

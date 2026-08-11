@@ -28,9 +28,7 @@ export async function onRequest({ request, env }) {
   }
 
   const authorization = await authorize(request, env, {
-    roles: request.method === 'POST'
-      ? ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'PAYROLL', 'FINANCE', 'DIRECTOR']
-      : ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'PAYROLL', 'HR', 'FINANCE', 'DIRECTOR'],
+    roles: ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER'],
     mutating: request.method === 'POST',
     methods: METHODS,
   });

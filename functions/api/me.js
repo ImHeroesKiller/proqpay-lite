@@ -25,12 +25,16 @@ export async function onRequest({ request, env }) {
   const actor = authorization.actor;
   return secureJson(
     {
-      authenticated: String(env.AUTH_MODE || 'origin').toLowerCase() === 'access',
+      authenticated: ['access', 'database', 'session'].includes(String(env.AUTH_MODE || 'origin').toLowerCase()),
+      authMode: String(env.AUTH_MODE || 'origin').toLowerCase(),
       user: {
         id: actor.id,
+        name: actor.name || String(actor.email || '').split('@')[0],
         email: actor.email,
         role: actor.role,
         permissions: actor.permissions || permissionsFor(actor.role, actor.email, env),
+        mustChangePassword: Boolean(actor.mustChangePassword),
+        clientIds: actor.role === 'CLIENT_USER' ? (actor.clientIds || []) : null,
       },
     },
     200,

@@ -1,60 +1,28 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { currentUser, loadSettings, onSettingsChange, type AppUser } from '@/lib/app-settings';
+import { useState } from 'react';
+import { ChangePasswordModal } from '@/components/AuthViews';
+
+type HeaderActor = { id: string; name?: string; email: string; role: string; authMode?: string };
 
 export default function AppHeader({
   period,
   onHelp,
+  actor,
 }: {
   period: string;
   onHelp: () => void;
+  actor: HeaderActor;
 }) {
-  const [user, setUser] = useState<AppUser | null>(null);
-  const [accessAuthenticated, setAccessAuthenticated] = useState(false);
   const [menu, setMenu] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const user = { ...actor, name: actor.name || actor.email.split('@')[0] };
 
-  useEffect(() => {
-    let accessUser: AppUser | null = null;
-    const sync = () => setUser(accessUser || currentUser(loadSettings()));
-    sync();
-    const controller = new AbortController();
-    fetch('/api/me', {
-      headers: { Accept: 'application/json' },
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) return;
-        const data = await response.json();
-        if (!data.authenticated || !data.user?.email || !data.user?.role) return;
-        const email = String(data.user.email);
-        accessUser = {
-          id: String(data.user.id || email),
-          name: email.split('@')[0],
-          email,
-          role: data.user.role as AppUser['role'],
-          active: true,
-        };
-        setAccessAuthenticated(true);
-        setUser(accessUser);
-      })
-      .catch(() => {
-        // Profil lokal tetap digunakan jika endpoint identitas tidak tersedia.
-      });
-    const unsubscribe = onSettingsChange(sync);
-    return () => {
-      controller.abort();
-      unsubscribe();
-    };
-  }, []);
-
-  function logout() {
+  async function logout() {
     setMenu(false);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('proqpay_session_ok');
-      window.location.assign(accessAuthenticated ? '/cdn-cgi/access/logout' : '/');
-    }
+    if (actor.authMode === 'access') window.location.assign('/cdn-cgi/access/logout');
+    else { await fetch('/api/logout', { method: 'POST' }).catch(() => null); window.location.assign('/'); }
   }
 
   return (
@@ -122,7 +90,8 @@ export default function AppHeader({
               <button type="button" style={itemStyle} onClick={() => { setProfileOpen(true); setMenu(false); }}>
                 Profil
               </button>
-              <button type="button" style={itemStyle} onClick={logout}>
+              {['database', 'session'].includes(actor.authMode || '') ? <button type="button" style={itemStyle} onClick={() => { setPasswordOpen(true); setMenu(false); }}>Ganti password</button> : null}
+              <button type="button" style={itemStyle} onClick={() => void logout()}>
                 Keluar
               </button>
             </div>
@@ -168,6 +137,7 @@ export default function AppHeader({
           </div>
         </div>
       )}
+      {passwordOpen ? <ChangePasswordModal forced={false} onClose={() => setPasswordOpen(false)} /> : null}
     </>
   );
 }

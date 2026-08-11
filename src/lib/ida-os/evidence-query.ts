@@ -94,7 +94,7 @@ function bankAccountAnswer(text: string, employees: any[]): EvidenceQueryResult 
 
 function dataCatalogAnswer(text: string, db: any, options: QueryOptions): EvidenceQueryResult | null {
   if (!/\b(endpoint|kolom|field|akses data|data apa|baca database|membaca database|datasheet|knowledge|pengetahuan data)\b/.test(text)) return null;
-  const role = options.currentRole || 'VIEWER';
+  const role = options.currentRole || 'CLIENT_USER';
   const permissions = options.permissions || [];
   const fields = db.employees?.[0] ? Object.keys(db.employees[0]).sort() : [];
   const endpointsByRole: Record<string, string[]> = {

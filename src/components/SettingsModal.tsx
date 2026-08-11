@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { DEFAULT_SETTINGS, loadSettings, saveSettings, type AppRole, type AppSettings, type AppUser } from '@/lib/app-settings';
+import { DEFAULT_SETTINGS, loadSettings, saveSettings, type AppSettings } from '@/lib/app-settings';
 import { saveDatabase, seedDatabase } from '@/lib/database';
 import { emitDbChange } from '@/lib/events';
 import { writeSystemLog } from '@/lib/system-log';
+import AccountManagement from '@/components/AccountManagement';
 
 type Tab = 'general' | 'dashboard' | 'appearance' | 'ida' | 'billing' | 'users' | 'data';
 const RESET_CONFIRMATION = 'HAPUS SEMUA DATA';
@@ -14,7 +15,7 @@ const TABS: Array<{ id: Tab; label: string; icon: string; description: string }>
   { id: 'appearance', label: 'Tampilan', icon: '◐', description: 'Tema, warna, dan kepadatan' },
   { id: 'ida', label: 'IDA Copilot', icon: '✦', description: 'Respons dan saran operasional' },
   { id: 'billing', label: 'Billing', icon: 'Rp', description: 'Variabel invoice dan margin' },
-  { id: 'users', label: 'Users & Roles', icon: '◎', description: 'Pengguna lokal dan persona' },
+  { id: 'users', label: 'Account Management', icon: '◎', description: 'Login, role, permission, dan client scope' },
   { id: 'data', label: 'Data & Privasi', icon: '◇', description: 'Masking dan reset operasional' },
 ];
 
@@ -58,19 +59,8 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
 
   function restorePreferences() {
     if (!settings) return;
-    setSettings({ ...DEFAULT_SETTINGS, orgName: settings.orgName, currentUserId: settings.currentUserId, users: settings.users });
+    setSettings({ ...DEFAULT_SETTINGS, orgName: settings.orgName });
     setSaved(false);
-  }
-
-  function updateUser(id: string, values: Partial<AppUser>) {
-    if (!settings) return;
-    patch({ users: settings.users.map((user) => user.id === id ? { ...user, ...values } : user) });
-  }
-
-  function addUser() {
-    if (!settings) return;
-    const id = `U${Date.now().toString(36)}`;
-    patch({ users: [...settings.users, { id, name: 'User Baru', email: `user${settings.users.length + 1}@proqpay.id`, role: 'VIEWER', active: true }] });
   }
 
   async function resetOperationalData() {
@@ -116,7 +106,6 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 <Field label="Nama organisasi"><input value={settings.orgName} onChange={(event) => patch({ orgName: event.target.value })} /></Field>
                 <Field label="Periode default"><input type="month" value={settings.defaultPeriod} onChange={(event) => patch({ defaultPeriod: event.target.value })} /></Field>
                 <Field label="Halaman awal"><select value={settings.defaultView} onChange={(event) => patch({ defaultView: event.target.value as AppSettings['defaultView'] })}><option value="dashboard">Dashboard</option><option value="operations">Payroll Operations</option><option value="employees">Data Karyawan</option><option value="clients">Klien & Project</option><option value="reports">Laporan</option></select></Field>
-                <Field label="Pengguna simulasi lokal"><select value={settings.currentUserId} onChange={(event) => patch({ currentUserId: event.target.value })}><option value="">Pilih pengguna</option>{settings.users.map((user) => <option key={user.id} value={user.id}>{user.name} · {user.role}</option>)}</select></Field>
               </div>
             </SettingsSection> : null}
 
@@ -180,9 +169,8 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               </div>
             </SettingsSection> : null}
 
-            {tab === 'users' ? <SettingsSection title="Pengguna lokal" description="Simulasi persona UI. Identitas produksi tetap berasal dari Cloudflare Access.">
-              <div className="settings-user-list">{settings.users.map((user) => <div key={user.id}><span className="settings-user-avatar">{user.name.slice(0, 2).toUpperCase()}</span><input aria-label="Nama pengguna" value={user.name} onChange={(event) => updateUser(user.id, { name: event.target.value })} /><input aria-label="Email pengguna" value={user.email} onChange={(event) => updateUser(user.id, { email: event.target.value })} /><select aria-label="Role pengguna" value={user.role} onChange={(event) => updateUser(user.id, { role: event.target.value as AppRole })}>{(['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'CLIENT_USER', 'PAYROLL', 'HR', 'FINANCE', 'DIRECTOR', 'VIEWER'] as AppRole[]).map((role) => <option key={role}>{role}</option>)}</select><label className="user-active"><input type="checkbox" checked={user.active} onChange={(event) => updateUser(user.id, { active: event.target.checked })} /><span>Aktif</span></label></div>)}</div>
-              <button type="button" className="btn" onClick={addUser}>+ Tambah pengguna</button>
+            {tab === 'users' ? <SettingsSection title="Account Management" description="Akun tersimpan di Neon. Password sementara dibuat oleh server dan wajib diganti saat login pertama.">
+              <AccountManagement />
             </SettingsSection> : null}
 
             {tab === 'data' ? <>

@@ -25,8 +25,8 @@ const CONTROLLER_BLOCKED_FIELDS = new Set([
 ]);
 
 function employeeView(row, actor) {
-  if (['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'HR', 'PAYROLL'].includes(actor.role)) return row;
-  if (actor.role === 'PAYROLL_CONTROLLER' || actor.role === 'FINANCE' || actor.role === 'DIRECTOR') {
+  if (['SUPER_ADMIN', 'PAYROLL_PROCESSOR'].includes(actor.role)) return row;
+  if (actor.role === 'PAYROLL_CONTROLLER') {
     return Object.fromEntries(Object.entries(row).filter(([key]) => !CONTROLLER_BLOCKED_FIELDS.has(key)));
   }
   if (actor.role === 'CLIENT_USER') return row;
@@ -45,7 +45,7 @@ export async function onRequest(context) {
   }
 
   const authorization = await authorize(request, env, {
-    roles: request.method === 'POST' ? ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'HR', 'PAYROLL'] : ROLES,
+    roles: request.method === 'POST' ? ['SUPER_ADMIN', 'PAYROLL_PROCESSOR'] : ROLES,
     mutating: request.method === 'POST',
     methods: METHODS,
   });

@@ -474,12 +474,12 @@ export function handleIdaIntent(
       return { reply: renderMarkdown(`Status **${payroll.status}** — perlu CALCULATED dulu.`) };
     }
     const report = validatePayrollIndonesia(db, { period });
-    const actorRole = String(contextOverrides.currentRole || 'VIEWER');
+    const actorRole = String(contextOverrides.currentRole || 'CLIENT_USER');
     const actorEmail = String(contextOverrides.currentUser?.email || 'unknown@local');
-    if (!['SUPER_ADMIN', 'DIRECTOR'].includes(actorRole)) {
+    if (!['SUPER_ADMIN', 'PAYROLL_CONTROLLER'].includes(actorRole)) {
       return {
         reply: renderMarkdown(
-          `Role **${actorRole}** tidak berwenang menyetujui payroll. Payroll Staff dapat menyiapkan preview, tetapi eksekusi approval hanya untuk **SUPER_ADMIN** atau **DIRECTOR**.`
+          `Role **${actorRole}** tidak berwenang menyetujui payroll. Payroll Processor dapat menyiapkan preview, tetapi eksekusi approval hanya untuk **SUPER_ADMIN** atau **PAYROLL_CONTROLLER**.`
         ),
       };
     }

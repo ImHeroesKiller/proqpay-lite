@@ -40,6 +40,72 @@
   --shadow-fab: 0 12px 32px rgba(91, 94, 240, 0.28), 0 4px 12px rgba(15, 23, 42, 0.08);
 }
 
+/* Database-backed account management */
+.account-management { display: grid; gap: 18px; }
+.account-role-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.account-role-summary > div { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--border-soft); border-radius: 11px; background: var(--bg-subtle); }
+.account-role-summary strong { font-size: 12px; color: var(--text); }
+.account-role-summary span { color: var(--text3); font-size: 10.5px; line-height: 1.45; }
+.account-create-grid { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 10px; align-items: end; }
+.account-create-grid > label:not(.account-check) { display: grid; gap: 6px; }
+.account-create-grid label > span, .client-scope-picker > span { color: var(--text2); font-size: 10px; font-weight: 750; letter-spacing: .03em; }
+.account-create-grid input, .account-create-grid select, .account-card input, .account-card select { width: 100%; min-height: 36px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--bg-surface); font: 500 11px inherit; }
+.account-check, .account-approver { display: flex; align-items: center; gap: 6px; color: var(--text2); font-size: 10.5px; }
+.account-check input, .account-approver input { width: auto; min-height: 0; }
+.client-scope-picker { display: grid; gap: 7px; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 10px; }
+.client-scope-picker > div { display: flex; flex-wrap: wrap; gap: 7px 12px; }
+.client-scope-picker label { display: flex; align-items: center; gap: 5px; color: var(--text2); font-size: 10.5px; }
+.client-scope-picker em { color: var(--text3); font-size: 10.5px; font-style: normal; }
+.client-scope-picker.compact { margin-top: 7px; padding: 7px 9px; }
+.account-credential { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 12px; border: 1px solid #86efac; border-radius: 11px; background: #f0fdf4; }
+.account-credential > div { display: grid; gap: 2px; }
+.account-credential strong { color: #166534; font-size: 11px; }
+.account-credential span { color: #15803d; font-size: 10px; }
+.account-credential code { padding: 8px 10px; border-radius: 7px; color: #14532d; background: #dcfce7; font-size: 12px; user-select: all; }
+.account-list-heading { display: flex; justify-content: space-between; align-items: center; padding-top: 4px; }
+.account-list-heading strong { font-size: 12px; }
+.account-list-heading span, .account-empty { color: var(--text3); font-size: 10.5px; }
+.account-list { display: grid; gap: 9px; }
+.account-card { display: grid; grid-template-columns: 38px minmax(170px, 1fr) 145px 105px auto; gap: 9px; align-items: center; padding: 11px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--bg-surface); }
+.account-avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; color: #fff; background: linear-gradient(135deg, #4338ca, #2563eb); font-size: 10px; font-weight: 800; }
+.account-fields { display: grid; gap: 3px; min-width: 0; }
+.account-fields > span { overflow: hidden; color: var(--text3); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+.account-actions { display: flex; gap: 6px; }
+.account-actions .btn { padding: 8px; font-size: 9.5px; white-space: nowrap; }
+
+/* Authentication */
+.login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 15%, #e0e7ff 0, transparent 34%), linear-gradient(145deg, #f8fafc, #eef2ff); }
+.login-panel { width: min(100%, 420px); padding: 32px; border: 1px solid rgba(148,163,184,.28); border-radius: 22px; background: rgba(255,255,255,.94); box-shadow: 0 30px 70px rgba(30,41,59,.14); backdrop-filter: blur(18px); }
+.login-brand { display: flex; align-items: center; gap: 11px; }
+.login-brand > span { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; color: #fff; background: linear-gradient(135deg, #312e81, #2563eb); font-size: 11px; font-weight: 850; }
+.login-brand > div { display: grid; gap: 1px; }
+.login-brand strong { font-size: 14px; }
+.login-brand small { color: var(--text3); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+.login-heading { margin: 38px 0 22px; }
+.login-heading > span { color: #4f46e5; font-size: 9px; font-weight: 800; letter-spacing: .12em; }
+.login-heading h1 { margin: 7px 0 5px; font-size: 25px; }
+.login-heading p, .auth-modal > p { margin: 0; color: var(--text3); font-size: 11.5px; line-height: 1.55; }
+.login-form { display: grid; gap: 13px; }
+.login-form label { display: grid; gap: 6px; }
+.login-form label > span { color: var(--text2); font-size: 10px; font-weight: 700; }
+.login-form input { min-height: 42px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--text); background: #fff; font: 500 13px inherit; outline: none; }
+.login-form input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.12); }
+.login-form .btn { min-height: 42px; }
+.login-error { padding: 9px 10px; border: 1px solid #fecaca; border-radius: 8px; color: #b91c1c; background: #fef2f2; font-size: 10.5px; }
+.login-security { margin: 22px 0 0; color: var(--text3); font-size: 9.5px; text-align: center; }
+.auth-modal-backdrop { position: fixed; inset: 0; z-index: 500; display: grid; place-items: center; padding: 20px; background: rgba(15,23,42,.58); backdrop-filter: blur(6px); }
+.auth-modal { width: min(100%, 430px); padding: 25px; border-radius: 18px; background: var(--bg-surface); box-shadow: var(--shadow-lg); }
+.auth-modal h2 { margin: 7px 0 6px; font-size: 20px; }
+.auth-modal > p { margin-bottom: 18px; }
+.auth-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+@media (max-width: 900px) {
+  .account-create-grid { grid-template-columns: 1fr; }
+  .account-card { grid-template-columns: 38px 1fr; }
+  .account-card > select, .account-card > .account-approver, .account-card > .account-actions { grid-column: 2; }
+  .account-role-summary { grid-template-columns: 1fr; }
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {

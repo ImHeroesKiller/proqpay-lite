@@ -27,7 +27,7 @@ export function buildApprovalPreview(
     totalNet: Number(payroll.summary?.totalNet || 0),
     validationErrors: Number(validationErrors || 0),
     actorEmail: String(actor.email || 'unknown@local'),
-    actorRole: String(actor.role || 'VIEWER'),
+    actorRole: String(actor.role || 'CLIENT_USER'),
   };
 }
 

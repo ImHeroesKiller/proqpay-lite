@@ -10,12 +10,7 @@ export type IdaRole =
   | 'SUPER_ADMIN'
   | 'PAYROLL_PROCESSOR'
   | 'PAYROLL_CONTROLLER'
-  | 'CLIENT_USER'
-  | 'HR'
-  | 'PAYROLL'
-  | 'DIRECTOR'
-  | 'FINANCE'
-  | 'VIEWER';
+  | 'CLIENT_USER';
 
 export type WorkflowStage =
   | 'UNDERSTAND'

@@ -28,6 +28,6 @@ test('access mode fails closed without a valid Access assertion', async () => {
   assert.equal(response.status, 401);
 });
 
-test('permissions default to viewer for an unknown role', () => {
-  assert.deepEqual(permissionsFor('UNKNOWN'), ['read']);
+test('permissions fail closed for an unknown role', () => {
+  assert.deepEqual(permissionsFor('UNKNOWN'), []);
 });

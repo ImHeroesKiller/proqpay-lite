@@ -25,27 +25,30 @@ Minimal:
 | `NODE_VERSION` | variable | `22` |
 | `APP_ORIGINS` | variable | Origin tambahan, dipisahkan koma |
 | `DEFAULT_ORG_ID` | variable | Organization scope default untuk API operasional |
-| `CLIENT_SCOPE_JSON` | variable | Pemetaan email CLIENT_USER ke daftar client ID |
+| `AUTH_MODE` | variable | Gunakan `database` setelah akun Super Admin pertama dibuat |
+| `SESSION_HOURS` | variable | Durasi sesi login, default `8`, maksimum `168` |
 
 Connection string Neon yang pernah dibagikan harus dirotasi. Rotasi juga semua
 kunci Gemini yang pernah muncul di log/chat. Jangan commit nilainya ke repo.
 
-## Mode keamanan
+## Mode keamanan dan aktivasi login
 
-Default aplikasi adalah `AUTH_MODE=origin` untuk kompatibilitas deployment lama.
-Mode ini melindungi operasi mutasi dari request lintas-origin, tetapi **bukan**
-autentikasi pengguna production.
+Account Management menggunakan tabel `app_users`, `user_client_scopes`, dan
+`app_sessions` di Neon. Password disimpan sebagai hash PBKDF2-SHA256 dengan salt,
+password sementara wajib diganti pada login pertama, lima kegagalan login akan
+mengunci akun selama 15 menit, dan cookie sesi bersifat HttpOnly/Secure/SameSite.
 
-Untuk production, buat Cloudflare Access self-hosted application yang melindungi
-domain aplikasi, lalu set:
+Urutan aktivasi production:
 
-| Name | Contoh |
-|---|---|
-| `AUTH_MODE` | `access` |
-| `CF_ACCESS_TEAM_DOMAIN` | `https://nama-team.cloudflareaccess.com` |
-| `CF_ACCESS_AUD` | Application Audience tag dari Access |
-| `ROLE_MAP_JSON` | `{"admin@contoh.id":"SUPER_ADMIN","hr@contoh.id":"HR"}` |
-| `APP_ORIGINS` | `https://proqpay-lite.pages.dev` |
+1. Deploy awal dengan `AUTH_MODE=origin`.
+2. Buka **Pengaturan → Account Management**, lalu buat akun `SUPER_ADMIN` pertama.
+3. Salin password sementara yang hanya ditampilkan sekali.
+4. Ubah variable Cloudflare menjadi `AUTH_MODE=database`, lalu redeploy.
+5. Login dan ganti password sementara.
+
+Jangan mengaktifkan `database` sebelum akun Super Admin pertama tersedia karena
+seluruh endpoint akan gagal tertutup dengan HTTP 401. Mode `access` tetap tersedia
+bila Cloudflare Access hendak digunakan sebagai identity provider terpisah.
 
 Binding R2 production wajib bernama `PAYMENT_PROOFS` dan mengarah ke bucket
 private `proqpay-payment-proofs`. Bukti pembayaran diunggah melalui
@@ -53,10 +56,10 @@ private `proqpay-payment-proofs`. Bukti pembayaran diunggah melalui
 dapat diunduh melalui `GET /api/payment-proof?id=...` setelah otorisasi role
 dan client scope. Object key tidak pernah dikirim sebagai URL publik.
 
-Role utama yang dikenali: `PAYROLL_PROCESSOR`, `PAYROLL_CONTROLLER`, dan
-`CLIENT_USER`. Role lama `SUPER_ADMIN`, `PAYROLL`, `HR`, `FINANCE`, `DIRECTOR`,
-dan `VIEWER` tetap dipertahankan untuk kompatibilitas. Email yang tidak ada di `ROLE_MAP_JSON` mendapat role `VIEWER`.
-Jika konfigurasi Access tidak lengkap, API gagal tertutup dengan HTTP 401.
+Role yang dikenali hanya `SUPER_ADMIN`, `PAYROLL_PROCESSOR`,
+`PAYROLL_CONTROLLER`, dan `CLIENT_USER`. `PAYMENT_APPROVER` adalah permission
+tambahan untuk Controller, bukan persona kelima. Scope `CLIENT_USER` disimpan di
+database dan wajib memiliki minimal satu klien.
 
 Hak akses API:
 
@@ -65,12 +68,13 @@ Hak akses API:
 | `GET /api/health` | publik, respons disanitasi |
 | `GET /api/me` | identitas, role, dan permission pengguna aktif |
 | `GET /api/employees` | semua role terautentikasi |
-| `POST /api/employees` | `SUPER_ADMIN`, `HR`, `PAYROLL` |
-| `POST /api/import` | `SUPER_ADMIN`, `HR`, `PAYROLL` |
+| `POST /api/employees` | `SUPER_ADMIN`, `PAYROLL_PROCESSOR` |
+| `POST /api/import` | `SUPER_ADMIN`, `PAYROLL_PROCESSOR`, `CLIENT_USER` sesuai scope |
 | `POST /api/schema` | `SUPER_ADMIN` |
+| `GET/POST /api/accounts` | Daftar untuk `SUPER_ADMIN`; ganti password untuk pemilik akun |
+| `POST /api/login`, `/api/logout` | Login database dan pencabutan sesi |
 | `/api/ida`, `/api/wilayah` | semua role terautentikasi |
-| `GET /api/state` | membaca state payroll, invoice, payment, AR, dan audit |
-| `POST /api/state` | `SUPER_ADMIN`, `PAYROLL`, `FINANCE`, `DIRECTOR` |
+| `GET/POST /api/state` | role internal sesuai workflow |
 
 ## Rate limiting
 
@@ -93,7 +97,7 @@ Inisialisasi schema hanya melalui request POST yang sudah terautentikasi:
 curl -X POST https://proqpay-lite.pages.dev/api/schema
 ```
 
-Setelah mengaktifkan Access, panggilan tanpa sesi Access harus menghasilkan 401
+Setelah mengaktifkan login database, panggilan tanpa cookie sesi harus menghasilkan 401
 untuk endpoint yang dilindungi.
 
 ## Quality gate dan header

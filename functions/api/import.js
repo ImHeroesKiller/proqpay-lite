@@ -37,7 +37,7 @@ export async function onRequest(context) {
   }
 
   const authorization = await authorize(request, env, {
-    roles: ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'CLIENT_USER', 'HR', 'PAYROLL'],
+    roles: ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'CLIENT_USER'],
     mutating: true,
     methods: METHODS,
   });

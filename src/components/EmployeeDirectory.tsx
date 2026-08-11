@@ -98,7 +98,7 @@ export default function EmployeeDirectory({ employees, actor, pageSize = 15, ini
           <h1>Data Karyawan</h1>
           <p>Telusuri profil, penempatan, kontrak, payroll, dan kelengkapan administrasi.</p>
         </div>
-        <span className="role-access-chip">Akses: {actor?.role?.replaceAll('_', ' ') || 'VIEWER'}</span>
+        <span className="role-access-chip">Akses: {actor?.role?.replaceAll('_', ' ') || 'CLIENT USER'}</span>
       </div>
 
       <div className="employee-summary-grid">

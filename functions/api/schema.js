@@ -200,6 +200,24 @@ export async function onRequest(context) {
         id TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES integration_connections(id), status TEXT NOT NULL,
         cursor TEXT, received_count INT DEFAULT 0, error_summary TEXT,
         started_at TIMESTAMPTZ DEFAULT NOW(), completed_at TIMESTAMPTZ)`,
+      `CREATE TABLE IF NOT EXISTS app_users (
+        id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES organizations(id), name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        role TEXT NOT NULL CHECK (role IN ('SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER')),
+        status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','SUSPENDED','INACTIVE')),
+        password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, password_iterations INT NOT NULL DEFAULT 210000,
+        must_change_password BOOLEAN NOT NULL DEFAULT TRUE, payment_approver BOOLEAN NOT NULL DEFAULT FALSE,
+        created_by TEXT NOT NULL, failed_login_attempts INT NOT NULL DEFAULT 0, locked_until TIMESTAMPTZ,
+        last_login_at TIMESTAMPTZ, password_changed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+      `CREATE TABLE IF NOT EXISTS user_client_scopes (
+        user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+        client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (user_id, client_id))`,
+      `CREATE TABLE IF NOT EXISTS app_sessions (
+        token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+        expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
     ];
 
     for (const stmt of statements) {
@@ -216,6 +234,11 @@ export async function onRequest(context) {
       `CREATE INDEX IF NOT EXISTS idx_submissions_scope ON payroll_submissions(org_id, client_id, period, state)`,
       `CREATE INDEX IF NOT EXISTS idx_exceptions_queue ON payroll_exceptions(submission_id, status, severity)`,
       `CREATE INDEX IF NOT EXISTS idx_billing_rules_effective ON billing_rules(client_id, service_plan_id, effective_from, effective_until)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_email_lower ON app_users (LOWER(email))`,
+      `CREATE INDEX IF NOT EXISTS idx_app_sessions_user ON app_sessions(user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_app_sessions_expiry ON app_sessions(expires_at)`,
+      `ALTER TABLE app_users ADD COLUMN IF NOT EXISTS failed_login_attempts INT NOT NULL DEFAULT 0`,
+      `ALTER TABLE app_users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ`,
     ];
     for (const a of alters) {
       try {
@@ -230,12 +253,6 @@ export async function onRequest(context) {
       VALUES ('ORG-OTSINDO', 'OTSINDO', 'OTSINDO')
       ON CONFLICT (id) DO NOTHING
     `;
-    await sql`
-      INSERT INTO clients (id, org_id, code, name)
-      VALUES ('CLI-039', 'ORG-OTSINDO', '039', 'PT. INDOMARCO ADI PRIMA')
-      ON CONFLICT (id) DO NOTHING
-    `;
-
     return respond({
       status: 'ok',
       message: 'Schema ready — work_locations.province via IDA wilayah',
@@ -274,6 +291,9 @@ export async function onRequest(context) {
         'reconciliations',
         'integration_connections',
         'integration_sync_runs',
+        'app_users',
+        'user_client_scopes',
+        'app_sessions',
       ],
     });
   } catch (error) {

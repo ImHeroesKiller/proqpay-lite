@@ -73,7 +73,7 @@ test('compliance worker returns deterministic evidence', async () => {
 
 test('destructive action only allows SUPER_ADMIN', async () => {
   const registry = await loadTsModule('src/lib/ida-os/worker-registry.ts');
-  assert.equal(registry.validateWorkerTask('HR', 'update_employee', 'HR', 'DESTRUCTIVE').allowed, false);
+  assert.equal(registry.validateWorkerTask('HR', 'update_employee', 'PAYROLL_PROCESSOR', 'DESTRUCTIVE').allowed, false);
   assert.equal(registry.validateWorkerTask('HR', 'update_employee', 'SUPER_ADMIN', 'DESTRUCTIVE').allowed, true);
 });
 
@@ -84,9 +84,9 @@ test('orchestrator routes financial actions to preview with confirmation', async
     meta: { currentPeriod: '2026-07', orgName: 'ProQPay Lite' },
     payrolls: [{ id: 'PAY-1', period: '2026-07', status: 'CALCULATED' }],
   }, {
-    currentUser: { email: 'finance@proqpay.id' },
-    currentRole: 'FINANCE',
-    permissions: ['read', 'finance:write'],
+    currentUser: { email: 'controller@proqpay.id' },
+    currentRole: 'PAYROLL_CONTROLLER',
+    permissions: ['read', 'payment:prepare'],
   });
   const result = orchestrator.orchestrateRequest('buat payment instruction', context);
   assert.equal(result.allowed, true);
@@ -224,7 +224,7 @@ test('approval requires a preview and is idempotent', async () => {
     db.payrolls[0],
     3,
     'PLAN-APPROVAL',
-    { email: 'director@proqpay.id', role: 'DIRECTOR' }
+    { email: 'controller@proqpay.id', role: 'PAYROLL_CONTROLLER' }
   );
   assert.equal(preview.currentStatus, 'CALCULATED');
   assert.equal(preview.validationErrors, 3);
@@ -232,7 +232,7 @@ test('approval requires a preview and is idempotent', async () => {
   assert.equal(first.alreadyApplied, false);
   assert.equal(first.db.payrolls[0].status, 'APPROVED');
   assert.equal(first.db.approvals.length, 1);
-  assert.equal(first.db.auditLogs[0].user, 'director@proqpay.id');
+  assert.equal(first.db.auditLogs[0].user, 'controller@proqpay.id');
   const second = approval.applyApproval(first.db, preview, 5678);
   assert.equal(second.alreadyApplied, true);
   assert.equal(second.db.approvals.length, 1);

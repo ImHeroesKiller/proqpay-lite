@@ -45,7 +45,7 @@ function scoreDoc(q, doc) {
   return s;
 }
 
-export async function retrieveRag(env, userText, limit = 6) {
+export async function retrieveRag(env, userText, limit = 6, actor = null) {
   const q = (userText || '').toLowerCase();
   const chunks = [];
 
@@ -65,16 +65,20 @@ export async function retrieveRag(env, userText, limit = 6) {
 
   try {
     const sql = neon(url);
+    const scopedToClient = actor?.role === 'CLIENT_USER';
+    const clientScopeCsv = (Array.isArray(actor?.clientIds) ? actor.clientIds : []).map(String).join(',');
 
     if (/karyawan|pegawai|employee|nrk|berapa orang|headcount/.test(q)) {
       const stats = await sql`
         SELECT status_aktif, province, COUNT(*)::int AS n
         FROM employees
+        WHERE ${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ','))
         GROUP BY status_aktif, province
         ORDER BY n DESC
         LIMIT 20
       `;
-      const total = await sql`SELECT COUNT(*)::int AS n FROM employees`;
+      const total = await sql`SELECT COUNT(*)::int AS n FROM employees
+        WHERE ${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ','))`;
       chunks.push({
         source: 'db',
         id: 'emp-stats',
@@ -87,6 +91,7 @@ export async function retrieveRag(env, userText, limit = 6) {
         SELECT province, COUNT(*)::int AS n
         FROM employees
         WHERE province IS NOT NULL
+          AND (${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ',')))
         GROUP BY province
         ORDER BY n DESC
         LIMIT 15
@@ -101,17 +106,23 @@ export async function retrieveRag(env, userText, limit = 6) {
     if (/margin|invoice|laba|revenue|outstanding|ar |piutang/.test(q)) {
       const inv = await sql`
         SELECT period, status, SUM(total_amount)::bigint AS total, COUNT(*)::int AS n
-        FROM invoices GROUP BY period, status ORDER BY period DESC LIMIT 10
+        FROM invoices
+        WHERE ${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ','))
+        GROUP BY period, status ORDER BY period DESC LIMIT 10
       `;
       chunks.push({ source: 'db', id: 'invoices', text: `Invoices: ${JSON.stringify(inv)}` });
     }
 
     if (/payroll|gaji|net|gross|periode/.test(q)) {
-      const pays = await sql`
-        SELECT period, status, total_net, total_gross, employee_count
-        FROM payrolls ORDER BY period DESC LIMIT 8
-      `;
-      chunks.push({ source: 'db', id: 'payrolls', text: `Payrolls: ${JSON.stringify(pays)}` });
+      if (!scopedToClient) {
+        const pays = await sql`
+          SELECT period, status, total_net, total_gross, employee_count
+          FROM payrolls ORDER BY period DESC LIMIT 8
+        `;
+        chunks.push({ source: 'db', id: 'payrolls', text: `Payrolls: ${JSON.stringify(pays)}` });
+      } else {
+        chunks.push({ source: 'system', id: 'payroll-scope', text: 'Ringkasan payroll legacy tidak memiliki client scope dan tidak dibuka untuk CLIENT_USER.' });
+      }
     }
 
     // name search
@@ -121,7 +132,8 @@ export async function retrieveRag(env, userText, limit = 6) {
       const found = await sql`
         SELECT id, name, status_aktif, province, branch_id
         FROM employees
-        WHERE name ILIKE ${key} OR id ILIKE ${key}
+        WHERE (name ILIKE ${key} OR id ILIKE ${key})
+          AND (${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ',')))
         LIMIT 8
       `;
       if (found.length) {
@@ -130,8 +142,10 @@ export async function retrieveRag(env, userText, limit = 6) {
     }
 
     // always small org snapshot
-    const snap = await sql`SELECT COUNT(*)::int AS emp FROM employees`;
-    const cli = await sql`SELECT COUNT(*)::int AS n FROM clients`;
+    const snap = await sql`SELECT COUNT(*)::int AS emp FROM employees
+      WHERE ${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ','))`;
+    const cli = await sql`SELECT COUNT(*)::int AS n FROM clients
+      WHERE ${!scopedToClient} OR id = ANY(string_to_array(${clientScopeCsv}, ','))`;
     chunks.push({
       source: 'db',
       id: 'snapshot',

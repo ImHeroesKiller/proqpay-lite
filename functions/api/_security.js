@@ -1,42 +1,28 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { ACCOUNT_ROLES, authenticateSession } from './_account-auth.js';
 
-export const ROLES = Object.freeze([
-  'SUPER_ADMIN',
-  'PAYROLL_PROCESSOR',
-  'PAYROLL_CONTROLLER',
-  'CLIENT_USER',
-  'PAYROLL',
-  'HR',
-  'FINANCE',
-  'DIRECTOR',
-  'VIEWER',
-]);
+export const ROLES = ACCOUNT_ROLES;
 
 const ROLE_PERMISSIONS = Object.freeze({
   SUPER_ADMIN: ['read', 'employees:write', 'import:write', 'schema:write', 'settings:write', 'client:write', 'project:write', 'service-plan:write', 'submission:write', 'exception:write', 'payment:prepare', 'PAYMENT_APPROVER', 'payment:approve', 'reconciliation:write'],
   PAYROLL_PROCESSOR: ['read', 'employees:write', 'import:write', 'submission:write', 'exception:write', 'payroll:write'],
   PAYROLL_CONTROLLER: ['read', 'approval:write', 'payment:prepare', 'reconciliation:write'],
   CLIENT_USER: ['read', 'submission:write', 'exception:respond'],
-  PAYROLL: ['read', 'employees:write', 'import:write', 'payroll:write'],
-  HR: ['read', 'employees:write', 'import:write'],
-  FINANCE: ['read', 'finance:write'],
-  DIRECTOR: ['read', 'approval:write'],
-  VIEWER: ['read'],
 });
 
 function mappedIdentity(email, env = {}) {
   const entry = parseRoleMap(env)[String(email || '').trim().toLowerCase()];
   if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
     return {
-      role: String(entry.role || 'VIEWER').toUpperCase(),
+      role: String(entry.role || 'UNASSIGNED').toUpperCase(),
       permissions: Array.isArray(entry.permissions) ? entry.permissions.map(String) : [],
     };
   }
-  return { role: String(entry || 'VIEWER').toUpperCase(), permissions: [] };
+  return { role: String(entry || 'UNASSIGNED').toUpperCase(), permissions: [] };
 }
 
 export function permissionsFor(role, email = '', env = {}) {
-  const base = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.VIEWER;
+  const base = ROLE_PERMISSIONS[role] || [];
   const grants = mappedIdentity(email, env).permissions;
   const paymentApprover = grants.includes('PAYMENT_APPROVER') || grants.includes('payment:approve');
   return [...new Set([
@@ -124,11 +110,12 @@ function parseRoleMap(env) {
 
 function roleFor(email, env) {
   const mapped = mappedIdentity(email, env).role;
-  return ROLES.includes(mapped) ? mapped : 'VIEWER';
+  return ROLES.includes(mapped) ? mapped : 'UNASSIGNED';
 }
 
 export function clientIdsFor(actor, env) {
   if (actor?.role !== 'CLIENT_USER') return null;
+  if (Array.isArray(actor.clientIds)) return actor.clientIds.map(String);
   try {
     const map = JSON.parse(env.CLIENT_SCOPE_JSON || '{}');
     const value = map[String(actor.email || '').toLowerCase()];
@@ -189,6 +176,24 @@ export async function authorize(
         ),
       };
     }
+  } else if (mode === 'database' || mode === 'session') {
+    actor = await authenticateSession(request, env);
+    if (!actor) {
+      return {
+        response: secureJson(
+          { error: 'Authentication required' },
+          401,
+          request,
+          env,
+          methods
+        ),
+      };
+    }
+    if (mutating && !sameOriginMutation(request)) {
+      return {
+        response: secureJson({ error: 'Same-origin request required' }, 403, request, env, methods),
+      };
+    }
   } else {
     if (mutating && !sameOriginMutation(request)) {
       return {
@@ -216,6 +221,9 @@ export async function authorize(
     };
   }
   actor.permissions = permissionsFor(actor.role, actor.email, env);
+  if (actor.paymentApprover) {
+    actor.permissions = [...new Set([...actor.permissions, 'PAYMENT_APPROVER', 'payment:approve'])];
+  }
   return { actor };
 }
 

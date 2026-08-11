@@ -60,8 +60,8 @@ export default function OperatingWorkspace() {
   }
 
   const role = actor?.role || 'UNKNOWN';
-  const isProcessor = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL'].includes(role);
-  const isController = ['SUPER_ADMIN','PAYROLL_CONTROLLER','FINANCE','DIRECTOR'].includes(role);
+  const isProcessor = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role);
+  const isController = ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role);
   const isClient = role === 'CLIENT_USER';
   const canApprovePayment = actor?.permissions?.includes('payment:approve') || false;
 
@@ -109,7 +109,7 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
     date(r.created_at),
     (() => {
       const next = role === 'CLIENT_USER' ? clientNext[r.state]
-        : ['SUPER_ADMIN','PAYROLL_CONTROLLER','FINANCE','DIRECTOR'].includes(role) && controllerNext[r.state]
+        : ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && controllerNext[r.state]
           ? controllerNext[r.state] : processorNext[r.state];
       return next ? <button key="action" style={actionButton} onClick={() => void act({ action:'TRANSITION_SUBMISSION', submissionId:r.id, toState:next }, `Status diperbarui ke ${next}`)}>Lanjutkan</button> : <span key="none" style={small}>Tidak ada aksi</span>;
     })(),

@@ -7,8 +7,8 @@ import {
 } from './payment-proof-validation.js';
 
 const METHODS = 'GET, POST, OPTIONS';
-const READ_ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER','PAYROLL','FINANCE','DIRECTOR'];
-const WRITE_ROLES = ['SUPER_ADMIN','PAYROLL_CONTROLLER','FINANCE'];
+const READ_ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER'];
+const WRITE_ROLES = ['SUPER_ADMIN','PAYROLL_CONTROLLER'];
 
 function databaseUrl(env) {
   return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
@@ -20,6 +20,7 @@ function orgId(env) {
 
 function clientScope(actor, env) {
   if (actor.role !== 'CLIENT_USER') return null;
+  if (Array.isArray(actor.clientIds)) return new Set(actor.clientIds.map(String));
   try {
     const map = JSON.parse(env.CLIENT_SCOPE_JSON || '{}');
     const value = map[String(actor.email || '').toLowerCase()];

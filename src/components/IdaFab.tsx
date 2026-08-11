@@ -218,7 +218,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   const [autoSuggestions, setAutoSuggestions] = useState(true);
   const [actorContext, setActorContext] = useState<Partial<SharedContext>>({
     currentUser: { email: 'unknown@local' },
-    currentRole: 'VIEWER',
+    currentRole: 'CLIENT_USER',
     permissions: [],
   });
   const [pendingPayrollPreview, setPendingPayrollPreview] = useState<PendingPayrollPreview | null>(null);
@@ -270,7 +270,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       })
       .catch((error) => {
         if (error?.name !== 'AbortError') {
-          writeSystemLog('WARN', 'SECURITY', 'IDA_CONTEXT_FALLBACK', 'Identitas IDA menggunakan role VIEWER', {
+          writeSystemLog('WARN', 'SECURITY', 'IDA_CONTEXT_FALLBACK', 'Identitas IDA menggunakan role CLIENT_USER', {
             reason: String(error?.message || error),
           });
         }
@@ -961,7 +961,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           <div className="ida-context-bar">
             <span><small>Periode</small>{currentPeriod}</span>
             <span><small>Karyawan</small>{employeeCount}</span>
-            <span><small>Akses</small>{actorContext.currentRole || 'VIEWER'}</span>
+            <span><small>Akses</small>{actorContext.currentRole || 'CLIENT_USER'}</span>
           </div>
 
           <div ref={scrollRef} className="ida-message-list" role="log" aria-live="polite" aria-relevant="additions">

@@ -32,7 +32,7 @@ const ROLE_CONTENT: Record<string, { title: string; description: string; tasks: 
 };
 
 export default function RoleDashboard({ actor, onNavigate }: { actor: Actor | null; onNavigate: (view: AppView) => void }) {
-  const role = actor?.role || 'VIEWER';
+  const role = actor?.role || 'CLIENT_USER';
   const content = ROLE_CONTENT[role] || {
     title: 'Read-only Workspace', description: 'Akses Anda terbatas pada data yang diizinkan.', tasks: ['Lihat ringkasan'], actions: [{ label: 'Lihat dashboard', view: 'dashboard' as AppView }],
   };
