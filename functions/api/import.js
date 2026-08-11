@@ -155,7 +155,7 @@ export async function onRequest(context) {
             VALUES (
               ${clientId},
               ${orgId},
-              ${String(row.clientCode || '000')},
+              ${String(row.clientCode || slug(row.client || row.company || 'GEN'))},
               ${String(row.client || row.company || 'Unknown')}
             )
             ON CONFLICT (id) DO UPDATE SET

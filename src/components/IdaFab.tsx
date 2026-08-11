@@ -372,6 +372,10 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         throw new Error('Ukuran file maksimal 5 MB');
       }
       const parsed = parseIapWorkbook(await file.arrayBuffer());
+      if (!parsed.rows.length) {
+        const scanned = parsed.diagnostics.map((sheet) => sheet.sheetName).join(', ');
+        throw new Error(`Tidak ditemukan datasheet dengan kombinasi kolom NRK dan NAMA. Sheet diperiksa: ${scanned || 'tidak ada'}`);
+      }
       writeSystemLog('INFO', 'IDA', 'FILE_PARSED', `${file.name}: ${parsed.rows.length} baris terbaca`, {
         fileName: file.name,
         rows: parsed.rows.length,
@@ -396,8 +400,18 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       const validationText = review.issues.length
         ? `\n\n**Ditemukan ${review.issues.length} masalah yang harus diperbaiki:**\n${formatImportIssues(review.issues)}\n\nKetik **perbaiki otomatis** agar IDA membersihkan field opsional yang aman diperbaiki.`
         : `\n\n**Validasi awal lulus.** ${review.warnings.length} catatan opsional ditemukan.`;
+      const employeeSheets = parsed.diagnostics.filter((sheet) => sheet.kind === 'EMPLOYEE_DATA');
+      const ignoredSheets = parsed.diagnostics.filter((sheet) => sheet.kind === 'NON_EMPLOYEE_SHEET').length;
+      const sourceText = `**Datasheet:** ${employeeSheets.map((sheet) => `\`${sheet.sheetName}\` (${sheet.accepted} baris)`).join(' · ')}`;
+      const workbookText = `Workbook memiliki **${parsed.diagnostics.length} sheet**; **${ignoredSheets} sheet non-karyawan** dikenali dan tidak diperlakukan sebagai baris gagal.`;
+      const duplicateText = parsed.duplicateRows ? ` **${parsed.duplicateRows} duplikat NRK** dari sheet lain tidak digandakan.` : '';
+      const payrollText = parsed.payrollSummary.gross || parsed.payrollSummary.net
+        ? `\n\n**Ringkasan THP terbaca**\n- Gross: **${formatIDR(parsed.payrollSummary.gross)}**\n- Potongan: **${formatIDR(parsed.payrollSummary.deductions)}**\n- Netto/THP: **${formatIDR(parsed.payrollSummary.net)}**`
+        : '';
       await pushIda(
-        `File terbaca: **${parsed.rows.length}** baris; **${parsed.skipped}** baris dilewati karena NRK/nama kosong.\n\n${sample}${validationText}\n\n` +
+        `File terbaca: **${parsed.rows.length} karyawan**. ${sourceText}\n\n${workbookText}${duplicateText}` +
+          (parsed.skipped ? ` **${parsed.skipped} baris** pada datasheet kandidat dilewati karena NRK/nama kosong.` : '') +
+          `${payrollText}\n\n${sample}${validationText}\n\n` +
           (review.issues.length ? 'Ketik **perbaiki otomatis** untuk koreksi aman, atau unggah ulang jika data wajib yang salah.' : 'Ketik **import sekarang** untuk menyimpan.'),
         true,
         ['Membaca struktur file', 'Memeriksa data wajib', review.issues.length ? 'Perlu perbaikan' : 'Siap diimpor']

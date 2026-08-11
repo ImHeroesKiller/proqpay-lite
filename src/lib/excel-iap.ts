@@ -31,6 +31,7 @@ function cell(row: Record<string, unknown>, ...keys: string[]) {
 }
 
 export type ParsedEmployee = {
+  sourceSheet: string;
   nrk: string;
   name: string;
   company: string;
@@ -81,94 +82,232 @@ export type ParsedEmployee = {
   statusAktif: string | null;
   province: string;
   provinceCode: string | null;
+  grossPay: number;
+  totalDeductions: number;
+  netPay: number;
+  payrollComponents: Record<string, number>;
 };
+
+export type WorkbookSheetDiagnostic = {
+  sheetName: string;
+  headerRow: number | null;
+  totalRaw: number;
+  accepted: number;
+  skipped: number;
+  kind: 'EMPLOYEE_DATA' | 'NON_EMPLOYEE_SHEET';
+};
+
+function numericCell(value: unknown): number {
+  if (value == null || value === '' || String(value).trim() === '-') return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const text = String(value).trim();
+  const negative = /^\(.*\)$/.test(text);
+  const normalized = text.replace(/[()\s]/g, '').replace(/[^0-9,.-]/g, '');
+  if (!normalized || normalized === '-') return 0;
+  let decimal = normalized;
+  if (/^-?\d{1,3}(,\d{3})+$/.test(normalized)) decimal = normalized.replaceAll(',', '');
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(normalized)) decimal = normalized.replaceAll('.', '');
+  else if (normalized.includes(',') && normalized.includes('.')) {
+    decimal = normalized.lastIndexOf(',') > normalized.lastIndexOf('.')
+      ? normalized.replaceAll('.', '').replace(',', '.')
+      : normalized.replaceAll(',', '');
+  } else if (normalized.includes(',')) decimal = normalized.replace(',', '.');
+  const parsed = Number(decimal);
+  return Number.isFinite(parsed) ? (negative ? -Math.abs(parsed) : parsed) : 0;
+}
+
+function normalizedHeader(value: unknown) {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, ' ');
+}
+
+const KNOWN_HEADERS = new Set([
+  'NO', 'NRK', 'NAMA', 'NAMA KARYAWAN', 'KODE CLIENT', 'KODE KLIEN', 'NAMA CLIENT',
+  'KLIEN', 'LOKASI', 'LOKASI KERJA', 'REGIONAL', 'NAMA CABANG', 'POSISI', 'JABATAN',
+  'DEPT', 'USER', 'NPWP', 'NAMA BANK', 'NO REK', 'GAJI POKOK', 'GROSS', 'DEDUCT', 'NETTO',
+]);
+
+function findEmployeeHeaderRow(sheet: XLSX.WorkSheet): number | null {
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null, blankrows: false });
+  let bestIndex: number | null = null;
+  let bestScore = -1;
+  matrix.slice(0, 100).forEach((row, index) => {
+    const headers = new Set((row || []).map(normalizedHeader).filter(Boolean));
+    const hasNrk = headers.has('NRK') || headers.has('NIK KARYAWAN') || headers.has('EMPLOYEE ID');
+    const hasName = headers.has('NAMA') || headers.has('NAMA KARYAWAN') || headers.has('EMPLOYEE NAME');
+    if (!hasNrk || !hasName) return;
+    const score = [...headers].filter((header) => KNOWN_HEADERS.has(header)).length;
+    if (score > bestScore) { bestIndex = index; bestScore = score; }
+  });
+  return bestIndex;
+}
+
+function payrollComponents(row: Record<string, unknown>) {
+  return {
+    basicSalary: numericCell(cell(row, 'Gaji Pokok')),
+    salaryArrears: numericCell(cell(row, 'Rapel Gaji')),
+    allowanceArrears: numericCell(cell(row, 'Rapel Tunj')),
+    overtime: numericCell(cell(row, 'Lembur')),
+    positionAllowance: numericCell(cell(row, 'Tunj Jabatan')),
+    mealAllowance: numericCell(cell(row, 'Tunj Makan')),
+    transportAllowance: numericCell(cell(row, 'Tunj Transport')),
+    phoneAllowance: numericCell(cell(row, 'Tunj Pulsa')),
+    attendanceAllowance: numericCell(cell(row, 'Tunj Kehadiran')),
+    otherAllowance: numericCell(cell(row, 'Tunj Lain')),
+    incentive: numericCell(cell(row, 'Insentif')),
+    shift: numericCell(cell(row, 'Shift')),
+    medical: numericCell(cell(row, 'Medical')),
+    bonusOrLeave: numericCell(cell(row, 'Bonus/ Uang Cuti', 'THR / Bonus', 'Cuti')),
+    attendanceDeduction: numericCell(cell(row, 'Pot. Kehadiran')),
+    taxAllowance: numericCell(cell(row, 'Tunj Pajak')),
+    bpjsTk: numericCell(cell(row, 'BPJS TK')),
+    bpjsHealth: numericCell(cell(row, 'BPJS Kes.')),
+    jhtDeduction: numericCell(cell(row, 'Pot. JHT')),
+    pensionDeduction: numericCell(cell(row, 'Pot. Pensiun')),
+    bpjsHealthDeduction: numericCell(cell(row, 'Pot. BPJS Kes')),
+    cooperativeDeduction: numericCell(cell(row, 'Pot. Koperasi')),
+    otherDeduction: numericCell(cell(row, 'Pot. Lain')),
+    taxDeduction: numericCell(cell(row, 'Pot. Pajak')),
+  };
+}
+
+function parseEmployeeRow(r: Record<string, unknown>, sourceSheet: string): ParsedEmployee | null {
+  const nrk = String(cell(r, 'NRK', 'NIK Karyawan', 'Employee ID') || '').trim();
+  const name = String(cell(r, 'Nama Karyawan', 'Nama', 'Employee Name') || '').trim();
+  if (!nrk || !name) return null;
+
+  const lokasiValue = cell(r, 'Lokasi', 'Lokasi Kerja', 'Penempatan');
+  const branchValue = cell(r, 'Cabang', 'Nama Cabang', 'Regional', 'Region');
+  const kotaValue = cell(r, 'Kota UMK', 'Kota Umk', 'Kota');
+  const unitValue = cell(r, 'Unit Kerja', 'Dept', 'Department');
+  const lokasi = lokasiValue != null ? String(lokasiValue).trim() : null;
+  const branch = branchValue != null ? String(branchValue).trim() : null;
+  const kotaUmk = kotaValue != null ? String(kotaValue).trim() : null;
+  const unitKerja = unitValue != null ? String(unitValue).trim() : null;
+  const wilayah = resolveWorkLocation({ lokasi: lokasi || undefined, cabang: branch || undefined, kotaUmk: kotaUmk || undefined, unitKerja: unitKerja || undefined });
+  const components = payrollComponents(r);
+  const yearRaw = cell(r, 'Tahun Lulus');
+  const graduateYear = yearRaw != null && !Number.isNaN(Number(yearRaw)) ? Number(yearRaw) : null;
+  const client = String(cell(r, 'Klien', 'Nama Client', 'Nama Klien', 'Client') || '').trim();
+  const company = String(cell(r, 'Nama Perusahaan', 'Perusahaan', 'Nama Client', 'Nama Klien') || client || 'OTSINDO').trim();
+
+  return {
+    sourceSheet,
+    nrk,
+    name,
+    company,
+    client: client || company,
+    clientCode: String(cell(r, 'Kode Klien', 'Kode Client', 'Client Code') || '').trim(),
+    birthPlace: cell(r, 'Tempat Lahir') != null ? String(cell(r, 'Tempat Lahir')) : null,
+    birthDate: excelSerialToDate(cell(r, 'Tanggal Lahir')),
+    gender: cell(r, 'Jenis Kelamin', 'Gender') != null ? String(cell(r, 'Jenis Kelamin', 'Gender')) : null,
+    marital: cell(r, 'Status Perkawinan') != null ? String(cell(r, 'Status Perkawinan')) : null,
+    ptkpClaimed: cell(r, 'Status PTKP di Akui') != null ? String(cell(r, 'Status PTKP di Akui')) : null,
+    ptkpUpdated: cell(r, 'Status PTKP Terupdate') != null ? String(cell(r, 'Status PTKP Terupdate')) : null,
+    ktp: cell(r, 'No KTP', 'NIK') != null ? String(cell(r, 'No KTP', 'NIK')) : null,
+    address: cell(r, 'Alamat') != null ? String(cell(r, 'Alamat')) : null,
+    phone: cell(r, 'No Telp') != null ? String(cell(r, 'No Telp')) : null,
+    mobile: cell(r, 'No HP') != null ? String(cell(r, 'No HP')) : null,
+    religion: cell(r, 'Agama') != null ? String(cell(r, 'Agama')) : null,
+    acceptedDate: excelSerialToDate(cell(r, 'Tanggal Diterima')),
+    joinDate: excelSerialToDate(cell(r, 'Tanggal Join')),
+    employmentType: cell(r, 'Status Pegawai', 'Status Karyawan') != null ? String(cell(r, 'Status Pegawai', 'Status Karyawan')) : null,
+    contractStatus: cell(r, 'Status', 'Status Karyawan') != null ? String(cell(r, 'Status', 'Status Karyawan')) : null,
+    contractStart: excelSerialToDate(cell(r, 'Awal Kontrak')),
+    contractEnd: excelSerialToDate(cell(r, 'Akhir Kontrak')),
+    resignDate: excelSerialToDate(cell(r, 'Berhenti')),
+    salaryStart: excelSerialToDate(cell(r, 'TMT Gaji')),
+    basicSalary: Math.round(components.basicSalary),
+    branch,
+    pic: cell(r, 'PIC', 'PIC Korlap') != null ? String(cell(r, 'PIC', 'PIC Korlap')) : null,
+    lokasi,
+    unitKerja,
+    position: cell(r, 'Jabatan', 'Posisi') != null ? String(cell(r, 'Jabatan', 'Posisi')) : null,
+    kotaUmk,
+    npwp: cell(r, 'No NPWP', 'NPWP') != null ? String(cell(r, 'No NPWP', 'NPWP')) : null,
+    motherName: cell(r, 'Nama Ibu Kandung') != null ? String(cell(r, 'Nama Ibu Kandung')) : null,
+    bank: cell(r, 'Bank', 'Nama Bank') != null ? String(cell(r, 'Bank', 'Nama Bank')) : null,
+    accountNo: cell(r, 'Rekening', 'No Rek', 'No Rekening') != null ? String(cell(r, 'Rekening', 'No Rek', 'No Rekening')).trim() : null,
+    hrisUser: cell(r, 'User') != null ? String(cell(r, 'User')) : null,
+    hrbp: cell(r, 'HRBP') != null ? String(cell(r, 'HRBP')) : null,
+    bpjsKes: cell(r, 'No. BPJS Kesehatan', 'No BPJS Kesehatan') != null ? String(cell(r, 'No. BPJS Kesehatan', 'No BPJS Kesehatan')) : null,
+    bpjsKesEffective: excelSerialToDate(cell(r, 'Tanggal Efektif BPJS')),
+    jamsostek: cell(r, 'No. Jamsostek', 'No Jamsostek') != null ? String(cell(r, 'No. Jamsostek', 'No Jamsostek')) : null,
+    email: cell(r, 'Alamat Email', 'Email') != null ? String(cell(r, 'Alamat Email', 'Email')).trim() : null,
+    educationLevel: cell(r, 'Pendidikan') != null ? String(cell(r, 'Pendidikan')) : null,
+    school: cell(r, 'Nama Sekolah') != null ? String(cell(r, 'Nama Sekolah')) : null,
+    major: cell(r, 'Jurusan') != null ? String(cell(r, 'Jurusan')) : null,
+    graduateYear,
+    resignReason: cell(r, 'Keterangan Berhenti') != null ? String(cell(r, 'Keterangan Berhenti')) : null,
+    candidateSource: cell(r, 'Kandidat') != null ? String(cell(r, 'Kandidat')) : null,
+    statusAktif: cell(r, 'Status Pegawai', 'Status Karyawan') != null ? String(cell(r, 'Status Pegawai', 'Status Karyawan')) : null,
+    province: wilayah.province,
+    provinceCode: wilayah.provinceCode,
+    grossPay: Math.round(numericCell(cell(r, 'Gross'))),
+    totalDeductions: Math.round(numericCell(cell(r, 'Deduct', 'Total Potongan'))),
+    netPay: Math.round(numericCell(cell(r, 'Netto', 'THP', 'Take Home Pay'))),
+    payrollComponents: components,
+  };
+}
 
 export function parseIapWorkbook(buffer: ArrayBuffer): {
   rows: ParsedEmployee[];
   sheetName: string;
   totalRaw: number;
   skipped: number;
+  duplicateRows: number;
+  diagnostics: WorkbookSheetDiagnostic[];
+  payrollSummary: { gross: number; deductions: number; net: number };
 } {
   const wb = XLSX.read(buffer, { type: 'array' });
-  const sheetName = wb.SheetNames[0];
-  const sheet = wb.Sheets[sheetName];
-  const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
+  const candidates: Array<{ sheetName: string; raw: Record<string, unknown>[]; rows: ParsedEmployee[]; skipped: number; headerRow: number }> = [];
+  const diagnostics: WorkbookSheetDiagnostic[] = [];
 
-  const rows: ParsedEmployee[] = [];
-  let skipped = 0;
-
-  for (const r of raw) {
-    const nrk = String(cell(r, 'NRK', 'nrk') || '').trim();
-    const name = String(cell(r, 'Nama Karyawan', 'Nama', 'nama') || '').trim();
-    if (!nrk || !name) {
-      skipped++;
+  for (const sheetName of wb.SheetNames) {
+    const sheet = wb.Sheets[sheetName];
+    const headerRow = findEmployeeHeaderRow(sheet);
+    if (headerRow == null) {
+      diagnostics.push({ sheetName, headerRow: null, totalRaw: 0, accepted: 0, skipped: 0, kind: 'NON_EMPLOYEE_SHEET' });
       continue;
     }
-
-    const lokasi = cell(r, 'Lokasi') != null ? String(cell(r, 'Lokasi')) : null;
-    const branch = cell(r, 'Cabang') != null ? String(cell(r, 'Cabang')) : null;
-    const kotaUmk = cell(r, 'Kota UMK', 'Kota Umk') != null ? String(cell(r, 'Kota UMK', 'Kota Umk')) : null;
-    const unitKerja = cell(r, 'Unit Kerja') != null ? String(cell(r, 'Unit Kerja')) : null;
-
-    const wilayah = resolveWorkLocation({ lokasi: lokasi || undefined, cabang: branch || undefined, kotaUmk: kotaUmk || undefined, unitKerja: unitKerja || undefined });
-
-    const gaji = Number(cell(r, 'Gaji Pokok') || 0);
-    const yearRaw = cell(r, 'Tahun Lulus');
-    const graduateYear = yearRaw != null && !Number.isNaN(Number(yearRaw)) ? Number(yearRaw) : null;
-
-    rows.push({
-      nrk,
-      name,
-      company: String(cell(r, 'Nama Perusahaan') || 'OTSINDO'),
-      client: String(cell(r, 'Klien') || ''),
-      clientCode: String(cell(r, 'Kode Klien') || ''),
-      birthPlace: cell(r, 'Tempat Lahir') != null ? String(cell(r, 'Tempat Lahir')) : null,
-      birthDate: excelSerialToDate(cell(r, 'Tanggal Lahir')),
-      gender: cell(r, 'Jenis Kelamin') != null ? String(cell(r, 'Jenis Kelamin')) : null,
-      marital: cell(r, 'Status Perkawinan') != null ? String(cell(r, 'Status Perkawinan')) : null,
-      ptkpClaimed: cell(r, 'Status PTKP di Akui') != null ? String(cell(r, 'Status PTKP di Akui')) : null,
-      ptkpUpdated: cell(r, 'Status PTKP Terupdate') != null ? String(cell(r, 'Status PTKP Terupdate')) : null,
-      ktp: cell(r, 'No KTP') != null ? String(cell(r, 'No KTP')) : null,
-      address: cell(r, 'Alamat') != null ? String(cell(r, 'Alamat')) : null,
-      phone: cell(r, 'No Telp') != null ? String(cell(r, 'No Telp')) : null,
-      mobile: cell(r, 'No HP') != null ? String(cell(r, 'No HP')) : null,
-      religion: cell(r, 'Agama') != null ? String(cell(r, 'Agama')) : null,
-      acceptedDate: excelSerialToDate(cell(r, 'Tanggal Diterima')),
-      joinDate: excelSerialToDate(cell(r, 'Tanggal Join')),
-      employmentType: cell(r, 'Status Pegawai') != null ? String(cell(r, 'Status Pegawai')) : null,
-      contractStatus: cell(r, 'Status') != null ? String(cell(r, 'Status')) : null,
-      contractStart: excelSerialToDate(cell(r, 'Awal Kontrak')),
-      contractEnd: excelSerialToDate(cell(r, 'Akhir Kontrak')),
-      resignDate: excelSerialToDate(cell(r, 'Berhenti')),
-      salaryStart: excelSerialToDate(cell(r, 'TMT Gaji')),
-      basicSalary: Number.isFinite(gaji) ? Math.round(gaji) : 0,
-      branch,
-      pic: cell(r, 'PIC') != null ? String(cell(r, 'PIC')) : null,
-      lokasi,
-      unitKerja,
-      position: cell(r, 'Jabatan') != null ? String(cell(r, 'Jabatan')) : null,
-      kotaUmk,
-      npwp: cell(r, 'No NPWP') != null ? String(cell(r, 'No NPWP')) : null,
-      motherName: cell(r, 'Nama Ibu Kandung') != null ? String(cell(r, 'Nama Ibu Kandung')) : null,
-      bank: cell(r, 'Bank') != null ? String(cell(r, 'Bank')) : null,
-      accountNo: cell(r, 'Rekening') != null ? String(cell(r, 'Rekening')) : null,
-      hrisUser: cell(r, 'User') != null ? String(cell(r, 'User')) : null,
-      hrbp: cell(r, 'HRBP') != null ? String(cell(r, 'HRBP')) : null,
-      bpjsKes: cell(r, 'No. BPJS Kesehatan', 'No BPJS Kesehatan') != null ? String(cell(r, 'No. BPJS Kesehatan', 'No BPJS Kesehatan')) : null,
-      bpjsKesEffective: excelSerialToDate(cell(r, 'Tanggal Efektif BPJS')),
-      jamsostek: cell(r, 'No. Jamsostek', 'No Jamsostek') != null ? String(cell(r, 'No. Jamsostek', 'No Jamsostek')) : null,
-      email: cell(r, 'Alamat Email') != null ? String(cell(r, 'Alamat Email')).trim() : null,
-      educationLevel: cell(r, 'Pendidikan') != null ? String(cell(r, 'Pendidikan')) : null,
-      school: cell(r, 'Nama Sekolah') != null ? String(cell(r, 'Nama Sekolah')) : null,
-      major: cell(r, 'Jurusan') != null ? String(cell(r, 'Jurusan')) : null,
-      graduateYear,
-      resignReason: cell(r, 'Keterangan Berhenti') != null ? String(cell(r, 'Keterangan Berhenti')) : null,
-      candidateSource: cell(r, 'Kandidat') != null ? String(cell(r, 'Kandidat')) : null,
-      statusAktif: cell(r, 'Status Pegawai') != null ? String(cell(r, 'Status Pegawai')) : null,
-      province: wilayah.province,
-      provinceCode: wilayah.provinceCode,
-    });
+    const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, range: headerRow });
+    const parsedRows = raw.map((row) => parseEmployeeRow(row, sheetName)).filter((row): row is ParsedEmployee => row != null);
+    const skipped = raw.length - parsedRows.length;
+    if (parsedRows.length) {
+      candidates.push({ sheetName, raw, rows: parsedRows, skipped, headerRow });
+      diagnostics.push({ sheetName, headerRow: headerRow + 1, totalRaw: raw.length, accepted: parsedRows.length, skipped, kind: 'EMPLOYEE_DATA' });
+    } else {
+      diagnostics.push({ sheetName, headerRow: headerRow + 1, totalRaw: raw.length, accepted: 0, skipped: 0, kind: 'NON_EMPLOYEE_SHEET' });
+    }
   }
 
-  return { rows, sheetName, totalRaw: raw.length, skipped };
+  candidates.sort((left, right) => right.rows.length - left.rows.length);
+  const rows: ParsedEmployee[] = [];
+  const seen = new Set<string>();
+  let duplicateRows = 0;
+  let skipped = 0;
+  for (const candidate of candidates) {
+    skipped += candidate.skipped;
+    for (const row of candidate.rows) {
+      const key = row.nrk.toUpperCase();
+      if (seen.has(key)) { duplicateRows += 1; continue; }
+      seen.add(key);
+      rows.push(row);
+    }
+  }
+
+  const payrollSummary = rows.reduce((summary, row) => ({
+    gross: summary.gross + row.grossPay,
+    deductions: summary.deductions + row.totalDeductions,
+    net: summary.net + row.netPay,
+  }), { gross: 0, deductions: 0, net: 0 });
+  const selectedSheets = [...new Set(rows.map((row) => row.sourceSheet))];
+  return {
+    rows,
+    sheetName: selectedSheets.join(', ') || wb.SheetNames[0] || '',
+    totalRaw: candidates.reduce((total, candidate) => total + candidate.raw.length, 0),
+    skipped,
+    duplicateRows,
+    diagnostics,
+    payrollSummary,
+  };
 }
