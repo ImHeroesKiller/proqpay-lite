@@ -28,6 +28,11 @@ export type ValidationReport = {
   summary: string;
 };
 
+export type PayrollServiceTier =
+  | 'TIER_1_PAYMENT_PROCESSING'
+  | 'TIER_2_MANAGED_PAYROLL'
+  | 'TIER_3_INTEGRATED_AUTOMATION';
+
 /** Plafond upah BPJS Kesehatan (perkiraan operasional; cek update resmi) */
 const BPJS_KES_CEILING = 12_000_000;
 /** Iuran pekerja BPJS Kesehatan */
@@ -116,10 +121,12 @@ export function estimateStatutory(emp: any) {
 /**
  * Validasi master + compliance sebelum / saat payroll.
  */
-export function validatePayrollIndonesia(db: any, opts?: { period?: string }): ValidationReport {
+export function validatePayrollIndonesia(db: any, opts?: { period?: string; tier?: PayrollServiceTier; clientId?: string }): ValidationReport {
   const issues: ValidationIssue[] = [];
-  const employees = db.employees || [];
+  const employees = (db.employees || []).filter((employee: any) => !opts?.clientId || employee.clientId === opts.clientId);
   const period = opts?.period || db.meta?.currentPeriod;
+  const tier = opts?.tier || (db.servicePlans || []).find((plan: any) => plan.status === 'ACTIVE')?.tier;
+  const paymentOnly = tier === 'TIER_1_PAYMENT_PROCESSING';
 
   if (!employees.length) {
     issues.push({
@@ -147,7 +154,7 @@ export function validatePayrollIndonesia(db: any, opts?: { period?: string }): V
     const base = Number(emp.salaryGross ?? emp.basic_salary ?? 0) || 0;
 
     // 1) Identitas
-    if (!hasNik(emp)) {
+    if (!paymentOnly && !hasNik(emp)) {
       issues.push({
         code: 'NIK_INVALID',
         severity: 'error',
@@ -171,7 +178,7 @@ export function validatePayrollIndonesia(db: any, opts?: { period?: string }): V
     }
 
     // 3) Gaji pokok
-    if (base <= 0) {
+    if (!paymentOnly && base <= 0) {
       issues.push({
         code: 'SALARY_ZERO',
         severity: 'error',
@@ -184,7 +191,7 @@ export function validatePayrollIndonesia(db: any, opts?: { period?: string }): V
 
     // 4) UMR/UMK compliance
     const umr = umrFor(emp);
-    if (umr && base > 0 && base < umr) {
+    if (!paymentOnly && umr && base > 0 && base < umr) {
       issues.push({
         code: 'BELOW_UMR',
         severity: 'error',
@@ -193,7 +200,7 @@ export function validatePayrollIndonesia(db: any, opts?: { period?: string }): V
         message: `${name}: gaji pokok ${base.toLocaleString('id-ID')} di bawah UMR ${regionOf(emp) || 'wilayah'} (${umr.toLocaleString('id-ID')}).`,
         regulation: 'UU 13/2003 jo. peraturan pengupahan — upah minimum',
       });
-    } else if (!umr && regionOf(emp)) {
+    } else if (!paymentOnly && !umr && regionOf(emp)) {
       issues.push({
         code: 'UMR_UNKNOWN_REGION',
         severity: 'warning',
@@ -202,7 +209,7 @@ export function validatePayrollIndonesia(db: any, opts?: { period?: string }): V
         message: `${name}: wilayah "${regionOf(emp)}" belum terpetakan ke tabel UMR 2025.`,
         regulation: 'Validasi UMR',
       });
-    } else if (!regionOf(emp)) {
+    } else if (!paymentOnly && !regionOf(emp)) {
       issues.push({
         code: 'REGION_MISSING',
         severity: 'warning',
@@ -214,7 +221,7 @@ export function validatePayrollIndonesia(db: any, opts?: { period?: string }): V
     }
 
     // 5) NPWP vs PPh 21
-    if (emp.pph21 !== false && !hasNpwp(emp)) {
+    if (!paymentOnly && emp.pph21 !== false && !hasNpwp(emp)) {
       issues.push({
         code: 'NPWP_MISSING_PPH',
         severity: 'warning',
@@ -228,7 +235,7 @@ export function validatePayrollIndonesia(db: any, opts?: { period?: string }): V
     // 6) BPJS flags vs status
     const status = String(emp.status || emp.status_aktif || '').toUpperCase();
     const aktif = !/BERHENTI|SELESAI|RESIGN|NONACTIVE|NON-AKTIF/.test(status);
-    if (aktif && emp.bpjsKesehatan === false) {
+    if (!paymentOnly && aktif && emp.bpjsKesehatan === false) {
       issues.push({
         code: 'BPJS_KES_OFF',
         severity: 'warning',
@@ -238,7 +245,7 @@ export function validatePayrollIndonesia(db: any, opts?: { period?: string }): V
         regulation: 'UU SJSN / BPJS Kesehatan — kepesertaan',
       });
     }
-    if (aktif && emp.bpjsKetenagakerjaan === false) {
+    if (!paymentOnly && aktif && emp.bpjsKetenagakerjaan === false) {
       issues.push({
         code: 'BPJS_TK_OFF',
         severity: 'warning',
@@ -250,7 +257,7 @@ export function validatePayrollIndonesia(db: any, opts?: { period?: string }): V
     }
 
     // 7) Plafond awareness BPJS Kes
-    if (base > BPJS_KES_CEILING && emp.bpjsKesehatan !== false) {
+    if (!paymentOnly && base > BPJS_KES_CEILING && emp.bpjsKesehatan !== false) {
       issues.push({
         code: 'BPJS_KES_CEILING',
         severity: 'info',
@@ -263,7 +270,7 @@ export function validatePayrollIndonesia(db: any, opts?: { period?: string }): V
 
     // 8) Take-home sanity (potongan tidak > 50% gross kasar)
     const stat = estimateStatutory(emp);
-    if (gross > 0 && stat.employeeDeduction / gross > 0.5) {
+    if (!paymentOnly && gross > 0 && stat.employeeDeduction / gross > 0.5) {
       issues.push({
         code: 'DEDUCTION_HIGH',
         severity: 'warning',
@@ -275,7 +282,7 @@ export function validatePayrollIndonesia(db: any, opts?: { period?: string }): V
     }
 
     // 9) Email opsional tapi berguna untuk slip
-    if (aktif && !emp.email) {
+    if (!paymentOnly && aktif && !emp.email) {
       issues.push({
         code: 'EMAIL_MISSING',
         severity: 'info',

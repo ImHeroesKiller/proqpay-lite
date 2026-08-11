@@ -36,7 +36,7 @@ export default function Sidebar({
         <NavBtn active={view === 'dashboard'} icon={<IconDashboard />} title="Dashboard" onClick={() => onView('dashboard')} />
         <NavBtn icon={<IconMessage />} title="Chat IDA" onClick={onOpenIda} />
         <NavBtn active={view === 'operations'} icon={<IconWallet />} title="Payroll Operations" onClick={() => onView('operations')} />
-        {role !== 'CLIENT_USER' && <NavBtn active={view === 'employees'} icon={<IconUsers />} title="Karyawan" onClick={() => onView('employees')} />}
+        <NavBtn active={view === 'employees'} icon={<IconUsers />} title="Karyawan" onClick={() => onView('employees')} />
         {['SUPER_ADMIN', 'PAYROLL_PROCESSOR'].includes(role || '') && <NavBtn active={view === 'clients'} icon={<IconBuilding />} title="Klien & Project" onClick={() => onView('clients')} />}
         <NavBtn active={view === 'reports'} icon={<IconChart />} title="Laporan" onClick={() => onView('reports')} />
         {role === 'SUPER_ADMIN' && <NavBtn active={view === 'logs'} icon={<IconTerminal />} title="System Logs" onClick={() => onView('logs')} />}

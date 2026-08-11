@@ -88,7 +88,7 @@ export default function OperatingWorkspace() {
       {loading ? <Empty title="Memuat data operasional…" /> : (
         <>
           {tab === 'submissions' && <Submissions rows={data.submissions || []} role={role} act={act} />}
-          {tab === 'exceptions' && <Exceptions rows={data.exceptions || []} canResolve={isProcessor || isController || isClient} act={act} />}
+          {tab === 'exceptions' && <Exceptions rows={data.exceptions || []} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
           {tab === 'payments' && <Payments instructions={data.paymentInstructions || []} proofs={data.paymentProofs || []} reconciliations={data.reconciliations || []} canReview={isController} canApprove={canApprovePayment} act={act} />}
           {tab === 'integrations' && <Integrations rows={data.integrations || []} canCreate={isProcessor} />}
         </>
@@ -99,7 +99,7 @@ export default function OperatingWorkspace() {
 
 function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
   if (!rows.length) return <Empty title="Belum ada payroll submission" detail="Submission baru akan tampil setelah service plan klien aktif dan data periode dikirim." />;
-  const processorNext: Record<string, string> = { DRAFT:'SUBMITTED', SUBMITTED:'INGESTING', INGESTING:'AI_VALIDATING', AI_VALIDATING:'VALIDATED', VALIDATED:'STANDARDIZED', STANDARDIZED:'CONTROLLER_REVIEW', REVISION_REQUIRED:'AI_VALIDATING' };
+  const processorNext: Record<string, string> = { DRAFT:'SUBMITTED', SUBMITTED:'INGESTING', INGESTING:'AI_VALIDATING', AI_VALIDATING:'VALIDATED', EXCEPTION_FOUND:'CLIENT_ACTION_REQUIRED', CLIENT_RESUBMITTED:'AI_VALIDATING', VALIDATED:'STANDARDIZED', STANDARDIZED:'CONTROLLER_REVIEW', REVISION_REQUIRED:'AI_VALIDATING' };
   const controllerNext: Record<string, string> = { CONTROLLER_REVIEW:'DATA_APPROVED', DATA_APPROVED:'PAYROLL_FINALIZED', PAYROLL_FINALIZED:'PAYMENT_INSTRUCTION_READY' };
   const clientNext: Record<string, string> = { DRAFT:'SUBMITTED', CLIENT_ACTION_REQUIRED:'CLIENT_RESUBMITTED' };
   return <CardTable headers={['ID / Periode','Tier','Status','Dibuat','Aksi']} rows={rows.map((r) => [
@@ -116,15 +116,45 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
   ])} />;
 }
 
-function Exceptions({ rows, canResolve, act }: { rows: any[]; canResolve: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string; canResolve: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+  const [severity, setSeverity] = useState('ALL');
+  const [status, setStatus] = useState('OPEN');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<any | null>(null);
+  const filtered = rows.filter((row) => (severity === 'ALL' || row.severity === severity)
+    && (status === 'ALL' || row.status === status)
+    && (!query || [row.category,row.employee_id,row.reason,row.client_name,row.project_name].join(' ').toLowerCase().includes(query.toLowerCase())));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 20));
+  const visible = filtered.slice((page - 1) * 20, page * 20);
   if (!rows.length) return <Empty title="Tidak ada exception operasional" detail="Temuan validasi akan masuk ke antrean ini dan diblokir berdasarkan tingkat severity." />;
-  return <CardTable headers={['Temuan','Severity','Owner','Status','Resolusi']} rows={rows.map((r) => [
-    <div key="finding"><strong>{r.category}</strong><small style={small}>{r.employee_id || 'Submission'} · {r.reason || r.field || '-'}</small></div>,
-    <Badge key="severity" text={r.severity} />,
-    r.owner || '-',
-    r.status,
-    canResolve && r.status === 'OPEN' ? <button key="resolve" style={actionButton} onClick={() => void act({ action:'RESOLVE_EXCEPTION', exceptionId:r.id, status:'RESOLVED', resolutionNote:'Diverifikasi dan diselesaikan melalui Exception Center' }, 'Exception diselesaikan')}>Selesaikan</button> : <span key="done" style={small}>{r.resolved_by || '-'}</span>,
-  ])} />;
+  return <div style={{display:'grid',gap:12}}>
+    <div className="card" style={{padding:12,display:'flex',gap:8,flexWrap:'wrap'}}>
+      <input style={{...input,flex:'1 1 220px'}} value={query} placeholder="Cari karyawan, temuan, klien…" onChange={(e)=>{setQuery(e.target.value);setPage(1);}} />
+      <select style={input} value={severity} onChange={(e)=>{setSeverity(e.target.value);setPage(1);}}><option value="ALL">Semua severity</option><option>CRITICAL</option><option>WARNING</option><option>INFO</option></select>
+      <select style={input} value={status} onChange={(e)=>{setStatus(e.target.value);setPage(1);}}><option value="ALL">Semua status</option><option>OPEN</option><option>CLIENT_ACTION_REQUIRED</option><option>RESOLVED</option><option>ACCEPTED</option></select>
+      <span style={{...small,margin:'auto 0'}}><strong>{filtered.length}</strong> temuan</span>
+    </div>
+    <CardTable headers={['Temuan','Klien / Project','Severity','Status','Aksi']} rows={visible.map((r) => [
+      <div key="finding"><strong>{r.category}</strong><small style={small}>{r.employee_id || 'Submission'} · {r.reason || r.field || '-'}</small></div>,
+      <div key="scope"><strong>{r.client_name || r.client_id || '-'}</strong><small style={small}>{r.project_name || r.period || '-'}</small></div>,
+      <Badge key="severity" text={r.severity} />,
+      <Badge key="status" text={r.status} />,
+      <button key="detail" style={actionButton} onClick={() => setSelected(r)}>Tindak lanjut</button>,
+    ])} />
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={small}>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div style={{display:'flex',gap:6}}><button className="btn" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>←</button><button className="btn" disabled={page>=pageCount} onClick={()=>setPage(p=>p+1)}>→</button></div></div>
+    {selected ? <div className="directory-modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)setSelected(null);}}><div className="directory-modal" role="dialog" aria-modal="true">
+      <div className="directory-modal-title"><div><span>EXCEPTION CENTER</span><h3>{selected.category}</h3></div><button onClick={()=>setSelected(null)}>✕</button></div>
+      <p><strong>{selected.employee_id || 'Submission'}</strong> · {selected.client_name || selected.client_id}</p><p style={{color:'var(--text2)',fontSize:13}}>{selected.reason}</p>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:16}}>
+        {['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && !['RESOLVED','ACCEPTED'].includes(selected.status) ? <button className="btn btn-primary" onClick={()=>{const message=window.prompt('Instruksi perbaikan untuk user klien:',selected.reason||'Mohon lengkapi dan validasi data ini.');if(message)void act({action:'REQUEST_CLIENT_ACTION',exceptionId:selected.id,message},'Permintaan perbaikan dikirim ke user klien').then(()=>setSelected(null));}}>Minta perbaikan klien</button> : null}
+        <button className="btn" onClick={()=>{const message=window.prompt('Tulis pesan pada temuan:');if(message)void act({action:'ADD_EXCEPTION_NOTE',exceptionId:selected.id,message},'Pesan tersimpan pada temuan').then(()=>setSelected(null));}}>Chat / catatan</button>
+        {selected.client_email ? <a className="btn" href={`mailto:${encodeURIComponent(selected.client_email)}?subject=${encodeURIComponent(`Perbaikan data payroll ${selected.period || ''}`)}&body=${encodeURIComponent(selected.reason || '')}`}>Email klien</a> : <span style={small}>Email akun klien belum dipasangkan</span>}
+        {canResolve && !['RESOLVED','ACCEPTED'].includes(selected.status) ? <button className="btn" onClick={()=>void act({action:'RESOLVE_EXCEPTION',exceptionId:selected.id,status:role==='CLIENT_USER'?'ACCEPTED':'RESOLVED',resolutionNote:role==='CLIENT_USER'?'Data telah diperbaiki/dikonfirmasi oleh user klien':'Diverifikasi dan diselesaikan'},'Exception diperbarui').then(()=>setSelected(null))}>{role==='CLIENT_USER'?'Konfirmasi sudah diperbaiki':'Tandai selesai'}</button> : null}
+      </div>
+      {selected.resolution_note ? <div className="directory-message" style={{marginTop:14,whiteSpace:'pre-wrap'}}>{selected.resolution_note}</div> : null}
+    </div></div> : null}
+  </div>;
 }
 
 function Payments({ instructions, proofs, reconciliations, canReview, canApprove, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; canReview:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {

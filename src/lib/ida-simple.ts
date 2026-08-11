@@ -286,6 +286,12 @@ export function handleIdaIntent(
     /\b(payroll|gaji)\b.*\b(ready|siap)\b|\b(ready|siap)\b.*\b(payroll|gaji)\b/.test(t)
   ) {
     const period = periodOf(db);
+    const activeTier = (db.servicePlans || []).find((plan: any) => plan.status === 'ACTIVE')?.tier;
+    if (activeTier === 'TIER_1_PAYMENT_PROCESSING') {
+      return { reply: renderMarkdown(
+        `Klien menggunakan **Tier 1 — Payment Processing**. ProQPay tidak menghitung ulang payroll; Gross, Potongan, dan THP final harus mengikuti file sumber klien. Lanjutkan melalui **Payroll Operations → Exception Center**, lalu siapkan payment instruction setelah temuan kritis selesai.`
+      ) };
+    }
     const payroll = payrollOf(db, period);
     if (!payroll) return { reply: renderMarkdown(`Payroll **${period}** belum dibuat.`) };
     const report = validatePayrollIndonesia(db, { period });

@@ -90,10 +90,40 @@ export async function onRequest(context) {
   const sql = neon(url);
   const orgId = 'ORG-OTSINDO';
   const actor = authorization.actor;
+  const importContext = body.context && typeof body.context === 'object' ? body.context : null;
+  const contextClientId = importContext?.clientId ? String(importContext.clientId) : null;
+  const servicePlanId = importContext?.servicePlanId ? String(importContext.servicePlanId) : null;
+  const serviceTier = importContext?.tier ? String(importContext.tier) : null;
+  const projectId = importContext?.projectId ? String(importContext.projectId) : null;
+  const period = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(importContext?.period || ''))
+    ? String(importContext.period) : new Date().toISOString().slice(0, 7);
   const rowClientId = (row) =>
-    `CLI-${slug(row.clientCode || row.client || row.company || 'GEN')}`;
+    contextClientId || `CLI-${slug(row.clientCode || row.client || row.company || 'GEN')}`;
 
   try {
+    let verifiedPlan = null;
+    if (importContext) {
+      if (!contextClientId || !servicePlanId || !serviceTier) {
+        return respond({ error: 'Klien dan service tier wajib ditentukan sebelum import.' }, 409);
+      }
+      const plans = await sql`SELECT sp.* FROM client_service_plans sp JOIN clients c ON c.id=sp.client_id
+        WHERE sp.id=${servicePlanId} AND sp.client_id=${contextClientId} AND sp.tier=${serviceTier}
+          AND sp.status='ACTIVE' AND c.org_id=${orgId}
+          AND sp.effective_from <= CURRENT_DATE AND (sp.effective_until IS NULL OR sp.effective_until >= CURRENT_DATE) LIMIT 1`;
+      if (!plans.length) return respond({ error: 'Service tier klien belum aktif atau tidak cocok.' }, 409);
+      verifiedPlan = plans[0];
+      const lockedPayroll = await sql`SELECT id, status FROM payrolls WHERE org_id=${orgId} AND period=${period}
+        AND status NOT IN ('DRAFT','CALCULATED') LIMIT 1`;
+      if (lockedPayroll.length) return respond({ error: `Payroll ${period} sudah ${lockedPayroll[0].status}; gunakan alur revisi controller sebelum mengganti sumber data.` }, 409);
+    }
+
+    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_source_period TEXT`);
+    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_gross BIGINT DEFAULT 0`);
+    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_deduction BIGINT DEFAULT 0`);
+    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_net BIGINT DEFAULT 0`);
+    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_components JSONB DEFAULT '{}'::jsonb`);
+    await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`);
+
     if (actor.role === 'CLIENT_USER') {
       const allowedClientIds = clientIdsFor(actor, env) || [];
       const requestedClientIds = [...new Set(rows.map(rowClientId))];
@@ -264,11 +294,19 @@ export async function onRequest(context) {
               is_current = TRUE
           `,
           tx`
-            INSERT INTO employee_compensation (employee_id, basic_salary, salary_start)
-            VALUES (${row.nrk}, ${row.basicSalary || 0}, ${row.salaryStart || null})
+            INSERT INTO employee_compensation (employee_id, basic_salary, salary_start, payroll_source_period,
+              imported_gross, imported_deduction, imported_net, payroll_components)
+            VALUES (${row.nrk}, ${row.basicSalary || 0}, ${row.salaryStart || null}, ${period},
+              ${row.grossPay || 0}, ${row.totalDeductions || 0}, ${row.netPay || 0},
+              ${JSON.stringify(row.payrollComponents || {})}::jsonb)
             ON CONFLICT (employee_id) DO UPDATE SET
               basic_salary = EXCLUDED.basic_salary,
               salary_start = EXCLUDED.salary_start,
+              payroll_source_period = EXCLUDED.payroll_source_period,
+              imported_gross = EXCLUDED.imported_gross,
+              imported_deduction = EXCLUDED.imported_deduction,
+              imported_net = EXCLUDED.imported_net,
+              payroll_components = EXCLUDED.payroll_components,
               updated_at = NOW()
           `,
           tx`
@@ -325,6 +363,16 @@ export async function onRequest(context) {
         }
       }
 
+      const submissionId = verifiedPlan ? `SUB-${crypto.randomUUID()}` : null;
+      if (verifiedPlan) {
+        queries.push(tx`DELETE FROM payrolls WHERE org_id=${orgId} AND period=${period} AND status IN ('DRAFT','CALCULATED')`);
+      }
+      if (submissionId) {
+        queries.push(tx`INSERT INTO payroll_submissions
+          (id, org_id, client_id, project_id, service_plan_id, service_tier, period, state, created_by)
+          VALUES (${submissionId}, ${orgId}, ${contextClientId}, ${projectId}, ${servicePlanId}, ${serviceTier},
+            ${period}, 'AI_VALIDATING', ${actor.email})`);
+      }
       queries.push(tx`
         INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity)
         VALUES (
@@ -340,6 +388,11 @@ export async function onRequest(context) {
       return queries;
     });
 
+    const latestSubmission = verifiedPlan
+      ? await sql`SELECT id FROM payroll_submissions WHERE org_id=${orgId} AND client_id=${contextClientId}
+          AND service_plan_id=${servicePlanId} AND period=${period} ORDER BY created_at DESC LIMIT 1`
+      : [];
+
     return respond({
       ok: true,
       atomic: true,
@@ -349,6 +402,10 @@ export async function onRequest(context) {
       errorSamples: [],
       provinceStats,
       total: rows.length,
+      submissionId: latestSubmission[0]?.id || null,
+      serviceTier,
+      clientId: contextClientId,
+      projectId,
     });
   } catch (error) {
     return respond(

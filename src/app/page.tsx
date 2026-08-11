@@ -229,7 +229,7 @@ export default function Home() {
             )}
 
             {view === 'employees' && (
-              <EmployeeDirectory employees={db.employees || []} actor={actor} pageSize={settings.employeePageSize} initialRegion={employeeRegionFilter} maskSensitiveData={settings.maskSensitiveData} />
+              <EmployeeDirectory employees={db.employees || []} actor={actor} pageSize={settings.employeePageSize} initialRegion={employeeRegionFilter} maskSensitiveData={settings.maskSensitiveData} onChanged={refreshCanonical} />
             )}
 
             {view === 'clients' && (

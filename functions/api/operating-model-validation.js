@@ -63,6 +63,15 @@ export function validateOperatingAction(input) {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (!['CRITICAL', 'WARNING', 'INFO'].includes(input.severity)) errors.push('severity tidak valid');
     if (!validId(input.category)) errors.push('category tidak valid');
+  } else if (action === 'CREATE_VALIDATION_BATCH') {
+    if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+    if (!Array.isArray(input.issues) || input.issues.length > 2000) errors.push('issues wajib berupa array maksimal 2000 item');
+  } else if (action === 'REQUEST_CLIENT_ACTION') {
+    if (!validId(input.exceptionId)) errors.push('exceptionId tidak valid');
+    if (!String(input.message || '').trim()) errors.push('message wajib diisi');
+  } else if (action === 'ADD_EXCEPTION_NOTE') {
+    if (!validId(input.exceptionId)) errors.push('exceptionId tidak valid');
+    if (!String(input.message || '').trim()) errors.push('message wajib diisi');
   } else if (action === 'RESOLVE_EXCEPTION') {
     if (!validId(input.exceptionId)) errors.push('exceptionId tidak valid');
     if (!['ACCEPTED', 'REJECTED', 'RESOLVED'].includes(input.status)) errors.push('status resolusi tidak valid');

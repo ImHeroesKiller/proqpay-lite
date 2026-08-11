@@ -72,7 +72,16 @@ export function saveDatabase(db: any) {
   LEGACY_DB_KEYS.forEach((key) => localStorage.removeItem(key));
 }
 
-export function calcEmployeePayroll(emp: any, rules: any, payrollSetup: any) {
+export function calcEmployeePayroll(emp: any, rules: any, payrollSetup: any, period?: string) {
+  if (period && emp.payrollSourcePeriod === period && Number(emp.importedNet || 0) > 0) {
+    return {
+      employeeId: emp.id, name: emp.name, company: emp.company, project: emp.project, region: emp.region,
+      status: emp.status, position: emp.position, bankName: emp.bankName || '', bankAccount: emp.bankAccount || '',
+      gross: Number(emp.importedGross || 0), deductions: Number(emp.importedDeduction || 0),
+      net: Number(emp.importedNet || 0), deductionBreakdown: emp.payrollComponents || {},
+      salaryGross: emp.salaryGross, allowanceTransport: 0, allowanceMeal: 0, source: 'IMPORTED_THP',
+    };
+  }
   const setup = payrollSetup || {};
   const gross = emp.salaryGross + (emp.allowanceTransport || 0) + (emp.allowanceMeal || 0);
   let deductions = 0;
@@ -115,7 +124,7 @@ export function generatePayroll(db: any, period: string) {
   const details = db.employees.map((emp: any) => {
     const company = db.companies.find((c: any) => c.name === emp.company);
     const setup = company?.payrollSetup;
-    return calcEmployeePayroll(emp, db.payrollRules, setup);
+    return calcEmployeePayroll(emp, db.payrollRules, setup, period);
   });
   const totalGross = details.reduce((s: number, d: any) => s + d.gross, 0);
   const totalDeduction = details.reduce((s: number, d: any) => s + d.deductions, 0);

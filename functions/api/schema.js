@@ -239,6 +239,12 @@ export async function onRequest(context) {
       `CREATE INDEX IF NOT EXISTS idx_app_sessions_expiry ON app_sessions(expires_at)`,
       `ALTER TABLE app_users ADD COLUMN IF NOT EXISTS failed_login_attempts INT NOT NULL DEFAULT 0`,
       `ALTER TABLE app_users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ`,
+      `ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_source_period TEXT`,
+      `ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_gross BIGINT DEFAULT 0`,
+      `ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_deduction BIGINT DEFAULT 0`,
+      `ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_net BIGINT DEFAULT 0`,
+      `ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_components JSONB DEFAULT '{}'::jsonb`,
+      `ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`,
     ];
     for (const a of alters) {
       try {

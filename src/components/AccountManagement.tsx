@@ -133,5 +133,5 @@ export default function AccountManagement() {
 }
 
 function ClientScopes({ clients, selected, onChange, compact = false }: { clients: Client[]; selected: string[]; onChange: (ids: string[]) => void; compact?: boolean }) {
-  return <div className={`client-scope-picker${compact ? ' compact' : ''}`}><span>Client scope</span><div>{clients.length ? clients.map((client) => <label key={client.id}><input type="checkbox" checked={selected.includes(client.id)} onChange={(event) => onChange(event.target.checked ? [...selected, client.id] : selected.filter((id) => id !== client.id))} /> {client.name}</label>) : <em>Belum ada klien. Tambahkan klien terlebih dahulu.</em>}</div></div>;
+  return <div className={`client-scope-picker${compact ? ' compact' : ''}`}><span>Klien & seluruh project terkait</span><div>{clients.length ? clients.map((client) => <label key={client.id}><input type="checkbox" checked={selected.includes(client.id)} onChange={(event) => onChange(event.target.checked ? [...selected, client.id] : selected.filter((id) => id !== client.id))} /> {client.name}</label>) : <em>Belum ada klien. Tambahkan klien terlebih dahulu.</em>}</div></div>;
 }

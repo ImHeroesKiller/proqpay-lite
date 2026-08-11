@@ -73,6 +73,13 @@ test('service plan and exception payloads validate required business fields', ()
     category: 'BANK_ACCOUNT',
     severity: 'CRITICAL',
   }).ok, true);
+  assert.equal(validateOperatingAction({
+    action: 'CREATE_VALIDATION_BATCH', submissionId: 'SUB-1',
+    issues: [{ category: 'BANK_MISSING', severity: 'CRITICAL' }],
+  }).ok, true);
+  assert.equal(validateOperatingAction({
+    action: 'REQUEST_CLIENT_ACTION', exceptionId: 'EXC-1', message: 'Mohon lengkapi rekening.',
+  }).ok, true);
 });
 
 test('proof, reconciliation, and integration actions validate controlled inputs', () => {

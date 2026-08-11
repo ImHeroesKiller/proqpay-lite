@@ -80,6 +80,7 @@ export async function onRequest(context) {
   const organizationId = orgId(env);
 
   try {
+    await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`);
     if (request.method === 'GET') {
       const params = new URL(request.url).searchParams;
       const resource = params.get('resource') || 'submissions';
@@ -95,8 +96,17 @@ export async function onRequest(context) {
       }
       if (resource === 'exceptions') {
         const rows = clientId
-          ? await sql`SELECT e.* FROM payroll_exceptions e JOIN payroll_submissions s ON s.id=e.submission_id WHERE s.org_id=${organizationId} AND s.client_id=${clientId} ORDER BY e.created_at DESC LIMIT 500`
-          : await sql`SELECT e.* FROM payroll_exceptions e JOIN payroll_submissions s ON s.id=e.submission_id WHERE s.org_id=${organizationId} ORDER BY e.created_at DESC LIMIT 500`;
+          ? await sql`SELECT e.*, s.client_id, s.project_id, s.period, s.service_tier, c.name AS client_name,
+              p.name AS project_name, (SELECT au.email FROM app_users au JOIN user_client_scopes ucs ON ucs.user_id=au.id
+                WHERE ucs.client_id=s.client_id AND au.role='CLIENT_USER' AND au.status='ACTIVE' ORDER BY au.created_at LIMIT 1) AS client_email
+              FROM payroll_exceptions e JOIN payroll_submissions s ON s.id=e.submission_id JOIN clients c ON c.id=s.client_id
+              LEFT JOIN projects p ON p.id=s.project_id WHERE s.org_id=${organizationId} AND s.client_id=${clientId}
+              ORDER BY e.created_at DESC LIMIT 2000`
+          : await sql`SELECT e.*, s.client_id, s.project_id, s.period, s.service_tier, c.name AS client_name,
+              p.name AS project_name, (SELECT au.email FROM app_users au JOIN user_client_scopes ucs ON ucs.user_id=au.id
+                WHERE ucs.client_id=s.client_id AND au.role='CLIENT_USER' AND au.status='ACTIVE' ORDER BY au.created_at LIMIT 1) AS client_email
+              FROM payroll_exceptions e JOIN payroll_submissions s ON s.id=e.submission_id JOIN clients c ON c.id=s.client_id
+              LEFT JOIN projects p ON p.id=s.project_id WHERE s.org_id=${organizationId} ORDER BY e.created_at DESC LIMIT 2000`;
         return respond({ ok: true, exceptions: rows });
       }
       if (resource === 'payment-instructions') {
@@ -227,6 +237,39 @@ export async function onRequest(context) {
            ${body.reason || null}, ${body.confidence ?? null}, ${body.owner || actor.email}, 'OPEN')
         RETURNING *`;
       return respond({ ok: true, exception: rows[0] }, 201);
+    }
+
+    if (body.action === 'CREATE_VALIDATION_BATCH') {
+      if (!PROCESSOR_ROLES.has(actor.role) && actor.role !== 'CLIENT_USER') return respond({ error: 'Insufficient role' }, 403);
+      const submission = await sql`SELECT id, client_id FROM payroll_submissions WHERE id=${body.submissionId} AND org_id=${organizationId} LIMIT 1`;
+      if (!submission.length) return respond({ error: 'Submission not found' }, 404);
+      if (!assertClientScope(actor, env, submission[0].client_id)) return respond({ error: 'Client scope denied' }, 403);
+      const cleanIssues = (body.issues || []).filter((issue) => issue && ['CRITICAL','WARNING','INFO'].includes(issue.severity)).map((issue) => ({
+        id: `EXC-${crypto.randomUUID()}`, employee_id: issue.employeeId || null, field: issue.field || null,
+        category: String(issue.category || 'VALIDATION').slice(0, 120), severity: issue.severity,
+        reason: String(issue.reason || '').slice(0, 1000),
+      }));
+      if (cleanIssues.length) await sql`
+        INSERT INTO payroll_exceptions (id, submission_id, employee_id, field, category, severity, reason, owner, status)
+        SELECT item.id, ${body.submissionId}, item.employee_id, item.field, item.category, item.severity, item.reason,
+          'PAYROLL_PROCESSOR', 'OPEN'
+        FROM jsonb_to_recordset(${JSON.stringify(cleanIssues)}::jsonb)
+          AS item(id text, employee_id text, field text, category text, severity text, reason text)`;
+      await sql`UPDATE payroll_submissions SET state=${cleanIssues.length ? 'EXCEPTION_FOUND' : 'VALIDATED'}, updated_at=NOW()
+        WHERE id=${body.submissionId}`;
+      return respond({ ok: true, created: cleanIssues.length }, 201);
+    }
+
+    if (body.action === 'REQUEST_CLIENT_ACTION' || body.action === 'ADD_EXCEPTION_NOTE') {
+      const current = await sql`SELECT e.*, s.client_id FROM payroll_exceptions e JOIN payroll_submissions s ON s.id=e.submission_id
+        WHERE e.id=${body.exceptionId} AND s.org_id=${organizationId} LIMIT 1`;
+      if (!current.length) return respond({ error: 'Exception not found' }, 404);
+      if (!assertClientScope(actor, env, current[0].client_id)) return respond({ error: 'Client scope denied' }, 403);
+      const status = body.action === 'REQUEST_CLIENT_ACTION' ? 'CLIENT_ACTION_REQUIRED' : current[0].status;
+      const note = `${current[0].resolution_note ? `${current[0].resolution_note}\n` : ''}[${new Date().toISOString()}] ${actor.email}: ${String(body.message).slice(0, 1000)}`;
+      const rows = await sql`UPDATE payroll_exceptions SET status=${status}, owner=${body.action === 'REQUEST_CLIENT_ACTION' ? 'CLIENT_USER' : current[0].owner},
+        resolution_note=${note} WHERE id=${body.exceptionId} RETURNING *`;
+      return respond({ ok: true, exception: rows[0] });
     }
 
     if (body.action === 'RESOLVE_EXCEPTION') {

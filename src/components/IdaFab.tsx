@@ -50,6 +50,29 @@ type PendingEmailFill = {
   expectedCount: number;
   samples: Array<{ name: string; email: string }>;
 };
+type ServiceTier = 'TIER_1_PAYMENT_PROCESSING' | 'TIER_2_MANAGED_PAYROLL' | 'TIER_3_INTEGRATED_AUTOMATION';
+type PendingImportContext = {
+  clientName: string;
+  clientId?: string;
+  projectId?: string;
+  servicePlanId?: string;
+  tier?: ServiceTier;
+  period: string;
+};
+
+const TIER_LABELS: Record<ServiceTier, string> = {
+  TIER_1_PAYMENT_PROCESSING: 'Tier 1 — Payment Processing',
+  TIER_2_MANAGED_PAYROLL: 'Tier 2 — Managed Payroll',
+  TIER_3_INTEGRATED_AUTOMATION: 'Tier 3 — Integrated Automation',
+};
+
+function normalizedName(value: unknown) {
+  return String(value || '').toLocaleLowerCase('id-ID').replace(/\bpt\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function directoryCode(value: string, fallback: string) {
+  return String(value || fallback).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || fallback;
+}
 
 function formatImportIssues(issues: ImportIssue[], rowOffset = 0) {
   if (!issues.length) return '';
@@ -208,6 +231,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   const [busy, setBusy] = useState(false);
   const [typing, setTyping] = useState(false);
   const [pendingRows, setPendingRows] = useState<ParsedEmployee[] | null>(null);
+  const [pendingImportContext, setPendingImportContext] = useState<PendingImportContext | null>(null);
   const [lastImportFailure, setLastImportFailure] = useState('');
   const [pendingFullReset, setPendingFullReset] = useState(false);
   const [pendingClientDelete, setPendingClientDelete] = useState<{ id: string; name: string; employees: number } | null>(null);
@@ -384,6 +408,28 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       setPendingRows(parsed.rows);
       setLastImportFailure('');
       const review = inspectParsedRows(parsed.rows);
+      const clientNames = [...new Set(parsed.rows.map((row) => row.client || row.company).filter(Boolean))];
+      if (clientNames.length !== 1) {
+        throw new Error(`Satu file harus berisi satu klien. Terdeteksi ${clientNames.length || 0} klien.`);
+      }
+      const clientName = String(clientNames[0]);
+      const directoryResponse = await fetch('/api/client-projects', { headers: { Accept: 'application/json' } });
+      const directory = await directoryResponse.json().catch(() => ({}));
+      if (!directoryResponse.ok) throw new Error(directory.error || 'Gagal memeriksa master klien');
+      const client = (directory.clients || []).find((item: any) => normalizedName(item.name) === normalizedName(clientName));
+      const projects = client ? (directory.projects || []).filter((item: any) => item.client_id === client.id) : [];
+      let activePlan: any = null;
+      if (client) {
+        const planResponse = await fetch(`/api/operating-model?resource=service-plans&clientId=${encodeURIComponent(client.id)}`);
+        const planData = await planResponse.json().catch(() => ({}));
+        if (planResponse.ok) activePlan = (planData.servicePlans || []).find((plan: any) => plan.status === 'ACTIVE');
+      }
+      const context: PendingImportContext = {
+        clientName, clientId: client?.id, projectId: projects[0]?.id,
+        servicePlanId: activePlan?.id, tier: activePlan?.tier,
+        period: db?.meta?.currentPeriod || new Date().toISOString().slice(0, 7),
+      };
+      setPendingImportContext(context);
       const sample = parsed.rows
         .slice(0, 3)
         .map((r) => `- **${r.name}** → **${r.province}**`)
@@ -408,17 +454,21 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       const payrollText = parsed.payrollSummary.gross || parsed.payrollSummary.net
         ? `\n\n**Ringkasan THP terbaca**\n- Gross: **${formatIDR(parsed.payrollSummary.gross)}**\n- Potongan: **${formatIDR(parsed.payrollSummary.deductions)}**\n- Netto/THP: **${formatIDR(parsed.payrollSummary.net)}**`
         : '';
+      const tierText = activePlan
+        ? `\n\n**Konteks layanan**\n- Klien: **${clientName}**\n- Project: **${projects[0]?.name || 'belum dipasangkan'}**\n- Tier: **${TIER_LABELS[activePlan.tier as ServiceTier]}**`
+        : `\n\n**Import ditahan — tier klien belum tersedia.**\nKlien **${clientName}** ${client ? 'sudah ditemukan' : 'belum ada di master data'}. Pilih layanan dengan mengetik **tier 1**, **tier 2**, atau **tier 3**. IDA akan membuat/memasangkan klien, project payroll, dan service plan sebelum import.`;
       await pushIda(
         `File terbaca: **${parsed.rows.length} karyawan**. ${sourceText}\n\n${workbookText}${duplicateText}` +
           (parsed.skipped ? ` **${parsed.skipped} baris** pada datasheet kandidat dilewati karena NRK/nama kosong.` : '') +
-          `${payrollText}\n\n${sample}${validationText}\n\n` +
-          (review.issues.length ? 'Ketik **perbaiki otomatis** untuk koreksi aman, atau unggah ulang jika data wajib yang salah.' : 'Ketik **import sekarang** untuk menyimpan.'),
+          `${payrollText}${tierText}\n\n${sample}${validationText}\n\n` +
+          (!activePlan ? 'Pilih tier terlebih dahulu; **import sekarang** belum dapat dijalankan.' : review.issues.length ? 'Ketik **perbaiki otomatis** untuk koreksi aman, atau unggah ulang jika data wajib yang salah.' : 'Ketik **import sekarang** untuk menyimpan.'),
         true,
         ['Membaca struktur file', 'Memeriksa data wajib', review.issues.length ? 'Perlu perbaikan' : 'Siap diimpor']
       );
     } catch (e: any) {
       await pushIda(`Gagal membaca file: ${e?.message || e}`, true, ['Gagal membaca']);
       setPendingRows(null);
+      setPendingImportContext(null);
     } finally {
       setCotLive(null);
       setBusy(false);
@@ -430,13 +480,17 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       await pushIda('Belum ada file. Gunakan 📎 dulu.');
       return;
     }
+    if (!pendingImportContext?.clientId || !pendingImportContext.servicePlanId || !pendingImportContext.tier) {
+      await pushIda('Import belum dapat dijalankan karena service tier klien belum ditentukan. Ketik **tier 1**, **tier 2**, atau **tier 3**.');
+      return;
+    }
     setBusy(true);
     setCotLive(['Menyimpan data…', 'Memperbarui ringkasan…']);
     try {
       const res = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: pendingRows }),
+        body: JSON.stringify({ rows: pendingRows, context: pendingImportContext }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -463,13 +517,33 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         updated,
         total: inserted + updated,
       });
-      const report = validatePayrollIndonesia(newDb);
+      const report = validatePayrollIndonesia(newDb, {
+        period: pendingImportContext.period,
+        tier: pendingImportContext.tier,
+        clientId: pendingImportContext.clientId,
+      });
+      const actionable = report.issues.filter((issue) => issue.severity !== 'info').map((issue) => ({
+        employeeId: issue.employeeId,
+        category: issue.code,
+        severity: issue.severity === 'error' ? 'CRITICAL' : 'WARNING',
+        reason: issue.message,
+      }));
+      let exceptionCount = 0;
+      if (data.submissionId) {
+        const exceptionResponse = await fetch('/api/operating-model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          action: 'CREATE_VALIDATION_BATCH', submissionId: data.submissionId, issues: actionable,
+        }) });
+        const exceptionResult = await exceptionResponse.json().catch(() => ({}));
+        if (exceptionResponse.ok) exceptionCount = Number(exceptionResult.created || 0);
+      }
       await pushIda(
         `Data tersimpan (**${inserted} baru, ${updated} diperbarui, ${errors} gagal**). Dashboard tersinkron **${synced.count} karyawan**.\n\n` +
-          formatValidationMarkdown(report),
+          `Submission **${data.submissionId || '-'}** dibuat untuk **${TIER_LABELS[pendingImportContext.tier]}**. ` +
+          `${exceptionCount} temuan operasional dikirim ke **Exception Center** untuk ditindaklanjuti.\n\n` + formatValidationMarkdown(report),
         true,
         ['Data disimpan', 'Pemeriksaan selesai']
       );
+      setPendingImportContext(null);
     } catch (e: any) {
       const reason = String(e?.message || e);
       setLastImportFailure(reason);
@@ -774,6 +848,48 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         );
         return;
       }
+      const tierChoice = pendingRows?.length && pendingImportContext && low.match(/^(?:pilih\s+|set\s+)?tier\s*([123])$/i);
+      if (tierChoice) {
+        if (!['SUPER_ADMIN', 'PAYROLL_PROCESSOR'].includes(String(actorContext.currentRole))) {
+          await pushIda('Service tier hanya dapat ditetapkan oleh **SUPER_ADMIN** atau **PAYROLL_PROCESSOR**. Hubungi tim ProQPay; file tetap tersimpan di staging browser dan belum diimpor.', true, ['Memeriksa otorisasi tier']);
+          return;
+        }
+        const tierMap: Record<string, ServiceTier> = {
+          '1': 'TIER_1_PAYMENT_PROCESSING', '2': 'TIER_2_MANAGED_PAYROLL', '3': 'TIER_3_INTEGRATED_AUTOMATION',
+        };
+        const tier = tierMap[tierChoice[1]];
+        setCotLive(['Memeriksa master klien…', 'Memasangkan project…', 'Mengaktifkan service tier…']);
+        let clientId = pendingImportContext.clientId;
+        let projectId = pendingImportContext.projectId;
+        if (!clientId) {
+          const response = await fetch('/api/client-projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            action: 'CREATE_CLIENT', code: directoryCode(pendingImportContext.clientName, 'CLIENT'), name: pendingImportContext.clientName,
+          }) });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || 'Gagal membuat klien');
+          clientId = result.client.id;
+        }
+        if (!projectId) {
+          const response = await fetch('/api/client-projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            action: 'CREATE_PROJECT', clientId, code: directoryCode(`${pendingImportContext.clientName}-PAYROLL`, 'PAYROLL'),
+            name: `${pendingImportContext.clientName} — Payroll`,
+          }) });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || 'Gagal membuat project payroll');
+          projectId = result.project.id;
+        }
+        const planResponse = await fetch('/api/operating-model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          action: 'CREATE_SERVICE_PLAN', clientId, tier, effectiveFrom: new Date().toISOString().slice(0, 10),
+        }) });
+        const planResult = await planResponse.json().catch(() => ({}));
+        if (!planResponse.ok) throw new Error(planResult.error || 'Gagal mengaktifkan service tier');
+        setPendingImportContext({ ...pendingImportContext, clientId, projectId, tier, servicePlanId: planResult.servicePlan.id });
+        await pushIda(
+          `Konteks import siap:\n\n- Klien: **${pendingImportContext.clientName}**\n- Project: **${pendingImportContext.clientName} — Payroll**\n- Tier: **${TIER_LABELS[tier]}**\n\nValidasi berikutnya akan memakai mandatory field khusus tier ini. Ketik **import sekarang** untuk menyimpan.`,
+          true, ['Klien terpasang', 'Project terpasang', 'Service tier aktif']
+        );
+        return;
+      }
       if (
         pendingRows?.length &&
         /^(?:(?:iya|ya|ok|oke)\s+)?(?:import|simpan)(?:\s+sekarang)?[.!]?$/.test(low)
@@ -783,6 +899,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       }
       if (/\b(batal import)\b/.test(low)) {
         setPendingRows(null);
+        setPendingImportContext(null);
         await pushIda('Antrian dibatalkan.');
         return;
       }
@@ -848,7 +965,11 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         confirmedApprovalPlanId: pendingApprovalPreview?.planId,
       });
       await pushIda(await applyResult(result), false, ['Selesai']);
-    } catch {
+    } catch (error) {
+      if (pendingRows?.length && /^(?:pilih\s+|set\s+)?tier\s*[123]$/i.test(userMsg.toLowerCase())) {
+        await pushIda(`Konteks tier belum berhasil disimpan: **${error instanceof Error ? error.message : 'kesalahan sistem'}**. Tidak ada data karyawan yang diimpor.`, true, ['Konfigurasi tier gagal']);
+        return;
+      }
       const result = handleIdaIntent(userMsg, db, actorContext, {
         confirmedPayrollPlanId: pendingPayrollPreview?.planId,
         confirmedApprovalPlanId: pendingApprovalPreview?.planId,
@@ -873,6 +994,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     setInput('');
     setCotLive(null);
     setPendingRows(null);
+    setPendingImportContext(null);
     setLastImportFailure('');
     setPendingPayrollPreview(null);
     setPendingApprovalPreview(null);

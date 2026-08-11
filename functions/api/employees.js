@@ -45,7 +45,7 @@ export async function onRequest(context) {
   }
 
   const authorization = await authorize(request, env, {
-    roles: request.method === 'POST' ? ['SUPER_ADMIN', 'PAYROLL_PROCESSOR'] : ROLES,
+    roles: request.method === 'POST' ? ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'CLIENT_USER'] : ROLES,
     mutating: request.method === 'POST',
     methods: METHODS,
   });
@@ -70,6 +70,11 @@ export async function onRequest(context) {
 
     const sql = neon(url);
     const actor = authorization.actor;
+    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_source_period TEXT`);
+    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_gross BIGINT DEFAULT 0`);
+    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_deduction BIGINT DEFAULT 0`);
+    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_net BIGINT DEFAULT 0`);
+    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_components JSONB DEFAULT '{}'::jsonb`);
 
     if (request.method === 'GET') {
       const scopedClientIds = clientIdsFor(actor, env);
@@ -103,6 +108,11 @@ export async function onRequest(context) {
           COALESCE(wl.province, e.province, b.province) AS province,
           COALESCE(wl.unit_kerja, wl.name) AS project,
           COALESCE(cp.basic_salary, 0)::float8 AS "salaryGross",
+          cp.payroll_source_period AS "payrollSourcePeriod",
+          COALESCE(cp.imported_gross, 0)::float8 AS "importedGross",
+          COALESCE(cp.imported_deduction, 0)::float8 AS "importedDeduction",
+          COALESCE(cp.imported_net, 0)::float8 AS "importedNet",
+          COALESCE(cp.payroll_components, '{}'::jsonb) AS "payrollComponents",
           0 AS "allowanceTransport",
           0 AS "allowanceMeal",
           ba.account_no AS "accountNo",
@@ -202,6 +212,15 @@ export async function onRequest(context) {
       const province = body.province || body.region || null;
       const salaryGross = Number(body.salaryGross ?? body.salary_gross ?? body.basicSalary ?? 0) || 0;
 
+      if (actor.role === 'CLIENT_USER') {
+        const scope = clientIdsFor(actor, env) || [];
+        const existing = await sql`SELECT client_id FROM employees WHERE id=${id} LIMIT 1`;
+        const targetClientId = existing[0]?.client_id || clientId;
+        if (!targetClientId || !scope.includes(String(targetClientId))) {
+          return respond({ error: 'Karyawan berada di luar client scope Anda.' }, 403);
+        }
+      }
+
       await sql`
         INSERT INTO organizations (id, name, code)
         VALUES (${orgId}, ${body.orgName || 'OTSINDO'}, ${body.orgCode || 'OTSINDO'})
@@ -264,6 +283,20 @@ export async function onRequest(context) {
             is_primary = TRUE
         `;
       }
+
+      if (body.nik || body.npwp || body.address) {
+        await sql`INSERT INTO employee_identity (employee_id, ktp_no, npwp_no, address)
+          VALUES (${id}, ${body.nik || null}, ${body.npwp || null}, ${body.address || null})
+          ON CONFLICT (employee_id) DO UPDATE SET ktp_no=COALESCE(EXCLUDED.ktp_no, employee_identity.ktp_no),
+            npwp_no=COALESCE(EXCLUDED.npwp_no, employee_identity.npwp_no), address=COALESCE(EXCLUDED.address, employee_identity.address)`;
+      }
+      if (body.bpjsKesehatanNo || body.jamsostekNo) {
+        await sql`INSERT INTO employee_bpjs (employee_id, bpjs_kesehatan_no, jamsostek_no)
+          VALUES (${id}, ${body.bpjsKesehatanNo || null}, ${body.jamsostekNo || null})
+          ON CONFLICT (employee_id) DO UPDATE SET bpjs_kesehatan_no=COALESCE(EXCLUDED.bpjs_kesehatan_no, employee_bpjs.bpjs_kesehatan_no),
+            jamsostek_no=COALESCE(EXCLUDED.jamsostek_no, employee_bpjs.jamsostek_no), updated_at=NOW()`;
+      }
+      if (body.email) await sql`UPDATE employees SET email=${body.email}, updated_at=NOW() WHERE id=${id}`;
 
       return respond({ ok: true, id });
     }

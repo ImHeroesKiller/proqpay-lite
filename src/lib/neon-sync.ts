@@ -71,6 +71,14 @@ export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
 
   const employees = Array.isArray(data.employees) ? data.employees : [];
   const directory = directoryData as any;
+  let servicePlans: any[] = [];
+  try {
+    const planResponse = await fetch('/api/operating-model?resource=service-plans', { signal: options.signal });
+    const planData = await planResponse.json().catch(() => ({}));
+    if (planResponse.ok && Array.isArray(planData.servicePlans)) servicePlans = planData.servicePlans;
+  } catch {
+    servicePlans = [];
+  }
   const derivedCompanies = companiesFromEmployees(employees);
   const directoryClients = Array.isArray(directory.clients) ? directory.clients : [];
   const companies = directoryClients.length
@@ -104,6 +112,7 @@ export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
     employees,
     companies,
     projects,
+    servicePlans,
     ...canonicalState,
     meta: {
       ...db.meta,

@@ -16,7 +16,7 @@ export async function onRequest({ request, env }) {
     return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
   }
   const authorization = await authorize(request, env, {
-    roles: request.method === 'POST' ? ['SUPER_ADMIN'] : undefined,
+    roles: request.method === 'POST' ? ['SUPER_ADMIN', 'PAYROLL_PROCESSOR'] : undefined,
     mutating: request.method === 'POST', methods: METHODS,
   });
   if (authorization.response) return authorization.response;

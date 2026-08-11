@@ -36,12 +36,13 @@ function initials(name: unknown) {
   return text(name).split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '—';
 }
 
-export default function EmployeeDirectory({ employees, actor, pageSize = 15, initialRegion = 'ALL', maskSensitiveData = false }: {
+export default function EmployeeDirectory({ employees, actor, pageSize = 15, initialRegion = 'ALL', maskSensitiveData = false, onChanged }: {
   employees: any[];
   actor: { role: string } | null;
   pageSize?: number;
   initialRegion?: string;
   maskSensitiveData?: boolean;
+  onChanged?: () => Promise<void>;
 }) {
   const [query, setQuery] = useState('');
   const [client, setClient] = useState('ALL');
@@ -150,7 +151,7 @@ export default function EmployeeDirectory({ employees, actor, pageSize = 15, ini
         <div className="employee-pagination"><span>Halaman {safePage} dari {pageCount}</span><div><button type="button" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>← Sebelumnya</button><button type="button" disabled={safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>Berikutnya →</button></div></div>
       </div>
 
-      {selected ? <EmployeeDetail employee={selected} maskSensitiveData={maskSensitiveData} onClose={() => setSelected(null)} /> : null}
+      {selected ? <EmployeeDetail employee={selected} actor={actor} maskSensitiveData={maskSensitiveData} onClose={() => setSelected(null)} onSaved={async () => { setSelected(null); await onChanged?.(); }} /> : null}
     </section>
   );
 }
@@ -161,7 +162,24 @@ function masked(value: unknown, enabled: boolean) {
   return `${'•'.repeat(Math.min(8, raw.length - 4))}${raw.slice(-4)}`;
 }
 
-function EmployeeDetail({ employee, maskSensitiveData, onClose }: { employee: any; maskSensitiveData: boolean; onClose: () => void }) {
+function EmployeeDetail({ employee, actor, maskSensitiveData, onClose, onSaved }: { employee: any; actor: { role: string } | null; maskSensitiveData: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [form, setForm] = useState({ nik: text(employee.nik), email: text(employee.email), bankName: text(employee.bankName), accountNo: text(employee.accountNo), bpjsKesehatanNo: text(employee.bpjsKesehatanNo), jamsostekNo: text(employee.jamsostekNo) });
+  const canEdit = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'CLIENT_USER'].includes(actor?.role || '');
+  async function save() {
+    setSaving(true); setMessage('');
+    try {
+      const response = await fetch('/api/employees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        ...employee, ...form, id: employee.id, clientId: employee.clientId, name: employee.name,
+      }) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || result.message || `HTTP ${response.status}`);
+      await onSaved();
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Gagal menyimpan'); }
+    finally { setSaving(false); }
+  }
   const groups = [
     { title: 'Pekerjaan', fields: [['NRK', employee.id], ['Klien', employee.company], ['Project', employee.project], ['Posisi', employee.position], ['Status', employee.status], ['Tipe kerja', employee.employmentType]] },
     { title: 'Kontrak', fields: [['Tanggal bergabung', dateLabel(employee.joinDate)], ['Mulai kontrak', dateLabel(employee.contractStart)], ['Akhir kontrak', dateLabel(employee.contractEnd)], ['Tanggal resign', dateLabel(employee.resignDate)], ['Alasan resign', employee.resignReason]] },
@@ -172,6 +190,12 @@ function EmployeeDetail({ employee, maskSensitiveData, onClose }: { employee: an
     <div className="employee-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <aside className="employee-drawer" role="dialog" aria-modal="true" aria-label={`Detail ${employee.name}`}>
         <div className="employee-drawer-header"><div className="employee-avatar-lg">{initials(employee.name)}</div><div><span>PROFIL KARYAWAN</span><h2>{employee.name}</h2><p>{employee.position || 'Posisi belum diisi'} · {employee.company || '-'}</p></div><button type="button" onClick={onClose} aria-label="Tutup detail">✕</button></div>
+        {canEdit ? <div style={{display:'flex',justifyContent:'flex-end',gap:8,padding:'0 20px 10px'}}><button className="btn" type="button" onClick={() => setEditing(!editing)}>{editing ? 'Batal edit' : 'Edit data kurang'}</button></div> : null}
+        {editing ? <div className="card" style={{margin:'0 20px 14px',padding:14,display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          {Object.entries({nik:'NIK (16 digit)',email:'Email',bankName:'Nama bank',accountNo:'Nomor rekening',bpjsKesehatanNo:'BPJS Kesehatan',jamsostekNo:'BPJS Ketenagakerjaan'}).map(([key,label]) => <label key={key} style={{fontSize:11,color:'var(--text3)'}}>{label}<input style={{width:'100%',marginTop:4}} value={(form as any)[key]} onChange={(event) => setForm({...form,[key]:event.target.value})} /></label>)}
+          {message ? <p style={{gridColumn:'1/-1',color:'var(--red)',margin:0}}>{message}</p> : null}
+          <button className="btn btn-primary" style={{gridColumn:'1/-1'}} type="button" disabled={saving} onClick={() => void save()}>{saving ? 'Menyimpan…' : 'Simpan perubahan'}</button>
+        </div> : null}
         <div className="employee-drawer-pay"><span>Gaji pokok</span><strong>{formatIDR(employee.salaryGross || 0)}</strong><em className={`status-pill status-${statusTone(employee.status)}`}>{employee.status || 'Belum diisi'}</em></div>
         <div className="employee-detail-groups">{groups.map((group) => <section key={group.title}><h3>{group.title}</h3><dl>{group.fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{text(value) || '-'}</dd></div>)}</dl></section>)}</div>
       </aside>
