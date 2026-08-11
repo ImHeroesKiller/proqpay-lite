@@ -125,6 +125,7 @@ export async function onRequest(context) {
     await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_components JSONB DEFAULT '{}'::jsonb`);
     await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`);
     await sql.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`);
+    await sql.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS employee_code TEXT`);
 
     if (actor.role === 'CLIENT_USER') {
       const allowedClientIds = clientIdsFor(actor, env) || [];
@@ -223,11 +224,11 @@ export async function onRequest(context) {
           `,
           tx`
             INSERT INTO employees (
-              id, org_id, client_id, project_id, branch_id, location_id, name, gender,
+              id, org_id, client_id, project_id, branch_id, location_id, employee_code, name, gender,
               birth_place, birth_date, religion, phone, mobile, email, mother_name,
               status_aktif, province, updated_at
             ) VALUES (
-              ${row.nrk}, ${orgId}, ${clientId}, ${projectId}, ${branchId}, ${locationId}, ${row.name},
+              ${row.nrk}, ${orgId}, ${clientId}, ${projectId}, ${branchId}, ${locationId}, ${`EMP-${slug(row.nrk)}`}, ${row.name},
               ${row.gender || null}, ${row.birthPlace || null}, ${row.birthDate || null},
               ${row.religion || null}, ${row.phone || null}, ${row.mobile || null},
               ${row.email || null}, ${row.motherName || null}, ${row.statusAktif || null},
@@ -239,6 +240,7 @@ export async function onRequest(context) {
               project_id = COALESCE(EXCLUDED.project_id, employees.project_id),
               branch_id = EXCLUDED.branch_id,
               location_id = EXCLUDED.location_id,
+              employee_code = COALESCE(employees.employee_code, EXCLUDED.employee_code),
               gender = EXCLUDED.gender,
               birth_place = EXCLUDED.birth_place,
               birth_date = EXCLUDED.birth_date,

@@ -55,12 +55,14 @@ export async function onRequest(context) {
         created_at TIMESTAMPTZ DEFAULT NOW())`,
       `CREATE TABLE IF NOT EXISTS clients (
         id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
-        code TEXT NOT NULL, name TEXT NOT NULL,
+        code TEXT NOT NULL, name TEXT NOT NULL, website TEXT, industry TEXT,
+        contact_name TEXT, contact_email TEXT, contact_phone TEXT, logo_url TEXT,
+        status TEXT NOT NULL DEFAULT 'ACTIVE',
         created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE (org_id, code))`,
       `CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES organizations(id),
         client_id TEXT NOT NULL REFERENCES clients(id), code TEXT NOT NULL, name TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'ACTIVE', start_date DATE, end_date DATE, province TEXT,
+        description TEXT, service_type TEXT, status TEXT NOT NULL DEFAULT 'ACTIVE', start_date DATE, end_date DATE, province TEXT,
         created_by TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(),
         UNIQUE (org_id, code))`,
       `CREATE TABLE IF NOT EXISTS provinces (
@@ -76,7 +78,7 @@ export async function onRequest(context) {
       `CREATE TABLE IF NOT EXISTS employees (
         id TEXT PRIMARY KEY, org_id TEXT REFERENCES organizations(id),
         client_id TEXT REFERENCES clients(id), branch_id TEXT REFERENCES branches(id),
-        location_id TEXT REFERENCES work_locations(id), name TEXT NOT NULL,
+        location_id TEXT REFERENCES work_locations(id), employee_code TEXT, name TEXT NOT NULL,
         gender TEXT, birth_place TEXT, birth_date DATE, religion TEXT,
         phone TEXT, mobile TEXT, email TEXT, mother_name TEXT, status_aktif TEXT,
         province TEXT,
@@ -250,6 +252,17 @@ export async function onRequest(context) {
       `ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_components JSONB DEFAULT '{}'::jsonb`,
       `ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`,
       `ALTER TABLE employees ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`,
+      `ALTER TABLE employees ADD COLUMN IF NOT EXISTS employee_code TEXT`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_code_org ON employees(org_id, employee_code) WHERE employee_code IS NOT NULL`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS website TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS industry TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS contact_name TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS contact_email TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS contact_phone TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS logo_url TEXT`,
+      `ALTER TABLE clients ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ACTIVE'`,
+      `ALTER TABLE projects ADD COLUMN IF NOT EXISTS description TEXT`,
+      `ALTER TABLE projects ADD COLUMN IF NOT EXISTS service_type TEXT`,
     ];
     for (const a of alters) {
       try {

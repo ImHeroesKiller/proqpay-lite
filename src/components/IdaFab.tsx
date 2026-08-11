@@ -70,10 +70,6 @@ function normalizedName(value: unknown) {
   return String(value || '').toLocaleLowerCase('id-ID').replace(/\bpt\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-function directoryCode(value: string, fallback: string) {
-  return String(value || fallback).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || fallback;
-}
-
 function formatImportIssues(issues: ImportIssue[], rowOffset = 0) {
   if (!issues.length) return '';
   return issues
@@ -863,7 +859,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         let projectId = pendingImportContext.projectId;
         if (!clientId) {
           const response = await fetch('/api/client-projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-            action: 'CREATE_CLIENT', code: directoryCode(pendingImportContext.clientName, 'CLIENT'), name: pendingImportContext.clientName,
+            action: 'CREATE_CLIENT', name: pendingImportContext.clientName,
           }) });
           const result = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(result.error || 'Gagal membuat klien');
@@ -871,7 +867,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         }
         if (!projectId) {
           const response = await fetch('/api/client-projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-            action: 'CREATE_PROJECT', clientId, code: directoryCode(`${pendingImportContext.clientName}-PAYROLL`, 'PAYROLL'),
+            action: 'CREATE_PROJECT', clientId,
             name: `${pendingImportContext.clientName} — Payroll`,
           }) });
           const result = await response.json().catch(() => ({}));

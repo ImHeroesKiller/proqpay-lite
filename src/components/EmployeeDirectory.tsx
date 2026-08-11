@@ -134,7 +134,7 @@ export default function EmployeeDirectory({ employees, actor, pageSize = 15, ini
                 const issues = employeeIssue(employee);
                 return (
                   <tr key={employee.id} onClick={() => setSelected(employee)} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') setSelected(employee); }}>
-                    <td><div className="employee-identity"><span>{initials(employee.name)}</span><div><strong>{employee.name}</strong><small>{employee.id} · {employee.position || 'Posisi belum diisi'}</small></div></div></td>
+                    <td><div className="employee-identity"><span>{initials(employee.name)}</span><div><strong>{employee.name}</strong><small>{employee.employeeCode || employee.id} · NRK {employee.id} · {employee.position || 'Posisi belum diisi'}</small></div></div></td>
                     <td><strong className="cell-primary">{employee.company || '-'}</strong><small>{employee.project || employee.region || '-'}</small></td>
                     <td><span className={`status-pill status-${statusTone(employee.status)}`}>{employee.status || 'Belum diisi'}</span></td>
                     <td><strong className="cell-primary">{dateLabel(employee.contractEnd)}</strong><small>{employee.employmentType || 'Tipe belum diisi'}</small></td>
@@ -181,7 +181,7 @@ function EmployeeDetail({ employee, actor, maskSensitiveData, onClose, onSaved }
     finally { setSaving(false); }
   }
   const groups = [
-    { title: 'Pekerjaan', fields: [['NRK', employee.id], ['Klien', employee.company], ['Project', employee.project], ['Posisi', employee.position], ['Status', employee.status], ['Tipe kerja', employee.employmentType]] },
+    { title: 'Pekerjaan', fields: [['Kode karyawan', employee.employeeCode || employee.id], ['NRK', employee.id], ['Klien', employee.company], ['Project', employee.project], ['Posisi', employee.position], ['Status', employee.status], ['Tipe kerja', employee.employmentType]] },
     { title: 'Kontrak', fields: [['Tanggal bergabung', dateLabel(employee.joinDate)], ['Mulai kontrak', dateLabel(employee.contractStart)], ['Akhir kontrak', dateLabel(employee.contractEnd)], ['Tanggal resign', dateLabel(employee.resignDate)], ['Alasan resign', employee.resignReason]] },
     { title: 'Administrasi', fields: [['NIK', masked(employee.nik, maskSensitiveData)], ['NPWP', masked(employee.npwp, maskSensitiveData)], ['Rekening', masked(employee.accountNo, maskSensitiveData)], ['Bank', employee.bankName], ['BPJS Kesehatan', masked(employee.bpjsKesehatanNo, maskSensitiveData)], ['BPJS TK', masked(employee.jamsostekNo, maskSensitiveData)]] },
     { title: 'Kontak', fields: [['Email', employee.email], ['Telepon', employee.phone || employee.mobile], ['Alamat', employee.address], ['Wilayah', employee.region || employee.province]] },

@@ -77,6 +77,8 @@ export async function onRequest(context) {
     await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_net BIGINT DEFAULT 0`);
     await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_components JSONB DEFAULT '{}'::jsonb`);
     await sql.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`);
+    await sql.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS employee_code TEXT`);
+    await sql.query(`UPDATE employees SET employee_code=CASE WHEN id LIKE 'EMP-%' THEN id ELSE 'EMP-' || id END WHERE employee_code IS NULL`);
 
     if (request.method === 'GET') {
       const scopedClientIds = clientIdsFor(actor, env);
@@ -86,6 +88,7 @@ export async function onRequest(context) {
       const rows = await sql`
         SELECT
           e.id,
+          e.employee_code AS "employeeCode",
           e.client_id AS "clientId",
           c.name AS company,
           e.name,
@@ -242,7 +245,7 @@ export async function onRequest(context) {
 
       await sql`
         INSERT INTO employees (
-          id, org_id, client_id, project_id, branch_id, location_id, name, status_aktif, province, updated_at
+          id, org_id, client_id, project_id, branch_id, location_id, employee_code, name, status_aktif, province, updated_at
         )
         VALUES (
           ${id},
@@ -251,6 +254,7 @@ export async function onRequest(context) {
           ${projectId},
           ${branchId},
           ${locationId},
+          ${String(body.employeeCode || (String(id).startsWith('EMP-') ? id : `EMP-${id}`))},
           ${String(body.name).trim()},
           ${status},
           ${province},
@@ -262,6 +266,7 @@ export async function onRequest(context) {
           project_id = COALESCE(EXCLUDED.project_id, employees.project_id),
           branch_id = EXCLUDED.branch_id,
           location_id = EXCLUDED.location_id,
+          employee_code = COALESCE(employees.employee_code, EXCLUDED.employee_code),
           status_aktif = EXCLUDED.status_aktif,
           province = EXCLUDED.province,
           updated_at = NOW()
