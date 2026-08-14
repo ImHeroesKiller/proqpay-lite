@@ -113,9 +113,37 @@ export async function onRequest(context) {
           AND sp.effective_from <= CURRENT_DATE AND (sp.effective_until IS NULL OR sp.effective_until >= CURRENT_DATE) LIMIT 1`;
       if (!plans.length) return respond({ error: 'Service tier klien belum aktif atau tidak cocok.' }, 409);
       verifiedPlan = plans[0];
-      const lockedPayroll = await sql`SELECT id, status FROM payrolls WHERE org_id=${orgId} AND period=${period}
-        AND status NOT IN ('DRAFT','CALCULATED') LIMIT 1`;
-      if (lockedPayroll.length) return respond({ error: `Payroll ${period} sudah ${lockedPayroll[0].status}; gunakan alur revisi controller sebelum mengganti sumber data.` }, 409);
+      // A payroll row is an organization-wide aggregate. Only block an import
+      // when this file actually contains employees already included in the
+      // locked payroll. A PAID payroll for client A must not reject new data
+      // for client B in the same month.
+      const importEmployeeIds = rows.map((row) => String(row.nrk).trim().toUpperCase());
+      const lockedPayroll = await sql`
+        SELECT p.id, p.status, COUNT(*)::int AS affected_employees
+        FROM payrolls p
+        JOIN LATERAL jsonb_array_elements(
+          CASE WHEN jsonb_typeof(p.details) = 'array' THEN p.details ELSE '[]'::jsonb END
+        ) detail ON TRUE
+        WHERE p.org_id=${orgId}
+          AND p.period=${period}
+          AND p.status NOT IN ('DRAFT','CALCULATED')
+          AND UPPER(COALESCE(
+            detail->>'employeeId',
+            detail->>'employee_id',
+            detail->>'nrk',
+            ''
+          )) = ANY(${importEmployeeIds}::text[])
+        GROUP BY p.id, p.status
+        LIMIT 1
+      `;
+      if (lockedPayroll.length) {
+        return respond({
+          error: `${lockedPayroll[0].affected_employees} karyawan pada file ini sudah masuk payroll ${period} berstatus ${lockedPayroll[0].status}; gunakan alur revisi controller untuk mengubah data mereka.`,
+          code: 'LOCKED_PAYROLL_EMPLOYEE_CONFLICT',
+          payrollId: lockedPayroll[0].id,
+          affectedEmployees: Number(lockedPayroll[0].affected_employees || 0),
+        }, 409);
+      }
     }
 
     await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_source_period TEXT`);
