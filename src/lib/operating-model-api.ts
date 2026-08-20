@@ -3,6 +3,7 @@ export type OperatingResource =
   | 'submissions'
   | 'exceptions'
   | 'payment-instructions'
+  | 'payment-instruction-detail'
   | 'payment-proofs'
   | 'reconciliations'
   | 'payment-reports'
@@ -22,6 +23,11 @@ export async function listOperatingResource(resource: OperatingResource, clientI
   return parseResponse(await fetch(`/api/operating-model?${params}`, {
     headers: { Accept: 'application/json' },
   }));
+}
+
+export async function getPaymentInstructionDetail(paymentInstructionId: string) {
+  const params = new URLSearchParams({ resource:'payment-instruction-detail', paymentInstructionId });
+  return parseResponse(await fetch(`/api/operating-model?${params}`, { headers:{Accept:'application/json'} }));
 }
 
 export async function executeOperatingAction(action: Record<string, unknown>) {
