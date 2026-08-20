@@ -3,8 +3,11 @@ import {
   authorize, enforceRateLimit, handlePreflight, publicError, secureJson,
 } from './_security.js';
 import {
-  canTransition, instructionTotal, resolveTierTransition, validateOperatingAction,
+  canTransition, resolveTierTransition, validateOperatingAction,
 } from './operating-model-validation.js';
+import {
+  canonicalBankCode, encryptAccountNumber, instructionContentHash, sha256Hex,
+} from './payment-instruction-core.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const READ_ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER'];
@@ -94,6 +97,16 @@ export async function onRequest(context) {
     await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS controller_reviewed_at TIMESTAMPTZ`);
     await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS controller_reviewed_by TEXT`);
     await sql.query(`ALTER TABLE payroll_submissions ADD COLUMN IF NOT EXISTS controller_review_note TEXT`);
+    await sql.query(`ALTER TABLE payment_instructions ADD COLUMN IF NOT EXISTS document_no TEXT`);
+    await sql.query(`ALTER TABLE payment_instructions ADD COLUMN IF NOT EXISTS content_hash TEXT`);
+    await sql.query(`ALTER TABLE payment_instructions ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'IDR'`);
+    await sql.query(`ALTER TABLE payment_instructions ADD COLUMN IF NOT EXISTS execution_date DATE`);
+    await sql.query(`ALTER TABLE payment_instructions ADD COLUMN IF NOT EXISTS recipient_count INT NOT NULL DEFAULT 0`);
+    await sql.query(`ALTER TABLE payment_instruction_lines ADD COLUMN IF NOT EXISTS bank_code TEXT`);
+    await sql.query(`ALTER TABLE payment_instruction_lines ADD COLUMN IF NOT EXISTS account_ciphertext TEXT`);
+    await sql.query(`ALTER TABLE payment_instruction_lines ADD COLUMN IF NOT EXISTS account_iv TEXT`);
+    await sql.query(`ALTER TABLE payment_instruction_lines ADD COLUMN IF NOT EXISTS account_last4 TEXT`);
+    await sql.query(`ALTER TABLE payment_instruction_lines ADD COLUMN IF NOT EXISTS line_hash TEXT`);
     if (request.method === 'GET') {
       const params = new URL(request.url).searchParams;
       const resource = params.get('resource') || 'submissions';
@@ -138,6 +151,30 @@ export async function onRequest(context) {
             JOIN clients c ON c.id=pi.client_id LEFT JOIN projects p ON p.id=s.project_id
             WHERE pi.org_id=${organizationId} ORDER BY pi.created_at DESC LIMIT 100`;
         return respond({ ok: true, paymentInstructions: rows });
+      }
+      if (resource === 'payment-instruction-detail') {
+        const paymentInstructionId = params.get('paymentInstructionId');
+        if (!paymentInstructionId) return respond({ error:'paymentInstructionId wajib diisi' }, 422);
+        const instructions = await sql`SELECT pi.*, s.period AS payroll_period, COALESCE(s.payment_period,s.period) AS payment_period,
+            c.name AS client_name, p.name AS project_name, maker.email AS creator_email
+          FROM payment_instructions pi LEFT JOIN payroll_submissions s ON s.id=pi.submission_id
+          JOIN clients c ON c.id=pi.client_id LEFT JOIN projects p ON p.id=s.project_id
+          LEFT JOIN app_users maker ON maker.id=pi.creator_user_id
+          WHERE pi.id=${paymentInstructionId} AND pi.org_id=${organizationId} LIMIT 1`;
+        if (!instructions.length) return respond({ error:'Payment instruction tidak ditemukan' }, 404);
+        if (!assertClientScope(actor, env, instructions[0].client_id)) return respond({ error:'Client scope denied' }, 403);
+        const [lines, approvals] = await Promise.all([
+          sql`SELECT id,employee_id,beneficiary_name,bank_name,bank_code,
+              COALESCE(account_last4,RIGHT(masked_account,4)) AS account_last4,masked_account,amount,line_hash
+            FROM payment_instruction_lines WHERE payment_instruction_id=${paymentInstructionId}
+            ORDER BY beneficiary_name,id LIMIT 5000`,
+          sql`SELECT pa.id,pa.status,pa.created_at,pa.action_hash,au.email AS approver_email
+            FROM payment_approvals pa LEFT JOIN app_users au ON au.id=pa.approver_user_id
+            WHERE pa.payment_instruction_id=${paymentInstructionId} ORDER BY pa.created_at`,
+        ]);
+        const total = lines.reduce((sum,row) => sum + Number(row.amount || 0), 0);
+        return respond({ ok:true, paymentInstruction:instructions[0], lines, approvals,
+          control:{recipientCount:lines.length,totalAmount:total,expectedTotal:Number(instructions[0].expected_total),balanced:total===Number(instructions[0].expected_total)} });
       }
       if (resource === 'payment-proofs') {
         const rows = clientId
@@ -342,17 +379,35 @@ export async function onRequest(context) {
       const invalid = source.filter((row) => Number(row.amount || 0) <= 0 || !row.bank_name || !row.account_no);
       if (!source.length) return respond({ error: 'Tidak ada data payroll final untuk periode submission' }, 409);
       if (invalid.length) return respond({ error: `${invalid.length} karyawan belum memiliki THP atau rekening bank yang valid` }, 409);
+      if (!env.PI_ENCRYPTION_KEY || String(env.PI_ENCRYPTION_KEY).length < 32) return respond({ error:'PI_ENCRYPTION_KEY belum dikonfigurasi dengan aman' }, 503);
       const expectedTotal = source.reduce((sum,row) => sum + Number(row.amount), 0);
       const id = `PI-${crypto.randomUUID()}`;
       const idempotencyKey = `PI-${submission.id}-${submission.payment_period || submission.period}`.slice(0,120);
+      const snapshotLines = await Promise.all(source.map(async (row) => {
+        const encrypted = await encryptAccountNumber(row.account_no, env.PI_ENCRYPTION_KEY);
+        const bankCode = canonicalBankCode(row.bank_name);
+        const lineHash = await sha256Hex(JSON.stringify({employeeId:row.id,beneficiaryName:row.name,bankCode,accountNumber:String(row.account_no),amount:Number(row.amount)}));
+        return {...row,bankCode,encrypted,lineHash};
+      }));
+      const contentHash = await instructionContentHash({ organizationId,clientId:submission.client_id,submissionId:submission.id,
+        payrollPeriod:submission.period,paymentPeriod:submission.payment_period || submission.period }, source.map((row) => ({
+          employeeId:row.id,beneficiaryName:row.name,bankName:row.bank_name,accountNumber:row.account_no,amount:Number(row.amount),
+        })));
+      const documentNo = `PI/${String(submission.payment_period || submission.period).replace('-','')}/${contentHash.slice(0,10).toUpperCase()}`;
       await sql.transaction((tx) => {
         const queries = [tx`INSERT INTO payment_instructions
-          (id, org_id, client_id, submission_id, status, expected_total, creator_user_id, idempotency_key)
-          VALUES (${id}, ${organizationId}, ${submission.client_id}, ${submission.id}, 'PAYMENT_APPROVAL_PENDING', ${expectedTotal}, ${actor.id}, ${idempotencyKey})`];
-        source.forEach((row) => queries.push(tx`INSERT INTO payment_instruction_lines
-          (id, payment_instruction_id, employee_id, beneficiary_name, bank_name, masked_account, amount)
-          VALUES (${`PIL-${crypto.randomUUID()}`}, ${id}, ${row.id}, ${row.name}, ${row.bank_name}, ${`****${String(row.account_no).slice(-4)}`}, ${Number(row.amount)})`));
+          (id, org_id, client_id, submission_id, status, expected_total, creator_user_id, idempotency_key,
+           document_no,content_hash,currency,execution_date,recipient_count)
+          VALUES (${id}, ${organizationId}, ${submission.client_id}, ${submission.id}, 'PAYMENT_APPROVAL_PENDING', ${expectedTotal}, ${actor.id}, ${idempotencyKey},
+            ${documentNo},${contentHash},'IDR',${`${submission.payment_period || submission.period}-01`},${snapshotLines.length})`];
+        snapshotLines.forEach((row) => queries.push(tx`INSERT INTO payment_instruction_lines
+          (id, payment_instruction_id, employee_id, beneficiary_name, bank_name, bank_code, masked_account,
+           account_ciphertext,account_iv,account_last4,line_hash,amount)
+          VALUES (${`PIL-${crypto.randomUUID()}`}, ${id}, ${row.id}, ${row.name}, ${row.bank_name}, ${row.bankCode}, ${`****${row.encrypted.last4}`},
+            ${row.encrypted.ciphertext},${row.encrypted.iv},${row.encrypted.last4},${row.lineHash},${Number(row.amount)})`));
         queries.push(tx`UPDATE payroll_submissions SET state='PAYMENT_APPROVAL_PENDING', updated_at=NOW() WHERE id=${submission.id}`);
+        queries.push(tx`INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
+          VALUES (${`AUD-${crypto.randomUUID()}`},${organizationId},${actor.email},${actor.role},'PAYMENT_INSTRUCTION_CREATED',${`${documentNo} · ${snapshotLines.length} penerima · ${contentHash}`},'payment_instruction',${id})`);
         return queries;
       });
       const rows = await sql`SELECT * FROM payment_instructions WHERE id=${id}`;
@@ -426,29 +481,11 @@ export async function onRequest(context) {
     }
 
     if (body.action === 'CREATE_PAYMENT_INSTRUCTION') {
-      if (!CONTROLLER_ROLES.has(actor.role)) return respond({ error: 'Insufficient role' }, 403);
-      const total = instructionTotal(body.lines);
-      if (total !== body.expectedTotal) return respond({ error: 'Payment instruction total does not match approved total', expected: body.expectedTotal, actual: total }, 409);
-      const existing = await sql`SELECT * FROM payment_instructions WHERE idempotency_key=${body.idempotencyKey} LIMIT 1`;
-      if (existing.length) return respond({ ok: true, paymentInstruction: existing[0], idempotentReplay: true });
-      const id = body.id || `PI-${crypto.randomUUID()}`;
-      await sql.transaction((tx) => {
-        const queries = [tx`
-          INSERT INTO payment_instructions
-            (id, org_id, client_id, submission_id, payroll_id, status, expected_total, creator_user_id, idempotency_key)
-          VALUES
-            (${id}, ${organizationId}, ${body.clientId}, ${body.submissionId || null}, ${body.payrollId || null},
-             'PAYMENT_APPROVAL_PENDING', ${body.expectedTotal}, ${actor.id}, ${body.idempotencyKey})`];
-        body.lines.forEach((line) => queries.push(tx`
-          INSERT INTO payment_instruction_lines
-            (id, payment_instruction_id, employee_id, beneficiary_name, bank_name, masked_account, amount)
-          VALUES
-            (${line.id || `PIL-${crypto.randomUUID()}`}, ${id}, ${line.employeeId || null},
-             ${line.beneficiaryName}, ${line.bankName}, ${line.maskedAccount}, ${line.amount})`));
-        return queries;
-      });
-      const rows = await sql`SELECT * FROM payment_instructions WHERE id=${id}`;
-      return respond({ ok: true, paymentInstruction: rows[0] }, 201);
+      return respond({
+        error: 'Workflow payment instruction lama telah dinonaktifkan',
+        code: 'LEGACY_PI_WORKFLOW_DISABLED',
+        replacementAction: 'GENERATE_PAYMENT_INSTRUCTION',
+      }, 410);
     }
 
     if (body.action === 'APPROVE_PAYMENT') {
@@ -462,6 +499,7 @@ export async function onRequest(context) {
       const payment = rows[0];
       if (String(payment.creator_user_id) === String(actor.id)) return respond({ error: 'Maker cannot approve the same payment instruction' }, 409);
       if (Number(payment.instruction_total) !== Number(payment.expected_total)) return respond({ error: 'Payment total mismatch blocks approval' }, 409);
+      if (!payment.content_hash || body.actionHash !== payment.content_hash) return respond({ error:'Content hash payment berubah atau tidak sesuai preview' }, 409);
       const existing = await sql`SELECT * FROM payment_approvals WHERE payment_instruction_id=${payment.id} AND action_hash=${body.actionHash} LIMIT 1`;
       if (existing.length) return respond({ ok: true, approval: existing[0], idempotentReplay: true });
       const approvalId = `PA-${crypto.randomUUID()}`;
@@ -469,6 +507,7 @@ export async function onRequest(context) {
         tx`INSERT INTO payment_approvals (id, payment_instruction_id, approver_user_id, status, action_hash)
           VALUES (${approvalId}, ${payment.id}, ${actor.id}, 'APPROVED', ${body.actionHash})`,
         tx`UPDATE payment_instructions SET status='APPROVED_FOR_PAYMENT', updated_at=NOW() WHERE id=${payment.id}`,
+        tx`UPDATE payroll_submissions SET state='APPROVED_FOR_PAYMENT',updated_at=NOW() WHERE id=${payment.submission_id}`,
         tx`INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
           VALUES (${`AUD-${crypto.randomUUID()}`}, ${organizationId}, ${actor.email}, ${actor.role},
             'PAYMENT_APPROVED', 'Maker-checker approval passed', 'payment_instruction', ${payment.id})`,
@@ -491,11 +530,23 @@ export async function onRequest(context) {
       const difference = Number(payment.proof_total) - Number(payment.expected_total);
       const status = difference === 0 && Number(payment.instruction_total) === Number(payment.expected_total) ? 'MATCHED' : 'EXCEPTION';
       const id = `REC-${crypto.randomUUID()}`;
-      const rows = await sql`INSERT INTO reconciliations
-        (id, payment_instruction_id, expected_total, instruction_total, proof_total, difference, status, reviewed_by)
-        VALUES (${id}, ${payment.id}, ${payment.expected_total}, ${payment.instruction_total}, ${payment.proof_total}, ${difference}, ${status}, ${actor.email}) RETURNING *`;
-      await sql`UPDATE payment_instructions SET status=${status === 'MATCHED' ? 'COMPLETED' : 'PAYMENT_EXCEPTION'}, updated_at=NOW() WHERE id=${payment.id}`;
-      return respond({ ok: true, reconciliation: rows[0] }, 201);
+      const transaction = await sql.transaction((tx) => [
+        tx`INSERT INTO reconciliations
+          (id, payment_instruction_id, expected_total, instruction_total, proof_total, difference, status, reviewed_by)
+          VALUES (${id}, ${payment.id}, ${payment.expected_total}, ${payment.instruction_total}, ${payment.proof_total}, ${difference}, ${status}, ${actor.email})
+          ON CONFLICT (payment_instruction_id) DO UPDATE SET
+            expected_total=EXCLUDED.expected_total, instruction_total=EXCLUDED.instruction_total,
+            proof_total=EXCLUDED.proof_total, difference=EXCLUDED.difference, status=EXCLUDED.status,
+            reviewed_by=EXCLUDED.reviewed_by, created_at=NOW()
+          RETURNING *`,
+        tx`UPDATE payment_instructions SET status=${status === 'MATCHED' ? 'COMPLETED' : 'PAYMENT_EXCEPTION'}, updated_at=NOW() WHERE id=${payment.id}`,
+        tx`UPDATE payroll_submissions SET state=${status === 'MATCHED' ? 'COMPLETED' : 'PAYMENT_EXCEPTION'},updated_at=NOW()
+          WHERE id=(SELECT submission_id FROM payment_instructions WHERE id=${payment.id})`,
+        tx`INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
+          VALUES (${`AUD-${crypto.randomUUID()}`}, ${organizationId}, ${actor.email}, ${actor.role},
+            'PAYMENT_RECONCILED', ${`${status} · difference ${difference}`}, 'payment_instruction', ${payment.id})`,
+      ]);
+      return respond({ ok: true, reconciliation: transaction[0][0] }, 200);
     }
 
     if (body.action === 'CREATE_INTEGRATION') {
