@@ -33,7 +33,7 @@ test('submission transition registry rejects skipped workflow states', () => {
   assert.equal(validateOperatingAction({ action: 'GENERATE_PAYMENT_INSTRUCTION', submissionId: 'SUB-1' }).ok, true);
 });
 
-test('payment instruction requires exact deterministic total', () => {
+test('legacy payment instruction payload remains identifiable for explicit API retirement response', () => {
   const input = {
     action: 'CREATE_PAYMENT_INSTRUCTION',
     clientId: 'CLI-039',
@@ -55,14 +55,14 @@ test('payment approval requires an exact confirmation contract', () => {
   const valid = validateOperatingAction({
     action: 'APPROVE_PAYMENT',
     paymentInstructionId: 'PI-1',
-    actionHash: 'HASH-1',
+    actionHash: 'a'.repeat(64),
     confirmation: 'KONFIRMASI PAYMENT',
   });
   assert.equal(valid.ok, true);
   const invalid = validateOperatingAction({
     action: 'APPROVE_PAYMENT',
     paymentInstructionId: 'PI-1',
-    actionHash: 'HASH-1',
+    actionHash: 'a'.repeat(64),
     confirmation: 'iya',
   });
   assert.equal(invalid.ok, false);
