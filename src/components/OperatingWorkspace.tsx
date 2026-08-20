@@ -20,8 +20,8 @@ const labels: Record<Tab, string> = {
 const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') ? '#dc2626'
   : state.includes('APPROVED') || state === 'COMPLETED' || state === 'MATCHED' ? '#059669' : '#4f46e5';
 
-export default function OperatingWorkspace() {
-  const [tab, setTab] = useState<Tab>('submissions');
+export default function OperatingWorkspace({ initialTab = 'submissions' }: { initialTab?: Tab }) {
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [actor, setActor] = useState<Actor | null>(null);
   const [data, setData] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
@@ -55,6 +55,7 @@ export default function OperatingWorkspace() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setTab(initialTab); }, [initialTab]);
 
   async function act(payload: Record<string, unknown>, success: string) {
     setMessage('Memproses…');

@@ -6,7 +6,7 @@ import { formatIDR, formatIDRShort } from '@/lib/format';
 import { listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 
 type Actor = { email:string; role:string; permissions:string[]; clientIds?:string[]|null };
-type Props = { actor:Actor; period:string; onPeriodChange:(period:string)=>void; onNavigate:(view:AppView)=>void };
+type Props = { actor:Actor; period:string; onNavigate:(view:AppView)=>void };
 type Tone = 'danger'|'warning'|'info'|'success';
 
 const DONE_STATES = new Set(['COMPLETED','RECONCILIATION']);
@@ -25,7 +25,7 @@ function statusLabel(value:string) { return String(value||'-').replaceAll('_',' 
 function stageFor(state:string) { return PIPELINE.find((stage)=>stage.states.includes(state))?.label || 'Review'; }
 function daysFromNow(value:string) { return Math.ceil((new Date(value).getTime()-Date.now())/86_400_000); }
 
-export default function PayrollControlTower({actor,period,onPeriodChange,onNavigate}:Props) {
+export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const [data,setData] = useState<Record<string,any[]>>({});
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState('');
@@ -62,7 +62,6 @@ export default function PayrollControlTower({actor,period,onPeriodChange,onNavig
     const operationalState=reconciliation?.status==='MATCHED'?'COMPLETED':instruction?.status||row.state;
     return {...row,state:operationalState,submission_state:row.state,payment_instruction_id:instruction?.id};
   }),[submissions,instructionBySubmission,reconciliationByInstruction]);
-  const periods=useMemo(()=>[...new Set([period,...operationalSubmissions.map((row)=>String(row.period||''))].filter((item)=>item&&item!=='ALL'))].sort((a,b)=>b.localeCompare(a)),[operationalSubmissions,period]);
   const clients=useMemo(()=>{
     const map=new Map<string,string>(); operationalSubmissions.forEach((row)=>map.set(String(row.client_id),String(row.client_name||row.client_id)));
     return [...map.entries()].sort((a,b)=>a[1].localeCompare(b[1]));
@@ -113,7 +112,6 @@ export default function PayrollControlTower({actor,period,onPeriodChange,onNavig
   return <section className="control-tower">
     <div className="control-tower-heading"><div><span>PAYROLL CONTROL TOWER</span><h1>Selamat datang, {actor.email.split('@')[0]}</h1><p>Prioritas, deadline, pembayaran, dan seluruh pay run dalam satu kendali.</p></div><button type="button" className="btn" onClick={()=>void load()}>↻ Refresh data</button></div>
     <div className="control-bar card">
-      <label><span>Periode</span><select value={period} onChange={(event)=>onPeriodChange(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((item)=><option key={item}>{item}</option>)}</select></label>
       <label><span>Klien</span><select value={client} onChange={(event)=>setClient(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
       <label><span>Status</span><select value={status} onChange={(event)=>setStatus(event.target.value)}><option value="ALL">Semua status</option>{statuses.map((item)=><option key={item}>{item}</option>)}</select></label>
       <label><span>Service tier</span><select value={tier} onChange={(event)=>setTier(event.target.value)}><option value="ALL">Semua tier</option>{tiers.map((item)=><option key={item}>{statusLabel(item)}</option>)}</select></label>

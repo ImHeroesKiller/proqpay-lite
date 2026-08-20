@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { loadDatabase, saveDatabase } from '@/lib/database';
 import { onDbChange } from '@/lib/events';
 import { loadSettings, onSettingsChange, type AppSettings } from '@/lib/app-settings';
-import Sidebar, { type AppView } from '@/components/Sidebar';
+import Sidebar, { allowedViewsForRole, type AppView } from '@/components/Sidebar';
 import AppHeader from '@/components/AppHeader';
 import HelpModal from '@/components/HelpModal';
 import IdaFab from '@/components/IdaFab';
@@ -32,13 +32,18 @@ export default function Home() {
   const [actor, setActor] = useState<Actor | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
     setMounted(true);
     writeSystemLog('INFO', 'APP', 'APPLICATION_STARTED', 'ProQPay Lite dashboard dimuat');
     const data = loadDatabase();
+    const st = loadSettings();
+    const requestedView = new URLSearchParams(window.location.search).get('view') as AppView | null;
     setDb(data);
+    setSettings(st);
     void fetch('/api/me', { signal: controller.signal, headers: { Accept: 'application/json' } })
       .then(async (response) => {
         const result = await response.json().catch(() => ({}));
@@ -46,6 +51,9 @@ export default function Home() {
         if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
         const authenticatedActor = { ...(result.user || {}), authMode: result.authMode || 'origin' };
         setActor(authenticatedActor);
+        const allowedViews = allowedViewsForRole(authenticatedActor.role);
+        const preferredView = requestedView || st.defaultView;
+        setView(allowedViews.includes(preferredView as AppView) ? preferredView as AppView : 'dashboard');
         setAuthRequired(false);
         const { db: canonical } = await syncDatabaseFromNeon(data, { signal: controller.signal });
         saveDatabase(canonical);
@@ -56,11 +64,6 @@ export default function Home() {
         if (error?.name !== 'AbortError') writeSystemLog('WARN', 'SECURITY', 'USER_CONTEXT_FAILED', 'Gagal memuat role pengguna');
       })
       .finally(() => setAuthChecked(true));
-    const st = loadSettings();
-    setSettings(st);
-    const requestedView = new URLSearchParams(window.location.search).get('view');
-    const allowedViews: AppView[] = ['dashboard', 'operations', 'employees', 'clients', 'reports', 'logs'];
-    setView(allowedViews.includes(requestedView as AppView) ? requestedView as AppView : st.defaultView);
     if (data?.meta?.currentPeriod) setPeriod(data.meta.currentPeriod);
     else if (st.defaultPeriod) setPeriod(st.defaultPeriod);
 
@@ -106,9 +109,10 @@ export default function Home() {
   }
 
   function navigate(nextView: AppView) {
-    setView(nextView);
+    const safeView = actor && allowedViewsForRole(actor.role).includes(nextView) ? nextView : 'dashboard';
+    setView(safeView);
     const url = new URL(window.location.href);
-    url.searchParams.set('view', nextView);
+    url.searchParams.set('view', safeView);
     window.history.replaceState({}, '', url);
   }
 
@@ -123,6 +127,7 @@ export default function Home() {
   }
 
   const pad = settings.density === 'compact' ? '18px 16px' : '28px 24px';
+  const periods = [...new Set([period,...(db.payrolls || []).map((item:any)=>item.period).filter(Boolean)])].sort((a:string,b:string)=>b.localeCompare(a));
 
   return (
     <div className={`app-shell theme-${settings.theme} accent-${settings.accentColor} density-${settings.density}${settings.enableAnimations ? '' : ' animations-off'}`} style={{ display: 'flex', minHeight: '100vh' }}>
@@ -130,17 +135,23 @@ export default function Home() {
         view={view}
         onView={navigate}
         onOpenIda={() => setIdaOpenSignal((n) => n + 1)}
+        onOpenHelp={() => setHelpOpen(true)}
         role={actor?.role}
         compact={settings.sidebarMode === 'compact'}
+        mobileOpen={mobileNavOpen}
+        onMobileClose={() => setMobileNavOpen(false)}
+        settingsOpen={settingsOpen}
+        onSettingsOpen={setSettingsOpen}
+        lastSyncAt={db.meta?.lastNeonSyncAt}
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-        <AppHeader period={period} onHelp={() => setHelpOpen(true)} actor={actor} />
+        <AppHeader period={period} periods={periods} view={view} clientCount={(db.companies || []).length} onPeriodChange={handlePeriodChange} onNavigate={navigate} onHelp={() => setHelpOpen(true)} onMenu={() => setMobileNavOpen(true)} actor={actor} />
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: pad }}>
+        <main style={{ flex: 1, overflowY: 'auto', padding: pad }}>
           <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
             {view === 'dashboard' && (
-              <PayrollControlTower actor={actor} period={period} onPeriodChange={handlePeriodChange} onNavigate={navigate} />
+              <PayrollControlTower actor={actor} period={period} onNavigate={navigate} />
             )}
 
             {view === 'employees' && (
@@ -160,9 +171,13 @@ export default function Home() {
 
             {view === 'operations' && <OperatingWorkspace />}
 
+            {view === 'exceptions' && <OperatingWorkspace initialTab="exceptions" />}
+
+            {view === 'payments' && <OperatingWorkspace initialTab="payments" />}
+
             {view === 'reports' && <ReportsWorkspace />}
           </div>
-        </div>
+        </main>
       </div>
       {actor.mustChangePassword && ['database', 'session'].includes(actor.authMode || '') ? <ChangePasswordModal forced /> : null}
 
