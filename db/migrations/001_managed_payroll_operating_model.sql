@@ -47,12 +47,24 @@ CREATE TABLE IF NOT EXISTS payment_instructions (
   id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES organizations(id), client_id TEXT NOT NULL REFERENCES clients(id),
   submission_id TEXT REFERENCES payroll_submissions(id), payroll_id TEXT, status TEXT NOT NULL DEFAULT 'DRAFT',
   expected_total BIGINT NOT NULL, creator_user_id TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+  document_no TEXT, content_hash TEXT, currency TEXT NOT NULL DEFAULT 'IDR', execution_date DATE,
+  recipient_count INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE TABLE IF NOT EXISTS payment_instruction_lines (
   id TEXT PRIMARY KEY, payment_instruction_id TEXT NOT NULL REFERENCES payment_instructions(id), employee_id TEXT REFERENCES employees(id),
-  beneficiary_name TEXT NOT NULL, bank_name TEXT NOT NULL, masked_account TEXT NOT NULL, amount BIGINT NOT NULL
+  beneficiary_name TEXT NOT NULL, bank_name TEXT NOT NULL, bank_code TEXT, masked_account TEXT NOT NULL,
+  account_ciphertext TEXT, account_iv TEXT, account_last4 TEXT, line_hash TEXT, amount BIGINT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_primary_bank_per_employee ON employee_bank_accounts(employee_id) WHERE is_primary=TRUE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_instruction_document_no ON payment_instructions(org_id, document_no) WHERE document_no IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_instruction_content_hash ON payment_instructions(org_id, content_hash) WHERE content_hash IS NOT NULL;
+CREATE OR REPLACE FUNCTION prevent_payment_instruction_line_update() RETURNS trigger AS $$
+BEGIN RAISE EXCEPTION 'Payment instruction snapshot is immutable'; END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_payment_instruction_line_immutable ON payment_instruction_lines;
+CREATE TRIGGER trg_payment_instruction_line_immutable BEFORE UPDATE ON payment_instruction_lines
+FOR EACH ROW EXECUTE FUNCTION prevent_payment_instruction_line_update();
 CREATE TABLE IF NOT EXISTS payment_approvals (
   id TEXT PRIMARY KEY, payment_instruction_id TEXT NOT NULL REFERENCES payment_instructions(id),
   approver_user_id TEXT NOT NULL, status TEXT NOT NULL, action_hash TEXT NOT NULL,
@@ -65,11 +77,15 @@ CREATE TABLE IF NOT EXISTS payment_proofs (
   reference TEXT NOT NULL, transaction_date DATE NOT NULL, amount BIGINT NOT NULL,
   uploaded_file_id TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_proof_bank_reference
+  ON payment_proofs(payment_instruction_id, bank, reference);
 CREATE TABLE IF NOT EXISTS reconciliations (
   id TEXT PRIMARY KEY, payment_instruction_id TEXT NOT NULL REFERENCES payment_instructions(id),
   expected_total BIGINT NOT NULL, instruction_total BIGINT NOT NULL, proof_total BIGINT NOT NULL,
   difference BIGINT NOT NULL, status TEXT NOT NULL, reviewed_by TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_reconciliation_payment_instruction
+  ON reconciliations(payment_instruction_id);
 
 CREATE TABLE IF NOT EXISTS integration_connections (
   id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES organizations(id), client_id TEXT NOT NULL REFERENCES clients(id),
