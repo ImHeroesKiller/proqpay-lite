@@ -2,6 +2,46 @@
 
 const s = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
 
+export function IconSearch(props: React.SVGProps<SVGSVGElement>) {
+  return <svg {...s} {...props}><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>;
+}
+
+export function IconBell(props: React.SVGProps<SVGSVGElement>) {
+  return <svg {...s} {...props}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></svg>;
+}
+
+export function IconMenu(props: React.SVGProps<SVGSVGElement>) {
+  return <svg {...s} {...props}><path d="M4 7h16M4 12h16M4 17h16" /></svg>;
+}
+
+export function IconChevronDown(props: React.SVGProps<SVGSVGElement>) {
+  return <svg {...s} {...props}><path d="m7 10 5 5 5-5" /></svg>;
+}
+
+export function IconRefresh(props: React.SVGProps<SVGSVGElement>) {
+  return <svg {...s} {...props}><path d="M20 7h-5V2" /><path d="M20 7a9 9 0 1 0 1 8" /></svg>;
+}
+
+export function IconAlertTriangle(props: React.SVGProps<SVGSVGElement>) {
+  return <svg {...s} {...props}><path d="M10.3 3.7 2.2 18a2 2 0 0 0 1.8 3h16a2 2 0 0 0 1.8-3L13.7 3.7a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></svg>;
+}
+
+export function IconCheckCircle(props: React.SVGProps<SVGSVGElement>) {
+  return <svg {...s} {...props}><circle cx="12" cy="12" r="9" /><path d="m8 12 2.6 2.6L16.5 9" /></svg>;
+}
+
+export function IconLayers(props: React.SVGProps<SVGSVGElement>) {
+  return <svg {...s} {...props}><path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5M3 17l9 5 9-5" /></svg>;
+}
+
+export function IconShieldCheck(props: React.SVGProps<SVGSVGElement>) {
+  return <svg {...s} {...props}><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3v8Z" /><path d="m9 12 2 2 4-4" /></svg>;
+}
+
+export function IconArrowUpRight(props: React.SVGProps<SVGSVGElement>) {
+  return <svg {...s} {...props}><path d="M7 17 17 7M7 7h10v10" /></svg>;
+}
+
 export function IconUsers(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg {...s} {...props}>

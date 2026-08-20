@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AppView } from './Sidebar';
 import { formatIDR, formatIDRShort } from '@/lib/format';
 import { listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
+import { IconAlertTriangle, IconCheckCircle, IconClock, IconLayers, IconRefresh, IconShieldCheck, IconWallet } from './Icons';
 
 type Actor = { email:string; role:string; permissions:string[]; clientIds?:string[]|null };
 type Props = { actor:Actor; period:string; onNavigate:(view:AppView)=>void };
@@ -110,7 +111,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const reset=()=>{setClient('ALL');setStatus('ALL');setTier('ALL');setQuery('');};
 
   return <section className="control-tower">
-    <div className="control-tower-heading"><div><span>PAYROLL CONTROL TOWER</span><h1>Selamat datang, {actor.email.split('@')[0]}</h1><p>Prioritas, deadline, pembayaran, dan seluruh pay run dalam satu kendali.</p></div><button type="button" className="btn" onClick={()=>void load()}>↻ Refresh data</button></div>
+    <div className="control-tower-heading"><div><span>PAYROLL CONTROL TOWER</span><h1>Selamat datang, {actor.email.split('@')[0]}</h1><p>Prioritas, deadline, pembayaran, dan seluruh pay run dalam satu kendali.</p></div><button type="button" className="btn control-refresh" onClick={()=>void load()}><IconRefresh aria-hidden="true" /> Refresh data</button></div>
     <div className="control-bar card">
       <label><span>Klien</span><select value={client} onChange={(event)=>setClient(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
       <label><span>Status</span><select value={status} onChange={(event)=>setStatus(event.target.value)}><option value="ALL">Semua status</option>{statuses.map((item)=><option key={item}>{item}</option>)}</select></label>
@@ -121,12 +122,12 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
     {error?<div className="app-notice-bubble app-notice-error"><strong>Dashboard gagal dimuat</strong><span>{error}</span></div>:null}
     {loading?<div className="card control-loading">Menyiapkan payroll control tower…</div>:<>
       <div className="control-kpis">
-        <Kpi label="Active pay runs" value={String(activeRuns)} note={`${visible.length} pay run terfilter`} tone="blue" onClick={()=>onNavigate('operations')} />
-        <Kpi label="Need attention" value={String(actions.filter((item)=>item.tone==='danger').length)} note={`${blockers} blocker aktif`} tone="red" onClick={()=>onNavigate('operations')} />
-        <Kpi label="Awaiting approval" value={String(awaitingApproval)} note="Payroll dan PI" tone="amber" onClick={()=>onNavigate('operations')} />
-        <Kpi label="Payment due" value={formatIDRShort(totalNet)} note={`${visible.reduce((sum,row)=>sum+Number(row.employee_count||0),0).toLocaleString('id-ID')} penerima`} tone="navy" onClick={()=>onNavigate('operations')} />
-        <Kpi label="Paid & matched" value={String(matched)} note={`${unmatched} belum match`} tone="green" onClick={()=>onNavigate('reports')} />
-        <Kpi label="Open exceptions" value={String(visibleExceptions.length)} note="Perlu diselesaikan" tone="violet" onClick={()=>onNavigate('operations')} />
+        <Kpi label="Active pay runs" value={String(activeRuns)} note={`${visible.length} pay run terfilter`} tone="blue" icon={<IconLayers />} onClick={()=>onNavigate('operations')} />
+        <Kpi label="Need attention" value={String(actions.filter((item)=>item.tone==='danger').length)} note={`${blockers} blocker aktif`} tone="red" icon={<IconAlertTriangle />} onClick={()=>onNavigate('operations')} />
+        <Kpi label="Awaiting approval" value={String(awaitingApproval)} note="Payroll dan PI" tone="amber" icon={<IconClock />} onClick={()=>onNavigate('operations')} />
+        <Kpi label="Payment due" value={formatIDRShort(totalNet)} note={`${visible.reduce((sum,row)=>sum+Number(row.employee_count||0),0).toLocaleString('id-ID')} penerima`} tone="navy" icon={<IconWallet />} featured onClick={()=>onNavigate('operations')} />
+        <Kpi label="Paid & matched" value={String(matched)} note={`${unmatched} belum match`} tone="green" icon={<IconCheckCircle />} onClick={()=>onNavigate('reports')} />
+        <Kpi label="Open exceptions" value={String(visibleExceptions.length)} note="Perlu diselesaikan" tone="violet" icon={<IconShieldCheck />} onClick={()=>onNavigate('operations')} />
       </div>
       <div className="control-priority-grid">
         <section className="card action-center"><PanelTitle eyebrow="PRIORITY QUEUE" title="Action Center" meta={`${actions.length} tindakan`} />
@@ -147,7 +148,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   </section>;
 }
 
-function Kpi({label,value,note,tone,onClick}:{label:string;value:string;note:string;tone:string;onClick:()=>void}) { return <button type="button" className={`control-kpi ${tone}`} onClick={onClick}><span>{label}</span><strong>{value}</strong><small>{note}</small><i>→</i></button>; }
+function Kpi({label,value,note,tone,icon,featured=false,onClick}:{label:string;value:string;note:string;tone:string;icon:React.ReactNode;featured?:boolean;onClick:()=>void}) { return <button type="button" className={`control-kpi ${tone}${featured?' featured':''}`} onClick={onClick}><span className="control-kpi-icon" aria-hidden="true">{icon}</span><span className="control-kpi-label">{label}</span><strong>{value}</strong><small>{note}</small><i aria-hidden="true">↗</i></button>; }
 function PanelTitle({eyebrow,title,meta}:{eyebrow:string;title:string;meta:string}) { return <div className="control-panel-title"><div><span>{eyebrow}</span><h2>{title}</h2></div><small>{meta}</small></div>; }
 function Empty({text}:{text:string}) { return <div className="control-empty">{text}</div>; }
 function roleFocus(role:string) { return role==='PAYROLL_PROCESSOR'?'Prioritas Anda: intake, validasi, exception, dan standardisasi data.':role==='PAYROLL_CONTROLLER'?'Prioritas Anda: control total, approval, Payment Instruction, dan rekonsiliasi.':role==='CLIENT_USER'?'Prioritas Anda: submission, perbaikan data, dan monitoring status pembayaran.':'Pantau seluruh klien, SLA, risiko, payment integrity, dan kesehatan sistem.'; }

@@ -21,7 +21,7 @@ export type AppSettings = {
   currency: 'IDR';
   locale: 'id-ID';
   theme: 'light' | 'soft' | 'contrast';
-  accentColor: 'indigo' | 'blue' | 'teal';
+  accentColor: 'brand' | 'indigo' | 'blue' | 'teal';
   density: 'comfortable' | 'compact';
   sidebarMode: 'expanded' | 'compact';
   enableAnimations: boolean;
@@ -58,7 +58,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   currency: 'IDR',
   locale: 'id-ID',
   theme: 'light',
-  accentColor: 'indigo',
+  accentColor: 'brand',
   density: 'comfortable',
   sidebarMode: 'expanded',
   enableAnimations: true,

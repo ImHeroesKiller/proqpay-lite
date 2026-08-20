@@ -23,68 +23,24 @@ export default function MetricCard({
       className="card metric-card"
       onClick={onClick}
       disabled={!onClick}
-      style={{
-        padding: '18px 18px 14px',
-        position: 'relative',
-        overflow: 'hidden',
-        cursor: onClick ? 'pointer' : 'default',
-        transition: 'box-shadow 0.22s ease, transform 0.22s ease, border-color 0.22s ease',
-      }}
+      style={{ '--metric-accent': accent } as React.CSSProperties}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '10px' }}>
-        <div style={{
-          width: '36px',
-          height: '36px',
-          borderRadius: '10px',
-          background: `color-mix(in srgb, ${accent} 12%, transparent)`,
-          color: accent,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
+      <div className="metric-card-topline">
+        <div className="metric-card-icon">
           {icon}
         </div>
-        <div style={{
-          fontSize: '10px',
-          fontWeight: 650,
-          color: 'var(--text3)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          paddingTop: '4px',
-        }}>
-          {label}
-        </div>
+        <span className="metric-card-label">{label}</span>
       </div>
 
-      <div style={{
-        fontSize: '26px',
-        fontWeight: 720,
-        letterSpacing: '-0.035em',
-        lineHeight: 1.15,
-        marginBottom: '4px',
-        color: 'var(--text)',
-      }}>
-        {value}
-      </div>
-      <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: sparkData ? '10px' : 0 }}>
-        {sub}
-      </div>
+      <strong className="metric-card-value">{value}</strong>
+      <span className="metric-card-note">{sub}</span>
 
       {sparkData && sparkData.length > 1 && (
-        <div style={{ marginTop: '4px', marginLeft: '-4px', marginRight: '-4px' }}>
+        <div className="metric-card-sparkline">
           <Sparkline data={sparkData} color={accent} height={40} />
         </div>
       )}
-
-      <div style={{
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: '2px',
-        background: `linear-gradient(90deg, ${accent}, transparent)`,
-        opacity: 0.85,
-      }} />
+      <i className="metric-card-glow" aria-hidden="true" />
     </button>
   );
 }
