@@ -46,11 +46,10 @@ export async function onRequest({ request, env }) {
 
   try {
     if (request.method === 'GET') {
-      const [payrolls, approvals, payments, invoices, arMonitor, auditLogs] =
+      const [payrolls, approvals, invoices, arMonitor, auditLogs] =
         await Promise.all([
           sql`SELECT * FROM payrolls WHERE org_id = ${ORG_ID} ORDER BY period DESC LIMIT 120`,
           sql`SELECT * FROM approvals WHERE org_id = ${ORG_ID} ORDER BY approved_at DESC LIMIT 500`,
-          sql`SELECT * FROM payments WHERE org_id = ${ORG_ID} ORDER BY created_at DESC LIMIT 500`,
           sql`SELECT i.*, COALESCE(c.name, i.company) AS resolved_company FROM invoices i LEFT JOIN clients c ON c.id = i.client_id WHERE i.org_id = ${ORG_ID} ORDER BY i.issued_at DESC NULLS LAST LIMIT 500`,
           sql`SELECT * FROM ar_monitor WHERE org_id = ${ORG_ID} ORDER BY due_date DESC NULLS LAST LIMIT 500`,
           sql`SELECT * FROM audit_logs WHERE org_id = ${ORG_ID} ORDER BY timestamp DESC LIMIT 500`,
@@ -74,13 +73,7 @@ export async function onRequest({ request, env }) {
             approvedBy: a.approved_by, status: a.status,
             approvedAt: a.approved_at ? new Date(a.approved_at).getTime() : null,
           })),
-          payments: payments.map((p) => ({
-            id: p.id, payrollId: p.payroll_id, period: p.period, bank: p.bank,
-            account: p.account, amount: Number(p.amount), status: p.status,
-            reference: p.reference,
-            createdAt: p.created_at ? new Date(p.created_at).getTime() : null,
-            paidAt: p.paid_at ? new Date(p.paid_at).getTime() : null,
-          })),
+          payments: [],
           invoices: invoices.map((i) => ({
             id: i.id, company: i.resolved_company || i.client_id || 'Client',
             period: i.period, amount: Number(i.amount), taxAmount: Number(i.tax_amount),
@@ -136,13 +129,6 @@ export async function onRequest({ request, env }) {
           INSERT INTO approvals (id, org_id, payroll_id, period, approved_by, status, approved_at)
           VALUES (${a.id}, ${ORG_ID}, ${a.payrollId || null}, ${a.period || null}, ${authorization.actor.email}, ${a.status || 'APPROVED'}, ${iso(a.approvedAt)})
           ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, approved_by=EXCLUDED.approved_by, approved_at=EXCLUDED.approved_at
-        `);
-      }
-      for (const p of state.payments) {
-        queries.push(tx`
-          INSERT INTO payments (id, org_id, payroll_id, period, bank, account, amount, status, reference, created_at, paid_at)
-          VALUES (${p.id}, ${ORG_ID}, ${p.payrollId || null}, ${p.period || null}, ${p.bank || null}, ${p.account || null}, ${p.amount || 0}, ${p.status || 'DRAFT'}, ${p.reference || null}, ${iso(p.createdAt) || new Date().toISOString()}, ${iso(p.paidAt)})
-          ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, reference=EXCLUDED.reference, paid_at=EXCLUDED.paid_at, amount=EXCLUDED.amount
         `);
       }
       for (const i of state.invoices) {
