@@ -108,6 +108,14 @@ export async function onRequest({ request, env }) {
     if (!['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(payments[0].status)) {
       return respond({ error: 'Payment instruction belum disetujui atau belum siap menerima bukti pembayaran' }, 409);
     }
+    const existing = await sql`SELECT * FROM payment_proofs
+      WHERE payment_instruction_id=${paymentInstructionId} AND bank=${bank} AND reference=${reference} LIMIT 1`;
+    if (existing.length) {
+      const samePayload = Number(existing[0].amount) === amount
+        && String(existing[0].transaction_date).slice(0, 10) === transactionDate;
+      if (!samePayload) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
+      return respond({ ok: true, paymentProof: existing[0], idempotentReplay: true });
+    }
     const proofId = `PP-${crypto.randomUUID()}`;
     const key = paymentProofObjectKey(organizationId, paymentInstructionId, file.name);
     await env.PAYMENT_PROOFS.put(key, await file.arrayBuffer(), {
@@ -124,6 +132,8 @@ export async function onRequest({ request, env }) {
           (id, payment_instruction_id, bank, reference, transaction_date, amount, uploaded_file_id)
           VALUES (${proofId}, ${paymentInstructionId}, ${bank}, ${reference}, ${transactionDate}, ${amount}, ${key}) RETURNING *`,
         tx`UPDATE payment_instructions SET status='PROOF_UPLOADED', updated_at=NOW() WHERE id=${paymentInstructionId}`,
+        tx`UPDATE payroll_submissions SET state='PROOF_UPLOADED',updated_at=NOW()
+          WHERE id=(SELECT submission_id FROM payment_instructions WHERE id=${paymentInstructionId})`,
         tx`INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
           VALUES (${`AUD-${crypto.randomUUID()}`}, ${organizationId}, ${authorization.actor.email}, ${authorization.actor.role},
             'PAYMENT_PROOF_UPLOADED', ${`${bank} · ${reference} · ${file.size} bytes`}, 'payment_proof', ${proofId})`,
