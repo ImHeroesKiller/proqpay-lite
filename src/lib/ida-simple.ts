@@ -542,6 +542,11 @@ export function handleIdaIntent(
     };
   }
 
+  if (/\b(payment instruction|instruksi pembayaran|buat payment|payment csv|csv payment|tandai paid|mark paid|sudah dibayar|konfirmasi bayar|set paid)\b/.test(t)
+    || (/\b(unduh|download)\b/.test(t) && /\b(payment|csv|transfer)\b/.test(t))) {
+    return { reply: renderMarkdown('Payment Instruction kini hanya menggunakan workflow canonical pada **Payroll Operations → Payment & Rekonsiliasi**. Pembuatan PI, file bank, bukti, dan perubahan status tidak lagi dilakukan oleh penyimpanan lokal IDA.') };
+  }
+
   if (/\b(payment instruction|instruksi pembayaran|buat payment)\b/.test(t) && !/csv|unduh|download/.test(t)) {
     const period = periodOf(db);
     const payroll = payrollOf(db, period);
