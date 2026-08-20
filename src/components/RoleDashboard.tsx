@@ -49,7 +49,7 @@ export default function RoleDashboard({ actor, onNavigate }: { actor: Actor | nu
       <div className="role-dashboard-tasks">
         <span>Fokus pekerjaan</span>
         {content.tasks.map((task, index) => <div key={task}><b>{index + 1}</b>{task}</div>)}
-        {actor?.permissions.includes('PAYMENT_APPROVER') ? <em>✓ PAYMENT_APPROVER aktif</em> : null}
+        {actor?.permissions.includes('payment:approve') ? <em>✓ Payment Approver aktif</em> : null}
       </div>
     </div>
   );

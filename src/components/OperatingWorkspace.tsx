@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { executeOperatingAction, getPaymentInstructionDetail, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
@@ -26,6 +26,10 @@ export default function OperatingWorkspace() {
   const [data, setData] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
+  const [periodFilter, setPeriodFilter] = useState('ALL');
+  const [clientFilter, setClientFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [query, setQuery] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,6 +72,34 @@ export default function OperatingWorkspace() {
   const isController = ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role);
   const isClient = role === 'CLIENT_USER';
   const canApprovePayment = actor?.permissions?.includes('payment:approve') || false;
+  const submissions = useMemo(() => data.submissions || [], [data.submissions]);
+  const periods = useMemo(() => [...new Set(submissions.map((row) => String(row.period || '')).filter(Boolean))].sort((a, b) => b.localeCompare(a)), [submissions]);
+  const clients = useMemo(() => {
+    const map = new Map<string, string>();
+    submissions.forEach((row) => map.set(String(row.client_id), String(row.client_name || row.client_id)));
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [submissions]);
+  const visibleSubmissions = useMemo(() => submissions.filter((row) => {
+    const haystack = [row.client_name,row.project_name,row.id,row.period,row.payment_period,row.state].join(' ').toLowerCase();
+    return (periodFilter === 'ALL' || row.period === periodFilter || row.payment_period === periodFilter)
+      && (clientFilter === 'ALL' || row.client_id === clientFilter)
+      && (statusFilter === 'ALL' || row.state === statusFilter)
+      && (!query.trim() || haystack.includes(query.trim().toLowerCase()));
+  }), [submissions, periodFilter, clientFilter, statusFilter, query]);
+  const visibleSubmissionIds = useMemo(() => new Set(visibleSubmissions.map((row) => row.id)), [visibleSubmissions]);
+  const visibleInstructions = useMemo(() => (data.paymentInstructions || []).filter((row) => {
+    const periodMatches = periodFilter === 'ALL' || row.payroll_period === periodFilter || row.payment_period === periodFilter;
+    const clientMatches = clientFilter === 'ALL' || row.client_id === clientFilter;
+    const queryMatches = !query.trim() || [row.document_no,row.client_name,row.project_name,row.status].join(' ').toLowerCase().includes(query.trim().toLowerCase());
+    return periodMatches && clientMatches && queryMatches;
+  }), [data.paymentInstructions, periodFilter, clientFilter, query]);
+  const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
+  const visibleExceptions = useMemo(() => (data.exceptions || []).filter((row) => visibleSubmissionIds.has(row.submission_id)), [data.exceptions, visibleSubmissionIds]);
+  const visibleProofs = useMemo(() => (data.paymentProofs || []).filter((row) => visibleInstructionIds.has(row.payment_instruction_id)), [data.paymentProofs, visibleInstructionIds]);
+  const visibleReconciliations = useMemo(() => (data.reconciliations || []).filter((row) => visibleInstructionIds.has(row.payment_instruction_id)), [data.reconciliations, visibleInstructionIds]);
+  const totalNet = visibleSubmissions.reduce((sum, row) => sum + Number(row.total_net || 0), 0);
+  const blockers = visibleSubmissions.reduce((sum, row) => sum + Number(row.blocking_count || 0), 0);
+  const pendingActions = visibleSubmissions.filter((row) => !['COMPLETED','RECONCILIATION'].includes(row.state)).length;
 
   return (
     <section>
@@ -82,18 +114,32 @@ export default function OperatingWorkspace() {
         </div>
       </div>
 
+      <div className="operations-control-bar">
+        <label><span>Periode</span><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((period) => <option key={period} value={period}>{period}</option>)}</select></label>
+        <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+        <label><span>Status submission</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">Semua status</option>{[...new Set(submissions.map((row) => row.state))].sort().map((state) => <option key={state} value={state}>{String(state).replaceAll('_', ' ')}</option>)}</select></label>
+        <label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Klien, project, PI…" /></label>
+      </div>
+
+      <div className="operations-summary-grid">
+        <div><span>Pay run</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
+        <div><span>Control total</span><strong>{formatIDR(totalNet)}</strong><small>Net/THP submission</small></div>
+        <div><span>Perlu tindakan</span><strong>{pendingActions}</strong><small>{blockers} blocker aktif</small></div>
+        <div><span>Payment Instruction</span><strong>{visibleInstructions.length}</strong><small>{visibleReconciliations.filter((row) => row.status === 'MATCHED').length} matched</small></div>
+      </div>
+
       <div style={{ display: 'flex', gap: 8, margin: '18px 0', overflowX: 'auto' }}>
         {(Object.keys(labels) as Tab[]).map((item) => (
-          <button key={item} type="button" onClick={() => setTab(item)} style={tabButton(tab === item)}>{labels[item]}</button>
+          <button key={item} type="button" onClick={() => setTab(item)} style={tabButton(tab === item)}>{labels[item]}{item === 'submissions' ? ` (${visibleSubmissions.length})` : item === 'exceptions' ? ` (${visibleExceptions.length})` : item === 'payments' ? ` (${visibleInstructions.length})` : ''}</button>
         ))}
       </div>
 
       {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
       {loading ? <Empty title="Memuat data operasional…" /> : (
         <>
-          {tab === 'submissions' && <Submissions rows={data.submissions || []} role={role} act={act} />}
-          {tab === 'exceptions' && <Exceptions rows={data.exceptions || []} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
-          {tab === 'payments' && <Payments instructions={data.paymentInstructions || []} proofs={data.paymentProofs || []} reconciliations={data.reconciliations || []} canReview={isController} canApprove={canApprovePayment} act={act} />}
+          {tab === 'submissions' && <Submissions rows={visibleSubmissions} role={role} act={act} />}
+          {tab === 'exceptions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
+          {tab === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} canReview={isController} canApprove={canApprovePayment} act={act} />}
           {tab === 'billing' && <BillingWorkspace actor={actor} />}
           {tab === 'integrations' && <Integrations rows={data.integrations || []} canCreate={isProcessor} />}
         </>

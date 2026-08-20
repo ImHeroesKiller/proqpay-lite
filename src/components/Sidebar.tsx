@@ -27,8 +27,10 @@ export default function Sidebar({
         className={`app-sidebar${compact ? ' app-sidebar-compact' : ''}`}
       >
         <div className="sidebar-brand">
-          <span aria-hidden="true" />
-          <div><strong>ProQPay</strong><small>Payroll operations</small></div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="sidebar-brand-logo" src="/assets/proqpay-logo.jpg" alt="ProQPay Lite" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="sidebar-brand-icon" src="/assets/proqpay-192.png" alt="ProQPay Lite" />
         </div>
 
         <div className="sidebar-label">Workspace</div>

@@ -2,102 +2,38 @@
 
 interface DashFiltersProps {
   period: string;
+  availablePeriods?: string[];
   onPeriodChange?: (period: string) => void;
 }
 
-export default function DashFilters({ period, onPeriodChange }: DashFiltersProps) {
+const MONTH_FORMAT = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+function periodLabel(period: string) {
   const [year, month] = period.split('-').map(Number);
-  const periods = Array.from({ length: 12 }, (_, index) => {
-    const absoluteMonth = year * 12 + (month - 1) - index;
-    const itemYear = Math.floor(absoluteMonth / 12);
-    const itemMonth = (absoluteMonth % 12) + 1;
-    return `${itemYear}-${String(itemMonth).padStart(2, '0')}`;
-  });
-  const startDate = `${period}-01`;
-  const lastDay = new Date(year, month, 0).getDate();
-  const endDate = `${period}-${String(lastDay).padStart(2, '0')}`;
+  return new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1));
+}
+
+export default function DashFilters({ period, availablePeriods = [], onPeriodChange }: DashFiltersProps) {
+  const options = [...new Set([period, ...availablePeriods].filter((item) => MONTH_FORMAT.test(item)))]
+    .sort((a, b) => b.localeCompare(a));
 
   return (
-    <div style={{
-      display: 'flex',
-      flexWrap: 'wrap',
-      gap: '12px',
-      marginBottom: '18px',
-      padding: '12px 14px',
-      background: 'var(--bg-surface)',
-      border: '1px solid var(--border)',
-      borderRadius: 'var(--r-lg)',
-    }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <label style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Periode
-        </label>
-        <select
-          value={period}
-          onChange={(e) => onPeriodChange?.(e.target.value)}
-          style={{
-            background: 'var(--bg-subtle)',
-            border: '1px solid var(--border)',
-            color: 'var(--text)',
-            padding: '7px 12px',
-            borderRadius: 'var(--r-sm)',
-            fontSize: '13px',
-            fontFamily: 'inherit',
-            minWidth: '120px',
-            outline: 'none',
-          }}
-        >
-          {periods.map((item) => (
-            <option key={item} value={item}>{item}</option>
-          ))}
+    <div className="dashboard-period-control" aria-label="Kontrol periode payroll">
+      <div>
+        <span>Periode aktif</span>
+        <strong>{periodLabel(period)}</strong>
+        <small>{options.length} periode payroll tersedia</small>
+      </div>
+      <label>
+        <span>Pilih histori</span>
+        <select value={period} onChange={(event) => onPeriodChange?.(event.target.value)}>
+          {options.map((item) => <option key={item} value={item}>{periodLabel(item)}</option>)}
         </select>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <label style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Date Range
-        </label>
-        <input
-          type="text"
-          value={`${startDate} → ${endDate}`}
-          readOnly
-          style={{
-            background: 'var(--bg-subtle)',
-            border: '1px solid var(--border)',
-            color: 'var(--text2)',
-            padding: '7px 12px',
-            borderRadius: 'var(--r-sm)',
-            fontSize: '13px',
-            fontFamily: 'inherit',
-            minWidth: '180px',
-            outline: 'none',
-          }}
-        />
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <label style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Bundling
-        </label>
-        <select
-          defaultValue="bulanan"
-          style={{
-            background: 'var(--bg-subtle)',
-            border: '1px solid var(--border)',
-            color: 'var(--text)',
-            padding: '7px 12px',
-            borderRadius: 'var(--r-sm)',
-            fontSize: '13px',
-            fontFamily: 'inherit',
-            minWidth: '200px',
-            outline: 'none',
-          }}
-        >
-          <option value="bulanan">Bulanan (tgl 1 – 28/30/31)</option>
-          <option value="mingguan">Mingguan (Senin – Minggu)</option>
-          <option value="tahunan">Tahunan (Jan – Des)</option>
-        </select>
-      </div>
+      </label>
+      <label>
+        <span>Buka periode lain</span>
+        <input type="month" value={period} onChange={(event) => { if (MONTH_FORMAT.test(event.target.value)) onPeriodChange?.(event.target.value); }} />
+      </label>
     </div>
   );
 }

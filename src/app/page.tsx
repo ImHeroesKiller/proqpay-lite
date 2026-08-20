@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { loadDatabase, saveDatabase } from '@/lib/database';
-import { formatIDR, formatIDRShort } from '@/lib/format';
+import { formatIDRShort } from '@/lib/format';
 import { onDbChange } from '@/lib/events';
 import { loadSettings, onSettingsChange, type AppSettings } from '@/lib/app-settings';
 import Sidebar, { type AppView } from '@/components/Sidebar';
@@ -174,7 +174,7 @@ export default function Home() {
                     <h1>Ringkasan bisnis</h1>
                     <p>Data payroll, tenaga kerja, dan kesiapan operasional dalam satu tampilan.</p>
                   </div>
-                  <DashFilters period={period} onPeriodChange={handlePeriodChange} />
+                  <DashFilters period={period} availablePeriods={(db.payrolls || []).map((payroll: any) => payroll.period)} onPeriodChange={handlePeriodChange} />
                 </div>
 
                 {settings.showKpis ? <div className="dashboard-metrics">

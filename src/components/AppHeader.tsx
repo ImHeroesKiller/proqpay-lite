@@ -43,9 +43,8 @@ export default function AppHeader({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ fontWeight: 720, fontSize: 16 }}>
-            ProQPay <span style={{ color: 'var(--orange)' }}>Lite</span>
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="app-header-logo" src="/assets/proqpay-logo.jpg" alt="ProQPay Lite" />
           <span
             style={{
               fontSize: 12,

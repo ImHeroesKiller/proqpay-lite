@@ -29,7 +29,11 @@ export function LoginScreen() {
 
   return <main className="login-page">
     <section className="login-panel">
-      <div className="login-brand"><span>PQ</span><div><strong>ProQPay Lite</strong><small>Secure Payroll Operations</small></div></div>
+      <div className="login-brand">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/assets/proqpay-logo.jpg" alt="ProQPay Lite" />
+        <small>Secure Payroll Operations</small>
+      </div>
       <div className="login-heading"><span>ACCOUNT LOGIN</span><h1>Masuk ke workspace</h1><p>Gunakan akun yang dibuat oleh Super Admin.</p></div>
       <form onSubmit={submit} className="login-form">
         <label><span>Email</span><input type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
