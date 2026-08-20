@@ -97,7 +97,7 @@ export function validateOperatingAction(input) {
     }
   } else if (action === 'APPROVE_PAYMENT') {
     if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
-    if (!validId(input.actionHash)) errors.push('actionHash tidak valid');
+    if (!/^[a-f0-9]{64}$/.test(String(input.actionHash || ''))) errors.push('actionHash tidak valid');
     if (input.confirmation !== 'KONFIRMASI PAYMENT') errors.push('Konfirmasi wajib: KONFIRMASI PAYMENT');
   } else if (action === 'UPLOAD_PAYMENT_PROOF') {
     if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
