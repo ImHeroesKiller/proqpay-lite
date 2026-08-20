@@ -27,6 +27,7 @@ Minimal:
 | `DEFAULT_ORG_ID` | variable | Organization scope default untuk API operasional |
 | `AUTH_MODE` | variable | Gunakan `database` setelah akun Super Admin pertama dibuat |
 | `SESSION_HOURS` | variable | Durasi sesi login, default `8`, maksimum `168` |
+| `PI_ENCRYPTION_KEY` | secret | Minimal 32 karakter; key AES-256-GCM untuk snapshot rekening PI |
 
 Connection string Neon yang pernah dibagikan harus dirotasi. Rotasi juga semua
 kunci Gemini yang pernah muncul di log/chat. Jangan commit nilainya ke repo.
@@ -114,11 +115,15 @@ referrer policy, permissions policy, HSTS, dan immutable cache untuk aset build.
 
 ## Persistensi proses bisnis
 
-Aksi IDA untuk payroll, approval, payment instruction, paid, invoice, piutang,
-dan audit disinkronkan ke Neon melalui `/api/state`. Endpoint menggunakan
-transaksi atomik, validasi ukuran serta identifier, dan role enforcement.
-`localStorage` tetap menjadi mirror offline; saat koneksi pulih, state Neon
-digunakan kembali pada sinkronisasi dashboard.
+Aksi payroll lama tetap dapat dibaca melalui mirror Neon, tetapi IDA dan
+`/api/state` tidak lagi membuat atau mengubah tabel legacy `payments`.
+`payment_instructions` beserta snapshot line terenkripsi menjadi satu-satunya
+sumber payment. Pembuatan, approval, bukti, rekonsiliasi, PDF, dan file bank
+dijalankan melalui API operating model canonical.
+
+Sebelum deployment, buat secret production `PI_ENCRYPTION_KEY` dengan nilai acak
+minimal 32 karakter. Jangan mengganti key tanpa prosedur rotasi karena snapshot
+rekening yang sudah tersimpan memerlukan key yang sama untuk proses export.
 
 ## Catatan dependency
 
