@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { executeOperatingAction, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
+import { executeOperatingAction, getPaymentInstructionDetail, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 
@@ -205,17 +205,45 @@ function Payments({ instructions, proofs, reconciliations, canReview, canApprove
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [detail, setDetail] = useState<any | null>(null);
+  const [detailError, setDetailError] = useState('');
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [approvalConfirmed, setApprovalConfirmed] = useState(false);
+  async function openDetail(id:string) {
+    setDetailLoading(true); setDetailError(''); setApprovalConfirmed(false);
+    try { setDetail(await getPaymentInstructionDetail(id)); }
+    catch (error) { setDetailError(error instanceof Error ? error.message : 'Detail PI gagal dimuat'); }
+    finally { setDetailLoading(false); }
+  }
   if (!instructions.length) return <Empty title="Belum ada payment instruction" detail="Payment instruction akan tersedia setelah payroll selesai divalidasi dan disetujui." />;
   return <div style={{ display:'grid', gap:16 }}>
     <CardTable headers={['Instruction / Periode','Nilai','Status','Dibuat','Aksi']} rows={instructions.map((r) => {
       let action: React.ReactNode = <span style={small}>Menunggu tahap berikutnya</span>;
       if (r.status === 'PAYMENT_APPROVAL_PENDING') action = canApprove
-        ? <button style={actionButton} onClick={() => void act({ action:'APPROVE_PAYMENT', paymentInstructionId:r.id, actionHash:`approve-${r.id}`, confirmation:'KONFIRMASI PAYMENT' }, 'Payment disetujui')}>Approve</button>
-        : <span style={small}>Menunggu PAYMENT_APPROVER</span>;
+        ? <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview & Approve</button>
+        : <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button>;
       if (canReview && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
       if (canReview && r.status === 'PROOF_UPLOADED') action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
-      return [<div key="id"><strong>{r.client_name || r.id}</strong><small style={small}>Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small></div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
+      if (!['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(r.status)) action = <button style={actionButton} onClick={() => void openDetail(r.id)}>Detail PI</button>;
+      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small></div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
     })} />
+    {detailLoading ? <div className="card" style={{padding:18}}>Memuat snapshot Payment Instruction…</div> : null}
+    {detailError ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Detail PI gagal</strong><span>{detailError}</span></div> : null}
+    {detail ? <div className="directory-modal-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget)setDetail(null);}}><div className="directory-modal payroll-review-modal" role="dialog" aria-modal="true" aria-label="Preview Payment Instruction">
+      <div className="directory-modal-title"><div><span>IMMUTABLE PAYMENT SNAPSHOT</span><h3>{detail.paymentInstruction.document_no || detail.paymentInstruction.id}</h3></div><button type="button" onClick={()=>setDetail(null)}>✕</button></div>
+      <div className="payroll-review-meta"><div><span>Klien</span><strong>{detail.paymentInstruction.client_name}</strong></div><div><span>Payroll / Bayar</span><strong>{detail.paymentInstruction.payroll_period} / {detail.paymentInstruction.payment_period}</strong></div><div><span>Status</span><strong>{detail.paymentInstruction.status}</strong></div><div><span>Penerima</span><strong>{detail.control.recipientCount}</strong></div></div>
+      <div className="payroll-review-alert"><strong>Control total: {formatIDR(detail.control.totalAmount)}</strong><span>{detail.control.balanced ? '✓ Total snapshot sama dengan expected total.' : '⛔ Total tidak seimbang—approval diblokir.'}</span></div>
+      <p style={{...small,wordBreak:'break-all'}}>SHA-256: {detail.paymentInstruction.content_hash || 'Snapshot lama—hash tidak tersedia'}</p>
+      <div style={{maxHeight:320,overflow:'auto'}}><CardTable headers={['Penerima','Bank','Rekening','Nominal']} rows={(detail.lines || []).map((line:any)=>[
+        <div key="name"><strong>{line.beneficiary_name}</strong><small style={small}>{line.employee_id}</small></div>, line.bank_code || line.bank_name, `****${line.account_last4}`, formatIDR(Number(line.amount)),
+      ])} /></div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}}>
+        <a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">Unduh PDF PI</a>
+        {['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? ['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>) : null}
+      </div>
+      {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} />Saya sudah memeriksa seluruh penerima, rekening tersamarkan, nominal, control total, dan content hash.</label><button className="btn btn-primary" disabled={!approvalConfirmed || !detail.control.balanced || !detail.paymentInstruction.content_hash} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>setDetail(null))}>Approve Payment Instruction</button></> : null}
+      {detail.approvals?.length ? <div style={{marginTop:12}}><strong>Approval Trail</strong>{detail.approvals.map((approval:any)=><p key={approval.id} style={small}>{approval.status} · {approval.approver_email || approval.approver_user_id} · {date(approval.created_at)}</p>)}</div> : null}
+    </div></div> : null}
     {proofFor && <div className="card" style={{ padding:18 }}>
       <div style={{ display:'flex', justifyContent:'space-between', gap:12 }}><strong>Bukti Pembayaran · {proofFor}</strong><button type="button" onClick={() => setProofFor(null)} style={{ border:0, background:'transparent', cursor:'pointer' }}>✕</button></div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:10, marginTop:14 }}>
