@@ -1,5 +1,5 @@
 /**
- * ProQPay Lite — IDA Gemini + RAG + memory + web search
+ * ProQPay Lite — IDA on Cloudflare Workers AI + D1 RAG/memory
  */
 import { retrieveRag, loadMemory, saveMemory, loadFacts } from './ida-rag.js';
 import { fetchRegulatoryWeb } from './ida-web.js';
@@ -11,17 +11,10 @@ import {
   secureJson,
 } from './_security.js';
 
-const MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite'];
 const METHODS = 'POST, OPTIONS';
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_MESSAGE_CHARS = 4000;
-const KEY_NAMES = [
-  'GEMINI_WORKER_1',
-  'GEMINI_WORKER_2',
-  'GEMINI_WORKER_3',
-  'GEMINI_WORKER_4',
-  'GEMINI_WORKER_5',
-];
+const DEFAULT_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
 const SYSTEM_PROMPT = `Kamu adalah IDA, asisten payroll ProQPay Lite.
 
@@ -149,73 +142,56 @@ User: ${userText}
 
 Balas natural, tanpa "Halo!" rutin, tanpa CTA upload kecuali diminta.`;
 
-  const keys = KEY_NAMES.map((n) => env[n]).filter(Boolean);
-  if (!keys.length) {
-    console.error(JSON.stringify({ level: 'error', requestId, event: 'ida_keys_unavailable' }));
+  if (!env.AI?.run) {
+    console.error(JSON.stringify({ level: 'error', requestId, event: 'workers_ai_binding_unavailable' }));
     return respond({ error: 'AI service unavailable', requestId }, 503);
   }
 
-  for (let ki = 0; ki < keys.length; ki++) {
-    for (const model of MODELS) {
-      try {
-        const text = await callGemini(keys[ki], model, prompt);
-        await saveMemory(env, sessionId, 'ida', text);
-        const cotLines = [];
-        if (ragChunks.length) cotLines.push(`RAG ${ragChunks.length} chunk`);
-        if (web.triggers?.length) cotLines.push(`Web: ${web.triggers.join(',')} · ${web.provider || 'tidak ada hasil'}`);
-        if (history.length) cotLines.push(`Memory ${history.length} turns`);
-        if (model) cotLines.push(model);
-        return respond({
-          ok: true,
-          reply: text,
-          model,
-          cot: {
-            lines: cotLines,
-            ragSources: ragChunks.map((c) => c.source + (c.id ? `/${c.id}` : '')),
-            webTriggers: web.triggers || [],
-            webUsed: !!web.used,
-            webProvider: web.provider || null,
-            memoryTurns: history.length,
-            facts: facts.length,
-          },
-        });
-      } catch (err) {
-        const msg = err?.message || String(err);
-        console.warn(
-          JSON.stringify({
-            level: 'warn',
-            requestId,
-            event: 'ida_provider_attempt_failed',
-            model,
-            keySlot: ki + 1,
-            message: msg.slice(0, 200),
-          })
-        );
-      }
-    }
+  const model = String(env.WORKERS_AI_MODEL || DEFAULT_MODEL).trim();
+  try {
+    const text = await callWorkersAI(env.AI, model, prompt);
+    await saveMemory(env, sessionId, 'ida', text);
+    const cotLines = [];
+    if (ragChunks.length) cotLines.push(`RAG ${ragChunks.length} chunk`);
+    if (web.triggers?.length) cotLines.push(`Web: ${web.triggers.join(',')} · ${web.provider || 'tidak ada hasil'}`);
+    if (history.length) cotLines.push(`Memory ${history.length} turns`);
+    cotLines.push(model);
+    return respond({
+      ok: true,
+      reply: text,
+      model,
+      cot: {
+        lines: cotLines,
+        ragSources: ragChunks.map((c) => c.source + (c.id ? `/${c.id}` : '')),
+        webTriggers: web.triggers || [],
+        webUsed: !!web.used,
+        webProvider: web.provider || null,
+        memoryTurns: history.length,
+        facts: facts.length,
+      },
+    });
+  } catch (err) {
+    console.warn(JSON.stringify({
+      level: 'warn',
+      requestId,
+      event: 'workers_ai_request_failed',
+      model,
+      message: (err?.message || String(err)).slice(0, 200),
+    }));
+    return respond({ ok: false, error: 'AI service unavailable', requestId }, 502);
   }
-
-  return respond({ ok: false, error: 'AI service unavailable', requestId }, 502);
 }
 
-async function callGemini(apiKey, model, prompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.35, maxOutputTokens: 900 },
-    }),
+async function callWorkersAI(ai, model, prompt) {
+  const result = await ai.run(model, {
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: prompt },
+    ],
+    temperature: 0.35,
+    max_tokens: 900,
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data?.error?.message || data?.error?.status || `HTTP ${res.status}`);
-  }
-  const text =
-    data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') ||
-    data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-    '';
-  if (!text.trim()) throw new Error('Empty Gemini response');
+  const text = typeof result === 'string' ? result : result?.response || result?.result?.response || '';
+  if (!String(text).trim()) throw new Error('Empty Workers AI response');
   return text.trim();
 }

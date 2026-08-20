@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AppView } from './Sidebar';
 import { formatIDR, formatIDRShort } from '@/lib/format';
-import { listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
+import { invalidateOperatingCache, listOperatingDashboard } from '@/lib/operating-model-api';
 import { IconAlertTriangle, IconCheckCircle, IconClock, IconLayers, IconRefresh, IconShieldCheck, IconWallet } from './Icons';
 
 type Actor = { email:string; role:string; permissions:string[]; clientIds?:string[]|null };
@@ -39,9 +39,8 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const load = useCallback(async()=>{
     setLoading(true); setError('');
     try {
-      const resources:OperatingResource[]=['submissions','exceptions','payment-instructions','payment-proofs','reconciliations'];
       const scopedClientIds=actor.role==='CLIENT_USER'?(actor.clientIds||[]):[undefined];
-      const results=await Promise.all(scopedClientIds.flatMap((clientId)=>resources.map((resource)=>listOperatingResource(resource,clientId))));
+      const results=await Promise.all(scopedClientIds.map((clientId)=>listOperatingDashboard(clientId)));
       const merged:Record<string,any[]>={};
       results.forEach((result)=>Object.entries(result).forEach(([key,value])=>{if(Array.isArray(value))merged[key]=[...(merged[key]||[]),...value];}));
       setData(merged);
@@ -111,7 +110,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const reset=()=>{setClient('ALL');setStatus('ALL');setTier('ALL');setQuery('');};
 
   return <section className="control-tower">
-    <div className="control-tower-heading"><div><span>PAYROLL CONTROL TOWER</span><h1>Selamat datang, {actor.email.split('@')[0]}</h1><p>Prioritas, deadline, pembayaran, dan seluruh pay run dalam satu kendali.</p></div><button type="button" className="btn control-refresh" onClick={()=>void load()}><IconRefresh aria-hidden="true" /> Refresh data</button></div>
+    <div className="control-tower-heading"><div><span>PAYROLL CONTROL TOWER</span><h1>Selamat datang, {actor.email.split('@')[0]}</h1><p>Prioritas, deadline, pembayaran, dan seluruh pay run dalam satu kendali.</p></div><button type="button" className="btn control-refresh" onClick={()=>{invalidateOperatingCache();void load();}}><IconRefresh aria-hidden="true" /> Refresh data</button></div>
     <div className="control-bar card">
       <label><span>Klien</span><select value={client} onChange={(event)=>setClient(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
       <label><span>Status</span><select value={status} onChange={(event)=>setStatus(event.target.value)}><option value="ALL">Semua status</option>{statuses.map((item)=><option key={item}>{item}</option>)}</select></label>

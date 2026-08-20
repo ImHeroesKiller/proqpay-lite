@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless';
+import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import {
   ROLES,
   authorize,
@@ -11,10 +11,6 @@ import {
 } from './_security.js';
 
 const METHODS = 'GET, POST, OPTIONS';
-
-function getUrl(env) {
-  return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
-}
 
 const BASIC_FIELDS = new Set([
   'id', 'clientId', 'company', 'name', 'status', 'employmentType', 'joinDate',
@@ -66,26 +62,23 @@ export async function onRequest(context) {
   const requestId = crypto.randomUUID();
 
   try {
-    const url = getUrl(env);
-    if (!url) return respond({ status: 'error', message: 'Service unavailable', requestId }, 503);
-
-    const sql = neon(url);
+    if (!hasD1(env)) return respond({ status: 'error', message: 'Cloudflare D1 unavailable', requestId }, 503);
+    const database = env.DB;
     const actor = authorization.actor;
-    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_source_period TEXT`);
-    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_gross BIGINT DEFAULT 0`);
-    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_deduction BIGINT DEFAULT 0`);
-    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS imported_net BIGINT DEFAULT 0`);
-    await sql.query(`ALTER TABLE employee_compensation ADD COLUMN IF NOT EXISTS payroll_components JSONB DEFAULT '{}'::jsonb`);
-    await sql.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id)`);
-    await sql.query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS employee_code TEXT`);
-    await sql.query(`UPDATE employees SET employee_code=CASE WHEN id LIKE 'EMP-%' THEN id ELSE 'EMP-' || id END WHERE employee_code IS NULL`);
 
     if (request.method === 'GET') {
       const scopedClientIds = clientIdsFor(actor, env);
-      const clientScopeCsv = (scopedClientIds || []).join(',');
       const scopedProjectIds = projectIdsFor(actor);
-      const projectScopeCsv = (scopedProjectIds || []).join(',');
-      const rows = await sql`
+      if (actor.role === 'CLIENT_USER' && !scopedClientIds?.length) {
+        return respond({ employees: [], count: 0, role: actor.role });
+      }
+      const clientFilter = actor.role === 'CLIENT_USER'
+        ? ` AND e.client_id IN (${scopedClientIds.map(() => '?').join(',')})`
+        : '';
+      const projectFilter = actor.role === 'CLIENT_USER' && scopedProjectIds?.length
+        ? ` AND e.project_id IN (${scopedProjectIds.map(() => '?').join(',')})`
+        : '';
+      const rows = await d1All(database, `
         SELECT
           e.id,
           e.employee_code AS "employeeCode",
@@ -99,37 +92,39 @@ export async function onRequest(context) {
           e.phone,
           e.mobile,
           e.mother_name AS "motherName",
-          a.position,
-          a.pic,
-          a.hrbp,
-          COALESCE(ec.contract_status, e.status_aktif) AS status,
-          ec.employment_type AS "employmentType",
-          ec.join_date AS "joinDate",
-          ec.accepted_date AS "acceptedDate",
-          ec.contract_start AS "contractStart",
-          ec.contract_end AS "contractEnd",
-          ec.resign_date AS "resignDate",
-          ec.resign_reason AS "resignReason",
-          ec.candidate_source AS "candidateSource",
+          (SELECT position FROM employee_assignments WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS position,
+          (SELECT pic FROM employee_assignments WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS pic,
+          (SELECT hrbp FROM employee_assignments WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS hrbp,
+          COALESCE((SELECT contract_status FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1), e.status_aktif) AS status,
+          (SELECT employment_type FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "employmentType",
+          (SELECT join_date FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "joinDate",
+          (SELECT accepted_date FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "acceptedDate",
+          (SELECT contract_start FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "contractStart",
+          (SELECT contract_end FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "contractEnd",
+          (SELECT resign_date FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "resignDate",
+          (SELECT resign_reason FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "resignReason",
+          (SELECT candidate_source FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "candidateSource",
           COALESCE(wl.province, e.province, b.province) AS region,
           COALESCE(wl.province, e.province, b.province) AS province,
           COALESCE(p.name, wl.unit_kerja, wl.name) AS project,
           e.project_id AS "projectId",
-          COALESCE(cp.basic_salary, 0)::float8 AS "salaryGross",
+          COALESCE(cp.basic_salary, 0) AS "salaryGross",
           cp.payroll_source_period AS "payrollSourcePeriod",
-          COALESCE(cp.imported_gross, 0)::float8 AS "importedGross",
-          COALESCE(cp.imported_deduction, 0)::float8 AS "importedDeduction",
-          COALESCE(cp.imported_net, 0)::float8 AS "importedNet",
-          COALESCE(cp.payroll_components, '{}'::jsonb) AS "payrollComponents",
+          COALESCE(cp.imported_gross, 0) AS "importedGross",
+          COALESCE(cp.imported_deduction, 0) AS "importedDeduction",
+          COALESCE(cp.imported_net, 0) AS "importedNet",
+          COALESCE(cp.payroll_components, '{}') AS "payrollComponents",
           0 AS "allowanceTransport",
           0 AS "allowanceMeal",
-          ba.account_no AS "accountNo",
+          (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 ORDER BY created_at DESC LIMIT 1) AS "accountNo",
           CASE
-            WHEN ba.account_no IS NULL THEN ''
-            WHEN ba.bank_name IS NULL THEN ba.account_no
-            ELSE ba.bank_name || '-' || ba.account_no
+            WHEN (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) IS NULL THEN ''
+            WHEN (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) IS NULL
+              THEN (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1)
+            ELSE (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1)
+              || '-' || (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1)
           END AS "bankAccount",
-          ba.bank_name AS "bankName",
+          (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 ORDER BY created_at DESC LIMIT 1) AS "bankName",
           ei.ktp_no AS nik,
           ei.npwp_no AS npwp,
           ei.address,
@@ -142,10 +137,10 @@ export async function onRequest(context) {
           bp.jamsostek_no AS "jamsostekNo",
           (bp.bpjs_kesehatan_no IS NOT NULL) AS "bpjsKesehatan",
           (bp.jamsostek_no IS NOT NULL) AS "bpjsKetenagakerjaan",
-          edu.level AS "educationLevel",
-          edu.school_name AS "schoolName",
-          edu.major,
-          edu.graduate_year AS "graduateYear",
+          (SELECT level FROM employee_education WHERE employee_id=e.id ORDER BY is_highest DESC, graduate_year DESC LIMIT 1) AS "educationLevel",
+          (SELECT school_name FROM employee_education WHERE employee_id=e.id ORDER BY is_highest DESC, graduate_year DESC LIMIT 1) AS "schoolName",
+          (SELECT major FROM employee_education WHERE employee_id=e.id ORDER BY is_highest DESC, graduate_year DESC LIMIT 1) AS major,
+          (SELECT graduate_year FROM employee_education WHERE employee_id=e.id ORDER BY is_highest DESC, graduate_year DESC LIMIT 1) AS "graduateYear",
           hm.input_user AS "inputUser",
           hm.input_at AS "inputAt",
           hm.fj_input_at AS "fjInputAt",
@@ -153,52 +148,27 @@ export async function onRequest(context) {
           hm.es_input_at AS "esInputAt",
           hm.es_input_user AS "esInputUser",
           hm.hris_user AS "hrisUser",
-          TRUE AS pph21
+          1 AS pph21
         FROM employees e
         LEFT JOIN clients c ON c.id = e.client_id
         LEFT JOIN projects p ON p.id = e.project_id
         LEFT JOIN branches b ON b.id = e.branch_id
         LEFT JOIN work_locations wl ON wl.id = e.location_id
-        LEFT JOIN LATERAL (
-          SELECT position, pic, hrbp
-          FROM employee_assignments
-          WHERE employee_id = e.id AND is_current = TRUE
-          ORDER BY created_at DESC
-          LIMIT 1
-        ) a ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT contract_status, employment_type, join_date, accepted_date, contract_start,
-            contract_end, resign_date, resign_reason, candidate_source
-          FROM employee_contracts
-          WHERE employee_id = e.id AND is_current = TRUE
-          ORDER BY created_at DESC
-          LIMIT 1
-        ) ec ON TRUE
         LEFT JOIN employee_compensation cp ON cp.employee_id = e.id
-        LEFT JOIN LATERAL (
-          SELECT account_no, bank_name
-          FROM employee_bank_accounts
-          WHERE employee_id = e.id AND is_primary = TRUE
-          ORDER BY created_at DESC
-          LIMIT 1
-        ) ba ON TRUE
         LEFT JOIN employee_identity ei ON ei.employee_id = e.id
         LEFT JOIN employee_bpjs bp ON bp.employee_id = e.id
-        LEFT JOIN LATERAL (
-          SELECT level, school_name, major, graduate_year
-          FROM employee_education
-          WHERE employee_id = e.id
-          ORDER BY is_highest DESC, graduate_year DESC NULLS LAST
-          LIMIT 1
-        ) edu ON TRUE
         LEFT JOIN employee_hris_meta hm ON hm.employee_id = e.id
-        WHERE ${actor.role !== 'CLIENT_USER'}
-          OR (e.client_id = ANY(string_to_array(${clientScopeCsv}, ','))
-            AND (${!scopedProjectIds?.length} OR e.project_id = ANY(string_to_array(${projectScopeCsv}, ','))))
+        WHERE 1=1${clientFilter}${projectFilter}
         ORDER BY e.name ASC
         LIMIT 500
-      `;
-      const visibleRows = rows.map((row) => employeeView(row, actor));
+      `, [...(actor.role === 'CLIENT_USER' ? scopedClientIds : []), ...(actor.role === 'CLIENT_USER' && scopedProjectIds?.length ? scopedProjectIds : [])]);
+      const visibleRows = rows.map((row) => {
+        try { row.payrollComponents = JSON.parse(row.payrollComponents || '{}'); } catch { row.payrollComponents = {}; }
+        row.bpjsKesehatan = Boolean(row.bpjsKesehatan);
+        row.bpjsKetenagakerjaan = Boolean(row.bpjsKetenagakerjaan);
+        row.pph21 = Boolean(row.pph21);
+        return employeeView(row, actor);
+      });
       return respond({ employees: visibleRows, count: visibleRows.length, role: actor.role });
     }
 
@@ -226,9 +196,9 @@ export async function onRequest(context) {
       if (actor.role === 'CLIENT_USER') {
         const scope = clientIdsFor(actor, env) || [];
         const projectScope = projectIdsFor(actor) || [];
-        const existing = await sql`SELECT client_id, project_id FROM employees WHERE id=${id} LIMIT 1`;
-        const targetClientId = existing[0]?.client_id || clientId;
-        const targetProjectId = existing[0]?.project_id || projectId;
+        const existing = await d1First(database, 'SELECT client_id, project_id FROM employees WHERE id=? LIMIT 1', [id]);
+        const targetClientId = existing?.client_id || clientId;
+        const targetProjectId = existing?.project_id || projectId;
         if (!targetClientId || !scope.includes(String(targetClientId))) {
           return respond({ error: 'Karyawan berada di luar client scope Anda.' }, 403);
         }
@@ -237,86 +207,59 @@ export async function onRequest(context) {
         }
       }
 
-      await sql`
-        INSERT INTO organizations (id, name, code)
-        VALUES (${orgId}, ${body.orgName || 'OTSINDO'}, ${body.orgCode || 'OTSINDO'})
-        ON CONFLICT (id) DO NOTHING
-      `;
-
-      await sql`
-        INSERT INTO employees (
+      const operations = [
+        { statement: `INSERT OR IGNORE INTO organizations (id, name, code) VALUES (?, ?, ?)`,
+          bindings: [orgId, body.orgName || 'OTSINDO', body.orgCode || 'OTSINDO'] },
+        { statement: `INSERT INTO employees (
           id, org_id, client_id, project_id, branch_id, location_id, employee_code, name, status_aktif, province, updated_at
-        )
-        VALUES (
-          ${id},
-          ${orgId},
-          ${clientId},
-          ${projectId},
-          ${branchId},
-          ${locationId},
-          ${String(body.employeeCode || (String(id).startsWith('EMP-') ? id : `EMP-${id}`))},
-          ${String(body.name).trim()},
-          ${status},
-          ${province},
-          NOW()
-        )
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          client_id = EXCLUDED.client_id,
-          project_id = COALESCE(EXCLUDED.project_id, employees.project_id),
-          branch_id = EXCLUDED.branch_id,
-          location_id = EXCLUDED.location_id,
-          employee_code = COALESCE(employees.employee_code, EXCLUDED.employee_code),
-          status_aktif = EXCLUDED.status_aktif,
-          province = EXCLUDED.province,
-          updated_at = NOW()
-      `;
-
-      await sql`
-        INSERT INTO employee_compensation (employee_id, basic_salary)
-        VALUES (${id}, ${salaryGross})
-        ON CONFLICT (employee_id) DO UPDATE SET
-          basic_salary = EXCLUDED.basic_salary,
-          updated_at = NOW()
-      `;
+          name=excluded.name, client_id=excluded.client_id,
+          project_id=COALESCE(excluded.project_id, employees.project_id), branch_id=excluded.branch_id,
+          location_id=excluded.location_id, employee_code=COALESCE(employees.employee_code, excluded.employee_code),
+          status_aktif=excluded.status_aktif, province=excluded.province,
+          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
+          bindings: [id, orgId, clientId, projectId, branchId, locationId, String(body.employeeCode || (String(id).startsWith('EMP-') ? id : `EMP-${id}`)), String(body.name).trim(), status, province] },
+        { statement: `INSERT INTO employee_compensation (employee_id, basic_salary) VALUES (?, ?)
+          ON CONFLICT (employee_id) DO UPDATE SET basic_salary=excluded.basic_salary,
+          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`, bindings: [id, salaryGross] },
+      ];
 
       if (body.position) {
         const assignmentId = `ASG-${id}`;
-        await sql`
-          INSERT INTO employee_assignments (id, employee_id, position, is_current)
-          VALUES (${assignmentId}, ${id}, ${body.position}, TRUE)
-          ON CONFLICT (id) DO UPDATE SET
-            position = EXCLUDED.position,
-            is_current = TRUE
-        `;
+        operations.push({ statement: `INSERT INTO employee_assignments (id, employee_id, position, is_current)
+          VALUES (?, ?, ?, 1) ON CONFLICT (id) DO UPDATE SET position=excluded.position, is_current=1`,
+          bindings: [assignmentId, id, body.position] });
       }
 
       const accountNo = body.accountNo || body.bankAccount || body.bank_account || null;
       if (accountNo) {
         const bankId = `BNK-${id}`;
-        await sql`
-          INSERT INTO employee_bank_accounts (id, employee_id, bank_name, account_no, is_primary)
-          VALUES (${bankId}, ${id}, ${body.bankName || null}, ${accountNo}, TRUE)
-          ON CONFLICT (id) DO UPDATE SET
-            bank_name = EXCLUDED.bank_name,
-            account_no = EXCLUDED.account_no,
-            is_primary = TRUE
-        `;
+        operations.push(
+          { statement: 'UPDATE employee_bank_accounts SET is_primary=0 WHERE employee_id=? AND id<>?', bindings: [id, bankId] },
+          { statement: `INSERT INTO employee_bank_accounts (id, employee_id, bank_name, account_no, is_primary)
+            VALUES (?, ?, ?, ?, 1) ON CONFLICT (id) DO UPDATE SET bank_name=excluded.bank_name,
+            account_no=excluded.account_no, is_primary=1`, bindings: [bankId, id, body.bankName || null, accountNo] }
+        );
       }
 
       if (body.nik || body.npwp || body.address) {
-        await sql`INSERT INTO employee_identity (employee_id, ktp_no, npwp_no, address)
-          VALUES (${id}, ${body.nik || null}, ${body.npwp || null}, ${body.address || null})
+        operations.push({ statement: `INSERT INTO employee_identity (employee_id, ktp_no, npwp_no, address)
+          VALUES (?, ?, ?, ?)
           ON CONFLICT (employee_id) DO UPDATE SET ktp_no=COALESCE(EXCLUDED.ktp_no, employee_identity.ktp_no),
-            npwp_no=COALESCE(EXCLUDED.npwp_no, employee_identity.npwp_no), address=COALESCE(EXCLUDED.address, employee_identity.address)`;
+            npwp_no=COALESCE(EXCLUDED.npwp_no, employee_identity.npwp_no), address=COALESCE(EXCLUDED.address, employee_identity.address)`,
+          bindings: [id, body.nik || null, body.npwp || null, body.address || null] });
       }
       if (body.bpjsKesehatanNo || body.jamsostekNo) {
-        await sql`INSERT INTO employee_bpjs (employee_id, bpjs_kesehatan_no, jamsostek_no)
-          VALUES (${id}, ${body.bpjsKesehatanNo || null}, ${body.jamsostekNo || null})
+        operations.push({ statement: `INSERT INTO employee_bpjs (employee_id, bpjs_kesehatan_no, jamsostek_no)
+          VALUES (?, ?, ?)
           ON CONFLICT (employee_id) DO UPDATE SET bpjs_kesehatan_no=COALESCE(EXCLUDED.bpjs_kesehatan_no, employee_bpjs.bpjs_kesehatan_no),
-            jamsostek_no=COALESCE(EXCLUDED.jamsostek_no, employee_bpjs.jamsostek_no), updated_at=NOW()`;
+            jamsostek_no=COALESCE(EXCLUDED.jamsostek_no, employee_bpjs.jamsostek_no), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
+          bindings: [id, body.bpjsKesehatanNo || null, body.jamsostekNo || null] });
       }
-      if (body.email) await sql`UPDATE employees SET email=${body.email}, updated_at=NOW() WHERE id=${id}`;
+      if (body.email) operations.push({ statement: `UPDATE employees SET email=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings: [body.email, id] });
+
+      await d1Batch(database, operations);
 
       return respond({ ok: true, id });
     }

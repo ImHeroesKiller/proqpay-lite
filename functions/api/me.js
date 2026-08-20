@@ -26,7 +26,7 @@ export async function onRequest({ request, env }) {
   const effectiveAuthMode = actor.authSource || String(env.AUTH_MODE || 'origin').toLowerCase();
   return secureJson(
     {
-      authenticated: ['access', 'database', 'session'].includes(effectiveAuthMode),
+      authenticated: ['access', 'database', 'session', 'd1'].includes(effectiveAuthMode),
       authMode: effectiveAuthMode,
       user: {
         id: actor.id,

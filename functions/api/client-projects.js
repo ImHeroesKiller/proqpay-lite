@@ -1,14 +1,10 @@
-import { neon } from '@neondatabase/serverless';
+import { d1All, d1First, hasD1 } from './_d1.js';
 import {
   authorize, clientIdsFor, projectIdsFor, enforceRateLimit, handlePreflight, publicError, secureJson,
 } from './_security.js';
 import { validateDirectoryAction } from './client-projects-validation.js';
 
 const METHODS = 'GET, POST, OPTIONS';
-
-function databaseUrl(env) {
-  return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
-}
 
 function codeBase(name, fallback) {
   const words = String(name || '').toUpperCase().replace(/\b(PT|CV|TBK|PERSERO)\b/g, ' ')
@@ -17,22 +13,22 @@ function codeBase(name, fallback) {
   return (compact || fallback).slice(0, 26);
 }
 
-async function uniqueClientCode(sql, orgId, name, excludeId) {
+async function uniqueClientCode(database, orgId, name, excludeId) {
   const base = codeBase(name, 'CLIENT');
   for (let index = 0; index < 100; index += 1) {
     const code = index ? `${base.slice(0, 26)}-${index + 1}` : base;
-    const rows = await sql`SELECT id FROM clients WHERE org_id=${orgId} AND code=${code} AND (${excludeId || null}::text IS NULL OR id<>${excludeId || null}) LIMIT 1`;
-    if (!rows.length) return code;
+    const row = await d1First(database, 'SELECT id FROM clients WHERE org_id=? AND code=? AND (? IS NULL OR id<>?) LIMIT 1', [orgId, code, excludeId || null, excludeId || null]);
+    if (!row) return code;
   }
   return `CLIENT-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
 }
 
-async function uniqueProjectCode(sql, orgId, name, excludeId) {
+async function uniqueProjectCode(database, orgId, name, excludeId) {
   const base = codeBase(name, 'PROJECT');
   for (let index = 0; index < 100; index += 1) {
     const code = index ? `${base.slice(0, 26)}-${index + 1}` : base;
-    const rows = await sql`SELECT id FROM projects WHERE org_id=${orgId} AND code=${code} AND (${excludeId || null}::text IS NULL OR id<>${excludeId || null}) LIMIT 1`;
-    if (!rows.length) return code;
+    const row = await d1First(database, 'SELECT id FROM projects WHERE org_id=? AND code=? AND (? IS NULL OR id<>?) LIMIT 1', [orgId, code, excludeId || null, excludeId || null]);
+    if (!row) return code;
   }
   return `PROJECT-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
 }
@@ -98,45 +94,35 @@ export async function onRequest({ request, env }) {
   if (limited) return limited;
   const respond = (data, status = 200) => secureJson(data, status, request, env, METHODS);
   const requestId = crypto.randomUUID();
-  const url = databaseUrl(env);
-  if (!url) return respond({ error: 'Service unavailable', requestId }, 503);
-  const sql = neon(url);
+  if (!hasD1(env)) return respond({ error: 'Cloudflare D1 unavailable', requestId }, 503);
+  const database = env.DB;
   const actor = authorization.actor;
   const organizationId = String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');
   try {
-    await sql.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS website TEXT`);
-    await sql.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS industry TEXT`);
-    await sql.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS contact_name TEXT`);
-    await sql.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS contact_email TEXT`);
-    await sql.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS contact_phone TEXT`);
-    await sql.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS logo_url TEXT`);
-    await sql.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ACTIVE'`);
-    await sql.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS description TEXT`);
-    await sql.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS service_type TEXT`);
     if (request.method === 'GET') {
       const scope = clientIdsFor(actor, env);
-      const scopeCsv = (scope || []).join(',');
       const projectScope = projectIdsFor(actor);
-      const projectScopeCsv = (projectScope || []).join(',');
+      const clientRestricted = actor.role === 'CLIENT_USER';
+      if (clientRestricted && !scope?.length) return respond({ ok: true, clients: [], projects: [], role: actor.role });
+      const clientFilter = clientRestricted ? ` AND c.id IN (${scope.map(() => '?').join(',')})` : '';
+      const projectClientFilter = clientRestricted ? ` AND p.client_id IN (${scope.map(() => '?').join(',')})` : '';
+      const projectFilter = clientRestricted && projectScope?.length ? ` AND p.id IN (${projectScope.map(() => '?').join(',')})` : '';
       const [clients, projects] = await Promise.all([
-        sql`SELECT c.id, c.code, c.name, c.website, c.industry, c.contact_name, c.contact_email, c.contact_phone,
+        d1All(database, `SELECT c.id, c.code, c.name, c.website, c.industry, c.contact_name, c.contact_email, c.contact_phone,
           c.logo_url, c.status, c.created_at,
-          COUNT(DISTINCT e.id)::int AS employee_count,
-          COUNT(DISTINCT p.id)::int AS project_count,
-          (SELECT COUNT(*)::int FROM user_client_scopes ucs WHERE ucs.client_id=c.id) AS assigned_user_count
+          COUNT(DISTINCT e.id) AS employee_count,
+          COUNT(DISTINCT p.id) AS project_count,
+          (SELECT COUNT(*) FROM user_client_scopes ucs WHERE ucs.client_id=c.id) AS assigned_user_count
           FROM clients c
           LEFT JOIN employees e ON e.client_id=c.id
           LEFT JOIN projects p ON p.client_id=c.id
-          WHERE c.org_id=${organizationId}
-            AND (${actor.role !== 'CLIENT_USER'} OR c.id = ANY(string_to_array(${scopeCsv}, ',')))
-          GROUP BY c.id ORDER BY c.name`,
-        sql`SELECT p.*, c.name AS client_name,
-          (SELECT COUNT(*)::int FROM user_project_scopes ups WHERE ups.project_id=p.id) AS assigned_user_count
+          WHERE c.org_id=?${clientFilter}
+          GROUP BY c.id ORDER BY c.name`, [organizationId, ...(clientRestricted ? scope : [])]),
+        d1All(database, `SELECT p.*, c.name AS client_name,
+          (SELECT COUNT(*) FROM user_project_scopes ups WHERE ups.project_id=p.id) AS assigned_user_count
           FROM projects p JOIN clients c ON c.id=p.client_id
-          WHERE p.org_id=${organizationId}
-            AND (${actor.role !== 'CLIENT_USER'} OR p.client_id = ANY(string_to_array(${scopeCsv}, ',')))
-            AND (${actor.role !== 'CLIENT_USER' || !projectScope?.length} OR p.id = ANY(string_to_array(${projectScopeCsv}, ',')))
-          ORDER BY p.created_at DESC LIMIT 500`,
+          WHERE p.org_id=?${projectClientFilter}${projectFilter}
+          ORDER BY p.created_at DESC LIMIT 500`, [organizationId, ...(clientRestricted ? scope : []), ...(clientRestricted && projectScope?.length ? projectScope : [])]),
       ]);
       return respond({ ok: true, clients, projects, role: actor.role });
     }
@@ -146,42 +132,43 @@ export async function onRequest({ request, env }) {
     const body = validation.value;
     if (body.action === 'CREATE_CLIENT') {
       const id = body.id || `CLI-${crypto.randomUUID()}`;
-      const code = body.code || await uniqueClientCode(sql, organizationId, body.name, null);
+      const code = body.code || await uniqueClientCode(database, organizationId, body.name, null);
       const logoUrl = await discoverPwaIcon(body.website);
-      const rows = await sql`INSERT INTO clients (id, org_id, code, name, website, industry, contact_name, contact_email, contact_phone, logo_url, status)
-        VALUES (${id}, ${organizationId}, ${code}, ${body.name}, ${body.website}, ${body.industry}, ${body.contactName}, ${body.contactEmail}, ${body.contactPhone}, ${logoUrl}, ${body.status || 'ACTIVE'}) RETURNING *`;
-      return respond({ ok: true, client: rows[0] }, 201);
+      const client = await d1First(database, `INSERT INTO clients (id, org_id, code, name, website, industry, contact_name, contact_email, contact_phone, logo_url, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+        [id, organizationId, code, body.name, body.website, body.industry, body.contactName, body.contactEmail, body.contactPhone, logoUrl, body.status || 'ACTIVE']);
+      return respond({ ok: true, client }, 201);
     }
     if (body.action === 'UPDATE_CLIENT') {
-      const code = body.code || await uniqueClientCode(sql, organizationId, body.name, body.id);
-      const current = await sql`SELECT website, logo_url FROM clients WHERE id=${body.id} AND org_id=${organizationId} LIMIT 1`;
-      const logoUrl = body.website && body.website !== current[0]?.website ? await discoverPwaIcon(body.website) : current[0]?.logo_url;
-      const rows = await sql`UPDATE clients SET code=${code}, name=${body.name}, website=${body.website}, industry=${body.industry},
-        contact_name=${body.contactName}, contact_email=${body.contactEmail}, contact_phone=${body.contactPhone}, logo_url=${logoUrl}, status=${body.status || 'ACTIVE'}
-        WHERE id=${body.id} AND org_id=${organizationId} RETURNING *`;
-      if (!rows.length) return respond({ error: 'Client not found' }, 404);
-      return respond({ ok: true, client: rows[0] });
+      const code = body.code || await uniqueClientCode(database, organizationId, body.name, body.id);
+      const current = await d1First(database, 'SELECT website, logo_url FROM clients WHERE id=? AND org_id=? LIMIT 1', [body.id, organizationId]);
+      const logoUrl = body.website && body.website !== current?.website ? await discoverPwaIcon(body.website) : current?.logo_url;
+      const client = await d1First(database, `UPDATE clients SET code=?, name=?, website=?, industry=?, contact_name=?,
+        contact_email=?, contact_phone=?, logo_url=?, status=? WHERE id=? AND org_id=? RETURNING *`,
+        [code, body.name, body.website, body.industry, body.contactName, body.contactEmail, body.contactPhone, logoUrl, body.status || 'ACTIVE', body.id, organizationId]);
+      if (!client) return respond({ error: 'Client not found' }, 404);
+      return respond({ ok: true, client });
     }
-    const client = await sql`SELECT id FROM clients WHERE id=${body.clientId} AND org_id=${organizationId} LIMIT 1`;
-    if (!client.length) return respond({ error: 'Client not found' }, 404);
+    const client = await d1First(database, 'SELECT id FROM clients WHERE id=? AND org_id=? LIMIT 1', [body.clientId, organizationId]);
+    if (!client) return respond({ error: 'Client not found' }, 404);
     if (body.action === 'UPDATE_PROJECT') {
-      const code = body.code || await uniqueProjectCode(sql, organizationId, body.name, body.id);
-      const rows = await sql`UPDATE projects SET client_id=${body.clientId}, code=${code}, name=${body.name},
-        description=${body.description}, service_type=${body.serviceType}, status=${body.status || 'ACTIVE'}, start_date=${body.startDate || null}, end_date=${body.endDate || null}, updated_at=NOW()
-        WHERE id=${body.id} AND org_id=${organizationId} RETURNING *`;
-      if (!rows.length) return respond({ error: 'Project not found' }, 404);
-      return respond({ ok: true, project: rows[0] });
+      const code = body.code || await uniqueProjectCode(database, organizationId, body.name, body.id);
+      const project = await d1First(database, `UPDATE projects SET client_id=?, code=?, name=?, description=?, service_type=?,
+        status=?, start_date=?, end_date=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id=? AND org_id=? RETURNING *`,
+        [body.clientId, code, body.name, body.description, body.serviceType, body.status || 'ACTIVE', body.startDate || null, body.endDate || null, body.id, organizationId]);
+      if (!project) return respond({ error: 'Project not found' }, 404);
+      return respond({ ok: true, project });
     }
     const id = body.id || `PRJ-${crypto.randomUUID()}`;
-    const code = body.code || await uniqueProjectCode(sql, organizationId, body.name, null);
-    const rows = await sql`INSERT INTO projects
+    const code = body.code || await uniqueProjectCode(database, organizationId, body.name, null);
+    const project = await d1First(database, `INSERT INTO projects
       (id, org_id, client_id, code, name, description, service_type, status, start_date, end_date, created_by)
-      VALUES (${id}, ${organizationId}, ${body.clientId}, ${code}, ${body.name}, ${body.description}, ${body.serviceType}, ${body.status || 'ACTIVE'},
-        ${body.startDate || null}, ${body.endDate || null}, ${actor.email})
-      RETURNING *`;
-    return respond({ ok: true, project: rows[0] }, 201);
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      [id, organizationId, body.clientId, code, body.name, body.description, body.serviceType, body.status || 'ACTIVE', body.startDate || null, body.endDate || null, actor.email]);
+    return respond({ ok: true, project }, 201);
   } catch (error) {
-    if (String(error?.message || '').includes('duplicate key')) return respond({ error: 'Code sudah digunakan' }, 409);
+    if (String(error?.message || '').includes('UNIQUE constraint failed')) return respond({ error: 'Code sudah digunakan' }, 409);
     return respond(publicError(error, requestId), 500);
   }
 }
