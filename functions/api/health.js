@@ -22,6 +22,10 @@ export async function onRequest({ request, env }) {
   checks.push(storageReady
     ? check('payment_proofs','Penyimpanan bukti bayar','ok','R2 terhubung.')
     : check('payment_proofs','Penyimpanan bukti bayar','error','Upload dan unduh bukti pembayaran belum tersedia.','Tambahkan R2 binding PAYMENT_PROOFS pada Production dan Preview, lalu redeploy.'));
+  const piEncryptionReady = Boolean(env.PI_ENCRYPTION_KEY && String(env.PI_ENCRYPTION_KEY).length >= 32);
+  checks.push(piEncryptionReady
+    ? check('pi_encryption','Enkripsi Payment Instruction','ok','Snapshot rekening PI menggunakan AES-256-GCM.')
+    : check('pi_encryption','Enkripsi Payment Instruction','error','PI baru dan file bank diblokir karena encryption key belum tersedia.','Tambahkan secret PI_ENCRYPTION_KEY minimal 32 karakter lalu redeploy.'));
 
   const aiReady = AI_KEYS.some((name) => Boolean(env[name]));
   checks.push(aiReady
