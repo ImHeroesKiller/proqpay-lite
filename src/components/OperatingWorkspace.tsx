@@ -255,8 +255,36 @@ function Payments({ instructions, proofs, reconciliations, canReview, canApprove
   const [detailError, setDetailError] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
   const [approvalConfirmed, setApprovalConfirmed] = useState(false);
+  const [detailQuery, setDetailQuery] = useState('');
+  const [detailBank, setDetailBank] = useState('ALL');
+  const [detailPage, setDetailPage] = useState(1);
+  const detailLines = useMemo(() => detail?.lines || [], [detail]);
+  const bankSummaries = useMemo(() => {
+    const summaries = new Map<string, { count:number; total:number }>();
+    detailLines.forEach((line:any) => {
+      const bank = String(line.bank_code || line.bank_name || 'LAINNYA').toUpperCase();
+      const current = summaries.get(bank) || { count:0, total:0 };
+      summaries.set(bank, { count:current.count + 1, total:current.total + Number(line.amount || 0) });
+    });
+    return [...summaries.entries()].sort((a,b) => b[1].total - a[1].total);
+  }, [detailLines]);
+  const filteredDetailLines = useMemo(() => detailLines.filter((line:any) => {
+    const bank = String(line.bank_code || line.bank_name || 'LAINNYA').toUpperCase();
+    const haystack = [line.beneficiary_name,line.employee_id,line.account_last4,bank].join(' ').toLowerCase();
+    return (detailBank === 'ALL' || bank === detailBank) && (!detailQuery.trim() || haystack.includes(detailQuery.trim().toLowerCase()));
+  }), [detailLines, detailBank, detailQuery]);
+  const detailPageSize = 25;
+  const detailPageCount = Math.max(1, Math.ceil(filteredDetailLines.length / detailPageSize));
+  const visibleDetailLines = filteredDetailLines.slice((detailPage - 1) * detailPageSize, detailPage * detailPageSize);
+  useEffect(() => { setDetailPage(1); }, [detailQuery, detailBank]);
+  useEffect(() => {
+    if (!detail) return;
+    const close = (event:KeyboardEvent) => { if (event.key === 'Escape') setDetail(null); };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [detail]);
   async function openDetail(id:string) {
-    setDetailLoading(true); setDetailError(''); setApprovalConfirmed(false);
+    setDetailLoading(true); setDetailError(''); setApprovalConfirmed(false); setDetailQuery(''); setDetailBank('ALL'); setDetailPage(1);
     try { setDetail(await getPaymentInstructionDetail(id)); }
     catch (error) { setDetailError(error instanceof Error ? error.message : 'Detail PI gagal dimuat'); }
     finally { setDetailLoading(false); }
@@ -275,21 +303,42 @@ function Payments({ instructions, proofs, reconciliations, canReview, canApprove
     })} />
     {detailLoading ? <div className="card" style={{padding:18}}>Memuat snapshot Payment Instruction…</div> : null}
     {detailError ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Detail PI gagal</strong><span>{detailError}</span></div> : null}
-    {detail ? <div className="directory-modal-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget)setDetail(null);}}><div className="directory-modal payroll-review-modal" role="dialog" aria-modal="true" aria-label="Preview Payment Instruction">
-      <div className="directory-modal-title"><div><span>IMMUTABLE PAYMENT SNAPSHOT</span><h3>{detail.paymentInstruction.document_no || detail.paymentInstruction.id}</h3></div><button type="button" onClick={()=>setDetail(null)}>✕</button></div>
-      <div className="payroll-review-meta"><div><span>Klien</span><strong>{detail.paymentInstruction.client_name}</strong></div><div><span>Payroll / Bayar</span><strong>{detail.paymentInstruction.payroll_period} / {detail.paymentInstruction.payment_period}</strong></div><div><span>Status</span><strong>{detail.paymentInstruction.status}</strong></div><div><span>Penerima</span><strong>{detail.control.recipientCount}</strong></div></div>
-      <div className="payroll-review-alert"><strong>Control total: {formatIDR(detail.control.totalAmount)}</strong><span>{detail.control.balanced ? '✓ Total snapshot sama dengan expected total.' : '⛔ Total tidak seimbang—approval diblokir.'}</span></div>
-      <p style={{...small,wordBreak:'break-all'}}>SHA-256: {detail.paymentInstruction.content_hash || 'Snapshot lama—hash tidak tersedia'}</p>
-      <div style={{maxHeight:320,overflow:'auto'}}><CardTable headers={['Penerima','Bank','Rekening','Nominal']} rows={(detail.lines || []).map((line:any)=>[
-        <div key="name"><strong>{line.beneficiary_name}</strong><small style={small}>{line.employee_id}</small></div>, line.bank_code || line.bank_name, `****${line.account_last4}`, formatIDR(Number(line.amount)),
-      ])} /></div>
-      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}}>
-        <a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">Unduh PDF PI</a>
-        {['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? ['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>) : null}
+    {detail ? createPortal(<div className="directory-modal-backdrop pi-detail-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget)setDetail(null);}}><div className="directory-modal pi-detail-modal" role="dialog" aria-modal="true" aria-label="Detail Payment Instruction">
+      <header className="pi-detail-header">
+        <div><span>IMMUTABLE PAYMENT SNAPSHOT</span><h3>{detail.paymentInstruction.document_no || detail.paymentInstruction.id}</h3><p>{detail.paymentInstruction.client_name || 'Klien tidak tersedia'} · Dibuat {detail.paymentInstruction.creator_email || 'System'} · {date(detail.paymentInstruction.created_at)}</p></div>
+        <div className="pi-detail-header-actions"><Badge text={detail.paymentInstruction.status} /><button type="button" aria-label="Tutup detail Payment Instruction" onClick={()=>setDetail(null)}>✕</button></div>
+      </header>
+      <div className="pi-detail-body">
+        <section className="pi-detail-summary" aria-label="Ringkasan Payment Instruction">
+          <div><span>Periode payroll</span><strong>{detail.paymentInstruction.payroll_period || '-'}</strong></div>
+          <div><span>Periode bayar</span><strong>{detail.paymentInstruction.payment_period || detail.paymentInstruction.payroll_period || '-'}</strong></div>
+          <div><span>Total penerima</span><strong>{Number(detail.control.recipientCount || 0).toLocaleString('id-ID')}</strong></div>
+          <div className="pi-detail-total"><span>Control total</span><strong>{formatIDR(detail.control.totalAmount)}</strong></div>
+        </section>
+        <section className={`pi-integrity-panel ${detail.control.balanced && detail.paymentInstruction.content_hash ? 'pi-integrity-valid' : 'pi-integrity-warning'}`}>
+          <div><strong>{detail.control.balanced ? '✓ Control total seimbang' : '⛔ Control total tidak seimbang'}</strong><span>Expected {formatIDR(detail.control.expectedTotal)} · Snapshot {formatIDR(detail.control.totalAmount)} · Selisih {formatIDR(detail.control.totalAmount - detail.control.expectedTotal)}</span></div>
+          <div><strong>{detail.paymentInstruction.content_hash ? '✓ Snapshot terverifikasi' : '⚠ Snapshot legacy'}</strong><span>{detail.paymentInstruction.content_hash ? `SHA-256 · ${detail.paymentInstruction.content_hash}` : 'Content hash tidak tersedia; regenerasi PI diperlukan untuk approval.'}</span></div>
+        </section>
+        <section className="pi-bank-section" aria-label="Breakdown bank">
+          <div className="pi-section-heading"><div><span>DISTRIBUSI PEMBAYARAN</span><h4>Ringkasan per bank</h4></div><small>{bankSummaries.length} bank · {detailLines.length.toLocaleString('id-ID')} transaksi</small></div>
+          <div className="pi-bank-grid">{bankSummaries.map(([bank,summary])=><button type="button" key={bank} className={detailBank===bank?'active':''} onClick={()=>setDetailBank(detailBank===bank?'ALL':bank)}><span>{bank}</span><strong>{formatIDR(summary.total)}</strong><small>{summary.count.toLocaleString('id-ID')} penerima</small></button>)}</div>
+        </section>
+        <section className="pi-recipient-section" aria-label="Daftar penerima">
+          <div className="pi-section-heading"><div><span>BENEFICIARY CONTROL</span><h4>Daftar penerima</h4></div><small>Menampilkan {visibleDetailLines.length} dari {filteredDetailLines.length.toLocaleString('id-ID')}</small></div>
+          <div className="pi-recipient-toolbar">
+            <input aria-label="Cari penerima" value={detailQuery} onChange={(event)=>setDetailQuery(event.target.value)} placeholder="Cari nama, ID karyawan, rekening…" />
+            <select aria-label="Filter bank penerima" value={detailBank} onChange={(event)=>setDetailBank(event.target.value)}><option value="ALL">Semua bank</option>{bankSummaries.map(([bank])=><option key={bank} value={bank}>{bank}</option>)}</select>
+          </div>
+          <div className="pi-recipient-table-wrap"><table className="pi-recipient-table"><thead><tr><th>Penerima</th><th>Bank</th><th>Rekening</th><th>Nominal</th></tr></thead><tbody>{visibleDetailLines.map((line:any,index:number)=><tr key={`${line.employee_id || line.beneficiary_name}-${index}`}><td data-label="Penerima"><strong>{line.beneficiary_name || '-'}</strong><small>{line.employee_id || 'ID tidak tersedia'}</small></td><td data-label="Bank">{line.bank_code || line.bank_name || '-'}</td><td data-label="Rekening"><span className="pi-account-mask">•••• {line.account_last4 || '----'}</span></td><td data-label="Nominal"><strong>{formatIDR(Number(line.amount || 0))}</strong></td></tr>)}</tbody></table>{!visibleDetailLines.length?<div className="directory-empty">Penerima tidak ditemukan.</div>:null}</div>
+          <div className="pi-pagination"><span>Halaman {Math.min(detailPage,detailPageCount)} dari {detailPageCount}</span><div><button className="btn" disabled={detailPage<=1} onClick={()=>setDetailPage((page)=>page-1)}>← Sebelumnya</button><button className="btn" disabled={detailPage>=detailPageCount} onClick={()=>setDetailPage((page)=>page+1)}>Berikutnya →</button></div></div>
+        </section>
+        <section className="pi-approval-section"><div className="pi-section-heading"><div><span>GOVERNANCE</span><h4>Approval trail</h4></div><small>{detail.approvals?.length || 0} aktivitas</small></div>{detail.approvals?.length ? <div className="pi-approval-list">{detail.approvals.map((approval:any)=><div key={approval.id}><i>✓</i><div><strong>{String(approval.status || '').replaceAll('_',' ')}</strong><span>{approval.approver_email || approval.approver_user_id || 'System'} · {date(approval.created_at)}</span></div></div>)}</div> : <p className="directory-hint">Belum ada approval yang tercatat.</p>}</section>
       </div>
-      {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} />Saya sudah memeriksa seluruh penerima, rekening tersamarkan, nominal, control total, dan content hash.</label><button className="btn btn-primary" disabled={!approvalConfirmed || !detail.control.balanced || !detail.paymentInstruction.content_hash} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>setDetail(null))}>Approve Payment Instruction</button></> : null}
-      {detail.approvals?.length ? <div style={{marginTop:12}}><strong>Approval Trail</strong>{detail.approvals.map((approval:any)=><p key={approval.id} style={small}>{approval.status} · {approval.approver_email || approval.approver_user_id} · {date(approval.created_at)}</p>)}</div> : null}
-    </div></div> : null}
+      <footer className="pi-detail-footer">
+        <div className="pi-export-actions"><a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">Unduh PDF resmi</a>{['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? ['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>) : null}</div>
+        {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Saya sudah memeriksa penerima, rekening, nominal, control total, dan content hash.</span></label><button className="btn btn-primary" disabled={!approvalConfirmed || !detail.control.balanced || !detail.paymentInstruction.content_hash} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>setDetail(null))}>Approve PI</button></div> : null}
+      </footer>
+    </div></div>, document.body) : null}
     {proofFor && <div className="card" style={{ padding:18 }}>
       <div style={{ display:'flex', justifyContent:'space-between', gap:12 }}><strong>Bukti Pembayaran · {proofFor}</strong><button type="button" onClick={() => setProofFor(null)} style={{ border:0, background:'transparent', cursor:'pointer' }}>✕</button></div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:10, marginTop:14 }}>
