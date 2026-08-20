@@ -2,27 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import { loadDatabase, saveDatabase } from '@/lib/database';
-import { formatIDRShort } from '@/lib/format';
 import { onDbChange } from '@/lib/events';
 import { loadSettings, onSettingsChange, type AppSettings } from '@/lib/app-settings';
 import Sidebar, { type AppView } from '@/components/Sidebar';
 import AppHeader from '@/components/AppHeader';
 import HelpModal from '@/components/HelpModal';
 import IdaFab from '@/components/IdaFab';
-import MetricCard from '@/components/MetricCard';
-import ClientDetail from '@/components/ClientDetail';
-import RegionMap from '@/components/RegionMap';
-import DashFilters from '@/components/DashFilters';
 import SystemLogs from '@/components/SystemLogs';
 import OperatingWorkspace from '@/components/OperatingWorkspace';
-import RoleDashboard from '@/components/RoleDashboard';
+import PayrollControlTower from '@/components/PayrollControlTower';
 import DirectoryManager from '@/components/DirectoryManager';
 import ReportsWorkspace from '@/components/ReportsWorkspace';
 import SystemHealthBubble from '@/components/SystemHealthBubble';
 import EmployeeDirectory from '@/components/EmployeeDirectory';
-import WorkforceInsights from '@/components/WorkforceInsights';
-import ClientPortfolio from '@/components/ClientPortfolio';
-import { IconUsers, IconBuilding, IconWallet, IconClock } from '@/components/Icons';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromNeon } from '@/lib/neon-sync';
 import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
@@ -40,7 +32,6 @@ export default function Home() {
   const [actor, setActor] = useState<Actor | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
-  const [employeeRegionFilter, setEmployeeRegionFilter] = useState('ALL');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -121,11 +112,6 @@ export default function Home() {
     window.history.replaceState({}, '', url);
   }
 
-  function openEmployees(region = 'ALL') {
-    setEmployeeRegionFilter(region);
-    navigate('employees');
-  }
-
   if (mounted && authChecked && authRequired) return <LoginScreen />;
 
   if (!mounted || !db || !settings || !authChecked || !actor) {
@@ -135,19 +121,6 @@ export default function Home() {
       </div>
     );
   }
-
-  const empCount = db.employees?.length || 0;
-  const clientCount = db.companies?.length || 0;
-  const projectCount = db.projects?.length || 0;
-  const currentPayroll = db.payrolls?.find((p: any) => p.period === period);
-  const totalNet = currentPayroll?.summary?.totalNet || 0;
-  const outstanding = (db.arMonitor || []).filter((a: any) => a.status === 'OUTSTANDING');
-  const totalOutstanding = outstanding.reduce((s: number, a: any) => s + a.amount, 0);
-
-  const payrollTrend = (db.payrolls || [])
-    .slice()
-    .sort((a: any, b: any) => a.period.localeCompare(b.period))
-    .map((p: any) => p.summary?.totalNet || 0);
 
   const pad = settings.density === 'compact' ? '18px 16px' : '28px 24px';
 
@@ -167,71 +140,11 @@ export default function Home() {
         <div style={{ flex: 1, overflowY: 'auto', padding: pad }}>
           <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
             {view === 'dashboard' && (
-              <section className="dashboard-page">
-                <div className="page-heading dashboard-heading">
-                  <div>
-                    <span className="page-eyebrow">Operational command center</span>
-                    <h1>Ringkasan bisnis</h1>
-                    <p>Data payroll, tenaga kerja, dan kesiapan operasional dalam satu tampilan.</p>
-                  </div>
-                  <DashFilters period={period} availablePeriods={(db.payrolls || []).map((payroll: any) => payroll.period)} onPeriodChange={handlePeriodChange} />
-                </div>
-
-                {settings.showKpis ? <div className="dashboard-metrics">
-                  <MetricCard
-                    label="Karyawan"
-                    value={String(empCount)}
-                    sub={`${clientCount} klien`}
-                    accent="#06b6d4"
-                    icon={<IconUsers />}
-                    sparkData={undefined}
-                    onClick={() => openEmployees()}
-                  />
-                  <MetricCard
-                    label="Klien"
-                    value={String(clientCount)}
-                    sub={`${projectCount} proyek`}
-                    accent="#14b8a6"
-                    icon={<IconBuilding />}
-                    sparkData={undefined}
-                    onClick={() => navigate('clients')}
-                  />
-                  <MetricCard
-                    label="Payroll"
-                    value={formatIDRShort(totalNet)}
-                    sub={currentPayroll ? currentPayroll.status : 'Belum dihitung'}
-                    accent="#5b5ef0"
-                    icon={<IconWallet />}
-                    sparkData={settings.showSparklines && payrollTrend.length > 1 ? payrollTrend : undefined}
-                    onClick={() => navigate('operations')}
-                  />
-                  <MetricCard
-                    label="Piutang"
-                    value={formatIDRShort(totalOutstanding)}
-                    sub={`${outstanding.length} tagihan`}
-                    accent="#f97316"
-                    icon={<IconClock />}
-                    sparkData={undefined}
-                    onClick={() => navigate('reports')}
-                  />
-                </div> : null}
-
-                <div className="dashboard-primary-grid">
-                  {settings.showWorkforceInsights ? <WorkforceInsights employees={db.employees || []} onOpenEmployees={openEmployees} showDataSourceBadge={settings.showDataSourceBadges} /> : null}
-                  <RoleDashboard actor={actor} onNavigate={navigate} />
-                </div>
-
-                <div className="dashboard-secondary-grid">
-                  {settings.showMap ? <RegionMap employees={db.employees} pageSize={settings.dashboardPageSize} onOpenEmployees={openEmployees} /> : null}
-                  {settings.showClientPortfolio ? <ClientPortfolio companies={db.companies || []} employees={db.employees || []} projects={db.projects || []} pageSize={settings.dashboardPageSize} onOpenDirectory={() => navigate('clients')} /> : null}
-                </div>
-
-                {settings.showClientDetail && clientCount > 0 ? <ClientDetail db={db} pageSize={settings.dashboardPageSize} onOpenEmployees={openEmployees} /> : null}
-              </section>
+              <PayrollControlTower actor={actor} period={period} onPeriodChange={handlePeriodChange} onNavigate={navigate} />
             )}
 
             {view === 'employees' && (
-              <EmployeeDirectory employees={db.employees || []} actor={actor} pageSize={settings.employeePageSize} initialRegion={employeeRegionFilter} maskSensitiveData={settings.maskSensitiveData} onChanged={refreshCanonical} />
+              <EmployeeDirectory employees={db.employees || []} actor={actor} pageSize={settings.employeePageSize} initialRegion="ALL" maskSensitiveData={settings.maskSensitiveData} onChanged={refreshCanonical} />
             )}
 
             {view === 'clients' && (
