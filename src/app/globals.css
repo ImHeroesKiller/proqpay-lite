@@ -746,7 +746,7 @@ a:hover { text-decoration: underline; }
 .payroll-review-confirm { display: flex !important; grid-template-columns: auto 1fr; align-items: flex-start; gap: 8px !important; padding: 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-subtle); line-height: 1.5; }
 .payroll-review-confirm input { width: auto; margin-top: 2px; }
 .pi-detail-backdrop { inset: 0; align-items: center; padding: 22px; }
-.pi-detail-modal { display: flex; width: min(1120px, 100%); height: min(880px, calc(100dvh - 44px)); max-height: none; padding: 0; overflow: hidden; border-radius: 20px; }
+.pi-detail-modal { display: flex; flex-direction: column; width: min(1120px, 100%); height: min(880px, calc(100dvh - 44px)); max-height: none; padding: 0; overflow: hidden; border-radius: 20px; }
 .pi-detail-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 20px 24px 17px; border-bottom: 1px solid var(--border); background: var(--bg-surface); }
 .pi-detail-header > div:first-child { min-width: 0; }
 .pi-detail-header span, .pi-section-heading > div > span { color: var(--accent); font-size: 9px; font-weight: 800; letter-spacing: .11em; }
