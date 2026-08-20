@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless';
+import { d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 
 export const SESSION_COOKIE = 'proqpay_session';
 export const ACCOUNT_ROLES = Object.freeze([
@@ -12,10 +12,6 @@ const encoder = new TextEncoder();
 // Keep the KDF inside Cloudflare Pages' CPU budget. Generated passwords carry
 // high entropy, while lockout and mandatory first-login rotation limit guessing.
 const PASSWORD_ITERATIONS = 100_000;
-
-export function databaseUrl(env) {
-  return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
-}
 
 function bytesToBase64Url(bytes) {
   let binary = '';
@@ -88,53 +84,6 @@ export async function verifyPassword(password, user) {
   return constantTimeEqual(candidate, user.password_hash);
 }
 
-export async function ensureAccountSchema(sql) {
-  await sql.query(`CREATE TABLE IF NOT EXISTS app_users (
-    id TEXT PRIMARY KEY,
-    org_id TEXT NOT NULL REFERENCES organizations(id),
-    name TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE,
-    role TEXT NOT NULL CHECK (role IN ('SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER')),
-    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','SUSPENDED','INACTIVE')),
-    password_hash TEXT NOT NULL,
-    password_salt TEXT NOT NULL,
-    password_iterations INT NOT NULL DEFAULT 100000,
-    must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
-    payment_approver BOOLEAN NOT NULL DEFAULT FALSE,
-    created_by TEXT NOT NULL,
-    failed_login_attempts INT NOT NULL DEFAULT 0,
-    locked_until TIMESTAMPTZ,
-    last_login_at TIMESTAMPTZ,
-    password_changed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-  await sql.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_email_lower ON app_users (LOWER(email))`);
-  await sql.query(`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS failed_login_attempts INT NOT NULL DEFAULT 0`);
-  await sql.query(`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ`);
-  await sql.query(`CREATE TABLE IF NOT EXISTS user_client_scopes (
-    user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-    client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (user_id, client_id)
-  )`);
-  await sql.query(`CREATE TABLE IF NOT EXISTS user_project_scopes (
-    user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (user_id, project_id)
-  )`);
-  await sql.query(`CREATE TABLE IF NOT EXISTS app_sessions (
-    token_hash TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-    expires_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`);
-  await sql.query(`CREATE INDEX IF NOT EXISTS idx_app_sessions_user ON app_sessions(user_id)`);
-  await sql.query(`CREATE INDEX IF NOT EXISTS idx_app_sessions_expiry ON app_sessions(expires_at)`);
-}
-
 function cookieValue(request, name) {
   const cookies = String(request.headers.get('Cookie') || '').split(';');
   for (const cookie of cookies) {
@@ -144,23 +93,27 @@ function cookieValue(request, name) {
   return '';
 }
 
-export async function createSession(sql, userId, env) {
+export async function createSession(database, userId, env) {
   const token = randomToken(32);
   const tokenHash = await sha256(token);
   const hours = Math.min(Math.max(Number(env.SESSION_HOURS || 8), 1), 168);
   const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
-  await sql`DELETE FROM app_sessions WHERE expires_at <= NOW()`;
-  await sql`INSERT INTO app_sessions (token_hash, user_id, expires_at)
-    VALUES (${tokenHash}, ${userId}, ${expiresAt.toISOString()})`;
+  await d1Batch(database, [
+    { statement: "DELETE FROM app_sessions WHERE julianday(expires_at) <= julianday('now')" },
+    {
+      statement: 'INSERT INTO app_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)',
+      bindings: [tokenHash, userId, expiresAt.toISOString()],
+    },
+  ]);
   return {
     token,
     cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${hours * 3600}`,
   };
 }
 
-export async function revokeSession(request, sql) {
+export async function revokeSession(request, database) {
   const token = cookieValue(request, SESSION_COOKIE);
-  if (token) await sql`DELETE FROM app_sessions WHERE token_hash=${await sha256(token)}`;
+  if (token) await d1Run(database, 'DELETE FROM app_sessions WHERE token_hash=?', [await sha256(token)]);
 }
 
 export function clearSessionCookie() {
@@ -168,30 +121,32 @@ export function clearSessionCookie() {
 }
 
 export async function authenticateSession(request, env) {
-  const url = databaseUrl(env);
   const token = cookieValue(request, SESSION_COOKIE);
-  if (!url || !token) return null;
-  const sql = neon(url);
-  await sql.query(`CREATE TABLE IF NOT EXISTS user_project_scopes (
-    user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (user_id, project_id)
-  )`);
+  if (!hasD1(env) || !token) return null;
   const tokenHash = await sha256(token);
-  const rows = await sql`
-    SELECT u.id, u.name, u.email, u.role, u.status, u.must_change_password,
-      u.payment_approver, s.expires_at,
-      COALESCE((SELECT array_agg(ucs.client_id) FROM user_client_scopes ucs WHERE ucs.user_id=u.id), ARRAY[]::text[]) AS client_ids,
-      COALESCE((SELECT array_agg(ups.project_id) FROM user_project_scopes ups WHERE ups.user_id=u.id), ARRAY[]::text[]) AS project_ids
-    FROM app_sessions s
-    JOIN app_users u ON u.id=s.user_id
-    WHERE s.token_hash=${tokenHash} AND s.expires_at>NOW() AND u.status='ACTIVE'
-    GROUP BY u.id, s.expires_at
-    LIMIT 1`;
-  if (!rows.length) return null;
-  await sql`UPDATE app_sessions SET last_seen_at=NOW() WHERE token_hash=${tokenHash}`;
-  const user = rows[0];
+  const results = await d1Batch(env.DB, [
+    {
+      statement: `UPDATE app_sessions
+        SET last_seen_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE token_hash=? AND julianday(expires_at)>julianday('now')`,
+      bindings: [tokenHash],
+    },
+    {
+      statement: `SELECT u.id, u.name, u.email, u.role, u.status, u.must_change_password,
+          u.payment_approver, s.expires_at,
+          (SELECT json_group_array(client_id) FROM user_client_scopes WHERE user_id=u.id) AS client_ids,
+          (SELECT json_group_array(project_id) FROM user_project_scopes WHERE user_id=u.id) AS project_ids
+        FROM app_sessions s JOIN app_users u ON u.id=s.user_id
+        WHERE s.token_hash=? AND julianday(s.expires_at)>julianday('now') AND u.status='ACTIVE'
+        LIMIT 1`,
+      bindings: [tokenHash],
+    },
+  ]);
+  const user = results[1]?.results?.[0];
+  if (!user) return null;
+  const parseIds = (value) => {
+    try { return Array.isArray(value) ? value : JSON.parse(value || '[]'); } catch { return []; }
+  };
   return {
     id: user.id,
     name: user.name,
@@ -199,18 +154,14 @@ export async function authenticateSession(request, env) {
     role: user.role,
     mustChangePassword: Boolean(user.must_change_password),
     paymentApprover: Boolean(user.payment_approver),
-    clientIds: user.client_ids || [],
-    projectIds: user.project_ids || [],
-    authSource: 'database',
+    clientIds: parseIds(user.client_ids),
+    projectIds: parseIds(user.project_ids),
+    authSource: 'd1',
   };
 }
 
 export async function hasActiveAccounts(env) {
-  const url = databaseUrl(env);
-  if (!url) return false;
-  const sql = neon(url);
-  const rows = await sql`SELECT EXISTS(
-    SELECT 1 FROM app_users WHERE status='ACTIVE'
-  ) AS configured`;
-  return Boolean(rows[0]?.configured);
+  if (!hasD1(env)) return false;
+  const row = await d1First(env.DB, "SELECT 1 AS configured FROM app_users WHERE status='ACTIVE' LIMIT 1");
+  return Boolean(row?.configured);
 }

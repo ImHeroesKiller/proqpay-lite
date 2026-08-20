@@ -4,12 +4,12 @@ import { readFile } from 'node:fs/promises';
 
 test('paid payroll guard is scoped to employees in the imported file', async () => {
   const source = await readFile(
-    new URL('../functions/api/import.js', import.meta.url),
+    new URL('../functions/api/import-d1.js', import.meta.url),
     'utf8'
   );
 
-  assert.match(source, /jsonb_array_elements/);
-  assert.match(source, /detail->>'employeeId'/);
-  assert.match(source, /= ANY\(\$\{importEmployeeIds\}::text\[\]\)/);
+  assert.match(source, /e\.id IN/);
+  assert.match(source, /ec\.payroll_source_period=\?/);
+  assert.match(source, /s\.state IN \('PAYMENT_INSTRUCTION_READY'/);
   assert.match(source, /LOCKED_PAYROLL_EMPLOYEE_CONFLICT/);
 });

@@ -1,7 +1,9 @@
 'use client';
 
-import SettingsModal from './SettingsModal';
+import dynamic from 'next/dynamic';
 import { IconDashboard, IconUsers, IconBuilding, IconChart, IconSettings, IconTerminal, IconWallet, IconMessage, IconFile } from './Icons';
+
+const SettingsModal = dynamic(() => import('./SettingsModal'));
 
 export type AppView = 'dashboard' | 'operations' | 'exceptions' | 'payments' | 'employees' | 'clients' | 'reports' | 'logs';
 

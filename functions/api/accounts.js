@@ -1,8 +1,8 @@
-import { neon } from '@neondatabase/serverless';
 import {
-  ACCOUNT_ROLES, databaseUrl, ensureAccountSchema, generateTemporaryPassword,
+  ACCOUNT_ROLES, generateTemporaryPassword,
   passwordRecord, validatePassword, verifyPassword,
 } from './_account-auth.js';
+import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import {
   ROLES, authorize, enforceRateLimit, handlePreflight, publicError, secureJson,
 } from './_security.js';
@@ -25,36 +25,39 @@ function validProjectIds(value) {
   return [...new Set(value.map(String).filter(Boolean))].slice(0, 500);
 }
 
-async function replaceClientScopes(sql, userId, clientIds) {
-  await sql.transaction((tx) => [
-    tx`DELETE FROM user_client_scopes WHERE user_id=${userId}`,
-    ...clientIds.map((clientId) => tx`
-      INSERT INTO user_client_scopes (user_id, client_id)
-      SELECT ${userId}, id FROM clients WHERE id=${clientId} AND org_id=${ORG_ID}
-      ON CONFLICT DO NOTHING`),
-  ]);
+function clientScopeOperations(userId, clientIds) {
+  return [
+    { statement: 'DELETE FROM user_client_scopes WHERE user_id=?', bindings: [userId] },
+    ...clientIds.map((clientId) => ({
+      statement: `INSERT OR IGNORE INTO user_client_scopes (user_id, client_id)
+        SELECT ?, id FROM clients WHERE id=? AND org_id=?`,
+      bindings: [userId, clientId, ORG_ID],
+    })),
+  ];
 }
 
-async function replaceProjectScopes(sql, userId, projectIds, clientIds) {
-  await sql.transaction((tx) => [
-    tx`DELETE FROM user_project_scopes WHERE user_id=${userId}`,
-    ...projectIds.map((projectId) => tx`
-      INSERT INTO user_project_scopes (user_id, project_id)
-      SELECT ${userId}, id FROM projects WHERE id=${projectId} AND org_id=${ORG_ID} AND client_id=ANY(${clientIds}::text[])
-      ON CONFLICT DO NOTHING`),
-  ]);
+function projectScopeOperations(userId, projectIds, clientIds) {
+  return [
+    { statement: 'DELETE FROM user_project_scopes WHERE user_id=?', bindings: [userId] },
+    ...projectIds.map((projectId) => ({
+      statement: `INSERT OR IGNORE INTO user_project_scopes (user_id, project_id)
+        SELECT ?, id FROM projects WHERE id=? AND org_id=? AND client_id IN (${clientIds.map(() => '?').join(',')})`,
+      bindings: [userId, projectId, ORG_ID, ...clientIds],
+    })),
+  ];
 }
 
-async function projectScopesAreValid(sql, projectIds, clientIds) {
+async function projectScopesAreValid(database, projectIds, clientIds) {
   if (!projectIds.length) return true;
-  const rows = await sql`SELECT COUNT(*)::int AS count FROM projects
-    WHERE org_id=${ORG_ID} AND id=ANY(${projectIds}::text[]) AND client_id=ANY(${clientIds}::text[])`;
-  return Number(rows[0]?.count || 0) === projectIds.length;
+  const row = await d1First(database, `SELECT COUNT(*) AS count FROM projects
+    WHERE org_id=? AND id IN (${projectIds.map(() => '?').join(',')})
+      AND client_id IN (${clientIds.map(() => '?').join(',')})`, [ORG_ID, ...projectIds, ...clientIds]);
+  return Number(row?.count || 0) === projectIds.length;
 }
 
-async function activeSuperAdminCount(sql) {
-  const rows = await sql`SELECT COUNT(*)::int AS count FROM app_users WHERE role='SUPER_ADMIN' AND status='ACTIVE'`;
-  return Number(rows[0]?.count || 0);
+async function activeSuperAdminCount(database) {
+  const row = await d1First(database, "SELECT COUNT(*) AS count FROM app_users WHERE role='SUPER_ADMIN' AND status='ACTIVE'");
+  return Number(row?.count || 0);
 }
 
 export async function onRequest({ request, env }) {
@@ -68,32 +71,31 @@ export async function onRequest({ request, env }) {
   const limited = await enforceRateLimit(request, env, authorization.actor, 'accounts', METHODS);
   if (limited) return limited;
   const respond = (data, status = 200) => secureJson(data, status, request, env, METHODS);
-  const url = databaseUrl(env);
-  if (!url) return respond({ error: 'Database unavailable' }, 503);
-  const sql = neon(url);
+  if (!hasD1(env)) return respond({ error: 'Cloudflare D1 unavailable' }, 503);
+  const database = env.DB;
   const actor = authorization.actor;
   const requestId = crypto.randomUUID();
 
   try {
-    await ensureAccountSchema(sql);
     if (request.method === 'GET') {
       if (actor.role !== 'SUPER_ADMIN') return respond({ error: 'Insufficient role' }, 403);
       const [users, clients, projects] = await Promise.all([
-        sql`SELECT u.id, u.name, u.email, u.role, u.status, u.must_change_password,
+        d1All(database, `SELECT u.id, u.name, u.email, u.role, u.status, u.must_change_password,
           u.payment_approver, u.last_login_at, u.created_at,
-          COALESCE((SELECT array_agg(ucs.client_id) FROM user_client_scopes ucs WHERE ucs.user_id=u.id), ARRAY[]::text[]) AS client_ids,
-          COALESCE((SELECT array_agg(ups.project_id) FROM user_project_scopes ups WHERE ups.user_id=u.id), ARRAY[]::text[]) AS project_ids
-          FROM app_users u WHERE u.org_id=${ORG_ID} ORDER BY u.created_at ASC`,
-        sql`SELECT id, name FROM clients WHERE org_id=${ORG_ID} ORDER BY name ASC`,
-        sql`SELECT id, client_id, code, name, status FROM projects WHERE org_id=${ORG_ID} ORDER BY name ASC`,
+          (SELECT json_group_array(client_id) FROM user_client_scopes WHERE user_id=u.id) AS client_ids,
+          (SELECT json_group_array(project_id) FROM user_project_scopes WHERE user_id=u.id) AS project_ids
+          FROM app_users u WHERE u.org_id=? ORDER BY u.created_at ASC`, [ORG_ID]),
+        d1All(database, 'SELECT id, name FROM clients WHERE org_id=? ORDER BY name ASC', [ORG_ID]),
+        d1All(database, 'SELECT id, client_id, code, name, status FROM projects WHERE org_id=? ORDER BY name ASC', [ORG_ID]),
       ]);
+      const ids = (value) => { try { return JSON.parse(value || '[]'); } catch { return []; } };
       return respond({
         ok: true,
         users: users.map((user) => ({
           id: user.id, name: user.name, email: user.email, role: user.role,
           status: user.status, mustChangePassword: user.must_change_password,
-          paymentApprover: user.payment_approver, clientIds: user.client_ids || [],
-          projectIds: user.project_ids || [],
+          paymentApprover: Boolean(user.payment_approver), clientIds: ids(user.client_ids),
+          projectIds: ids(user.project_ids),
           lastLoginAt: user.last_login_at, createdAt: user.created_at,
         })),
         clients, projects,
@@ -107,19 +109,19 @@ export async function onRequest({ request, env }) {
       const newPassword = String(body.newPassword || '');
       const problem = validatePassword(newPassword);
       if (problem) return respond({ error: problem }, 422);
-      const rows = await sql`SELECT * FROM app_users WHERE id=${actor.id} LIMIT 1`;
-      if (!rows.length || !(await verifyPassword(String(body.currentPassword || ''), rows[0]))) {
+      const current = await d1First(database, 'SELECT * FROM app_users WHERE id=? LIMIT 1', [actor.id]);
+      if (!current || !(await verifyPassword(String(body.currentPassword || ''), current))) {
         return respond({ error: 'Password saat ini tidak valid' }, 401);
       }
       const record = await passwordRecord(newPassword);
-      await sql.transaction((tx) => [
-        tx`UPDATE app_users SET password_hash=${record.hash}, password_salt=${record.salt},
-          password_iterations=${record.iterations}, must_change_password=FALSE,
-          password_changed_at=NOW(), updated_at=NOW() WHERE id=${actor.id}`,
-        tx`DELETE FROM app_sessions WHERE user_id=${actor.id}`,
-        tx`INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
-          VALUES (${`AUD-${crypto.randomUUID()}`}, ${ORG_ID}, ${actor.email}, ${actor.role}, 'ACCOUNT_PASSWORD_CHANGED',
-            'Password diubah oleh pemilik akun; seluruh sesi dicabut', 'app_user', ${actor.id})`,
+      await d1Batch(database, [
+        { statement: `UPDATE app_users SET password_hash=?, password_salt=?, password_iterations=?,
+          must_change_password=0, password_changed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings: [record.hash, record.salt, record.iterations, actor.id] },
+        { statement: 'DELETE FROM app_sessions WHERE user_id=?', bindings: [actor.id] },
+        { statement: `INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
+          VALUES (?, ?, ?, ?, 'ACCOUNT_PASSWORD_CHANGED', ?, 'app_user', ?)`,
+          bindings: [`AUD-${crypto.randomUUID()}`, ORG_ID, actor.email, actor.role, 'Password diubah oleh pemilik akun; seluruh sesi dicabut', actor.id] },
       ]);
       return respond({ ok: true, sessionRevoked: true });
     }
@@ -134,71 +136,77 @@ export async function onRequest({ request, env }) {
       const clientIds = role === 'CLIENT_USER' ? validClientIds(body.clientIds) : [];
       const projectIds = role === 'CLIENT_USER' ? validProjectIds(body.projectIds) : [];
       if (role === 'CLIENT_USER' && !clientIds.length) return respond({ error: 'CLIENT_USER wajib memiliki minimal satu client scope' }, 422);
-      if (!await projectScopesAreValid(sql, projectIds, clientIds)) return respond({ error: 'Project scope harus berasal dari klien yang dipilih' }, 422);
+      if (!await projectScopesAreValid(database, projectIds, clientIds)) return respond({ error: 'Project scope harus berasal dari klien yang dipilih' }, 422);
       const password = generateTemporaryPassword();
       const record = await passwordRecord(password);
       const id = `USR-${crypto.randomUUID()}`;
-      await sql`INSERT INTO app_users
-        (id, org_id, name, email, role, status, password_hash, password_salt, password_iterations,
-          must_change_password, payment_approver, created_by)
-        VALUES (${id}, ${ORG_ID}, ${name}, ${email}, ${role}, 'ACTIVE', ${record.hash}, ${record.salt},
-          ${record.iterations}, TRUE, ${role === 'PAYROLL_CONTROLLER' && Boolean(body.paymentApprover)}, ${actor.email})`;
-      await replaceClientScopes(sql, id, clientIds);
-      await replaceProjectScopes(sql, id, projectIds, clientIds);
-      await sql`INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
-        VALUES (${`AUD-${crypto.randomUUID()}`}, ${ORG_ID}, ${actor.email}, ${actor.role}, 'ACCOUNT_CREATED',
-          ${`${email} · ${role}`}, 'app_user', ${id})`;
+      await d1Batch(database, [
+        { statement: `INSERT INTO app_users
+          (id, org_id, name, email, role, status, password_hash, password_salt, password_iterations,
+            must_change_password, payment_approver, created_by)
+          VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, 1, ?, ?)`,
+          bindings: [id, ORG_ID, name, email, role, record.hash, record.salt, record.iterations, role === 'PAYROLL_CONTROLLER' && Boolean(body.paymentApprover) ? 1 : 0, actor.email] },
+        ...clientScopeOperations(id, clientIds),
+        ...projectScopeOperations(id, projectIds, clientIds),
+        { statement: `INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
+          VALUES (?, ?, ?, ?, 'ACCOUNT_CREATED', ?, 'app_user', ?)`,
+          bindings: [`AUD-${crypto.randomUUID()}`, ORG_ID, actor.email, actor.role, `${email} · ${role}`, id] },
+      ]);
       return respond({ ok: true, user: { id, name, email, role, status: 'ACTIVE', clientIds, projectIds }, temporaryPassword: password }, 201);
     }
 
     if (body.action === 'UPDATE') {
       const userId = String(body.userId || '');
-      const existing = (await sql`SELECT * FROM app_users WHERE id=${userId} AND org_id=${ORG_ID} LIMIT 1`)[0];
+      const existing = await d1First(database, 'SELECT * FROM app_users WHERE id=? AND org_id=? LIMIT 1', [userId, ORG_ID]);
       if (!existing) return respond({ error: 'User tidak ditemukan' }, 404);
       const role = String(body.role || existing.role).toUpperCase();
       const status = String(body.status || existing.status).toUpperCase();
       if (!ACCOUNT_ROLES.includes(role) || !['ACTIVE', 'SUSPENDED', 'INACTIVE'].includes(status)) return respond({ error: 'Role atau status tidak valid' }, 422);
-      if (existing.role === 'SUPER_ADMIN' && existing.status === 'ACTIVE' && (role !== 'SUPER_ADMIN' || status !== 'ACTIVE') && await activeSuperAdminCount(sql) <= 1) {
+      if (existing.role === 'SUPER_ADMIN' && existing.status === 'ACTIVE' && (role !== 'SUPER_ADMIN' || status !== 'ACTIVE') && await activeSuperAdminCount(database) <= 1) {
         return respond({ error: 'Super Admin aktif terakhir tidak boleh dinonaktifkan atau diturunkan' }, 409);
       }
       const name = String(body.name || existing.name).trim().slice(0, 120);
       const clientIds = role === 'CLIENT_USER' ? validClientIds(body.clientIds) : [];
       const projectIds = role === 'CLIENT_USER' ? validProjectIds(body.projectIds) : [];
       if (role === 'CLIENT_USER' && !clientIds.length) return respond({ error: 'CLIENT_USER wajib memiliki minimal satu client scope' }, 422);
-      if (!await projectScopesAreValid(sql, projectIds, clientIds)) return respond({ error: 'Project scope harus berasal dari klien yang dipilih' }, 422);
-      await sql`UPDATE app_users SET name=${name}, role=${role}, status=${status},
-        payment_approver=${role === 'PAYROLL_CONTROLLER' && Boolean(body.paymentApprover)}, updated_at=NOW()
-        WHERE id=${userId}`;
-      await replaceClientScopes(sql, userId, clientIds);
-      await replaceProjectScopes(sql, userId, projectIds, clientIds);
-      if (status !== 'ACTIVE' || role !== existing.role) await sql`DELETE FROM app_sessions WHERE user_id=${userId}`;
-      await sql`INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
-        VALUES (${`AUD-${crypto.randomUUID()}`}, ${ORG_ID}, ${actor.email}, ${actor.role}, 'ACCOUNT_UPDATED',
-          ${`${existing.email} · ${role} · ${status}`}, 'app_user', ${userId})`;
+      if (!await projectScopesAreValid(database, projectIds, clientIds)) return respond({ error: 'Project scope harus berasal dari klien yang dipilih' }, 422);
+      await d1Batch(database, [
+        { statement: `UPDATE app_users SET name=?, role=?, status=?, payment_approver=?,
+          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,
+          bindings: [name, role, status, role === 'PAYROLL_CONTROLLER' && Boolean(body.paymentApprover) ? 1 : 0, userId] },
+        ...clientScopeOperations(userId, clientIds),
+        ...projectScopeOperations(userId, projectIds, clientIds),
+        ...(status !== 'ACTIVE' || role !== existing.role
+          ? [{ statement: 'DELETE FROM app_sessions WHERE user_id=?', bindings: [userId] }]
+          : []),
+        { statement: `INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
+          VALUES (?, ?, ?, ?, 'ACCOUNT_UPDATED', ?, 'app_user', ?)`,
+          bindings: [`AUD-${crypto.randomUUID()}`, ORG_ID, actor.email, actor.role, `${existing.email} · ${role} · ${status}`, userId] },
+      ]);
       return respond({ ok: true });
     }
 
     if (body.action === 'RESET_PASSWORD') {
       const userId = String(body.userId || '');
-      const user = (await sql`SELECT id FROM app_users WHERE id=${userId} AND org_id=${ORG_ID} LIMIT 1`)[0];
+      const user = await d1First(database, 'SELECT id FROM app_users WHERE id=? AND org_id=? LIMIT 1', [userId, ORG_ID]);
       if (!user) return respond({ error: 'User tidak ditemukan' }, 404);
       const password = generateTemporaryPassword();
       const record = await passwordRecord(password);
-      await sql.transaction((tx) => [
-        tx`UPDATE app_users SET password_hash=${record.hash}, password_salt=${record.salt},
-          password_iterations=${record.iterations}, must_change_password=TRUE,
-          failed_login_attempts=0, locked_until=NULL, updated_at=NOW() WHERE id=${userId}`,
-        tx`DELETE FROM app_sessions WHERE user_id=${userId}`,
-        tx`INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
-          VALUES (${`AUD-${crypto.randomUUID()}`}, ${ORG_ID}, ${actor.email}, ${actor.role}, 'ACCOUNT_PASSWORD_RESET',
-            'Password sementara dibuat; seluruh sesi user dicabut', 'app_user', ${userId})`,
+      await d1Batch(database, [
+        { statement: `UPDATE app_users SET password_hash=?, password_salt=?, password_iterations=?,
+          must_change_password=1, failed_login_attempts=0, locked_until=NULL,
+          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings: [record.hash, record.salt, record.iterations, userId] },
+        { statement: 'DELETE FROM app_sessions WHERE user_id=?', bindings: [userId] },
+        { statement: `INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
+          VALUES (?, ?, ?, ?, 'ACCOUNT_PASSWORD_RESET', ?, 'app_user', ?)`,
+          bindings: [`AUD-${crypto.randomUUID()}`, ORG_ID, actor.email, actor.role, 'Password sementara dibuat; seluruh sesi user dicabut', userId] },
       ]);
       return respond({ ok: true, temporaryPassword: password });
     }
 
     return respond({ error: 'Action tidak dikenal' }, 422);
   } catch (error) {
-    if (String(error?.message || '').includes('idx_app_users_email_lower') || String(error?.message || '').includes('app_users_email_key')) {
+    if (String(error?.message || '').includes('UNIQUE constraint failed: app_users.email')) {
       return respond({ error: 'Email sudah digunakan' }, 409);
     }
     return respond(publicError(error, requestId), 500);

@@ -1,227 +1,82 @@
-import { neon } from '@neondatabase/serverless';
+import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 
-function getUrl(env) {
-  return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
-}
-
-const KNOWLEDGE = [
-  {
-    id: 'flow-payroll',
-    tags: ['payroll', 'hitung', 'approval', 'payment', 'alur', 'flow'],
-    text: 'Alur payroll ProQPay: DRAFT → CALCULATED (hitung payroll) → APPROVED (ajukan approval) → PAYMENT_INSTRUCTION (buat payment instruction) → PAID. Dashboard visualisasi; aksi utama lewat IDA.',
-  },
-  {
-    id: 'margin',
-    tags: ['margin', 'laba', 'profit', 'invoice', 'revenue'],
-    text: 'Margin outsourcing = total invoice ke client − total payroll net. Jika invoice belum terbit, revenue hanya boleh dihitung dari billing rule client yang tersimpan dan masih efektif; tanpa rule, perhitungan harus dihentikan.',
-  },
-  {
-    id: 'umr',
-    tags: ['umr', 'umk', 'gaji minimum', 'upah'],
-    text: 'UMR dipakai per kota/provinsi penempatan. Mapping lokasi→provinsi via modul wilayah IDA. Contoh 2025: DKI 5.396.761, Jabar 2.049.324, Jatim 2.246.100, Sumut ikut cabang Medan.',
-  },
-  {
-    id: 'import',
-    tags: ['import', 'excel', 'upload', 'hris', 'iap'],
-    text: 'Import HRIS: upload xlsx di dashboard → parse kolom IAP → identifyProvince(lokasi,cabang,kotaUMK) → POST /api/import ke Neon (employees + related tables).',
-  },
-  {
-    id: 'bpjs-pph',
-    tags: ['bpjs', 'pph', 'potongan', 'pajak'],
-    text: 'Potongan karyawan tipikal: BPJS Kesehatan 1% employee, BPJS TK 2% employee, PPh21 progresif (estimasi TER sederhana di engine lokal).',
-  },
-  {
-    id: 'status-karyawan',
-    tags: ['kontrak', 'berhenti', 'pkwt', 'status'],
-    text: 'Status dari HRIS: Kontrak, Kontrak selesai, Berhenti atas permintaan sendiri, dll. Filter aktif biasanya Status Pegawai = Kontrak.',
-  },
+const KNOWLEDGE=[
+  {id:'flow-payroll',tags:['payroll','hitung','approval','payment','alur','flow'],text:'Alur payroll ProQPay memakai payroll submission terkontrol, validasi, review processor, review controller, Payment Instruction immutable, maker-checker approval, proof, dan reconciliation.'},
+  {id:'margin',tags:['margin','laba','profit','invoice','revenue'],text:'Margin outsourcing = invoice client dikurangi biaya payroll. Revenue hanya dihitung dari billing rule aktif; tanpa rule, perhitungan harus dihentikan.'},
+  {id:'umr',tags:['umr','umk','gaji minimum','upah'],text:'UMR/UMK harus mengikuti lokasi penempatan dan periode regulasi yang berlaku. Evidence lokasi dan tahun wajib disebutkan.'},
+  {id:'import',tags:['import','excel','upload','hris'],text:'Import HRIS diparsing di aplikasi, divalidasi, lalu ditulis atomically ke Cloudflare D1 beserta submission payroll dan audit trail.'},
+  {id:'bpjs-pph',tags:['bpjs','pph','potongan','pajak'],text:'BPJS dan PPh21 harus dihitung deterministik berdasarkan konfigurasi dan regulasi periode terkait; IDA tidak boleh mengarang nilai.'},
 ];
-
-function scoreDoc(q, doc) {
-  const t = q.toLowerCase();
-  let s = 0;
-  for (const tag of doc.tags) if (t.includes(tag)) s += 2;
-  for (const w of t.split(/\s+/)) if (w.length > 3 && doc.text.toLowerCase().includes(w)) s += 1;
-  return s;
+function score(q,doc) { const text=q.toLowerCase();let value=0;for(const tag of doc.tags) if(text.includes(tag)) value+=2;for(const word of text.split(/\s+/)) if(word.length>3&&doc.text.toLowerCase().includes(word)) value+=1;return value; }
+function scope(actor,column='client_id') {
+  const ids=actor?.role==='CLIENT_USER'&&Array.isArray(actor.clientIds)?actor.clientIds.map(String):[];
+  if (actor?.role!=='CLIENT_USER') return {sql:'',bindings:[]};
+  if (!ids.length) return {sql:' AND 1=0',bindings:[]};
+  return {sql:` AND ${column} IN (${ids.map(()=>'?').join(',')})`,bindings:ids};
 }
 
-export async function retrieveRag(env, userText, limit = 6, actor = null) {
-  const q = (userText || '').toLowerCase();
-  const chunks = [];
-
-  // 1) Knowledge base
-  const docs = KNOWLEDGE.map((d) => ({ ...d, score: scoreDoc(q, d) }))
-    .filter((d) => d.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
-  for (const d of docs) chunks.push({ source: 'knowledge', id: d.id, text: d.text });
-
-  // 2) Neon live data
-  const url = getUrl(env);
-  if (!url) {
-    chunks.push({ source: 'system', text: 'DATABASE_URL belum terhubung — RAG DB offline.' });
-    return chunks.slice(0, limit);
-  }
-
+export async function retrieveRag(env,userText,limit=6,actor=null) {
+  const q=String(userText||'').toLowerCase(),chunks=KNOWLEDGE.map((doc)=>({...doc,score:score(q,doc)})).filter((doc)=>doc.score>0)
+    .sort((a,b)=>b.score-a.score).slice(0,3).map((doc)=>({source:'knowledge',id:doc.id,text:doc.text}));
+  if (!hasD1(env)) return [...chunks,{source:'system',text:'Cloudflare D1 belum terhubung — RAG DB offline.'}].slice(0,limit);
   try {
-    const sql = neon(url);
-    const scopedToClient = actor?.role === 'CLIENT_USER';
-    const clientScopeCsv = (Array.isArray(actor?.clientIds) ? actor.clientIds : []).map(String).join(',');
-
+    const employeeScope=scope(actor,'client_id'),clientScope=scope(actor,'id');
     if (/karyawan|pegawai|employee|nrk|berapa orang|headcount/.test(q)) {
-      const stats = await sql`
-        SELECT status_aktif, province, COUNT(*)::int AS n
-        FROM employees
-        WHERE ${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ','))
-        GROUP BY status_aktif, province
-        ORDER BY n DESC
-        LIMIT 20
-      `;
-      const total = await sql`SELECT COUNT(*)::int AS n FROM employees
-        WHERE ${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ','))`;
-      chunks.push({
-        source: 'db',
-        id: 'emp-stats',
-        text: `DB employees total=${total[0]?.n || 0}. Breakdown: ${JSON.stringify(stats).slice(0, 900)}`,
-      });
+      const stats=await d1All(env.DB,`SELECT status_aktif,province,COUNT(*) AS n FROM employees WHERE 1=1${employeeScope.sql}
+        GROUP BY status_aktif,province ORDER BY n DESC LIMIT 20`,employeeScope.bindings);
+      const total=await d1First(env.DB,`SELECT COUNT(*) AS n FROM employees WHERE 1=1${employeeScope.sql}`,employeeScope.bindings);
+      chunks.push({source:'db',id:'emp-stats',text:`D1 employees total=${total?.n||0}. Breakdown: ${JSON.stringify(stats).slice(0,900)}`});
     }
-
-    if (/provinsi|wilayah|cabang|lokasi|medan|denpasar|bandung|map/.test(q)) {
-      const byProv = await sql`
-        SELECT province, COUNT(*)::int AS n
-        FROM employees
-        WHERE province IS NOT NULL
-          AND (${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ',')))
-        GROUP BY province
-        ORDER BY n DESC
-        LIMIT 15
-      `;
-      chunks.push({
-        source: 'db',
-        id: 'by-province',
-        text: `Karyawan per provinsi: ${JSON.stringify(byProv)}`,
-      });
+    if (/provinsi|wilayah|cabang|lokasi|map/.test(q)) {
+      const rows=await d1All(env.DB,`SELECT province,COUNT(*) AS n FROM employees WHERE province IS NOT NULL${employeeScope.sql}
+        GROUP BY province ORDER BY n DESC LIMIT 15`,employeeScope.bindings);
+      chunks.push({source:'db',id:'by-province',text:`Karyawan per provinsi: ${JSON.stringify(rows)}`});
     }
-
-    if (/margin|invoice|laba|revenue|outstanding|ar |piutang/.test(q)) {
-      const inv = await sql`
-        SELECT period, status, SUM(total_amount)::bigint AS total, COUNT(*)::int AS n
-        FROM invoices
-        WHERE ${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ','))
-        GROUP BY period, status ORDER BY period DESC LIMIT 10
-      `;
-      chunks.push({ source: 'db', id: 'invoices', text: `Invoices: ${JSON.stringify(inv)}` });
+    if (/margin|invoice|laba|revenue|outstanding|piutang/.test(q)) {
+      const invoiceScope=scope(actor,'client_id');
+      const rows=await d1All(env.DB,`SELECT period,status,SUM(total_amount) AS total,COUNT(*) AS n FROM invoices
+        WHERE 1=1${invoiceScope.sql} GROUP BY period,status ORDER BY period DESC LIMIT 10`,invoiceScope.bindings);
+      chunks.push({source:'db',id:'invoices',text:`Invoices: ${JSON.stringify(rows)}`});
     }
-
     if (/payroll|gaji|net|gross|periode/.test(q)) {
-      if (!scopedToClient) {
-        const pays = await sql`
-          SELECT period, status, total_net, total_gross, employee_count
-          FROM payrolls ORDER BY period DESC LIMIT 8
-        `;
-        chunks.push({ source: 'db', id: 'payrolls', text: `Payrolls: ${JSON.stringify(pays)}` });
-      } else {
-        chunks.push({ source: 'system', id: 'payroll-scope', text: 'Ringkasan payroll legacy tidak memiliki client scope dan tidak dibuka untuk CLIENT_USER.' });
-      }
+      const submissionScope=scope(actor,'s.client_id');
+      const rows=await d1All(env.DB,`SELECT s.period,s.state AS status,s.client_id,
+        COALESCE((SELECT SUM(ec.imported_net) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+          WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id) AND ec.payroll_source_period=s.period),0) AS total_net,
+        COALESCE((SELECT COUNT(*) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+          WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id) AND ec.payroll_source_period=s.period),0) AS employee_count
+        FROM payroll_submissions s WHERE 1=1${submissionScope.sql} ORDER BY s.period DESC,s.created_at DESC LIMIT 8`,submissionScope.bindings);
+      chunks.push({source:'db',id:'payrolls',text:`Payroll submissions: ${JSON.stringify(rows)}`});
     }
-
-    // name search
-    const nameMatch = userText.match(/(?:karyawan|pegawai|nrk|cari)\s+([A-Za-z. ]{3,40})/i);
-    if (nameMatch) {
-      const key = `%${nameMatch[1].trim()}%`;
-      const found = await sql`
-        SELECT id, name, status_aktif, province, branch_id
-        FROM employees
-        WHERE (name ILIKE ${key} OR id ILIKE ${key})
-          AND (${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ',')))
-        LIMIT 8
-      `;
-      if (found.length) {
-        chunks.push({ source: 'db', id: 'emp-search', text: `Hasil cari: ${JSON.stringify(found)}` });
-      }
+    const name=userText.match(/(?:karyawan|pegawai|nrk|cari)\s+([A-Za-z. ]{3,40})/i);
+    if (name) {
+      const key=`%${name[1].trim()}%`;
+      const rows=await d1All(env.DB,`SELECT id,name,status_aktif,province,branch_id FROM employees
+        WHERE (name LIKE ? COLLATE NOCASE OR id LIKE ? COLLATE NOCASE)${employeeScope.sql} LIMIT 8`,[key,key,...employeeScope.bindings]);
+      if(rows.length) chunks.push({source:'db',id:'emp-search',text:`Hasil cari: ${JSON.stringify(rows)}`});
     }
-
-    // always small org snapshot
-    const snap = await sql`SELECT COUNT(*)::int AS emp FROM employees
-      WHERE ${!scopedToClient} OR client_id = ANY(string_to_array(${clientScopeCsv}, ','))`;
-    const cli = await sql`SELECT COUNT(*)::int AS n FROM clients
-      WHERE ${!scopedToClient} OR id = ANY(string_to_array(${clientScopeCsv}, ','))`;
-    chunks.push({
-      source: 'db',
-      id: 'snapshot',
-      text: `Snapshot Neon: ${snap[0]?.emp || 0} employees, ${cli[0]?.n || 0} clients.`,
-    });
-  } catch {
-    chunks.push({ source: 'system', text: 'RAG database sementara tidak tersedia.' });
-  }
-
-  return chunks.slice(0, limit);
+    const employeeCount=await d1First(env.DB,`SELECT COUNT(*) AS n FROM employees WHERE 1=1${employeeScope.sql}`,employeeScope.bindings);
+    const clients=await d1First(env.DB,`SELECT COUNT(*) AS n FROM clients WHERE 1=1${clientScope.sql}`,clientScope.bindings);
+    chunks.push({source:'db',id:'snapshot',text:`Snapshot D1: ${employeeCount?.n||0} employees, ${clients?.n||0} clients.`});
+  } catch { chunks.push({source:'system',text:'RAG D1 sementara tidak tersedia.'}); }
+  return chunks.slice(0,limit);
 }
 
-export async function loadMemory(env, sessionId, limit = 12) {
-  const url = getUrl(env);
-  if (!url || !sessionId) return [];
-  try {
-    const sql = neon(url);
-    await sql.query(`CREATE TABLE IF NOT EXISTS ida_messages (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    )`);
-    await sql.query(`CREATE TABLE IF NOT EXISTS ida_memories (
-      id TEXT PRIMARY KEY,
-      session_id TEXT,
-      fact TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    )`);
-    const rows = await sql`
-      SELECT role, content FROM ida_messages
-      WHERE session_id = ${sessionId}
-      ORDER BY created_at DESC LIMIT ${limit}
-    `;
-    return rows.reverse();
-  } catch {
-    return [];
-  }
+export async function loadMemory(env,sessionId,limit=12) {
+  if (!hasD1(env)||!sessionId) return [];
+  try { return (await d1All(env.DB,'SELECT role,content FROM ida_messages WHERE session_id=? ORDER BY created_at DESC LIMIT ?',[sessionId,limit])).reverse(); }
+  catch { return []; }
 }
-
-export async function saveMemory(env, sessionId, role, content) {
-  const url = getUrl(env);
-  if (!url || !sessionId || !content) return;
+export async function saveMemory(env,sessionId,role,content) {
+  if (!hasD1(env)||!sessionId||!content) return;
   try {
-    const sql = neon(url);
-    const id = `MSG-${crypto.randomUUID()}`;
-    await sql`
-      INSERT INTO ida_messages (id, session_id, role, content)
-      VALUES (${id}, ${sessionId}, ${role}, ${String(content).slice(0, 4000)})
-    `;
-    // extract simple long-term facts
-    if (role === 'user' && /ingat|remember|preferensi|saya ingin/i.test(content)) {
-      const fid = `FACT-${crypto.randomUUID()}`;
-      await sql`
-        INSERT INTO ida_memories (id, session_id, fact)
-        VALUES (${fid}, ${sessionId}, ${String(content).slice(0, 500)})
-      `;
-    }
-  } catch {
-    /* ignore */
-  }
+    const operations=[{statement:'INSERT INTO ida_messages(id,session_id,role,content) VALUES(?,?,?,?)',bindings:[`MSG-${crypto.randomUUID()}`,sessionId,role,String(content).slice(0,4000)]}];
+    if(role==='user'&&/ingat|remember|preferensi|saya ingin/i.test(content)) operations.push({statement:'INSERT INTO ida_memories(id,session_id,fact) VALUES(?,?,?)',bindings:[`FACT-${crypto.randomUUID()}`,sessionId,String(content).slice(0,500)]});
+    await d1Batch(env.DB,operations);
+  } catch { /* memory is non-critical */ }
 }
-
-export async function loadFacts(env, sessionId, limit = 8) {
-  const url = getUrl(env);
-  if (!url) return [];
-  try {
-    const sql = neon(url);
-    const rows = await sql`
-      SELECT fact FROM ida_memories
-      WHERE session_id = ${sessionId} OR session_id IS NULL
-      ORDER BY created_at DESC LIMIT ${limit}
-    `;
-    return rows.map((r) => r.fact);
-  } catch {
-    return [];
-  }
+export async function loadFacts(env,sessionId,limit=8) {
+  if (!hasD1(env)) return [];
+  try { return (await d1All(env.DB,'SELECT fact FROM ida_memories WHERE session_id=? OR session_id IS NULL ORDER BY created_at DESC LIMIT ?',[sessionId,limit])).map((row)=>row.fact); }
+  catch { return []; }
 }

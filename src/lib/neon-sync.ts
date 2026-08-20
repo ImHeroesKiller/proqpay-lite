@@ -45,7 +45,7 @@ function projectsFromEmployees(employees: any[]) {
 }
 
 export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
-  const [response, stateResponse, directoryResponse] = await Promise.all([
+  const [response, stateResponse, directoryResponse, planResponse] = await Promise.all([
     fetch('/api/employees', {
       method: 'GET',
       headers: { Accept: 'application/json' },
@@ -61,24 +61,25 @@ export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
       headers: { Accept: 'application/json' },
       signal: options.signal,
     }).catch(() => null),
+    fetch('/api/operating-model?resource=service-plans', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: options.signal,
+    }).catch(() => null),
   ]);
-  const [data, stateData, directoryData] = await Promise.all([
+  const [data, stateData, directoryData, planData] = await Promise.all([
     response.json().catch(() => ({})),
     stateResponse.json().catch(() => ({})),
     directoryResponse?.json().catch(() => ({})) || {},
+    planResponse?.json().catch(() => ({})) || {},
   ]);
   if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
 
   const employees = Array.isArray(data.employees) ? data.employees : [];
   const directory = directoryData as any;
-  let servicePlans: any[] = [];
-  try {
-    const planResponse = await fetch('/api/operating-model?resource=service-plans', { signal: options.signal });
-    const planData = await planResponse.json().catch(() => ({}));
-    if (planResponse.ok && Array.isArray(planData.servicePlans)) servicePlans = planData.servicePlans;
-  } catch {
-    servicePlans = [];
-  }
+  const servicePlans = planResponse?.ok && Array.isArray((planData as any).servicePlans)
+    ? (planData as any).servicePlans
+    : [];
   const derivedCompanies = companiesFromEmployees(employees);
   const directoryClients = Array.isArray(directory.clients) ? directory.clients : [];
   const companies = directoryClients.length

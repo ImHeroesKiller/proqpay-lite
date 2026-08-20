@@ -1,71 +1,53 @@
-import { neon } from '@neondatabase/serverless';
 import { handlePreflight, publicError, secureJson } from './_security.js';
+import { d1First, hasD1 } from './_d1.js';
 
 const METHODS = 'GET, OPTIONS';
-const AI_KEYS = ['GEMINI_WORKER_1','GEMINI_WORKER_2','GEMINI_WORKER_3','GEMINI_WORKER_4','GEMINI_WORKER_5'];
-
-function getUrl(env) {
-  return env.DATABASE_URL || env.NETLIFY_DB_URL || env.NETLIFY_DATABASE_URL || env.POSTGRES_URL || env.NEON_DATABASE_URL || null;
-}
-
-function check(key, label, status, message, action) {
-  return { key, label, status, message, ...(action ? { action } : {}) };
-}
+const check = (key, label, status, message, action) => ({ key, label, status, message, ...(action ? { action } : {}) });
 
 export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
   if (request.method !== 'GET') return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
 
-  const requestId = crypto.randomUUID();
   const checks = [];
-  const storageReady = Boolean(env.PAYMENT_PROOFS?.put && env.PAYMENT_PROOFS?.get);
-  checks.push(storageReady
-    ? check('payment_proofs','Penyimpanan bukti bayar','ok','R2 terhubung.')
-    : check('payment_proofs','Penyimpanan bukti bayar','error','Upload dan unduh bukti pembayaran belum tersedia.','Tambahkan R2 binding PAYMENT_PROOFS pada Production dan Preview, lalu redeploy.'));
-  const piEncryptionReady = Boolean(env.PI_ENCRYPTION_KEY && String(env.PI_ENCRYPTION_KEY).length >= 32);
-  checks.push(piEncryptionReady
-    ? check('pi_encryption','Enkripsi Payment Instruction','ok','Snapshot rekening PI menggunakan AES-256-GCM.')
-    : check('pi_encryption','Enkripsi Payment Instruction','error','PI baru dan file bank diblokir karena encryption key belum tersedia.','Tambahkan secret PI_ENCRYPTION_KEY minimal 32 karakter lalu redeploy.'));
-
-  const aiReady = AI_KEYS.some((name) => Boolean(env[name]));
-  checks.push(aiReady
-    ? check('ida_ai','IDA AI','ok','Minimal satu Gemini worker tersedia.')
-    : check('ida_ai','IDA AI','warning','Fallback AI generatif belum dikonfigurasi.','Tambahkan minimal GEMINI_WORKER_1 sebagai secret Production.'));
-
-  checks.push(env.TAVILY_API_KEY
-    ? check('ida_web','IDA Web Search','ok','DuckDuckGo aktif dengan fallback Tavily.')
-    : check('ida_web','IDA Web Search','warning','DuckDuckGo aktif, tetapi fallback Tavily belum dikonfigurasi.','Tambahkan TAVILY_API_KEY sebagai secret Production agar pencarian otomatis memiliki fallback.'));
+  const proofBucket = env.FILES || env.PAYMENT_PROOFS;
+  checks.push(proofBucket?.put && proofBucket?.get
+    ? check('payment_proofs', 'Penyimpanan bukti bayar', 'ok', 'R2 terhubung.')
+    : check('payment_proofs', 'Penyimpanan bukti bayar', 'error', 'R2 belum tersedia.', 'Tambahkan binding R2 FILES lalu redeploy.'));
+  checks.push(env.PI_ENCRYPTION_KEY && String(env.PI_ENCRYPTION_KEY).length >= 32
+    ? check('pi_encryption', 'Enkripsi Payment Instruction', 'ok', 'AES-256-GCM siap digunakan.')
+    : check('pi_encryption', 'Enkripsi Payment Instruction', 'error', 'PI baru dan bank file diblokir.', 'Tambahkan secret PI_ENCRYPTION_KEY minimal 32 karakter.'));
+  checks.push(env.AI?.run
+    ? check('ida_ai', 'IDA AI', 'ok', 'Cloudflare Workers AI terhubung.')
+    : check('ida_ai', 'IDA AI', 'warning', 'Binding Workers AI belum tersedia.', 'Tambahkan binding AI lalu redeploy.'));
 
   const authMode = String(env.AUTH_MODE || 'origin').toLowerCase();
   const accessReady = authMode !== 'access' || Boolean(env.CF_ACCESS_TEAM_DOMAIN && env.CF_ACCESS_AUD);
   checks.push(accessReady
-    ? check('authentication','Autentikasi','ok',authMode === 'access' ? 'Cloudflare Access terhubung.' : 'Mode login aplikasi aktif.')
-    : check('authentication','Autentikasi','error','Cloudflare Access dipilih tetapi konfigurasinya belum lengkap.','Isi CF_ACCESS_TEAM_DOMAIN dan CF_ACCESS_AUD.'));
+    ? check('authentication', 'Autentikasi', 'ok', authMode === 'access' ? 'Cloudflare Access terhubung.' : 'Mode login aplikasi aktif.')
+    : check('authentication', 'Autentikasi', 'error', 'Cloudflare Access belum lengkap.', 'Isi CF_ACCESS_TEAM_DOMAIN dan CF_ACCESS_AUD.'));
 
-  const url = getUrl(env);
-  if (!url) {
-    checks.unshift(check('database','Database','error','Koneksi database belum dikonfigurasi.','Tambahkan DATABASE_URL pada Production.'));
-    return secureJson({ status:'error', ready:false, service:'proqpay-lite', checks, requestId }, 503, request, env, METHODS);
+  if (!hasD1(env)) {
+    checks.unshift(check('database', 'Database', 'error', 'Binding D1 DB tidak tersedia.', 'Tambahkan binding D1 bernama DB lalu redeploy.'));
+    return secureJson({ status: 'error', ready: false, database: 'd1', service: 'proqpay-lite', checks }, 503, request, env, METHODS);
   }
-
+  const requestId = crypto.randomUUID();
   try {
-    const sql = neon(url);
-    const rows = await sql`SELECT 1 AS ok, NOW() AS server_time`;
-    checks.unshift(check('database','Database','ok','Neon PostgreSQL terhubung.'));
+    const row = await d1First(env.DB, "SELECT 1 AS ok, datetime('now') AS server_time");
+    checks.unshift(check('database', 'Database', 'ok', 'Cloudflare D1 terhubung.'));
     const hasError = checks.some((item) => item.status === 'error');
     const hasWarning = checks.some((item) => item.status === 'warning');
     return secureJson({
       status: hasError ? 'error' : hasWarning ? 'degraded' : 'ok',
       ready: !hasError,
-      database: 'connected',
-      server_time: rows[0]?.server_time,
+      database: 'd1',
+      server_time: row?.server_time,
       service: 'proqpay-lite',
       host: 'cloudflare-pages',
       auth_mode: authMode === 'access' ? 'access' : 'origin',
       checks,
     }, 200, request, env, METHODS);
   } catch (error) {
-    checks.unshift(check('database','Database','error','Database tidak dapat dihubungi.','Periksa DATABASE_URL dan status Neon.'));
-    return secureJson({ ...publicError(error, requestId), ready:false, service:'proqpay-lite', checks }, 503, request, env, METHODS);
+    checks.unshift(check('database', 'Database', 'error', 'Cloudflare D1 tidak dapat dihubungi.', 'Periksa binding DB dan migration D1.'));
+    return secureJson({ ...publicError(error, requestId), ready: false, service: 'proqpay-lite', checks }, 503, request, env, METHODS);
   }
 }

@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless';
+import { d1Batch, d1First, hasD1 } from './_d1.js';
 import {
   authorize, enforceRateLimit, handlePreflight, publicError, secureJson,
 } from './_security.js';
@@ -9,10 +9,6 @@ import {
 const METHODS = 'GET, POST, OPTIONS';
 const READ_ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER'];
 const WRITE_ROLES = ['SUPER_ADMIN','PAYROLL_CONTROLLER'];
-
-function databaseUrl(env) {
-  return env.DATABASE_URL || env.NEON_DATABASE_URL || env.POSTGRES_URL || null;
-}
 
 function orgId(env) {
   return String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');
@@ -57,26 +53,24 @@ export async function onRequest({ request, env }) {
 
   const respond = (data, status = 200) => secureJson(data, status, request, env, METHODS);
   const requestId = crypto.randomUUID();
-  if (!env.PAYMENT_PROOFS?.put || !env.PAYMENT_PROOFS?.get) {
-    return respond({ error: 'Penyimpanan bukti pembayaran belum terhubung. Tambahkan R2 binding PAYMENT_PROOFS di Cloudflare Pages.', requestId }, 503);
+  const bucket = env.FILES || env.PAYMENT_PROOFS;
+  if (!bucket?.put || !bucket?.get) {
+    return respond({ error: 'Penyimpanan bukti pembayaran belum terhubung. Tambahkan R2 binding FILES di Cloudflare Pages.', requestId }, 503);
   }
-  const url = databaseUrl(env);
-  if (!url) return respond({ error: 'Database belum terhubung. Periksa DATABASE_URL pada environment Production.', requestId }, 503);
-  const sql = neon(url);
+  if (!hasD1(env)) return respond({ error: 'Cloudflare D1 belum terhubung.', requestId }, 503);
+  const database = env.DB;
   const organizationId = orgId(env);
 
   try {
     if (request.method === 'GET') {
       const proofId = new URL(request.url).searchParams.get('id');
       if (!proofId) return respond({ error: 'ID bukti pembayaran wajib diisi' }, 400);
-      const rows = await sql`
-        SELECT pp.*, pi.org_id, pi.client_id FROM payment_proofs pp
+      const proof = await d1First(database, `SELECT pp.*, pi.org_id, pi.client_id FROM payment_proofs pp
         JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id
-        WHERE pp.id=${proofId} AND pi.org_id=${organizationId} LIMIT 1`;
-      if (!rows.length) return respond({ error: 'Bukti pembayaran tidak ditemukan' }, 404);
-      const proof = rows[0];
+        WHERE pp.id=? AND pi.org_id=? LIMIT 1`, [proofId, organizationId]);
+      if (!proof) return respond({ error: 'Bukti pembayaran tidak ditemukan' }, 404);
       if (!canAccessClient(authorization.actor, env, proof.client_id)) return respond({ error: 'Akun tidak memiliki akses ke data klien ini' }, 403);
-      const object = await env.PAYMENT_PROOFS.get(proof.uploaded_file_id);
+      const object = await bucket.get(proof.uploaded_file_id);
       if (!object) return respond({ error: 'File bukti pembayaran tidak ditemukan di R2' }, 404);
       const headers = new Headers({
         'Cache-Control': 'private, no-store',
@@ -102,23 +96,23 @@ export async function onRequest({ request, env }) {
       return respond({ error: 'Metadata bukti pembayaran tidak valid' }, 422);
     }
 
-    const payments = await sql`SELECT * FROM payment_instructions WHERE id=${paymentInstructionId} AND org_id=${organizationId} LIMIT 1`;
-    if (!payments.length) return respond({ error: 'Payment instruction tidak ditemukan' }, 404);
-    if (!canAccessClient(authorization.actor, env, payments[0].client_id)) return respond({ error: 'Akun tidak memiliki akses ke data klien ini' }, 403);
-    if (!['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(payments[0].status)) {
+    const payment = await d1First(database, 'SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1', [paymentInstructionId, organizationId]);
+    if (!payment) return respond({ error: 'Payment instruction tidak ditemukan' }, 404);
+    if (!canAccessClient(authorization.actor, env, payment.client_id)) return respond({ error: 'Akun tidak memiliki akses ke data klien ini' }, 403);
+    if (!['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(payment.status)) {
       return respond({ error: 'Payment instruction belum disetujui atau belum siap menerima bukti pembayaran' }, 409);
     }
-    const existing = await sql`SELECT * FROM payment_proofs
-      WHERE payment_instruction_id=${paymentInstructionId} AND bank=${bank} AND reference=${reference} LIMIT 1`;
-    if (existing.length) {
-      const samePayload = Number(existing[0].amount) === amount
-        && String(existing[0].transaction_date).slice(0, 10) === transactionDate;
+    const existing = await d1First(database, `SELECT * FROM payment_proofs
+      WHERE payment_instruction_id=? AND bank=? AND reference=? LIMIT 1`, [paymentInstructionId, bank, reference]);
+    if (existing) {
+      const samePayload = Number(existing.amount) === amount
+        && String(existing.transaction_date).slice(0, 10) === transactionDate;
       if (!samePayload) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
-      return respond({ ok: true, paymentProof: existing[0], idempotentReplay: true });
+      return respond({ ok: true, paymentProof: existing, idempotentReplay: true });
     }
     const proofId = `PP-${crypto.randomUUID()}`;
     const key = paymentProofObjectKey(organizationId, paymentInstructionId, file.name);
-    await env.PAYMENT_PROOFS.put(key, await file.arrayBuffer(), {
+    await bucket.put(key, await file.arrayBuffer(), {
       httpMetadata: { contentType: file.type },
       customMetadata: {
         originalName: safeProofFilename(file.name),
@@ -127,20 +121,21 @@ export async function onRequest({ request, env }) {
       },
     });
     try {
-      const rows = await sql.transaction((tx) => [
-        tx`INSERT INTO payment_proofs
+      const results = await d1Batch(database, [
+        { statement: `INSERT INTO payment_proofs
           (id, payment_instruction_id, bank, reference, transaction_date, amount, uploaded_file_id)
-          VALUES (${proofId}, ${paymentInstructionId}, ${bank}, ${reference}, ${transactionDate}, ${amount}, ${key}) RETURNING *`,
-        tx`UPDATE payment_instructions SET status='PROOF_UPLOADED', updated_at=NOW() WHERE id=${paymentInstructionId}`,
-        tx`UPDATE payroll_submissions SET state='PROOF_UPLOADED',updated_at=NOW()
-          WHERE id=(SELECT submission_id FROM payment_instructions WHERE id=${paymentInstructionId})`,
-        tx`INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
-          VALUES (${`AUD-${crypto.randomUUID()}`}, ${organizationId}, ${authorization.actor.email}, ${authorization.actor.role},
-            'PAYMENT_PROOF_UPLOADED', ${`${bank} · ${reference} · ${file.size} bytes`}, 'payment_proof', ${proofId})`,
+          VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`, bindings: [proofId, paymentInstructionId, bank, reference, transactionDate, amount, key] },
+        { statement: `UPDATE payment_instructions SET status='PROOF_UPLOADED',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings: [paymentInstructionId] },
+        { statement: `UPDATE payroll_submissions SET state='PROOF_UPLOADED',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id=(SELECT submission_id FROM payment_instructions WHERE id=?)`, bindings: [paymentInstructionId] },
+        { statement: `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
+          VALUES (?,?,?,?,'PAYMENT_PROOF_UPLOADED',?,'payment_proof',?)`,
+          bindings: [`AUD-${crypto.randomUUID()}`, organizationId, authorization.actor.email, authorization.actor.role,
+            `${bank} · ${reference} · ${file.size} bytes`, proofId] },
       ]);
-      return respond({ ok: true, paymentProof: rows[0][0] }, 201);
+      return respond({ ok: true, paymentProof: results[0]?.results?.[0] }, 201);
     } catch (error) {
-      await env.PAYMENT_PROOFS.delete(key);
+      await bucket.delete(key);
       throw error;
     }
   } catch (error) {

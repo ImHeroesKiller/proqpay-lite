@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChangePasswordModal } from '@/components/AuthViews';
-import { listOperatingResource } from '@/lib/operating-model-api';
+import { listOperatingDashboard } from '@/lib/operating-model-api';
 import { allowedViewsForRole, type AppView } from './Sidebar';
 import { IconBell, IconChevronDown, IconMenu, IconSearch } from './Icons';
 
@@ -26,7 +26,7 @@ export default function AppHeader({period,periods,view,clientCount,onPeriodChang
   const user={...actor,name:actor.name||actor.email.split('@')[0]};
   const refreshAlerts=useCallback(async()=>{try{
     const scopes=actor.role==='CLIENT_USER'?(actor.clientIds||[]):[undefined];
-    const results=await Promise.all(scopes.flatMap((clientId)=>[listOperatingResource('exceptions',clientId),listOperatingResource('payment-instructions',clientId)]));
+    const results=await Promise.all(scopes.map((clientId)=>listOperatingDashboard(clientId)));
     let exceptions=0,approvals=0; results.forEach((result)=>{exceptions+=(result.exceptions||[]).filter((row:any)=>!['RESOLVED','ACCEPTED'].includes(row.status)).length;approvals+=(result.paymentInstructions||[]).filter((row:any)=>row.status==='PAYMENT_APPROVAL_PENDING').length;});
     setAlerts({exceptions,approvals});
   }catch{setAlerts({exceptions:0,approvals:0});}},[actor.clientIds,actor.role]);

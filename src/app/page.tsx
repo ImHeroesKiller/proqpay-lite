@@ -1,23 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { loadDatabase, saveDatabase } from '@/lib/database';
 import { onDbChange } from '@/lib/events';
 import { loadSettings, onSettingsChange, type AppSettings } from '@/lib/app-settings';
 import Sidebar, { allowedViewsForRole, type AppView } from '@/components/Sidebar';
 import AppHeader from '@/components/AppHeader';
-import HelpModal from '@/components/HelpModal';
-import IdaFab from '@/components/IdaFab';
-import SystemLogs from '@/components/SystemLogs';
-import OperatingWorkspace from '@/components/OperatingWorkspace';
 import PayrollControlTower from '@/components/PayrollControlTower';
-import DirectoryManager from '@/components/DirectoryManager';
-import ReportsWorkspace from '@/components/ReportsWorkspace';
 import SystemHealthBubble from '@/components/SystemHealthBubble';
-import EmployeeDirectory from '@/components/EmployeeDirectory';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromNeon } from '@/lib/neon-sync';
 import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
+
+const OperatingWorkspace = dynamic(() => import('@/components/OperatingWorkspace'), { loading: () => <ViewLoading /> });
+const EmployeeDirectory = dynamic(() => import('@/components/EmployeeDirectory'), { loading: () => <ViewLoading /> });
+const DirectoryManager = dynamic(() => import('@/components/DirectoryManager'), { loading: () => <ViewLoading /> });
+const ReportsWorkspace = dynamic(() => import('@/components/ReportsWorkspace'), { loading: () => <ViewLoading /> });
+const SystemLogs = dynamic(() => import('@/components/SystemLogs'), { loading: () => <ViewLoading /> });
+const IdaFab = dynamic(() => import('@/components/IdaFab'));
+const HelpModal = dynamic(() => import('@/components/HelpModal'));
 
 type Actor = { id: string; name?: string; email: string; role: string; permissions: string[]; mustChangePassword?: boolean; clientIds?: string[] | null; projectIds?: string[] | null; authMode?: string };
 
@@ -29,6 +31,7 @@ export default function Home() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [idaOpenSignal, setIdaOpenSignal] = useState(0);
+  const [idaMounted, setIdaMounted] = useState(false);
   const [actor, setActor] = useState<Actor | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
@@ -55,10 +58,16 @@ export default function Home() {
         const preferredView = requestedView || st.defaultView;
         setView(allowedViews.includes(preferredView as AppView) ? preferredView as AppView : 'dashboard');
         setAuthRequired(false);
-        const { db: canonical } = await syncDatabaseFromNeon(data, { signal: controller.signal });
-        saveDatabase(canonical);
-        setDb(canonical);
-        if (canonical?.meta?.currentPeriod) setPeriod(canonical.meta.currentPeriod);
+        setAuthChecked(true);
+        void syncDatabaseFromNeon(data, { signal: controller.signal })
+          .then(({ db: canonical }) => {
+            saveDatabase(canonical);
+            setDb(canonical);
+            if (canonical?.meta?.currentPeriod) setPeriod(canonical.meta.currentPeriod);
+          })
+          .catch((error) => {
+            if (error?.name !== 'AbortError') writeSystemLog('WARN', 'DATABASE', 'BACKGROUND_SYNC_FAILED', 'Sinkronisasi data latar belakang gagal');
+          });
       })
       .catch((error) => {
         if (error?.name !== 'AbortError') writeSystemLog('WARN', 'SECURITY', 'USER_CONTEXT_FAILED', 'Gagal memuat role pengguna');
@@ -134,7 +143,7 @@ export default function Home() {
       <Sidebar
         view={view}
         onView={navigate}
-        onOpenIda={() => setIdaOpenSignal((n) => n + 1)}
+        onOpenIda={() => { setIdaMounted(true); setIdaOpenSignal((n) => n + 1); }}
         onOpenHelp={() => setHelpOpen(true)}
         role={actor?.role}
         compact={settings.sidebarMode === 'compact'}
@@ -182,8 +191,12 @@ export default function Home() {
       {actor.mustChangePassword && ['database', 'session'].includes(actor.authMode || '') ? <ChangePasswordModal forced /> : null}
 
       <SystemHealthBubble />
-      <IdaFab openSignal={idaOpenSignal} />
-      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+      {idaMounted ? <IdaFab openSignal={idaOpenSignal} /> : null}
+      {helpOpen ? <HelpModal open onClose={() => setHelpOpen(false)} /> : null}
     </div>
   );
+}
+
+function ViewLoading() {
+  return <div className="card control-loading" role="status">Menyiapkan modul…</div>;
 }
