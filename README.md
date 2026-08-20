@@ -15,7 +15,8 @@ Built with **Next.js 16** · static export for **Cloudflare Pages** with Pages F
 - Two-section dashboard: Global Snapshot + Client Detail
 - Metric cards + searchable popup
 - Region distribution, client detail, AI insight, timeline
-- Floating **Ask IDA** (rule-based): `help`, `status`, `hitung payroll`, `ajukan approval`, `buat payment instruction`, …
+- Floating **Ask IDA** untuk analisis dan payroll; Payment Instruction hanya melalui workflow canonical
+- Immutable Payment Instruction snapshot, maker-checker, PDF, dan bank export BCA/Mandiri/BRI/BNI/custom
 - Payroll calc (BPJS + PPh 21) with Neon-backed operational persistence
 - Period / bundling filters, Settings modal
 
