@@ -249,7 +249,7 @@ jobs:
         run: |
           for attempt in 1 2 3 4 5 6; do
             if curl --fail --silent --show-error https://proqpay-lite.pages.dev/api/health > /tmp/proqpay-health.json; then
-              if node -e "const x=require('/tmp/proqpay-health.json'); if(x.ready!==true||x.database!=='d1') process.exit(1)"; then
+              if node -e "const x=require('/tmp/proqpay-health.json'); if(x.ready!==true||x.database!=='d1'||x.auth_mode!=='session') process.exit(1)"; then
                 cat /tmp/proqpay-health.json
                 exit 0
               fi

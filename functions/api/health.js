@@ -43,7 +43,7 @@ export async function onRequest({ request, env }) {
       server_time: row?.server_time,
       service: 'proqpay-lite',
       host: 'cloudflare-pages',
-      auth_mode: authMode === 'access' ? 'access' : 'origin',
+      auth_mode: ['access', 'database', 'session'].includes(authMode) ? authMode : 'origin',
       checks,
     }, 200, request, env, METHODS);
   } catch (error) {
