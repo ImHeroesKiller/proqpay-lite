@@ -22,6 +22,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'proqpay-lite' }}
     steps:
       - name: Require exact production confirmation
         shell: bash
@@ -58,23 +59,105 @@ jobs:
         run: |
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is missing"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
+          [[ "$CLOUDFLARE_ACCOUNT_ID" =~ ^[[:xdigit:]]{32}$ ]] || {
+            echo "CLOUDFLARE_ACCOUNT_ID must be the 32-character Account ID, not a zone ID or token ID."
+            exit 1
+          }
           npx wrangler --version
           npx wrangler whoami
 
       - name: Verify Pages project and record rollback target
         shell: bash
         run: |
-          npx wrangler pages project list --json > /tmp/proqpay-pages.json
-          grep -q 'proqpay-lite' /tmp/proqpay-pages.json || { echo "Pages project proqpay-lite not found"; exit 1; }
-          npx wrangler pages deployment list --project-name=proqpay-lite --environment=production --json > /tmp/proqpay-deployments.json
-          rollback_id=$(node -e "const x=require('/tmp/proqpay-deployments.json'); const row=Array.isArray(x)?x[0]:x.result?.[0]; if(!row?.id) process.exit(1); process.stdout.write(row.id)")
+          pages_api="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects"
+          auth_header="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+
+          project_status=$(curl --silent --show-error \
+            --output /tmp/proqpay-pages-project.json \
+            --write-out "%{http_code}" \
+            --header "$auth_header" \
+            "${pages_api}/${PAGES_PROJECT_NAME}")
+
+          if [ "$project_status" != "200" ]; then
+            echo "Pages project lookup failed with HTTP ${project_status}."
+            case "$project_status" in
+              401|403)
+                echo "Token cannot read Pages. Add Account > Cloudflare Pages > Read (and Edit for deploy/rollback), scoped to the account that owns the project."
+                ;;
+              404)
+                echo "Project '${PAGES_PROJECT_NAME}' is not visible in the configured account. Checking visible project names..."
+                ;;
+              *)
+                echo "Cloudflare Pages API returned an unexpected response."
+                ;;
+            esac
+
+            list_status=$(curl --silent --show-error \
+              --output /tmp/proqpay-pages-list.json \
+              --write-out "%{http_code}" \
+              --header "$auth_header" \
+              "${pages_api}?per_page=100")
+            if [ "$list_status" = "200" ]; then
+              node - <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/proqpay-pages-list.json', 'utf8'));
+          const names = Array.isArray(payload.result)
+            ? payload.result.map((project) => project.name).filter(Boolean)
+            : [];
+          console.log(names.length
+            ? `Pages projects visible to this token/account: ${names.join(', ')}`
+            : 'No Pages projects are visible to this token/account.');
+          NODE
+              echo "If the project appears above under another name, set repository variable CLOUDFLARE_PAGES_PROJECT to that exact name. Otherwise replace CLOUDFLARE_ACCOUNT_ID with the Account ID shown on that Pages project's dashboard."
+            else
+              echo "Pages project inventory also failed with HTTP ${list_status}; verify the token account scope and Pages permissions."
+            fi
+            exit 1
+          fi
+
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/proqpay-pages-project.json', 'utf8'));
+          if (payload.success !== true || payload.result?.name !== process.env.PAGES_PROJECT_NAME) {
+            console.error('Pages project response did not match the requested project.');
+            process.exit(1);
+          }
+          console.log(`Verified Pages project: ${payload.result.name}`);
+          NODE
+
+          deployment_status=$(curl --silent --show-error \
+            --output /tmp/proqpay-deployments.json \
+            --write-out "%{http_code}" \
+            --header "$auth_header" \
+            "${pages_api}/${PAGES_PROJECT_NAME}/deployments?env=production&per_page=25")
+          test "$deployment_status" = "200" || {
+            echo "Production deployment lookup failed with HTTP ${deployment_status}."
+            exit 1
+          }
+
+          rollback_id=$(node - <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/proqpay-deployments.json', 'utf8'));
+          const deployments = Array.isArray(payload.result) ? payload.result : [];
+          const candidate = deployments.find((row) =>
+            row?.id &&
+            row?.environment === 'production' &&
+            (!row?.latest_stage?.status || row.latest_stage.status === 'success')
+          );
+          if (!candidate) {
+            console.error('No successful production deployment is available as a rollback target.');
+            process.exit(1);
+          }
+          process.stdout.write(candidate.id);
+          NODE
+          )
           echo "ROLLBACK_DEPLOYMENT_ID=$rollback_id" >> "$GITHUB_ENV"
-          echo "Rollback target recorded."
+          echo "Rollback target recorded for ${PAGES_PROJECT_NAME}."
 
       - name: Verify required Pages secret by name
         shell: bash
         run: |
-          npx wrangler pages secret list --project-name=proqpay-lite > /tmp/proqpay-secret-names.txt
+          npx wrangler pages secret list --project-name="$PAGES_PROJECT_NAME" > /tmp/proqpay-secret-names.txt
           grep -q 'PI_ENCRYPTION_KEY' /tmp/proqpay-secret-names.txt || { echo "PI_ENCRYPTION_KEY secret name missing"; exit 1; }
 
       - name: Provision dedicated D1 when absent
@@ -116,7 +199,7 @@ jobs:
       - name: Download and prepare current Pages configuration
         shell: bash
         run: |
-          npx wrangler pages download config proqpay-lite --force
+          npx wrangler pages download config "$PAGES_PROJECT_NAME" --force
           test -f wrangler.jsonc || { echo "Expected wrangler.jsonc was not generated"; exit 1; }
           node scripts/prepare-pages-config.mjs "$D1_DATABASE_ID"
           grep -q '"binding": "DB"' wrangler.jsonc
@@ -135,7 +218,7 @@ jobs:
 
       - name: Deploy reviewed main with production bindings
         id: deploy
-        run: npx wrangler pages deploy out --project-name=proqpay-lite --branch=main --commit-hash="${{ github.sha }}"
+        run: npx wrangler pages deploy out --project-name="$PAGES_PROJECT_NAME" --branch=main --commit-hash="${{ github.sha }}"
 
       - name: Verify production health
         id: health
@@ -158,7 +241,7 @@ jobs:
         shell: bash
         run: |
           curl --fail --silent --show-error --request POST \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/proqpay-lite/deployments/${ROLLBACK_DEPLOYMENT_ID}/rollback" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${PAGES_PROJECT_NAME}/deployments/${ROLLBACK_DEPLOYMENT_ID}/rollback" \
             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             --header "Content-Type: application/json" \
             --data '{}'
@@ -168,4 +251,4 @@ jobs:
         run: |
           echo "Cloudflare D1 migration, reconciliation, Pages deployment, and health check passed."
           echo "Production database: proqpay-lite-production"
-          echo "Production Pages project: proqpay-lite"
+          echo "Production Pages project: ${PAGES_PROJECT_NAME}"
