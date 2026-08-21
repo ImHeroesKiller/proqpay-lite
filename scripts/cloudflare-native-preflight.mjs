@@ -37,6 +37,7 @@ const config = read('wrangler.example.jsonc');
 for (const binding of ['"binding": "DB"', '"binding": "FILES"', '"binding": "AI"']) {
   record(`Binding ${binding.split('"')[3]}`, config.includes(binding), 'example config');
 }
+record('Session auth fail-closed', config.includes('"AUTH_MODE": "session"'), 'production config');
 
 const failed = checks.filter((item) => !item.ok);
 for (const item of checks) console.log(`${item.ok ? 'PASS' : 'FAIL'} ${item.name}: ${item.detail}`);

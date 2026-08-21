@@ -99,8 +99,8 @@ export function calcEmployeePayroll(emp: any, rules: any, payrollSetup: any, per
   }
   if (emp.pph21 && setup.pph21 !== false) {
     const annualGross = emp.salaryGross * 12;
-    let ptkp = 54000000;
-    let pkp = Math.max(0, annualGross - ptkp);
+    const ptkp = 54000000;
+    const pkp = Math.max(0, annualGross - ptkp);
     let pph21Annual = 0;
     if (pkp <= 60000000) pph21Annual = pkp * 0.05;
     else if (pkp <= 250000000) pph21Annual = 3000000 + (pkp - 60000000) * 0.15;

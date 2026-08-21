@@ -23,7 +23,7 @@ const TABS: Array<{ id: Tab; label: string; icon: string; description: string }>
 export default function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>('general');
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'dirty' | 'saved'>('idle');
   const [resetConfirmation, setResetConfirmation] = useState('');
   const [resetting, setResetting] = useState(false);
   const [resetStatus, setResetStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -34,7 +34,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   useEffect(() => {
     if (!open) return;
     setSettings(loadSettings());
-    setSaved(false);
+    setSaveState('idle');
     setResetConfirmation('');
     setResetStatus(null);
     setPurgeConfirmation('');
@@ -53,20 +53,20 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
 
   function patch(values: Partial<AppSettings>) {
     setSettings((current) => current ? { ...current, ...values } : current);
-    setSaved(false);
+    setSaveState('dirty');
   }
 
   function save() {
     if (!settings) return;
     saveSettings(settings);
-    setSaved(true);
+    setSaveState('saved');
     writeSystemLog('SUCCESS', 'SETTINGS', 'PREFERENCES_SAVED', `Pengaturan ${activeTab.label} disimpan`);
   }
 
   function restorePreferences() {
     if (!settings) return;
     setSettings({ ...DEFAULT_SETTINGS, orgName: settings.orgName });
-    setSaved(false);
+    setSaveState('dirty');
   }
 
   async function resetOperationalData() {
@@ -151,7 +151,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                   <Toggle label="Peta wilayah" description="Peta interaktif distribusi karyawan" checked={settings.showMap} onChange={(value) => patch({ showMap: value })} />
                   <Toggle label="Portofolio klien" description="Daftar klien dengan jumlah karyawan dan project" checked={settings.showClientPortfolio} onChange={(value) => patch({ showClientPortfolio: value })} />
                   <Toggle label="Detail klien" description="Employee list, insight, billing, dan activity" checked={settings.showClientDetail} onChange={(value) => patch({ showClientDetail: value })} />
-                  <Toggle label="Badge sumber data" description="Menampilkan status Live dari Neon" checked={settings.showDataSourceBadges} onChange={(value) => patch({ showDataSourceBadges: value })} />
+                  <Toggle label="Badge sumber data" description="Menampilkan status Live dari Cloudflare D1" checked={settings.showDataSourceBadges} onChange={(value) => patch({ showDataSourceBadges: value })} />
                   <Toggle label="Sparkline KPI" description="Grafik tren kecil pada kartu payroll" checked={settings.showSparklines} onChange={(value) => patch({ showSparklines: value })} />
                 </div>
               </SettingsSection>
@@ -203,7 +203,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               </div>
             </SettingsSection> : null}
 
-            {tab === 'users' ? <SettingsSection title="Account Management" description="Akun tersimpan di Neon. Password sementara dibuat oleh server dan wajib diganti saat login pertama.">
+            {tab === 'users' ? <SettingsSection title="Account Management" description="Akun tersimpan di Cloudflare D1. Password sementara dibuat oleh server dan wajib diganti saat login pertama.">
               <AccountManagement />
             </SettingsSection> : null}
 
@@ -217,7 +217,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
           </main>
         </div>
 
-        <footer className="settings-footer"><button type="button" className="settings-reset-preferences" onClick={restorePreferences}>Pulihkan preferensi</button><span className={saved ? 'saved' : ''}>{saved ? '✓ Perubahan tersimpan' : 'Ada perubahan yang belum disimpan'}</span><div><button type="button" className="btn" onClick={onClose}>Batal</button><button type="button" className="btn btn-primary" onClick={save}>Simpan perubahan</button></div></footer>
+        <footer className="settings-footer"><button type="button" className="settings-reset-preferences" onClick={restorePreferences}>Pulihkan preferensi</button><span className={saveState === 'saved' ? 'saved' : ''}>{saveState === 'saved' ? '✓ Perubahan tersimpan' : saveState === 'dirty' ? 'Ada perubahan yang belum disimpan' : 'Tidak ada perubahan'}</span><div><button type="button" className="btn" onClick={onClose}>Batal</button><button type="button" className="btn btn-primary" disabled={saveState !== 'dirty'} onClick={save}>Simpan perubahan</button></div></footer>
       </div>
     </div>
   );

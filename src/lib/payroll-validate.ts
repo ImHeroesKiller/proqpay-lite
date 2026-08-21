@@ -53,9 +53,6 @@ const JKK_ER = 0.0024;
 /** JKM */
 const JKM_ER = 0.003;
 
-/** PTKP TK/0 baseline (disederhanakan) */
-const PTKP_TK0 = 54_000_000;
-
 function regionOf(emp: any): string {
   return emp.region || emp.province || emp.kotaUmk || emp.city_umk || '';
 }

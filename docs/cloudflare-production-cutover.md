@@ -7,6 +7,8 @@
 - D1 production, R2 `proqpay-lite-files`, dan binding Workers AI teridentifikasi.
 - Backup sumber data dibuat dan diuji dapat dibaca.
 - `PI_ENCRYPTION_KEY` production tersedia; nilainya tidak ditulis ke repository/log.
+- GitHub secrets `PROQPAY_BOOTSTRAP_ADMIN_EMAIL` dan
+  `PROQPAY_BOOTSTRAP_ADMIN_PASSWORD` tersedia untuk bootstrap idempotent.
 - Maintenance window dan rollback owner ditetapkan.
 
 ## Provisioning
@@ -16,6 +18,7 @@
 3. Validasi dengan `wrangler check` dan `wrangler types --check`.
 4. Pastikan Pages project memiliki binding `DB`, `FILES`, dan `AI` untuk Production.
 5. Pastikan secret `PI_ENCRYPTION_KEY` tersedia pada Production.
+6. Pastikan `AUTH_MODE=session` dan minimal satu Super Admin aktif sebelum deploy.
 
 Jangan commit `wrangler.jsonc` bila memuat identifier environment aktual.
 

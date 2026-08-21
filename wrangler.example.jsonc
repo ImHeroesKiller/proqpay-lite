@@ -21,6 +21,7 @@
   "vars": {
     "DEFAULT_ORG_ID": "ORG-OTSINDO",
     "DATA_BACKEND": "d1",
+    "AUTH_MODE": "session",
     "WORKERS_AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   }
 }

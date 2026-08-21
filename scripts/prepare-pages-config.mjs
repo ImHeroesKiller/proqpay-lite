@@ -4,8 +4,11 @@ const databaseId = String(process.argv[2] || '').trim();
 if (!/^[0-9a-f-]{36}$/i.test(databaseId)) throw new Error('D1 database ID tidak valid');
 
 const candidates = ['wrangler.jsonc', 'wrangler.json'];
-const configPath = candidates.find((candidate) => fs.existsSync(candidate));
-if (!configPath) throw new Error('Wrangler Pages config JSON/JSONC tidak ditemukan');
+const downloadedConfigPath = candidates.find((candidate) => fs.existsSync(candidate));
+const downloadedTomlPath = fs.existsSync('wrangler.toml') ? 'wrangler.toml' : null;
+if (!downloadedConfigPath && !downloadedTomlPath) {
+  throw new Error('Wrangler Pages config hasil download tidak ditemukan');
+}
 
 function stripJsonComments(source) {
   let output = '';
@@ -38,7 +41,20 @@ function stripJsonComments(source) {
   return output.replace(/,\s*([}\]])/g, '$1');
 }
 
-const config = JSON.parse(stripJsonComments(fs.readFileSync(configPath, 'utf8')));
+let config;
+if (downloadedConfigPath) {
+  config = JSON.parse(stripJsonComments(fs.readFileSync(downloadedConfigPath, 'utf8')));
+} else {
+  const downloadedToml = fs.readFileSync(downloadedTomlPath, 'utf8');
+  const projectName = downloadedToml.match(/^\s*name\s*=\s*["']([^"']+)["']/m)?.[1];
+  if (!projectName) throw new Error('Nama Pages project tidak ditemukan pada wrangler.toml');
+  if (projectName !== 'proqpay-lite') throw new Error(`Pages project tidak sesuai: ${projectName}`);
+
+  // Wrangler v4 currently downloads Pages settings as TOML. The reviewed
+  // repository template remains the cutover source of truth, while the
+  // downloaded TOML is used to verify that we are targeting the right project.
+  config = JSON.parse(stripJsonComments(fs.readFileSync('wrangler.example.jsonc', 'utf8')));
+}
 if (config.name && config.name !== 'proqpay-lite') throw new Error(`Pages project tidak sesuai: ${config.name}`);
 
 config.$schema = './node_modules/wrangler/config-schema.json';
@@ -67,6 +83,7 @@ config.vars = {
   ...(config.vars || {}),
   DEFAULT_ORG_ID: 'ORG-OTSINDO',
   DATA_BACKEND: 'd1',
+  AUTH_MODE: 'session',
   WORKERS_AI_MODEL: config.vars?.WORKERS_AI_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
 };
 

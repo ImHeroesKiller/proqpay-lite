@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { parseIapWorkbook, type ParsedEmployee } from '@/lib/excel-iap';
+import type { ParsedEmployee } from '@/lib/excel-iap';
 
 export default function ExcelUpload() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -20,6 +20,7 @@ export default function ExcelUpload() {
         throw new Error('Ukuran file maksimal 5 MB');
       }
       const buf = await file.arrayBuffer();
+      const { parseIapWorkbook } = await import('@/lib/excel-iap');
       const parsed = parseIapWorkbook(buf);
       setPreview(parsed.rows.slice(0, 8));
       setMeta({ sheetName: parsed.sheetName, totalRaw: parsed.totalRaw, skipped: parsed.skipped });
@@ -85,7 +86,7 @@ export default function ExcelUpload() {
         <div>
           <h3 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '4px' }}>Import HRIS Excel (IAP)</h3>
           <p style={{ fontSize: '12px', color: 'var(--text3)', margin: 0 }}>
-            Upload .xlsx → parse kolom → map provinsi (IDA) → simpan ke Neon
+            Upload .xlsx → parse kolom → map provinsi (IDA) → simpan ke Cloudflare D1
           </p>
         </div>
         <button
@@ -167,7 +168,7 @@ export default function ExcelUpload() {
             cursor: busy ? 'wait' : 'pointer',
           }}
         >
-          {busy ? 'Mengimpor ke Neon…' : 'Import ke database'}
+          {busy ? 'Mengimpor ke Cloudflare D1…' : 'Import ke database'}
         </button>
       )}
 

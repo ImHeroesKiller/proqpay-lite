@@ -52,7 +52,7 @@ export default function WorkforceInsights({ employees, onOpenEmployees, showData
           <span className="panel-eyebrow">Kualitas data</span>
           <h3>Workforce readiness</h3>
         </div>
-        {showDataSourceBadge ? <span className="live-chip"><i /> Live dari Neon</span> : null}
+        {showDataSourceBadge ? <span className="live-chip"><i /> Live dari Cloudflare D1</span> : null}
       </div>
 
       <div className="workforce-insights-body">

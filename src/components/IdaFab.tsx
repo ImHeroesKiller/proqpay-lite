@@ -12,7 +12,7 @@ import { renderMarkdown } from '@/lib/markdown';
 import { calcMargin } from '@/lib/margin';
 import { formatIDR } from '@/lib/format';
 import { getIdaSessionId } from '@/lib/session';
-import { parseIapWorkbook, type ParsedEmployee } from '@/lib/excel-iap';
+import type { ParsedEmployee } from '@/lib/excel-iap';
 import { validatePayrollIndonesia, formatValidationMarkdown } from '@/lib/payroll-validate';
 import { loadSettings, onSettingsChange } from '@/lib/app-settings';
 import { persistBusinessState, syncDatabaseFromNeon } from '@/lib/neon-sync';
@@ -391,6 +391,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       if (file.size > 5 * 1024 * 1024) {
         throw new Error('Ukuran file maksimal 5 MB');
       }
+      const { parseIapWorkbook } = await import('@/lib/excel-iap');
       const parsed = parseIapWorkbook(await file.arrayBuffer());
       if (!parsed.rows.length) {
         const scanned = parsed.diagnostics.map((sheet) => sheet.sheetName).join(', ');

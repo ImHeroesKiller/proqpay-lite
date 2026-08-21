@@ -20,38 +20,37 @@ Minimal:
 
 | Name | Jenis | Keterangan |
 |---|---|---|
-| `DATABASE_URL` | secret | Connection string Neon |
-| `GEMINI_WORKER_1..5` | secret | Kunci fallback Gemini |
 | `NODE_VERSION` | variable | `22` |
 | `APP_ORIGINS` | variable | Origin tambahan, dipisahkan koma |
-| `DEFAULT_ORG_ID` | variable | Organization scope default untuk API operasional |
-| `AUTH_MODE` | variable | Gunakan `database` setelah akun Super Admin pertama dibuat |
+| `DEFAULT_ORG_ID` | variable | `ORG-OTSINDO` |
+| `DATA_BACKEND` | variable | `d1` |
+| `AUTH_MODE` | variable | Wajib `session` untuk production |
 | `SESSION_HOURS` | variable | Durasi sesi login, default `8`, maksimum `168` |
 | `PI_ENCRYPTION_KEY` | secret | Minimal 32 karakter; key AES-256-GCM untuk snapshot rekening PI |
+| `PROQPAY_BOOTSTRAP_ADMIN_EMAIL` | GitHub secret | Email Super Admin pertama untuk workflow cutover |
+| `PROQPAY_BOOTSTRAP_ADMIN_PASSWORD` | GitHub secret | Password kuat sementara; tidak ditulis ke log/SQL plaintext |
 
-Connection string Neon yang pernah dibagikan harus dirotasi. Rotasi juga semua
-kunci Gemini yang pernah muncul di log/chat. Jangan commit nilainya ke repo.
+Jangan commit nilai secret ke repository atau mencetaknya di log deployment.
 
 ## Mode keamanan dan aktivasi login
 
-Account Management menggunakan tabel `app_users`, `user_client_scopes`, dan
-`app_sessions` di Neon. Password disimpan sebagai hash PBKDF2-SHA256 100.000 iterasi dengan salt,
+Account Management menggunakan tabel D1 `app_users`, `user_client_scopes`, dan
+`app_sessions`. Password disimpan sebagai hash PBKDF2-SHA256 100.000 iterasi dengan salt,
 password sementara wajib diganti pada login pertama, lima kegagalan login akan
 mengunci akun selama 15 menit, dan cookie sesi bersifat HttpOnly/Secure/SameSite.
 
 Urutan aktivasi production:
 
-1. Deploy awal dengan `AUTH_MODE=origin`.
-2. Buka **Pengaturan → Account Management**, lalu buat akun `SUPER_ADMIN` pertama.
-3. Salin password sementara yang hanya ditampilkan sekali.
-4. Logout; begitu akun aktif pertama tersedia, mode bootstrap `origin` otomatis
-   berhenti dan aplikasi menampilkan halaman login database.
-5. Login dan ganti password sementara. Setelah berhasil, ubah variable Cloudflare
-   menjadi `AUTH_MODE=database` agar konfigurasi production menjadi eksplisit.
+1. Simpan `PROQPAY_BOOTSTRAP_ADMIN_EMAIL` dan `PROQPAY_BOOTSTRAP_ADMIN_PASSWORD`
+   sebagai GitHub Actions secrets.
+2. Workflow mengimpor schema, membuat satu Super Admin secara idempotent, lalu
+   memverifikasi keberadaannya sebelum deployment.
+3. Production dideploy langsung dengan `AUTH_MODE=session`; mode `origin` tidak
+   boleh digunakan untuk production.
+4. Login dengan akun bootstrap lalu segera ganti password sementara.
 
-Jangan mengaktifkan `database` sebelum akun Super Admin pertama tersedia karena
-seluruh endpoint akan gagal tertutup dengan HTTP 401. Mode `access` tetap tersedia
-bila Cloudflare Access hendak digunakan sebagai identity provider terpisah.
+Mode `access` tetap tersedia bila Cloudflare Access hendak digunakan sebagai
+identity provider terpisah.
 
 Binding R2 production wajib bernama `PAYMENT_PROOFS` dan mengarah ke bucket
 private `proqpay-payment-proofs`. Bukti pembayaran diunggah melalui
@@ -115,8 +114,8 @@ referrer policy, permissions policy, HSTS, dan immutable cache untuk aset build.
 
 ## Persistensi proses bisnis
 
-Aksi payroll lama tetap dapat dibaca melalui mirror Neon, tetapi IDA dan
-`/api/state` tidak lagi membuat atau mengubah tabel legacy `payments`.
+IDA dan `/api/state` menggunakan D1 dan tidak membuat atau mengubah tabel legacy
+`payments`.
 `payment_instructions` beserta snapshot line terenkripsi menjadi satu-satunya
 sumber payment. Pembuatan, approval, bukti, rekonsiliasi, PDF, dan file bank
 dijalankan melalui API operating model canonical.
