@@ -1,0 +1,171 @@
+name: Cloudflare Database Cutover
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type exactly: PROVISION PROQPAY D1 PRODUCTION"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-database-cutover
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Require exact production confirmation
+        shell: bash
+        run: |
+          test "${{ inputs.confirmation }}" = "PROVISION PROQPAY D1 PRODUCTION" || {
+            echo "Exact production confirmation is required."
+            exit 1
+          }
+
+      - name: Checkout reviewed main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Quality gates
+        run: |
+          npm run cloudflare:preflight
+          npm test
+          npm run typecheck
+          npm run lint
+          npm run build
+
+      - name: Verify Cloudflare authentication
+        shell: bash
+        run: |
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
+          npx wrangler --version
+          npx wrangler whoami
+
+      - name: Verify Pages project and record rollback target
+        shell: bash
+        run: |
+          npx wrangler pages project list --json > /tmp/proqpay-pages.json
+          grep -q 'proqpay-lite' /tmp/proqpay-pages.json || { echo "Pages project proqpay-lite not found"; exit 1; }
+          npx wrangler pages deployment list --project-name=proqpay-lite --environment=production --json > /tmp/proqpay-deployments.json
+          rollback_id=$(node -e "const x=require('/tmp/proqpay-deployments.json'); const row=Array.isArray(x)?x[0]:x.result?.[0]; if(!row?.id) process.exit(1); process.stdout.write(row.id)")
+          echo "ROLLBACK_DEPLOYMENT_ID=$rollback_id" >> "$GITHUB_ENV"
+          echo "Rollback target recorded."
+
+      - name: Verify required Pages secret by name
+        shell: bash
+        run: |
+          npx wrangler pages secret list --project-name=proqpay-lite > /tmp/proqpay-secret-names.txt
+          grep -q 'PI_ENCRYPTION_KEY' /tmp/proqpay-secret-names.txt || { echo "PI_ENCRYPTION_KEY secret name missing"; exit 1; }
+
+      - name: Provision dedicated D1 when absent
+        shell: bash
+        run: |
+          npx wrangler d1 list --json > /tmp/proqpay-d1.json
+          if ! grep -q 'proqpay-lite-production' /tmp/proqpay-d1.json; then
+            npx wrangler d1 create proqpay-lite-production --location apac
+            npx wrangler d1 list --json > /tmp/proqpay-d1.json
+          fi
+          d1_id=$(node -e "const x=require('/tmp/proqpay-d1.json'); const row=x.find(v=>v.name==='proqpay-lite-production'); if(!row?.uuid) process.exit(1); process.stdout.write(row.uuid)")
+          echo "D1_DATABASE_ID=$d1_id" >> "$GITHUB_ENV"
+
+      - name: Provision private R2 bucket when absent
+        shell: bash
+        run: |
+          if ! npx wrangler r2 bucket info proqpay-lite-files --json > /tmp/proqpay-r2.json 2>/dev/null; then
+            npx wrangler r2 bucket create proqpay-lite-files --location apac
+            npx wrangler r2 bucket info proqpay-lite-files --json > /tmp/proqpay-r2.json
+          fi
+
+      - name: Require an empty cutover database
+        shell: bash
+        run: |
+          npx wrangler d1 execute proqpay-lite-production --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name NOT LIKE '_cf_%'" --json > /tmp/proqpay-table-count.json
+          table_count=$(node -e "const x=require('/tmp/proqpay-table-count.json'); const rows=(Array.isArray(x)?x:[]).flatMap(v=>v.results||[]); process.stdout.write(String(rows[0]?.n ?? -1))")
+          test "$table_count" = "0" || { echo "Target D1 is not empty; refusing destructive or ambiguous cutover"; exit 1; }
+
+      - name: Export empty pre-migration D1 baseline
+        run: npx wrangler d1 export proqpay-lite-production --remote --output=/tmp/proqpay-pre-migration.sql --skip-confirmation
+
+      - name: Preserve pre-migration baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: proqpay-empty-d1-pre-migration
+          path: /tmp/proqpay-pre-migration.sql
+          retention-days: 30
+
+      - name: Download and prepare current Pages configuration
+        shell: bash
+        run: |
+          npx wrangler pages download config proqpay-lite --force
+          test -f wrangler.jsonc || { echo "Expected wrangler.jsonc was not generated"; exit 1; }
+          node scripts/prepare-pages-config.mjs "$D1_DATABASE_ID"
+          grep -q '"binding": "DB"' wrangler.jsonc
+          grep -q '"binding": "FILES"' wrangler.jsonc
+          grep -q '"binding": "AI"' wrangler.jsonc
+
+      - name: Apply canonical D1 migration
+        run: npx wrangler d1 migrations apply proqpay-lite-production --remote
+
+      - name: Reconcile canonical database
+        shell: bash
+        run: |
+          npx wrangler d1 execute proqpay-lite-production --remote --file=ops/d1-reconcile.sql --json | tee /tmp/proqpay-reconcile.json
+          npx wrangler d1 execute proqpay-lite-production --remote --file=ops/d1-cutover-assert.sql --json > /tmp/proqpay-assert.json
+          node -e "const x=require('/tmp/proqpay-assert.json'); const rows=(Array.isArray(x)?x:[]).flatMap(v=>v.results||[]); if(rows.length){console.error(rows);process.exit(1)}; console.log('D1 cutover assertions passed')"
+
+      - name: Deploy reviewed main with production bindings
+        id: deploy
+        run: npx wrangler pages deploy out --project-name=proqpay-lite --branch=main --commit-hash="${{ github.sha }}"
+
+      - name: Verify production health
+        id: health
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if curl --fail --silent --show-error https://proqpay-lite.pages.dev/api/health > /tmp/proqpay-health.json; then
+              if node -e "const x=require('/tmp/proqpay-health.json'); if(x.ready!==true||x.database!=='d1') process.exit(1)"; then
+                cat /tmp/proqpay-health.json
+                exit 0
+              fi
+            fi
+            sleep 10
+          done
+          cat /tmp/proqpay-health.json 2>/dev/null || true
+          exit 1
+
+      - name: Roll back Pages after failed deployment acceptance
+        if: failure() && steps.deploy.outcome == 'success' && steps.health.outcome == 'failure'
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --request POST \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/proqpay-lite/deployments/${ROLLBACK_DEPLOYMENT_ID}/rollback" \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data '{}'
+
+      - name: Cutover summary
+        if: success()
+        run: |
+          echo "Cloudflare D1 migration, reconciliation, Pages deployment, and health check passed."
+          echo "Production database: proqpay-lite-production"
+          echo "Production Pages project: proqpay-lite"

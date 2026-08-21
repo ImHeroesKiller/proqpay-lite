@@ -7,6 +7,7 @@ const checks = [];
 const record = (name, ok, detail) => checks.push({ name, ok, detail });
 
 const migration = read('migrations/0001_cloudflare_native.sql');
+const cutoverAssertions = read('ops/d1-cutover-assert.sql');
 const db = new DatabaseSync(':memory:');
 try {
   db.exec(migration);
@@ -14,6 +15,13 @@ try {
   record('D1 migration', tables === 38, `${tables} canonical tables`);
 } catch (error) {
   record('D1 migration', false, error.message);
+}
+
+try {
+  db.exec(cutoverAssertions);
+  record('D1 cutover assertions', true, 'SQL syntax valid');
+} catch (error) {
+  record('D1 cutover assertions', false, error.message);
 }
 
 const runtimeFiles = fs.readdirSync(new URL('functions/api/', root)).filter((name) => name.endsWith('.js'));

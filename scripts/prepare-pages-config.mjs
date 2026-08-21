@@ -1,0 +1,78 @@
+import fs from 'node:fs';
+
+const databaseId = String(process.argv[2] || '').trim();
+if (!/^[0-9a-f-]{36}$/i.test(databaseId)) throw new Error('D1 database ID tidak valid');
+
+const candidates = ['wrangler.jsonc', 'wrangler.json'];
+const configPath = candidates.find((candidate) => fs.existsSync(candidate));
+if (!configPath) throw new Error('Wrangler Pages config JSON/JSONC tidak ditemukan');
+
+function stripJsonComments(source) {
+  let output = '';
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (quoted) {
+      output += char;
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
+    }
+    if (char === '"') { quoted = true; output += char; continue; }
+    if (char === '/' && next === '/') {
+      while (index < source.length && source[index] !== '\n') index += 1;
+      output += '\n';
+      continue;
+    }
+    if (char === '/' && next === '*') {
+      index += 2;
+      while (index < source.length - 1 && !(source[index] === '*' && source[index + 1] === '/')) index += 1;
+      index += 1;
+      continue;
+    }
+    output += char;
+  }
+  return output.replace(/,\s*([}\]])/g, '$1');
+}
+
+const config = JSON.parse(stripJsonComments(fs.readFileSync(configPath, 'utf8')));
+if (config.name && config.name !== 'proqpay-lite') throw new Error(`Pages project tidak sesuai: ${config.name}`);
+
+config.$schema = './node_modules/wrangler/config-schema.json';
+config.name = 'proqpay-lite';
+config.compatibility_date = '2026-08-21';
+config.pages_build_output_dir = './out';
+config.d1_databases = [
+  ...(config.d1_databases || []).filter((binding) => binding.binding !== 'DB'),
+  {
+    binding: 'DB',
+    database_name: 'proqpay-lite-production',
+    database_id: databaseId,
+    migrations_dir: 'migrations',
+  },
+];
+config.r2_buckets = [
+  ...(config.r2_buckets || []).filter((binding) => binding.binding !== 'FILES'),
+  { binding: 'FILES', bucket_name: 'proqpay-lite-files' },
+];
+config.kv_namespaces = (config.kv_namespaces || []).filter((binding) =>
+  binding?.id && !/REPLACE_WITH|<KV_NAMESPACE_ID>/.test(String(binding.id))
+);
+if (!config.kv_namespaces.length) delete config.kv_namespaces;
+config.ai = { binding: 'AI' };
+config.vars = {
+  ...(config.vars || {}),
+  DEFAULT_ORG_ID: 'ORG-OTSINDO',
+  DATA_BACKEND: 'd1',
+  WORKERS_AI_MODEL: config.vars?.WORKERS_AI_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+};
+
+const serialized = JSON.stringify(config, null, 2) + '\n';
+if (/REPLACE_WITH|<DATABASE_ID>|<KV_NAMESPACE_ID>/.test(serialized)) {
+  throw new Error('Placeholder resource ID masih ditemukan');
+}
+fs.writeFileSync('wrangler.jsonc', serialized);
+console.log('Wrangler Pages config prepared without exposing secrets.');
