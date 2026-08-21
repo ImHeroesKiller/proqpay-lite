@@ -269,7 +269,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         return response.json();
       })
       .then((result) => {
-        setHealth(result?.ready && result?.database === 'connected' ? 'online' : 'degraded');
+        setHealth(\n          result?.ready && ['d1', 'connected'].includes(String(result?.database || '').toLowerCase())\n            ? 'online'\n            : 'degraded',\n        );
       })
       .catch((error) => {
         if (error?.name !== 'AbortError') setHealth('degraded');
