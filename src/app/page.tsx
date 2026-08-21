@@ -10,7 +10,7 @@ import AppHeader from '@/components/AppHeader';
 import PayrollControlTower from '@/components/PayrollControlTower';
 import SystemHealthBubble from '@/components/SystemHealthBubble';
 import { writeSystemLog } from '@/lib/system-log';
-import { syncDatabaseFromNeon } from '@/lib/neon-sync';
+import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
 import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
 
 const OperatingWorkspace = dynamic(() => import('@/components/OperatingWorkspace'), { loading: () => <ViewLoading /> });
@@ -59,7 +59,7 @@ export default function Home() {
         setView(allowedViews.includes(preferredView as AppView) ? preferredView as AppView : 'dashboard');
         setAuthRequired(false);
         setAuthChecked(true);
-        void syncDatabaseFromNeon(data, { signal: controller.signal })
+        void syncDatabaseFromCloudflare(data, { signal: controller.signal })
           .then(({ db: canonical }) => {
             saveDatabase(canonical);
             setDb(canonical);
@@ -94,7 +94,7 @@ export default function Home() {
     if (!minutes) return;
     const timer = window.setInterval(() => {
       const current = loadDatabase();
-      void syncDatabaseFromNeon(current)
+      void syncDatabaseFromCloudflare(current)
         .then(({ db: canonical }) => { saveDatabase(canonical); setDb(canonical); })
         .catch(() => writeSystemLog('WARN', 'DATABASE', 'AUTO_REFRESH_FAILED', 'Refresh otomatis gagal'));
     }, minutes * 60_000);
@@ -112,7 +112,7 @@ export default function Home() {
 
   async function refreshCanonical() {
     if (!db) return;
-    const result = await syncDatabaseFromNeon(db, { requireData: true });
+    const result = await syncDatabaseFromCloudflare(db, { requireData: true });
     saveDatabase(result.db);
     setDb(result.db);
   }
@@ -151,7 +151,7 @@ export default function Home() {
         onMobileClose={() => setMobileNavOpen(false)}
         settingsOpen={settingsOpen}
         onSettingsOpen={setSettingsOpen}
-        lastSyncAt={db.meta?.lastNeonSyncAt}
+        lastSyncAt={db.meta?.lastCloudflareSyncAt}
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>

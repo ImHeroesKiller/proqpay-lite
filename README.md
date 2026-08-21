@@ -17,7 +17,7 @@ Built with **Next.js 16** · static export for **Cloudflare Pages** with Pages F
 - Region distribution, client detail, AI insight, timeline
 - Floating **Ask IDA** untuk analisis dan payroll; Payment Instruction hanya melalui workflow canonical
 - Immutable Payment Instruction snapshot, maker-checker, PDF, dan bank export BCA/Mandiri/BRI/BNI/custom
-- Payroll calc (BPJS + PPh 21) with Neon-backed operational persistence
+- Payroll calc (BPJS + PPh 21) with Cloudflare D1 operational persistence
 - Period / bundling filters, Settings modal
 
 ## Local development

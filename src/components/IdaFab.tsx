@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import Image from 'next/image';
 import { loadDatabase, saveDatabase } from '@/lib/database';
 import {
   handleIdaIntent,
@@ -15,7 +16,7 @@ import { getIdaSessionId } from '@/lib/session';
 import type { ParsedEmployee } from '@/lib/excel-iap';
 import { validatePayrollIndonesia, formatValidationMarkdown } from '@/lib/payroll-validate';
 import { loadSettings, onSettingsChange } from '@/lib/app-settings';
-import { persistBusinessState, syncDatabaseFromNeon } from '@/lib/neon-sync';
+import { persistBusinessState, syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
 import { writeSystemLog } from '@/lib/system-log';
 import type { IdaRole, SharedContext } from '@/lib/ida-os/contracts';
 
@@ -299,16 +300,16 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           });
         }
       });
-    syncDatabaseFromNeon(localDb, { signal: controller.signal })
+    syncDatabaseFromCloudflare(localDb, { signal: controller.signal })
       .then((result) => {
         if (!result.synced) return;
         saveDatabase(result.db);
         setDb(result.db);
         emitDbChange();
-        writeSystemLog('SUCCESS', 'DATABASE', 'NEON_SYNC_COMPLETED', `${result.count} karyawan tersinkron`);
+        writeSystemLog('SUCCESS', 'DATABASE', 'D1_SYNC_COMPLETED', `${result.count} karyawan tersinkron`);
       })
       .catch((error) => {
-        writeSystemLog('ERROR', 'DATABASE', 'NEON_SYNC_FAILED', String(error?.message || error));
+        writeSystemLog('ERROR', 'DATABASE', 'D1_SYNC_FAILED', String(error?.message || error));
       });
     const unsubscribe = onSettingsChange(() => {
       const s = loadSettings();
@@ -396,7 +397,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         throw new Error('Ukuran file maksimal 5 MB');
       }
       const { parseIapWorkbook } = await import('@/lib/excel-iap');
-      const parsed = parseIapWorkbook(await file.arrayBuffer());
+      const parsed = await parseIapWorkbook(await file.arrayBuffer());
       if (!parsed.rows.length) {
         const scanned = parsed.diagnostics.map((sheet) => sheet.sheetName).join(', ');
         throw new Error(`Tidak ditemukan datasheet dengan kombinasi kolom NRK dan NAMA. Sheet diperiksa: ${scanned || 'tidak ada'}`);
@@ -503,7 +504,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       const inserted = data.inserted || 0;
       const updated = data.updated || 0;
       const errors = data.errors || 0;
-      const synced = await syncDatabaseFromNeon(db, { requireData: true });
+      const synced = await syncDatabaseFromCloudflare(db, { requireData: true });
       const newDb = {
         ...synced.db,
         meta: { ...synced.db.meta },
@@ -671,7 +672,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           return;
         }
         const deletedName = pendingClientDelete.name;
-        const synced = await syncDatabaseFromNeon(db, { requireData: true });
+        const synced = await syncDatabaseFromCloudflare(db, { requireData: true });
         saveDatabase(synced.db);
         setDb(synced.db);
         emitDbChange();
@@ -722,7 +723,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           await pushIda(`Penghapusan ditolak: **${reason}**. Tidak ada data yang berubah.`, true, ['Verifikasi gagal']);
           return;
         }
-        const synced = await syncDatabaseFromNeon(db, { requireData: true });
+        const synced = await syncDatabaseFromCloudflare(db, { requireData: true });
         saveDatabase(synced.db);
         setDb(synced.db);
         emitDbChange();
@@ -827,7 +828,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           await pushIda(`Pengisian email ditolak: **${reason}**. Tidak ada perubahan parsial.`, true, ['Transaksi dibatalkan']);
           return;
         }
-        const synced = await syncDatabaseFromNeon(db, { requireData: true });
+        const synced = await syncDatabaseFromCloudflare(db, { requireData: true });
         saveDatabase(synced.db);
         setDb(synced.db);
         emitDbChange();
@@ -1045,7 +1046,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           cursor: 'pointer',
         }}
       >
-        <img src={IDA_AVATAR} alt="IDA" style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover' }} />
+        <Image unoptimized width={42} height={42} src={IDA_AVATAR} alt="IDA" style={{ borderRadius: '50%', objectFit: 'cover' }} />
         <div style={{ textAlign: 'left' }}>
           <div style={{ fontSize: 14, fontWeight: 700 }}>Ask IDA</div>
           <div style={{ fontSize: 10.5, color: 'var(--text2)' }}>Asisten payroll</div>
@@ -1068,7 +1069,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           }}
         >
           <div className="ida-header">
-            <img src={IDA_AVATAR} alt="" style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,.55)' }} />
+            <Image unoptimized width={42} height={42} src={IDA_AVATAR} alt="" style={{ borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,.55)' }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 750 }}>IDA Payroll Copilot</div>
               <div className="ida-system-status" aria-live="polite">

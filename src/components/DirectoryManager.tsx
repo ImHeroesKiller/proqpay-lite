@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Image from 'next/image';
 
 type Actor = { role: string; permissions: string[] };
 type Client = {
@@ -30,7 +31,7 @@ function ClientIcon({ client }: { client: Client }) {
   const [failed, setFailed] = useState(false);
   const initials = client.name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join('').toUpperCase();
   return client.logo_url && !failed
-    ? <img className="directory-icon" src={client.logo_url} alt="" onError={() => setFailed(true)} />
+    ? <Image unoptimized width={40} height={40} className="directory-icon" src={client.logo_url} alt="" onError={() => setFailed(true)} />
     : <span className="directory-icon directory-icon-fallback" aria-hidden="true">{initials || 'CL'}</span>;
 }
 

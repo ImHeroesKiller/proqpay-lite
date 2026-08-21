@@ -43,7 +43,6 @@ export async function onRequest({request,env}) {
     return respond({ok:true,state:{
       payrolls:payrolls.map((p)=>({id:p.id,period:p.period,status:p.status,createdAt:time(p.created_at),summary:{employeeCount:Number(p.employee_count),totalGross:Number(p.total_gross),totalDeduction:Number(p.total_deduction),totalNet:Number(p.total_net)},details:[]})),
       approvals:approvals.map((a)=>({id:a.id,payrollId:a.payroll_id,period:a.period,approvedBy:a.approved_by,status:a.status,approvedAt:time(a.approved_at)})),
-      payments:[],
       invoices:invoices.map((i)=>({id:i.id,company:i.resolved_company||i.client_id||'Client',period:i.period,amount:Number(i.amount),taxAmount:Number(i.tax_amount),totalAmount:Number(i.total_amount),status:i.status,issuedAt:time(i.issued_at),paidAt:time(i.paid_at),items:json(i.items)})),
       arMonitor:arMonitor.map((a)=>({id:a.id,company:a.company,invoiceId:a.invoice_id,amount:Number(a.amount),status:a.status,dueDate:time(a.due_date),daysOverdue:a.days_overdue,type:a.type,notes:a.notes})),
       auditLogs:auditLogs.map((a)=>({id:a.id,timestamp:time(a.timestamp),user:a.username,role:a.role,action:a.action,detail:a.detail,entity:a.entity,entityId:a.entity_id})),

@@ -21,7 +21,7 @@ export default function ExcelUpload() {
       }
       const buf = await file.arrayBuffer();
       const { parseIapWorkbook } = await import('@/lib/excel-iap');
-      const parsed = parseIapWorkbook(buf);
+      const parsed = await parseIapWorkbook(buf);
       setPreview(parsed.rows.slice(0, 8));
       setMeta({ sheetName: parsed.sheetName, totalRaw: parsed.totalRaw, skipped: parsed.skipped });
 

@@ -1,9 +1,10 @@
-import * as XLSX from 'xlsx';
+import readXlsxFile from 'read-excel-file/universal';
 import { resolveWorkLocation } from './wilayah';
 
 /** Excel serial → YYYY-MM-DD */
 export function excelSerialToDate(n: unknown): string | null {
   if (n == null || n === '' || n === '-') return null;
+  if (n instanceof Date) return Number.isNaN(n.getTime()) ? null : n.toISOString().slice(0, 10);
   if (typeof n === 'string' && /^\d{4}-\d{2}-\d{2}/.test(n)) return n.slice(0, 10);
   const num = Number(n);
   if (!num || Number.isNaN(num)) return null;
@@ -126,8 +127,7 @@ const KNOWN_HEADERS = new Set([
   'DEPT', 'USER', 'NPWP', 'NAMA BANK', 'NO REK', 'GAJI POKOK', 'GROSS', 'DEDUCT', 'NETTO',
 ]);
 
-function findEmployeeHeaderRow(sheet: XLSX.WorkSheet): number | null {
-  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null, blankrows: false });
+function findEmployeeHeaderRow(matrix: unknown[][]): number | null {
   let bestIndex: number | null = null;
   let bestScore = -1;
   matrix.slice(0, 100).forEach((row, index) => {
@@ -139,6 +139,21 @@ function findEmployeeHeaderRow(sheet: XLSX.WorkSheet): number | null {
     if (score > bestScore) { bestIndex = index; bestScore = score; }
   });
   return bestIndex;
+}
+
+function rowsFromMatrix(matrix: unknown[][], headerRow: number): Record<string, unknown>[] {
+  const headers = (matrix[headerRow] || []).map((value) => String(value ?? '').trim());
+  return matrix.slice(headerRow + 1).flatMap((values) => {
+    const row: Record<string, unknown> = {};
+    let hasValue = false;
+    headers.forEach((header, index) => {
+      if (!header) return;
+      const value = values?.[index] ?? null;
+      row[header] = value;
+      if (value != null && String(value).trim() !== '') hasValue = true;
+    });
+    return hasValue ? [row] : [];
+  });
 }
 
 function payrollComponents(row: Record<string, unknown>) {
@@ -249,7 +264,7 @@ function parseEmployeeRow(r: Record<string, unknown>, sourceSheet: string): Pars
   };
 }
 
-export function parseIapWorkbook(buffer: ArrayBuffer): {
+export async function parseIapWorkbook(buffer: ArrayBuffer): Promise<{
   rows: ParsedEmployee[];
   sheetName: string;
   totalRaw: number;
@@ -257,19 +272,20 @@ export function parseIapWorkbook(buffer: ArrayBuffer): {
   duplicateRows: number;
   diagnostics: WorkbookSheetDiagnostic[];
   payrollSummary: { gross: number; deductions: number; net: number };
-} {
-  const wb = XLSX.read(buffer, { type: 'array' });
+}> {
+  const workbook = await readXlsxFile(buffer);
   const candidates: Array<{ sheetName: string; raw: Record<string, unknown>[]; rows: ParsedEmployee[]; skipped: number; headerRow: number }> = [];
   const diagnostics: WorkbookSheetDiagnostic[] = [];
 
-  for (const sheetName of wb.SheetNames) {
-    const sheet = wb.Sheets[sheetName];
-    const headerRow = findEmployeeHeaderRow(sheet);
+  for (const sheet of workbook) {
+    const sheetName = sheet.sheet;
+    const matrix: unknown[][] = sheet.data;
+    const headerRow = findEmployeeHeaderRow(matrix);
     if (headerRow == null) {
       diagnostics.push({ sheetName, headerRow: null, totalRaw: 0, accepted: 0, skipped: 0, kind: 'NON_EMPLOYEE_SHEET' });
       continue;
     }
-    const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, range: headerRow });
+    const raw = rowsFromMatrix(matrix, headerRow);
     const parsedRows = raw.map((row) => parseEmployeeRow(row, sheetName)).filter((row): row is ParsedEmployee => row != null);
     const skipped = raw.length - parsedRows.length;
     if (parsedRows.length) {
@@ -303,7 +319,7 @@ export function parseIapWorkbook(buffer: ArrayBuffer): {
   const selectedSheets = [...new Set(rows.map((row) => row.sourceSheet))];
   return {
     rows,
-    sheetName: selectedSheets.join(', ') || wb.SheetNames[0] || '',
+    sheetName: selectedSheets.join(', ') || workbook[0]?.sheet || '',
     totalRaw: candidates.reduce((total, candidate) => total + candidate.raw.length, 0),
     skipped,
     duplicateRows,

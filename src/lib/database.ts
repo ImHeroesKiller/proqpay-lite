@@ -1,5 +1,5 @@
 // ProQPay Lite — canonical client-side database mirror
-// Operational data is loaded from Neon. This module contains only regulatory
+// Operational data is loaded from Cloudflare D1. This module contains only regulatory
 // reference data and an empty local cache for offline resilience.
 
 export const DB_KEY = 'proqpay_db_v3';
@@ -26,18 +26,9 @@ export const UMR_2024: Record<string, number> = {
   'Nusa Tenggara Barat': 2500000, 'Nusa Tenggara Timur': 2330000,
 };
 
-export const BANK_SCHEMAS: Record<string, any> = {
-  BCA: { code:'BCA', name:'Bank Central Asia', transferType:'BCA_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
-  Mandiri: { code:'Mandiri', name:'Bank Mandiri', transferType:'MANDIRI_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
-  BNI: { code:'BNI', name:'Bank Negara Indonesia', transferType:'BNI_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
-  BRI: { code:'BRI', name:'Bank Rakyat Indonesia', transferType:'BRI_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
-  CIMB: { code:'CIMB', name:'CIMB Niaga', transferType:'CIMB_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
-  Permata: { code:'Permata', name:'Bank Permata', transferType:'PERMATA_TRANSFER', fields:['beneficiaryAccount','beneficiaryName','amount','berita'], format:'CSV' },
-};
-
 export function seedDatabase() {
   return {
-    meta: { createdAt: Date.now(), currentPeriod: new Date().toISOString().slice(0, 7), orgName: 'ProQPay Lite', dataSource: 'neon' },
+    meta: { createdAt: Date.now(), currentPeriod: new Date().toISOString().slice(0, 7), orgName: 'ProQPay Lite', dataSource: 'cloudflare-d1' },
     employees: [] as any[],
     companies: [] as any[],
     projects: [] as any[],
@@ -45,7 +36,6 @@ export function seedDatabase() {
     payrollSetups: [] as any[],
     payrolls: [] as any[],
     approvals: [] as any[],
-    payments: [] as any[],
     invoices: [] as any[],
     arMonitor: [] as any[],
     auditLogs: [] as any[],
@@ -133,22 +123,6 @@ export function generatePayroll(db: any, period: string) {
     id: `PAY${period.replace('-','')}`, period, status: 'DRAFT', createdAt: Date.now(),
     summary: { employeeCount: details.length, totalGross, totalDeduction, totalNet }, details
   };
-}
-
-export function generatePaymentFile(db: any, period: string, bankTemplate: any) {
-  const payroll = db.payrolls.find((p: any) => p.period === period);
-  if (!payroll || !payroll.details) return null;
-  const schema = BANK_SCHEMAS[bankTemplate.bank] || BANK_SCHEMAS['BCA'];
-  const lines = [];
-  lines.push(schema.fields.join(';'));
-  payroll.details.forEach((d: any) => {
-    const account = d.bankAccount ? d.bankAccount.split('-').pop() : '';
-    const name = d.name.replace(/[^a-zA-Z\s]/g,'').toUpperCase().trim();
-    const amount = d.net;
-    const berita = `PAYROLL ${period}`;
-    lines.push([account, name, amount, berita].join(';'));
-  });
-  return { content: lines.join('\n'), filename: `payment_${bankTemplate.bank}_${period}.csv`, schema };
 }
 
 export type BillingSettings = {

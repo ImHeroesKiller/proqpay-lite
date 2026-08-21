@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next';
 
 // Only GitHub Pages needs /proqpay-lite prefix.
-// Netlify / Vercel / local production build use root path.
+// Cloudflare Pages and local production builds use the root path.
 const isGhPages = process.env.GITHUB_PAGES === 'true';
 
 const nextConfig: NextConfig = {

@@ -14,7 +14,6 @@ export function validateBusinessState(input) {
   const state = {
     payrolls: list(input.payrolls),
     approvals: list(input.approvals),
-    payments: list(input.payments),
     invoices: list(input.invoices),
     arMonitor: list(input.arMonitor),
     auditLogs: list(input.auditLogs).slice(-MAX_ITEMS),

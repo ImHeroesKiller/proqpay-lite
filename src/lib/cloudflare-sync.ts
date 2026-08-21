@@ -11,7 +11,7 @@ function companiesFromEmployees(employees: any[]) {
   return names.map((name, index) => {
     const firstEmployee = employees.find((employee) => employee.company === name);
     return {
-      id: `CMP-NEON-${index + 1}`,
+      id: `CMP-D1-${index + 1}`,
       name,
       npwp: '',
       address: '',
@@ -35,7 +35,7 @@ function projectsFromEmployees(employees: any[]) {
   return keys.map((name, index) => {
     const firstEmployee = employees.find((employee) => employee.project === name);
     return {
-      id: `PRJ-NEON-${index + 1}`,
+      id: `PRJ-D1-${index + 1}`,
       name,
       company: firstEmployee?.company || '',
       region: firstEmployee?.region || '',
@@ -44,7 +44,7 @@ function projectsFromEmployees(employees: any[]) {
   });
 }
 
-export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
+export async function syncDatabaseFromCloudflare(db: any, options: SyncOptions = {}) {
   const [response, stateResponse, directoryResponse, planResponse] = await Promise.all([
     fetch('/api/employees', {
       method: 'GET',
@@ -102,7 +102,7 @@ export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
   ];
   const remoteState = stateResponse.ok && stateData?.state ? stateData.state : {};
   const canonicalState = Object.fromEntries(
-    ['payrolls', 'approvals', 'payments', 'invoices', 'arMonitor', 'auditLogs'].map((key) => [
+    ['payrolls', 'approvals', 'invoices', 'arMonitor', 'auditLogs'].map((key) => [
       key,
       Array.isArray(remoteState[key]) ? remoteState[key] : [],
     ])
@@ -117,8 +117,8 @@ export async function syncDatabaseFromNeon(db: any, options: SyncOptions = {}) {
     ...canonicalState,
     meta: {
       ...db.meta,
-      lastNeonSyncAt: Date.now(),
-      dataSource: 'neon',
+      lastCloudflareSyncAt: Date.now(),
+      dataSource: 'cloudflare-d1',
     },
   };
   return { db: nextDb, count: employees.length, synced: true };
@@ -128,7 +128,6 @@ export async function persistBusinessState(db: any) {
   const state = {
     payrolls: db.payrolls || [],
     approvals: db.approvals || [],
-    payments: db.payments || [],
     invoices: db.invoices || [],
     arMonitor: db.arMonitor || [],
     auditLogs: db.auditLogs || [],

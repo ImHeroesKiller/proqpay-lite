@@ -1,7 +1,6 @@
 import {
   generatePayroll,
   generateInvoice,
-  generatePaymentFile,
   saveDatabase,
   UMR_2025,
 } from './database';
@@ -62,17 +61,6 @@ function nextStep(db: any) {
     default:
       return `Status payroll: **${pay.status}**. Ketik **help**.`;
   }
-}
-
-function downloadCsv(filename: string, content: string) {
-  if (typeof window === 'undefined') return;
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 export function handleIdaIntent(
@@ -545,99 +533,6 @@ export function handleIdaIntent(
   if (/\b(payment instruction|instruksi pembayaran|buat payment|payment csv|csv payment|tandai paid|mark paid|sudah dibayar|konfirmasi bayar|set paid)\b/.test(t)
     || (/\b(unduh|download)\b/.test(t) && /\b(payment|csv|transfer)\b/.test(t))) {
     return { reply: renderMarkdown('Payment Instruction kini hanya menggunakan workflow canonical pada **Payroll Operations → Payment & Rekonsiliasi**. Pembuatan PI, file bank, bukti, dan perubahan status tidak lagi dilakukan oleh penyimpanan lokal IDA.') };
-  }
-
-  if (/\b(payment instruction|instruksi pembayaran|buat payment)\b/.test(t) && !/csv|unduh|download/.test(t)) {
-    const period = periodOf(db);
-    const payroll = payrollOf(db, period);
-    if (!payroll) return { reply: renderMarkdown('Belum ada payroll.') };
-    if (payroll.status !== 'APPROVED' && payroll.status !== 'PAYMENT_INSTRUCTION') {
-      return { reply: renderMarkdown(`Harus APPROVED dulu (sekarang ${payroll.status}).`) };
-    }
-    const report = validatePayrollIndonesia(db, { period });
-    if (!report.ok) {
-      return {
-        reply: renderMarkdown(
-          `Payment instruction diblokir (${report.errorCount} error).\n\n` + formatValidationMarkdown(report)
-        ),
-      };
-    }
-    const payment = {
-      id: `PMT${period.replace('-', '')}`,
-      payrollId: payroll.id,
-      period,
-      bank: 'BCA',
-      account: '1234567890',
-      amount: payroll.summary?.totalNet || 0,
-      status: 'INSTRUCTION_CREATED',
-      createdAt: Date.now(),
-    };
-    const newDb = {
-      ...db,
-      payrolls: db.payrolls.map((p: any) =>
-        p.period === period ? { ...p, status: 'PAYMENT_INSTRUCTION' } : p
-      ),
-      payments: [...(db.payments || []).filter((x: any) => x.period !== period), payment],
-      auditLogs: [
-        ...(db.auditLogs || []),
-        { id: `LOG${Date.now()}`, timestamp: Date.now(), user: 'IDA', role: 'AI', action: 'PAYMENT_INSTRUCTION_CREATED', detail: payment.id, entity: 'Payment', entityId: payment.id },
-      ],
-    };
-    saveDatabase(newDb);
-    return {
-      reply: renderMarkdown(
-        `Payment instruction **${payment.id}** siap · **${formatIDR(payment.amount)}**. Bisa **unduh payment csv** atau **tandai paid**.`
-      ),
-      dbChanged: true,
-      newDb,
-    };
-  }
-
-  if (/\b(unduh|download)\b.*\b(payment|csv|transfer)\b/.test(t) || /\b(payment csv|csv payment)\b/.test(t)) {
-    const period = periodOf(db);
-    const payroll = payrollOf(db, period);
-    if (!payroll) return { reply: renderMarkdown('Belum ada payroll.') };
-    if (!payroll.details?.length) payroll.details = generatePayroll(db, period).details;
-    if (!validatePayrollIndonesia(db, { period }).ok) {
-      return { reply: renderMarkdown('CSV diblokir — masih ada error validasi. Ketik **validasi**.') };
-    }
-    const file = generatePaymentFile(db, period, { bank: 'BCA' });
-    if (!file) return { reply: renderMarkdown('Gagal buat file.') };
-    downloadCsv(file.filename, file.content);
-    return { reply: renderMarkdown(`File **${file.filename}** diunduh.`) };
-  }
-
-  if (/\b(tandai paid|mark paid|sudah dibayar|konfirmasi bayar|set paid)\b/.test(t)) {
-    const period = periodOf(db);
-    const payroll = payrollOf(db, period);
-    if (!payroll) return { reply: renderMarkdown('Belum ada payroll.') };
-    if (payroll.status === 'PAID') {
-      return { reply: renderMarkdown(`Payroll **${period}** sudah PAID.`) };
-    }
-    if (payroll.status !== 'PAYMENT_INSTRUCTION') {
-      return { reply: renderMarkdown(`Status ${payroll.status} — buat payment instruction dulu.`) };
-    }
-    const report = validatePayrollIndonesia(db, { period });
-    if (!report.ok) {
-      return {
-        reply: renderMarkdown(
-          `Pembayaran diblokir karena masih ada **${report.errorCount} error validasi**. Belum ada status yang diubah. Ketik **perbaiki** untuk opsi tindak lanjut.`
-        ),
-      };
-    }
-    const newDb = {
-      ...db,
-      payrolls: db.payrolls.map((p: any) => (p.period === period ? { ...p, status: 'PAID' } : p)),
-      payments: (db.payments || []).map((p: any) =>
-        p.period === period ? { ...p, status: 'PAID', paidAt: Date.now() } : p
-      ),
-      auditLogs: [
-        ...(db.auditLogs || []),
-        { id: `LOG${Date.now()}`, timestamp: Date.now(), user: 'IDA', role: 'AI', action: 'PAYMENT_CONFIRMED', detail: period, entity: 'Payroll', entityId: payroll.id },
-      ],
-    };
-    saveDatabase(newDb);
-    return { reply: renderMarkdown(`**${period}** ditandai PAID.`), dbChanged: true, newDb };
   }
 
   if (/\b(buat invoice|generate invoice|terbit invoice|invoice)\b/.test(t)) {
