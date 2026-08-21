@@ -1,16 +1,20 @@
 -- Run read-only after migration and before cutover.
-SELECT 'organizations' AS metric, COUNT(*) AS value FROM organizations
-UNION ALL SELECT 'clients', COUNT(*) FROM clients
-UNION ALL SELECT 'projects', COUNT(*) FROM projects
-UNION ALL SELECT 'employees', COUNT(*) FROM employees
-UNION ALL SELECT 'primary_bank_accounts', COUNT(*) FROM employee_bank_accounts WHERE is_primary=1
-UNION ALL SELECT 'payroll_submissions', COUNT(*) FROM payroll_submissions
-UNION ALL SELECT 'payment_instructions', COUNT(*) FROM payment_instructions
-UNION ALL SELECT 'payment_instruction_lines', COUNT(*) FROM payment_instruction_lines
-UNION ALL SELECT 'payment_proofs', COUNT(*) FROM payment_proofs
-UNION ALL SELECT 'reconciliations', COUNT(*) FROM reconciliations
-UNION ALL SELECT 'invoices', COUNT(*) FROM invoices
-UNION ALL SELECT 'ar_monitor', COUNT(*) FROM ar_monitor;
+-- Use scalar subqueries instead of a compound UNION. Cloudflare D1's remote
+-- execute endpoint can reject compound statements before the later assertions
+-- run, even when the individual SELECT terms are valid SQLite.
+SELECT
+  (SELECT COUNT(*) FROM organizations) AS organizations,
+  (SELECT COUNT(*) FROM clients) AS clients,
+  (SELECT COUNT(*) FROM projects) AS projects,
+  (SELECT COUNT(*) FROM employees) AS employees,
+  (SELECT COUNT(*) FROM employee_bank_accounts WHERE is_primary=1) AS primary_bank_accounts,
+  (SELECT COUNT(*) FROM payroll_submissions) AS payroll_submissions,
+  (SELECT COUNT(*) FROM payment_instructions) AS payment_instructions,
+  (SELECT COUNT(*) FROM payment_instruction_lines) AS payment_instruction_lines,
+  (SELECT COUNT(*) FROM payment_proofs) AS payment_proofs,
+  (SELECT COUNT(*) FROM reconciliations) AS reconciliations,
+  (SELECT COUNT(*) FROM invoices) AS invoices,
+  (SELECT COUNT(*) FROM ar_monitor) AS ar_monitor;
 
 SELECT
   pi.id,
