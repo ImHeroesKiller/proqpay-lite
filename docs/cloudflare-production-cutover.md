@@ -24,6 +24,11 @@ Jangan commit `wrangler.jsonc` bila memuat identifier environment aktual.
 
 ## Migrasi dan verifikasi
 
+Workflow cutover aman dijalankan ulang. Target boleh berupa D1 kosong atau D1
+canonical dari percobaan sebelumnya. Schema parsial, tabel non-canonical, serta
+tabel legacy `payments`, `approvals`, dan `payrolls` akan menghentikan proses.
+Setiap percobaan mengekspor backup D1 sebelum migration dilanjutkan.
+
 ```sh
 node scripts/cloudflare-native-preflight.mjs
 wrangler d1 migrations apply proqpay-lite-production --remote

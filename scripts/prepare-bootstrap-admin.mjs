@@ -24,16 +24,23 @@ const userId = `USR-BOOTSTRAP-${randomBytes(12).toString('hex')}`;
 const sql = `INSERT INTO app_users
   (id, org_id, name, email, role, status, password_hash, password_salt,
    password_iterations, must_change_password, payment_approver, created_by)
-SELECT
+VALUES (
   '${escapeSql(userId)}', 'ORG-OTSINDO', '${escapeSql(name)}', '${escapeSql(email)}',
   'SUPER_ADMIN', 'ACTIVE', '${escapeSql(hash)}', '${escapeSql(salt)}',
   ${iterations}, 1, 1, 'SYSTEM_CUTOVER'
-WHERE NOT EXISTS (
-  SELECT 1 FROM app_users WHERE role='SUPER_ADMIN' AND status='ACTIVE'
 )
-AND NOT EXISTS (
-  SELECT 1 FROM app_users WHERE email='${escapeSql(email)}' COLLATE NOCASE
-);
+ON CONFLICT(email) DO UPDATE SET
+  name=excluded.name,
+  role='SUPER_ADMIN',
+  status='ACTIVE',
+  password_hash=excluded.password_hash,
+  password_salt=excluded.password_salt,
+  password_iterations=excluded.password_iterations,
+  must_change_password=1,
+  payment_approver=1,
+  failed_login_attempts=0,
+  locked_until=NULL,
+  updated_at=datetime('now');
 `;
 
 fs.writeFileSync(outputPath, sql, { mode: 0o600 });

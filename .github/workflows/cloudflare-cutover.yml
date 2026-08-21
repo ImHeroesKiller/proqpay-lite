@@ -183,20 +183,21 @@ jobs:
             npx wrangler r2 bucket info proqpay-lite-files --json > /tmp/proqpay-r2.json
           fi
 
-      - name: Require an empty cutover database
+      - name: Validate resumable D1 state
         shell: bash
         run: |
-          npx wrangler d1 execute proqpay-lite-production --remote --command="SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name NOT LIKE '_cf_%'" --json > /tmp/proqpay-table-count.json
-          table_count=$(node -e "const x=require('/tmp/proqpay-table-count.json'); const rows=(Array.isArray(x)?x:[]).flatMap(v=>v.results||[]); process.stdout.write(String(rows[0]?.n ?? -1))")
-          test "$table_count" = "0" || { echo "Target D1 is not empty; refusing destructive or ambiguous cutover"; exit 1; }
+          npx wrangler d1 execute proqpay-lite-production --remote \
+            --command="SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_cf_%' ORDER BY name" \
+            --json > /tmp/proqpay-d1-inventory.json
+          node scripts/validate-d1-cutover-state.mjs /tmp/proqpay-d1-inventory.json
 
-      - name: Export empty pre-migration D1 baseline
+      - name: Export pre-migration D1 backup
         run: npx wrangler d1 export proqpay-lite-production --remote --output=/tmp/proqpay-pre-migration.sql --skip-confirmation
 
-      - name: Preserve pre-migration baseline
+      - name: Preserve pre-migration backup
         uses: actions/upload-artifact@v4
         with:
-          name: proqpay-empty-d1-pre-migration
+          name: proqpay-d1-pre-migration-${{ github.run_id }}
           path: /tmp/proqpay-pre-migration.sql
           retention-days: 30
 

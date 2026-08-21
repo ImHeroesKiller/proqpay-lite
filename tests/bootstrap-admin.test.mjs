@@ -29,8 +29,31 @@ test('bootstrap SQL creates exactly one active Super Admin without plaintext pas
   database.exec(migration);
   database.exec(sql);
   database.exec(sql);
-  const row = database.prepare("SELECT COUNT(*) AS n FROM app_users WHERE role='SUPER_ADMIN' AND status='ACTIVE'").get();
+  const row = database.prepare("SELECT COUNT(*) AS n FROM app_users WHERE role='SUPER_ADMIN' AND status='ACTIVE' AND email='admin@proqpay.test'").get();
   assert.equal(row.n, 1);
+});
+
+test('bootstrap SQL repairs an existing inactive account for the configured email', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'proqpay-admin-bootstrap-'));
+  const sqlPath = path.join(directory, 'bootstrap.sql');
+  execFileSync(process.execPath, [script, sqlPath], {
+    env: {
+      ...process.env,
+      PROQPAY_BOOTSTRAP_ADMIN_EMAIL: 'admin@proqpay.test',
+      PROQPAY_BOOTSTRAP_ADMIN_PASSWORD: 'Uat!BootstrapAdmin2026',
+    },
+  });
+  const database = new DatabaseSync(':memory:');
+  database.exec(migration);
+  database.prepare(`INSERT INTO app_users
+    (id,org_id,name,email,role,status,password_hash,password_salt,password_iterations,must_change_password,payment_approver,created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      'USR-OLD', 'ORG-OTSINDO', 'Old User', 'admin@proqpay.test', 'PAYROLL_PROCESSOR',
+      'INACTIVE', 'old', 'old', 100000, 0, 0, 'TEST',
+    );
+  database.exec(fs.readFileSync(sqlPath, 'utf8'));
+  const row = database.prepare("SELECT role,status,must_change_password,payment_approver FROM app_users WHERE email='admin@proqpay.test'").get();
+  assert.deepEqual({ ...row }, { role: 'SUPER_ADMIN', status: 'ACTIVE', must_change_password: 1, payment_approver: 1 });
 });
 
 test('bootstrap SQL rejects a weak password', () => {

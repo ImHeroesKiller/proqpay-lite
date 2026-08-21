@@ -52,8 +52,8 @@ Urutan aktivasi production:
 Mode `access` tetap tersedia bila Cloudflare Access hendak digunakan sebagai
 identity provider terpisah.
 
-Binding R2 production wajib bernama `PAYMENT_PROOFS` dan mengarah ke bucket
-private `proqpay-payment-proofs`. Bukti pembayaran diunggah melalui
+Binding R2 production wajib bernama `FILES` dan mengarah ke bucket private
+`proqpay-lite-files`. Bukti pembayaran diunggah melalui
 `POST /api/payment-proof` (multipart, PDF/JPG/PNG, maksimal 5 MB) dan hanya
 dapat diunduh melalui `GET /api/payment-proof?id=...` setelah otorisasi role
 dan client scope. Object key tidak pernah dikirim sebagai URL publik.
@@ -141,13 +141,7 @@ submission, exception, payment instruction, dan maker-checker approval. Semua
 mutasi memerlukan same-origin/Cloudflare Access, role yang sesuai, validasi state,
 client scope, serta idempotency key untuk payment instruction.
 
-Setelah deployment kode, jalankan migrasi additive satu kali menggunakan sesi
-`SUPER_ADMIN`:
-
-```bash
-curl -X POST https://proqpay-lite.pages.dev/api/schema \
-  -H 'Origin: https://proqpay-lite.pages.dev'
-```
-
-Pada mode Cloudflare Access, gunakan sesi/token Access yang valid. Jangan mengubah
-`AUTH_MODE` menjadi `origin` hanya untuk menjalankan migrasi.
+Schema production dikelola oleh migration Wrangler pada workflow cutover. Endpoint
+`/api/schema` hanya menampilkan petunjuk operasional dan tidak boleh dipakai untuk
+menjalankan DDL production. Jangan mengubah `AUTH_MODE` menjadi `origin` untuk
+menjalankan migrasi.
