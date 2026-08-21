@@ -10,6 +10,12 @@
     "lint": "eslint .",
     "test": "node --test tests/*.test.mjs",
     "cloudflare:preflight": "node scripts/cloudflare-native-preflight.mjs",
+    "cloudflare:whoami": "wrangler whoami",
+    "cloudflare:inventory:d1": "wrangler d1 list",
+    "cloudflare:inventory:r2": "wrangler r2 bucket list",
+    "cloudflare:inventory:pages": "wrangler pages project list",
+    "cloudflare:d1:migrate:local": "wrangler d1 migrations apply proqpay-lite-production --local",
+    "cloudflare:d1:migrate:remote": "wrangler d1 migrations apply proqpay-lite-production --remote",
     "export": "next build"
   },
   "dependencies": {
@@ -25,6 +31,7 @@
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "^16.2.12",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "wrangler": "^4.125.0"
   }
 }
