@@ -233,8 +233,10 @@ jobs:
       - name: Reconcile canonical database
         shell: bash
         run: |
-          npx wrangler d1 execute proqpay-lite-production --remote --file=ops/d1-reconcile.sql --json | tee /tmp/proqpay-reconcile.json
-          npx wrangler d1 execute proqpay-lite-production --remote --file=ops/d1-cutover-assert.sql --json > /tmp/proqpay-assert.json
+          reconcile_sql="$(tr '\n' ' ' < ops/d1-reconcile.sql)"
+          assert_sql="$(tr '\n' ' ' < ops/d1-cutover-assert.sql)"
+          npx wrangler d1 execute proqpay-lite-production --remote --command="$reconcile_sql" --json | tee /tmp/proqpay-reconcile.json
+          npx wrangler d1 execute proqpay-lite-production --remote --command="$assert_sql" --json > /tmp/proqpay-assert.json
           node -e "const x=require('/tmp/proqpay-assert.json'); const rows=(Array.isArray(x)?x:[]).flatMap(v=>v.results||[]); if(rows.length){console.error(rows);process.exit(1)}; console.log('D1 cutover assertions passed')"
 
       - name: Deploy reviewed main with production bindings
