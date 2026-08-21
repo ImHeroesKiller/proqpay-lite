@@ -31,8 +31,14 @@ LEFT JOIN payment_instruction_lines pil ON pil.payment_instruction_id=pi.id
 GROUP BY pi.id
 ORDER BY pi.created_at;
 
-SELECT employee_id, COUNT(*) AS primary_accounts
-FROM employee_bank_accounts
-WHERE is_primary=1
-GROUP BY employee_id
-HAVING COUNT(*)<>1;
+SELECT
+  e.id AS employee_id,
+  SUM(CASE WHEN eba.is_primary=1 THEN 1 ELSE 0 END) AS primary_accounts
+FROM employees e
+LEFT JOIN employee_bank_accounts eba ON eba.employee_id=e.id
+GROUP BY e.id
+HAVING SUM(CASE WHEN eba.is_primary=1 THEN 1 ELSE 0 END)<>1;
+
+SELECT name AS forbidden_legacy_table
+FROM sqlite_master
+WHERE type='table' AND name IN ('payments','approvals','payrolls');
