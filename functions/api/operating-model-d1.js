@@ -106,7 +106,13 @@ const SUBMISSION_SELECT = `SELECT s.*, c.name AS client_name, p.name AS project_
   FROM payroll_submissions s JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id`;
 
 const PI_SELECT = `SELECT pi.*, s.period AS payroll_period, COALESCE(s.payment_period,s.period) AS payment_period,
-  COALESCE(s.arrears_periods,'[]') AS arrears_periods, c.name AS client_name, p.name AS project_name
+  COALESCE(s.arrears_periods,'[]') AS arrears_periods, c.name AS client_name, p.name AS project_name,
+  (SELECT al.detail FROM audit_logs al WHERE al.entity='payment_instruction' AND al.entity_id=pi.id
+    AND al.action='PAYMENT_INSTRUCTION_REJECTED' ORDER BY al.timestamp DESC LIMIT 1) AS rejection_reason,
+  (SELECT al.username FROM audit_logs al WHERE al.entity='payment_instruction' AND al.entity_id=pi.id
+    AND al.action='PAYMENT_INSTRUCTION_REJECTED' ORDER BY al.timestamp DESC LIMIT 1) AS rejected_by,
+  (SELECT al.timestamp FROM audit_logs al WHERE al.entity='payment_instruction' AND al.entity_id=pi.id
+    AND al.action='PAYMENT_INSTRUCTION_REJECTED' ORDER BY al.timestamp DESC LIMIT 1) AS rejected_at
   FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
   JOIN clients c ON c.id=pi.client_id LEFT JOIN projects p ON p.id=s.project_id`;
 
@@ -199,7 +205,14 @@ async function readResource(database, params, actor, env, organizationId) {
     if (!paymentInstructionId) return { status: 422, data: { error: 'paymentInstructionId wajib diisi' } };
     const instruction = await d1First(database, `SELECT pi.*, s.period AS payroll_period,
       COALESCE(s.payment_period,s.period) AS payment_period, c.name AS client_name, p.name AS project_name,
-      maker.email AS creator_email FROM payment_instructions pi
+      maker.email AS creator_email,
+      (SELECT al.detail FROM audit_logs al WHERE al.entity='payment_instruction' AND al.entity_id=pi.id
+        AND al.action='PAYMENT_INSTRUCTION_REJECTED' ORDER BY al.timestamp DESC LIMIT 1) AS rejection_reason,
+      (SELECT al.username FROM audit_logs al WHERE al.entity='payment_instruction' AND al.entity_id=pi.id
+        AND al.action='PAYMENT_INSTRUCTION_REJECTED' ORDER BY al.timestamp DESC LIMIT 1) AS rejected_by,
+      (SELECT al.timestamp FROM audit_logs al WHERE al.entity='payment_instruction' AND al.entity_id=pi.id
+        AND al.action='PAYMENT_INSTRUCTION_REJECTED' ORDER BY al.timestamp DESC LIMIT 1) AS rejected_at
+      FROM payment_instructions pi
       JOIN payroll_submissions s ON s.id=pi.submission_id JOIN clients c ON c.id=pi.client_id
       LEFT JOIN projects p ON p.id=s.project_id LEFT JOIN app_users maker ON maker.id=pi.creator_user_id
       WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [paymentInstructionId, organizationId]);
@@ -635,8 +648,9 @@ async function executeAction(database, body, actor, env, organizationId) {
     const submission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
     if (!submission) return { status: 404, data: { error: 'Submission not found' } };
     if (submission.state !== 'PAYMENT_INSTRUCTION_READY') return { status: 409, data: { error: 'Submission belum siap dibuatkan payment instruction' } };
-    const existing = await d1First(database, 'SELECT * FROM payment_instructions WHERE submission_id=? AND org_id=? LIMIT 1', [submission.id, organizationId]);
-    if (existing) return { data: { ok: true, paymentInstruction: existing, idempotentReplay: true } };
+    const existing = await d1First(database, `SELECT * FROM payment_instructions
+      WHERE submission_id=? AND org_id=? AND status<>'REJECTED' ORDER BY created_at DESC LIMIT 1`, [submission.id, organizationId]);
+    if (existing && existing.status !== 'REVISION_REQUIRED') return { data: { ok: true, paymentInstruction: existing, idempotentReplay: true } };
     const snapshotCount = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_run_lines WHERE submission_id=?`, [submission.id]);
     const source = Number(snapshotCount?.count || 0) ? await d1All(database, `SELECT l.employee_id AS id,l.employee_name AS name,l.net_amount AS amount,
       eba.bank_name,eba.account_no,l.account_last4 FROM payroll_run_lines l
@@ -658,7 +672,6 @@ async function executeAction(database, body, actor, env, organizationId) {
     const expectedTotal = source.reduce((sum, row) => sum + Number(row.amount), 0);
     const id = `PI-${crypto.randomUUID()}`;
     const paymentPeriod = submission.payment_period || submission.period;
-    const idempotencyKey = `PI-${submission.id}-${paymentPeriod}`.slice(0, 120);
     const snapshotLines = await Promise.all(source.map(async (row) => {
       const encrypted = await encryptAccountNumber(row.account_no, env.PI_ENCRYPTION_KEY);
       const bankCode = canonicalBankCode(row.bank_name);
@@ -671,8 +684,14 @@ async function executeAction(database, body, actor, env, organizationId) {
       employeeId: row.id, beneficiaryName: row.name, bankName: row.bank_name,
       accountNumber: row.account_no, amount: Number(row.amount),
     })));
+    if (existing?.content_hash === contentHash) return { status:409, data:{
+      error:'Data revisi belum berubah dari PI yang ditolak. Perbaiki nominal atau rekening sesuai alasan reject sebelum membuat revisi PI.' } };
+    const revision = await d1First(database, 'SELECT COUNT(*) AS count FROM payment_instructions WHERE submission_id=? AND org_id=?', [submission.id, organizationId]);
+    const revisionNo = Number(revision?.count || 0) + 1;
+    const idempotencyKey = `${`PI-${submission.id}-${paymentPeriod}`.slice(0, 105)}${revisionNo > 1 ? `-R${revisionNo}` : ''}`;
     const documentNo = `PI/${paymentPeriod.replace('-','')}/${contentHash.slice(0,10).toUpperCase()}`;
     await d1Batch(database, [
+      ...(existing ? [{ statement:`UPDATE payment_instructions SET status='REJECTED',updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[existing.id] }] : []),
       { statement: `INSERT INTO payment_instructions
         (id,org_id,client_id,submission_id,status,expected_total,creator_user_id,idempotency_key,
          document_no,content_hash,currency,execution_date,recipient_count)
@@ -681,7 +700,7 @@ async function executeAction(database, body, actor, env, organizationId) {
           documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length] },
       ...lineInsertOperations(id, snapshotLines),
       { statement: `UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`, bindings: [submission.id] },
-      auditOperation(organizationId, actor, 'PAYMENT_INSTRUCTION_CREATED', `${documentNo} · ${snapshotLines.length} penerima · ${contentHash}`, 'payment_instruction', id),
+      auditOperation(organizationId, actor, existing ? 'PAYMENT_INSTRUCTION_REVISED' : 'PAYMENT_INSTRUCTION_CREATED', `${documentNo} · revisi ${revisionNo} · ${snapshotLines.length} penerima · ${contentHash}`, 'payment_instruction', id),
     ]);
     const paymentInstruction = await d1First(database, 'SELECT * FROM payment_instructions WHERE id=?', [id]);
     return { status: 201, data: { ok: true, paymentInstruction } };
