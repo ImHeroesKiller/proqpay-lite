@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type AppSettings } from '@/lib/app-settings';
 import { saveDatabase, seedDatabase } from '@/lib/database';
 import { emitDbChange } from '@/lib/events';
@@ -30,6 +30,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const [purgeConfirmation, setPurgeConfirmation] = useState('');
   const [purging, setPurging] = useState(false);
   const [purgeStatus, setPurgeStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const contentRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -67,6 +68,11 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
     if (!settings) return;
     setSettings({ ...DEFAULT_SETTINGS, orgName: settings.orgName });
     setSaveState('dirty');
+  }
+
+  function selectTab(nextTab: Tab) {
+    setTab(nextTab);
+    requestAnimationFrame(() => contentRef.current?.scrollTo({ top: 0 }));
   }
 
   async function resetOperationalData() {
@@ -129,10 +135,10 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
 
         <div className="settings-layout">
           <nav className="settings-nav" aria-label="Kategori pengaturan">
-            {TABS.map((item) => <button type="button" key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}><i>{item.icon}</i><span><strong>{item.label}</strong><small>{item.description}</small></span></button>)}
+            {TABS.map((item) => <button type="button" key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => selectTab(item.id)}><i>{item.icon}</i><span><strong>{item.label}</strong><small>{item.description}</small></span></button>)}
           </nav>
 
-          <main className="settings-content">
+          <main className="settings-content" ref={contentRef}>
             <div className="settings-section-heading"><span>{activeTab.icon}</span><div><h3>{activeTab.label}</h3><p>{activeTab.description}</p></div></div>
 
             {tab === 'general' ? <SettingsSection title="Identitas workspace" description="Pengaturan dasar yang terlihat oleh seluruh pengguna.">
