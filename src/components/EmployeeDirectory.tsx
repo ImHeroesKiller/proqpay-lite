@@ -1,6 +1,6 @@
 'use client';
 
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 
 const REFERENCE_TIME = Date.now();
@@ -44,7 +44,7 @@ export default function EmployeeDirectory({ employees, actor, pageSize = 15, ini
   maskSensitiveData?: boolean;
   onChanged?: () => Promise<void>;
 }) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(() => typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('employeeQuery') || '');
   const [client, setClient] = useState('ALL');
   const [region, setRegion] = useState(initialRegion);
   const [quality, setQuality] = useState('ALL');
@@ -85,6 +85,11 @@ export default function EmployeeDirectory({ employees, actor, pageSize = 15, ini
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount);
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  useEffect(() => {
+    if (!query || filtered.length !== 1 || selected) return;
+    setSelected(filtered[0]);
+  }, [filtered, query, selected]);
 
   function updateFilter(setter: (value: string) => void, value: string) {
     setter(value);
