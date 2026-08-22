@@ -139,6 +139,7 @@ test('Processor can review and resubmit an unchanged rejected PI without redunda
   seed396(DB);
   const env = { DB, FILES: new R2Mock(), DEFAULT_ORG_ID: 'ORG-OTSINDO', PI_ENCRYPTION_KEY: 'uat-native-cloudflare-key-32-bytes-minimum' };
   const maker = { id:'USR-MAKER', email:'maker@proqpay.test', role:'PAYROLL_PROCESSOR', permissions:['payment:prepare'] };
+  const recoveryMaker = { id:'USR-RECOVERY', email:'recovery@proqpay.test', role:'PAYROLL_PROCESSOR', permissions:['payment:prepare'] };
   const controller = { id:'USR-CONTROLLER', email:'controller@proqpay.test', role:'PAYROLL_CONTROLLER', permissions:['payment:approve'] };
   const client = { id:'USR-CLIENT', email:'client@proqpay.test', role:'CLIENT_USER', permissions:[], clientIds:['CLI-UAT'], projectIds:['PRJ-UAT'] };
 
@@ -154,15 +155,18 @@ test('Processor can review and resubmit an unchanged rejected PI without redunda
   assert.equal(rejected.status,200,await rejected.clone().text());
   DB.sqlite.prepare(`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY' WHERE id='SUB-UAT'`).run();
 
-  const reviewedResponse = await handleD1OperatingModel({ request:post({action:'GENERATE_PAYMENT_INSTRUCTION',submissionId:'SUB-UAT'}),env },maker);
+  const reviewedResponse = await handleD1OperatingModel({ request:post({action:'GENERATE_PAYMENT_INSTRUCTION',submissionId:'SUB-UAT'}),env },recoveryMaker);
   assert.equal(reviewedResponse.status,200,await reviewedResponse.clone().text());
   const reviewedPayload = await reviewedResponse.json();
   assert.equal(reviewedPayload.reviewedUnchanged,true);
   assert.equal(reviewedPayload.paymentInstruction.id,first.id);
   assert.equal(reviewedPayload.paymentInstruction.status,'PAYMENT_INSTRUCTION_READY');
+  assert.equal(reviewedPayload.paymentInstruction.creator_user_id,recoveryMaker.id);
 
-  const resubmitted = await handleD1OperatingModel({ request:post({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:first.id,confirmation:'SUBMIT PI'}),env },maker);
+  const resubmitted = await handleD1OperatingModel({ request:post({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:first.id,confirmation:'SUBMIT PI'}),env },recoveryMaker);
   assert.equal(resubmitted.status,200,await resubmitted.clone().text());
+  const recoveryMakerCannotApprove = await handleD1OperatingModel({ request:post({action:'APPROVE_PAYMENT',paymentInstructionId:first.id,actionHash:first.content_hash,confirmation:'KONFIRMASI PAYMENT'}),env },recoveryMaker);
+  assert.equal(recoveryMakerCannotApprove.status,403);
   const approved = await handleD1OperatingModel({ request:post({action:'APPROVE_PAYMENT',paymentInstructionId:first.id,actionHash:first.content_hash,confirmation:'KONFIRMASI PAYMENT'}),env },controller);
   assert.equal(approved.status,200,await approved.clone().text());
 });
