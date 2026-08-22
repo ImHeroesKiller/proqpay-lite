@@ -23,6 +23,27 @@
   color: var(--accent-contrast) !important;
 }
 
+/* Loaded last: protect semantic button pairs from the generic premium hover. */
+.btn.btn-primary,
+.btn.btn-primary:hover,
+.btn.btn-primary:focus-visible {
+  border-color: transparent;
+  color: var(--accent-contrast) !important;
+  background: linear-gradient(135deg, var(--accent-hover), var(--accent)) !important;
+}
+
+.btn.btn-primary:not(:hover):not(:focus-visible) {
+  background: linear-gradient(135deg, var(--accent), var(--accent2)) !important;
+}
+
+.btn.btn-primary:disabled,
+.btn.btn-primary:disabled:hover {
+  color: color-mix(in srgb, var(--accent-contrast) 82%, transparent) !important;
+  background: color-mix(in srgb, var(--accent) 58%, var(--surface)) !important;
+  box-shadow: none;
+  transform: none;
+}
+
 button:focus-visible,
 a:focus-visible,
 select:focus-visible,
