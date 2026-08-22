@@ -13,6 +13,7 @@ test('login page is professional, responsive, and uses a local optimized hero', 
   assert.match(auth, /showPassword/);
   assert.match(css, /\.login-shell/);
   assert.match(css, /@media\(max-width:820px\)/);
+  assert.doesNotMatch(css, /login-brand-inverse img\{filter:/);
   assert.ok(statSync('public/assets/login-payroll-team.webp').size < 200_000);
 });
 
@@ -21,4 +22,5 @@ test('accent tokens drive hover and pipeline colors without forced purple', () =
   assert.doesNotMatch(polish,/linear-gradient\(90deg, #6366f1/);
   assert.match(polish,/background: linear-gradient\(90deg, var\(--accent\), var\(--accent2\)\)/);
   assert.match(css,/\.btn-primary:hover[\s\S]*?var\(--accent-contrast\)/);
+  assert.match(polish,/\.btn\.btn-primary:hover[\s\S]*?background:[\s\S]*?!important/);
 });
