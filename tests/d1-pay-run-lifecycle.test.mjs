@@ -12,10 +12,11 @@ function seed(database) {
     INSERT INTO clients(id,org_id,code,name) VALUES('CLI-RUN','ORG-OTSINDO','RUN','PT RUN');
     INSERT INTO projects(id,org_id,client_id,code,name,created_by) VALUES('PRJ-RUN','ORG-OTSINDO','CLI-RUN','RUN','Project Run','seed');
     INSERT INTO client_service_plans(id,client_id,tier,effective_from,created_by,status)
-      VALUES('SP-RUN','CLI-RUN','TIER_2_MANAGED_PAYROLL','2026-01-01','seed','ACTIVE');
+      VALUES('SP-RUN','CLI-RUN','TIER_2_MANAGED_PAYROLL','2026-07-15','seed','ACTIVE');
     INSERT INTO employees(id,org_id,client_id,project_id,employee_code,name,status_aktif) VALUES
-      ('EMP-A','ORG-OTSINDO','CLI-RUN','PRJ-RUN','A','Ani','ACTIVE'),
-      ('EMP-B','ORG-OTSINDO','CLI-RUN','PRJ-RUN','B','Budi','ACTIVE');
+      ('EMP-A','ORG-OTSINDO','CLI-RUN','PRJ-RUN','A','Ani','TETAP'),
+      ('EMP-B','ORG-OTSINDO','CLI-RUN','PRJ-RUN','B','Budi','PKWT'),
+      ('EMP-C','ORG-OTSINDO','CLI-RUN','PRJ-RUN','C','Cici','RESIGNED');
     INSERT INTO employee_compensation(employee_id,basic_salary) VALUES('EMP-A',5000000),('EMP-B',6000000);
     INSERT INTO employee_bank_accounts(id,employee_id,bank_name,account_no,is_primary) VALUES
       ('BANK-A','EMP-A','BCA','1234567890',1),('BANK-B','EMP-B','MANDIRI','9876543210',1);
@@ -29,6 +30,10 @@ async function action(database,body) {
 
 test('Pay Run snapshots monthly data, compares variance, and controls period lifecycle',async()=>{
   const DB=new D1Mock(); seed(DB);
+  const setupResponse=await handleD1OperatingModel({request:request('/api/operating-model?resource=pay-run-setup'),env:{DB,DEFAULT_ORG_ID:'ORG-OTSINDO'}},actor);
+  const setup=await setupResponse.json();
+  assert.equal(setup.projects[0].employee_count,2,'TETAP dan PKWT harus terdeteksi sebagai karyawan aktif');
+  assert.equal(setup.clients[0].employee_count,2);
   const first=await action(DB,{action:'CREATE_PAY_RUN',clientId:'CLI-RUN',projectId:'PRJ-RUN',servicePlanId:'SP-RUN',period:'2026-07',paymentPeriod:'2026-07',paymentDate:'2026-07-25',runType:'REGULAR',sourceMode:'MASTER_CURRENT'});
   assert.equal(first.response.status,201,JSON.stringify(first.payload));
   const firstId=first.payload.submission.id;

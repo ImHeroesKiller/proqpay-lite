@@ -8,6 +8,11 @@ const PROCESSOR_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
 const CONTROLLER_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_CONTROLLER']);
 const CLIENT_ROLES = new Set(['CLIENT_USER']);
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+// HR master data contains employment types (TETAP/PKWT) as well as lifecycle
+// statuses. Only explicit exit/inactive values must be excluded from payroll.
+const ACTIVE_EMPLOYEE = `UPPER(TRIM(COALESCE(e.status_aktif,'ACTIVE'))) NOT IN
+  ('INACTIVE','NONACTIVE','NON-ACTIVE','NON AKTIF','NONAKTIF','TIDAK AKTIF','RESIGN','RESIGNED',
+   'TERMINATED','KELUAR','BERHENTI','PHK','PENSIUN','MENINGGAL','DECEASED','OFF','CANCELLED')`;
 
 function orgId(env) {
   return String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');
@@ -127,9 +132,12 @@ async function readResource(database, params, actor, env, organizationId) {
     const clientBindings = clientId ? [organizationId, clientId] : [organizationId];
     const projectScope = scopeWhere({ organizationId, clientId, projectIds, orgColumn:'p.org_id', clientColumn:'p.client_id', projectColumn:'p.id' });
     const [clients, projects, servicePlans] = await Promise.all([
-      d1All(database, `SELECT c.id,c.name,c.code,c.status FROM clients c WHERE ${clientWhere} AND c.status='ACTIVE' ORDER BY c.name`, clientBindings),
+      d1All(database, `SELECT c.id,c.name,c.code,c.status,
+        (SELECT COUNT(*) FROM employees e WHERE e.client_id=c.id AND e.org_id=c.org_id AND ${ACTIVE_EMPLOYEE}) AS employee_count,
+        (SELECT COUNT(*) FROM employees e WHERE e.client_id=c.id AND e.org_id=c.org_id AND e.project_id IS NULL AND ${ACTIVE_EMPLOYEE}) AS unassigned_employee_count
+        FROM clients c WHERE ${clientWhere} AND c.status='ACTIVE' ORDER BY c.name`, clientBindings),
       d1All(database, `SELECT p.id,p.client_id,p.name,p.code,p.status,
-        (SELECT COUNT(*) FROM employees e WHERE e.project_id=p.id AND UPPER(COALESCE(e.status_aktif,'ACTIVE'))='ACTIVE') AS employee_count
+        (SELECT COUNT(*) FROM employees e WHERE e.project_id=p.id AND e.client_id=p.client_id AND e.org_id=p.org_id AND ${ACTIVE_EMPLOYEE}) AS employee_count
         FROM projects p WHERE ${projectScope.sql} AND p.status='ACTIVE' ORDER BY p.name`, projectScope.bindings),
       d1All(database, `SELECT sp.id,sp.client_id,sp.tier,sp.effective_from,sp.effective_until
         FROM client_service_plans sp JOIN clients c ON c.id=sp.client_id
@@ -341,7 +349,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (!project) return { status:409, data:{ error:'Project aktif tidak ditemukan pada klien tersebut' } };
     const effectiveDate = `${body.period}-01`;
     const plan = await d1First(database, `SELECT * FROM client_service_plans WHERE id=? AND client_id=? AND status='ACTIVE'
-      AND effective_from<=? AND (effective_until IS NULL OR effective_until>=?) LIMIT 1`,
+      AND effective_from<date(?,'+1 month') AND (effective_until IS NULL OR effective_until>=?) LIMIT 1`,
       [body.servicePlanId, body.clientId, effectiveDate, effectiveDate]);
     if (!plan) return { status:409, data:{ error:'Service plan tidak aktif pada periode payroll' } };
     if (body.runType === 'ADJUSTMENT' && !body.parentSubmissionId) return { status:422, data:{ error:'Adjustment wajib mereferensikan Pay Run induk' } };
@@ -360,8 +368,16 @@ async function executeAction(database, body, actor, env, organizationId) {
       if (!parent) return { status:409, data:{ error:'Pay Run induk tidak valid' } };
     }
     const eligible = await d1First(database, `SELECT COUNT(*) AS count FROM employees e WHERE e.org_id=? AND e.client_id=? AND e.project_id=?
-      AND UPPER(COALESCE(e.status_aktif,'ACTIVE'))='ACTIVE'`, [organizationId, body.clientId, body.projectId]);
-    if (!Number(eligible?.count || 0) && !sourceSubmission) return { status:409, data:{ error:'Project tidak memiliki karyawan aktif untuk payroll' } };
+      AND ${ACTIVE_EMPLOYEE}`, [organizationId, body.clientId, body.projectId]);
+    if (!Number(eligible?.count || 0) && !sourceSubmission) {
+      const coverage = await d1First(database, `SELECT
+        COUNT(*) AS client_count,
+        SUM(CASE WHEN e.project_id IS NULL THEN 1 ELSE 0 END) AS unassigned_count
+        FROM employees e WHERE e.org_id=? AND e.client_id=? AND ${ACTIVE_EMPLOYEE}`, [organizationId, body.clientId]);
+      const detail = Number(coverage?.client_count || 0)
+        ? ` Klien memiliki ${Number(coverage.client_count)} karyawan aktif; ${Number(coverage.unassigned_count || 0)} belum dipasangkan ke project.` : '';
+      return { status:409, data:{ error:`Project tidak memiliki karyawan aktif untuk payroll.${detail} Periksa assignment karyawan pada master Employees.` } };
+    }
     const id = `SUB-${crypto.randomUUID()}`;
     const inputStatus = body.sourceMode === 'COPY_PREVIOUS' ? 'READY' : 'PENDING';
     const operations = [{ statement:`INSERT INTO payroll_submissions
@@ -387,7 +403,7 @@ async function executeAction(database, body, actor, env, organizationId) {
           (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
           (SELECT substr(account_no,-4) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
           0,0,0,'{}',?,1 FROM employees e WHERE e.org_id=? AND e.client_id=? AND e.project_id=?
-          AND UPPER(COALESCE(e.status_aktif,'ACTIVE'))='ACTIVE'`, bindings:[id,body.sourceMode,organizationId,body.clientId,body.projectId] });
+          AND ${ACTIVE_EMPLOYEE}`, bindings:[id,body.sourceMode,organizationId,body.clientId,body.projectId] });
     }
     operations.push(auditOperation(organizationId, actor, 'PAY_RUN_CREATED', `${body.runType} ${body.period} · ${body.sourceMode}`, 'payroll_submission', id));
     try { await d1Batch(database, operations); }
