@@ -65,6 +65,8 @@ export function validateOperatingAction(input) {
     if (!PERIOD.test(String(input.period || ''))) errors.push('period tidak valid');
     if (!PERIOD.test(String(input.paymentPeriod || ''))) errors.push('paymentPeriod tidak valid');
     if (!DATE.test(String(input.paymentDate || ''))) errors.push('paymentDate tidak valid');
+    if (PERIOD.test(String(input.paymentPeriod || '')) && DATE.test(String(input.paymentDate || ''))
+      && !String(input.paymentDate).startsWith(`${input.paymentPeriod}-`)) errors.push('paymentDate harus berada pada paymentPeriod yang dipilih');
     if (!RUN_TYPES.has(input.runType)) errors.push('runType tidak valid');
     if (!SOURCE_MODES.has(input.sourceMode)) errors.push('sourceMode tidak valid');
     if (input.parentSubmissionId && !validId(input.parentSubmissionId)) errors.push('parentSubmissionId tidak valid');
