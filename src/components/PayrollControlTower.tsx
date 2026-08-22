@@ -122,13 +122,13 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const unmatched=visibleReconciliations.filter((row)=>row.status!=='MATCHED').length;
 
   const actions=useMemo(()=>{
-    const list:Array<{id:string;tone:Tone;title:string;detail:string;client:string;amount:number;action:string}> = [];
+    const list:Array<{id:string;tone:Tone;title:string;detail:string;client:string;amount:number;action:string;view:AppView}> = [];
     visible.forEach((row)=>{
-      if(Number(row.blocking_count||0)>0) list.push({id:`block-${row.id}`,tone:'danger',title:`${row.blocking_count} blocker payroll`,detail:`${stageFor(row.state)} · ${statusLabel(row.state)}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:'Review exception'});
-      else if(['PAYMENT_APPROVAL_PENDING','PAYMENT_INSTRUCTION_READY'].includes(row.state)) list.push({id:`approve-${row.id}`,tone:'warning',title:'PI menunggu approval',detail:`${stageFor(row.state)} · Payroll ${row.period}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:actor.role==='PAYROLL_CONTROLLER'?'Review PI':'Lihat status'});
-      else if(!DONE_STATES.has(row.state)) list.push({id:`work-${row.id}`,tone:'info',title:'Workflow perlu dilanjutkan',detail:`${stageFor(row.state)} · ${statusLabel(row.state)}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:'Buka pay run'});
+      if(Number(row.blocking_count||0)>0) list.push({id:`block-${row.id}`,tone:'danger',title:`${row.blocking_count} blocker payroll`,detail:`${stageFor(row.state)} · ${statusLabel(row.state)}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:'Review exception',view:'operations'});
+      else if(['PAYMENT_APPROVAL_PENDING','PAYMENT_INSTRUCTION_READY'].includes(row.state)) list.push({id:`approve-${row.id}`,tone:'warning',title:'PI menunggu approval',detail:`${stageFor(row.state)} · Payroll ${row.period}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:actor.role==='PAYROLL_CONTROLLER'?'Review PI':'Lihat status',view:'payments'});
+      else if(!DONE_STATES.has(row.state)) list.push({id:`work-${row.id}`,tone:'info',title:'Workflow perlu dilanjutkan',detail:`${stageFor(row.state)} · ${statusLabel(row.state)}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:'Buka pay run',view:'operations'});
     });
-    visibleReconciliations.filter((row)=>row.status!=='MATCHED').forEach((row)=>list.unshift({id:`rec-${row.id}`,tone:'danger',title:'Rekonsiliasi belum match',detail:`Selisih ${formatIDR(Number(row.difference||0))}`,client:'Payment control',amount:Number(row.difference||0),action:'Reconcile'}));
+    visibleReconciliations.filter((row)=>row.status!=='MATCHED').forEach((row)=>list.unshift({id:`rec-${row.id}`,tone:'danger',title:'Rekonsiliasi belum match',detail:`Selisih ${formatIDR(Number(row.difference||0))}`,client:'Payment control',amount:Number(row.difference||0),action:'Reconcile',view:'payments'}));
     return list.sort((a,b)=>({danger:0,warning:1,info:2,success:3}[a.tone]-{danger:0,warning:1,info:2,success:3}[b.tone]));
   },[visible,visibleReconciliations,actor.role]);
 
@@ -170,7 +170,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
       </div>
       <div className="control-priority-grid">
         <section className="card action-center"><PanelTitle eyebrow="PRIORITY QUEUE" title="Action Center" meta={`${actions.length} tindakan`} />
-          <div className="action-list">{actions.length?actions.slice(0,8).map((item)=><button type="button" key={item.id} onClick={()=>onNavigate('operations')}><i className={`action-tone ${item.tone}`} /><span><strong>{item.client}</strong><small>{item.title} · {item.detail}</small></span><b>{item.amount?formatIDRShort(item.amount):'-'}</b><em>{item.action} →</em></button>):<Empty text="Tidak ada pekerjaan kritis pada filter ini." />}</div>
+          <div className="action-list">{actions.length?actions.slice(0,8).map((item)=><button type="button" key={item.id} onClick={()=>onNavigate(item.view)}><i className={`action-tone ${item.tone}`} /><span><strong>{item.client}</strong><small>{item.title} · {item.detail}</small></span><b>{item.amount?formatIDRShort(item.amount):'-'}</b><em>{item.action} →</em></button>):<Empty text="Tidak ada pekerjaan kritis pada filter ini." />}</div>
         </section>
         <section className="card deadline-panel"><PanelTitle eyebrow="NEXT 30 DAYS" title="Deadline & SLA" meta={`${deadlines.length} agenda`} />
           <div className="deadline-list">{deadlines.length?deadlines.map((item)=><button type="button" key={item.id} onClick={()=>onNavigate('operations')}><time>{dateLabel(item.deadline)}</time><span><strong>{item.client_name||item.client_id}</strong><small>{stageFor(item.state)} · {statusLabel(item.state)}</small></span><b className={item.days!==null&&item.days<0?'overdue':''}>{item.days===null?'-':item.days<0?`${Math.abs(item.days)}h terlambat`:item.days===0?'Hari ini':`${item.days} hari`}</b></button>):<Empty text="Belum ada deadline operasional." />}</div>
