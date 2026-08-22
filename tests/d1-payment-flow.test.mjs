@@ -55,7 +55,7 @@ test('D1 processes 396 recipients through PI approval, proof, and reconciliation
   const DB = new D1Mock();
   seed396(DB);
   const env = { DB, FILES: new R2Mock(), DEFAULT_ORG_ID: 'ORG-OTSINDO', PI_ENCRYPTION_KEY: 'uat-native-cloudflare-key-32-bytes-minimum' };
-  const maker = { id: 'USR-MAKER', email: 'maker@proqpay.test', role: 'PAYROLL_CONTROLLER', permissions: ['payment:prepare'] };
+  const maker = { id: 'USR-MAKER', email: 'maker@proqpay.test', role: 'PAYROLL_PROCESSOR', permissions: ['payment:prepare'] };
   const approver = { id: 'USR-APPROVER', email: 'approver@proqpay.test', role: 'PAYROLL_CONTROLLER', permissions: ['payment:approve'] };
 
   const dashboardResponse = await handleD1OperatingModel({ request: request('/api/operating-model?resource=dashboard', { method: 'GET' }), env }, maker);
@@ -71,6 +71,7 @@ test('D1 processes 396 recipients through PI approval, proof, and reconciliation
   const pi = generatedPayload.paymentInstruction;
   assert.equal(pi.recipient_count, 396);
   assert.match(pi.content_hash, /^[a-f0-9]{64}$/);
+  assert.equal(pi.status, 'PAYMENT_INSTRUCTION_READY');
 
   const detailResponse = await handleD1OperatingModel({ request: request(`/api/operating-model?resource=payment-instruction-detail&paymentInstructionId=${pi.id}`, { method: 'GET' }), env }, maker);
   const detail = await detailResponse.json();
@@ -78,6 +79,8 @@ test('D1 processes 396 recipients through PI approval, proof, and reconciliation
   assert.equal(detail.control.balanced, true);
   assert.ok(detail.lines.every((line) => !('account_ciphertext' in line)));
 
+  const submitted = await handleD1OperatingModel({ request: post({ action: 'SUBMIT_PAYMENT_INSTRUCTION', paymentInstructionId: pi.id, confirmation: 'SUBMIT PI' }), env }, maker);
+  assert.equal(submitted.status, 200, await submitted.clone().text());
   const approved = await handleD1OperatingModel({ request: post({ action: 'APPROVE_PAYMENT', paymentInstructionId: pi.id, actionHash: pi.content_hash, confirmation: 'KONFIRMASI PAYMENT' }), env }, approver);
   assert.equal(approved.status, 200, await approved.clone().text());
 
