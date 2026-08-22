@@ -684,8 +684,15 @@ async function executeAction(database, body, actor, env, organizationId) {
       employeeId: row.id, beneficiaryName: row.name, bankName: row.bank_name,
       accountNumber: row.account_no, amount: Number(row.amount),
     })));
-    if (existing?.content_hash === contentHash) return { status:409, data:{
-      error:'Data revisi belum berubah dari PI yang ditolak. Perbaiki nominal atau rekening sesuai alasan reject sebelum membuat revisi PI.' } };
+    if (existing?.content_hash === contentHash) {
+      await d1Batch(database, [
+        { statement:`UPDATE payment_instructions SET status='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[existing.id] },
+        { statement:`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },
+        auditOperation(organizationId, actor, 'PAYMENT_INSTRUCTION_REVIEWED_UNCHANGED',
+          'Processor mengonfirmasi snapshot PI tetap benar setelah meninjau alasan reject', 'payment_instruction', existing.id),
+      ]);
+      return { data:{ ok:true,paymentInstruction:await d1First(database,'SELECT * FROM payment_instructions WHERE id=?',[existing.id]),reviewedUnchanged:true } };
+    }
     const revision = await d1First(database, 'SELECT COUNT(*) AS count FROM payment_instructions WHERE submission_id=? AND org_id=?', [submission.id, organizationId]);
     const revisionNo = Number(revision?.count || 0) + 1;
     const idempotencyKey = `${`PI-${submission.id}-${paymentPeriod}`.slice(0, 105)}${revisionNo > 1 ? `-R${revisionNo}` : ''}`;
