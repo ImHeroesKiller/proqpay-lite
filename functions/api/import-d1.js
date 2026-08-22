@@ -83,7 +83,14 @@ export async function importRowsD1({env,actor,body,rows,respond,requestId}) {
     const education=rows.filter((r)=>r.educationLevel||r.school);
     operations.push(...bulk('employee_education',['id','employee_id','level','school_name','major','graduate_year','is_highest'],education.map((r)=>[`EDU-${r.nrk}`,r.nrk,r.educationLevel||null,r.school||null,r.major||null,r.graduateYear||null,1]),'ON CONFLICT(id) DO UPDATE SET level=excluded.level,school_name=excluded.school_name,major=excluded.major,graduate_year=excluded.graduate_year,is_highest=1'));
     const submissionId=verifiedPlan?`SUB-${crypto.randomUUID()}`:null;
-    if (submissionId) operations.push({statement:`INSERT INTO payroll_submissions(id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,state,created_by) VALUES(?,?,?,?,?,?,?,?, 'AI_VALIDATING',?)`,bindings:[submissionId,organizationId,clientId,projectId,servicePlanId,serviceTier,period,period,actor.email]});
+    if (submissionId) {
+      operations.push({statement:`INSERT INTO payroll_submissions
+        (id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,run_type,source_mode,input_status,state,created_by)
+        VALUES(?,?,?,?,?,?,?,?,'REGULAR','UPLOAD_FINAL','READY','AI_VALIDATING',?)`,bindings:[submissionId,organizationId,clientId,projectId,servicePlanId,serviceTier,period,period,actor.email]});
+      operations.push(...bulk('payroll_run_lines',
+        ['id','submission_id','employee_id','employee_code','employee_name','employment_status','bank_name','account_last4','gross_amount','deduction_amount','net_amount','components','source','included'],
+        rows.map((row)=>[`PRL-${crypto.randomUUID()}`,submissionId,String(row.nrk),`EMP-${slug(row.nrk)}`,row.name,row.statusAktif||'ACTIVE',row.bank||null,String(row.accountNo||'').slice(-4)||null,row.grossPay||0,row.totalDeductions||0,row.netPay||0,JSON.stringify(row.payrollComponents||{}),'UPLOAD_FINAL',1])));
+    }
     operations.push({statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity) VALUES(?,?,?,?,?,?,?)`,bindings:[`LOG-IMP-${crypto.randomUUID()}`,organizationId,actor.email,actor.role,'EMPLOYEE_IMPORT',`Import ${inserted} new, ${updated} updated, 0 errors`,'Employee']});
     await d1Batch(database,operations);
     return respond({ok:true,atomic:true,inserted,updated,errors:0,errorSamples:[],provinceStats,total:rows.length,submissionId,serviceTier,clientId,projectId});

@@ -36,6 +36,7 @@ function assertProjectScope(actor, projectId) {
 }
 
 function roleAllowsTransition(role, from, to) {
+  if (role === 'SUPER_ADMIN') return true;
   if (CLIENT_ROLES.has(role)) return (from === 'DRAFT' && to === 'SUBMITTED')
     || (from === 'CLIENT_ACTION_REQUIRED' && to === 'CLIENT_RESUBMITTED');
   if (CONTROLLER_ROLES.has(role)) {
@@ -74,18 +75,26 @@ function scopeWhere({ organizationId, clientId, projectIds = [], orgColumn = 's.
 }
 
 const SUBMISSION_SELECT = `SELECT s.*, c.name AS client_name, p.name AS project_name,
-  COALESCE((SELECT COUNT(*) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+  CASE WHEN EXISTS(SELECT 1 FROM payroll_run_lines prl WHERE prl.submission_id=s.id)
+    THEN (SELECT COUNT(*) FROM payroll_run_lines prl WHERE prl.submission_id=s.id AND prl.included=1)
+    ELSE COALESCE((SELECT COUNT(*) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
     WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id)
-      AND ec.payroll_source_period=s.period),0) AS employee_count,
-  COALESCE((SELECT SUM(ec.imported_gross) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+      AND ec.payroll_source_period=s.period),0) END AS employee_count,
+  CASE WHEN EXISTS(SELECT 1 FROM payroll_run_lines prl WHERE prl.submission_id=s.id)
+    THEN COALESCE((SELECT SUM(prl.gross_amount) FROM payroll_run_lines prl WHERE prl.submission_id=s.id AND prl.included=1),0)
+    ELSE COALESCE((SELECT SUM(ec.imported_gross) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
     WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id)
-      AND ec.payroll_source_period=s.period),0) AS total_gross,
-  COALESCE((SELECT SUM(ec.imported_deduction) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+      AND ec.payroll_source_period=s.period),0) END AS total_gross,
+  CASE WHEN EXISTS(SELECT 1 FROM payroll_run_lines prl WHERE prl.submission_id=s.id)
+    THEN COALESCE((SELECT SUM(prl.deduction_amount) FROM payroll_run_lines prl WHERE prl.submission_id=s.id AND prl.included=1),0)
+    ELSE COALESCE((SELECT SUM(ec.imported_deduction) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
     WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id)
-      AND ec.payroll_source_period=s.period),0) AS total_deduction,
-  COALESCE((SELECT SUM(ec.imported_net) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
+      AND ec.payroll_source_period=s.period),0) END AS total_deduction,
+  CASE WHEN EXISTS(SELECT 1 FROM payroll_run_lines prl WHERE prl.submission_id=s.id)
+    THEN COALESCE((SELECT SUM(prl.net_amount) FROM payroll_run_lines prl WHERE prl.submission_id=s.id AND prl.included=1),0)
+    ELSE COALESCE((SELECT SUM(ec.imported_net) FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
     WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id)
-      AND ec.payroll_source_period=s.period),0) AS total_net,
+      AND ec.payroll_source_period=s.period),0) END AS total_net,
   (SELECT COUNT(*) FROM payroll_exceptions pe WHERE pe.submission_id=s.id) AS exception_count,
   (SELECT COUNT(*) FROM payroll_exceptions pe WHERE pe.submission_id=s.id AND pe.severity='CRITICAL'
     AND pe.status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')) AS blocking_count
@@ -111,6 +120,52 @@ async function readResource(database, params, actor, env, organizationId) {
     const rows = await d1All(database, `SELECT sp.* FROM client_service_plans sp JOIN clients c ON c.id=sp.client_id
       WHERE ${where} ORDER BY sp.effective_from DESC LIMIT 100`, bindings);
     return { data: { ok: true, servicePlans: rows } };
+  }
+
+  if (resource === 'pay-run-setup') {
+    const clientWhere = clientId ? 'c.org_id=? AND c.id=?' : 'c.org_id=?';
+    const clientBindings = clientId ? [organizationId, clientId] : [organizationId];
+    const projectScope = scopeWhere({ organizationId, clientId, projectIds, orgColumn:'p.org_id', clientColumn:'p.client_id', projectColumn:'p.id' });
+    const [clients, projects, servicePlans] = await Promise.all([
+      d1All(database, `SELECT c.id,c.name,c.code,c.status FROM clients c WHERE ${clientWhere} AND c.status='ACTIVE' ORDER BY c.name`, clientBindings),
+      d1All(database, `SELECT p.id,p.client_id,p.name,p.code,p.status,
+        (SELECT COUNT(*) FROM employees e WHERE e.project_id=p.id AND UPPER(COALESCE(e.status_aktif,'ACTIVE'))='ACTIVE') AS employee_count
+        FROM projects p WHERE ${projectScope.sql} AND p.status='ACTIVE' ORDER BY p.name`, projectScope.bindings),
+      d1All(database, `SELECT sp.id,sp.client_id,sp.tier,sp.effective_from,sp.effective_until
+        FROM client_service_plans sp JOIN clients c ON c.id=sp.client_id
+        WHERE c.org_id=? AND (? IS NULL OR sp.client_id=?) AND sp.status='ACTIVE' ORDER BY sp.effective_from DESC`, [organizationId,clientId||null,clientId||null]),
+    ]);
+    return { data:{ ok:true, clients, projects, servicePlans } };
+  }
+
+  if (resource === 'pay-run-detail') {
+    const submissionId = params.get('submissionId');
+    if (!submissionId) return { status:422, data:{ error:'submissionId wajib diisi' } };
+    const submission = await d1First(database, `${SUBMISSION_SELECT} WHERE s.id=? AND s.org_id=? LIMIT 1`, [submissionId, organizationId]);
+    if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
+    if (!assertClientScope(actor, env, submission.client_id) || !assertProjectScope(actor, submission.project_id)) return { status:403, data:{ error:'Scope denied' } };
+    const previous = await d1First(database, `SELECT id,period FROM payroll_submissions WHERE org_id=? AND client_id=?
+      AND COALESCE(project_id,'')=COALESCE(?,'') AND run_type='REGULAR' AND period<? AND state<>'CANCELLED'
+      ORDER BY period DESC,created_at DESC LIMIT 1`, [organizationId, submission.client_id, submission.project_id || null, submission.period]);
+    const lines = await d1All(database, `SELECT current.*,
+      previous.gross_amount AS previous_gross,previous.deduction_amount AS previous_deduction,previous.net_amount AS previous_net,
+      CASE WHEN previous.employee_id IS NULL THEN 'NEW' WHEN current.net_amount<>previous.net_amount THEN 'CHANGED' ELSE 'UNCHANGED' END AS variance_type
+      FROM payroll_run_lines current LEFT JOIN payroll_run_lines previous
+        ON previous.submission_id=? AND previous.employee_id=current.employee_id
+      WHERE current.submission_id=? ORDER BY current.employee_name`, [previous?.id || '', submission.id]);
+    parseJsonFields(lines, ['components']);
+    const removed = previous ? await d1All(database, `SELECT p.employee_id,p.employee_name,p.net_amount AS previous_net
+      FROM payroll_run_lines p LEFT JOIN payroll_run_lines c ON c.submission_id=? AND c.employee_id=p.employee_id
+      WHERE p.submission_id=? AND p.included=1 AND c.employee_id IS NULL ORDER BY p.employee_name`, [submission.id, previous.id]) : [];
+    const currentTotal = lines.filter((line)=>line.included).reduce((sum,line)=>sum+Number(line.net_amount||0),0);
+    const previousTotal = lines.filter((line)=>line.included).reduce((sum,line)=>sum+Number(line.previous_net||0),0)
+      + removed.reduce((sum,line)=>sum+Number(line.previous_net||0),0);
+    return { data:{ ok:true, submission, previousPeriod:previous?.period || null, lines, removed,
+      variance:{ currentTotal, previousTotal, amount:currentTotal-previousTotal,
+        percent:previousTotal ? Number((((currentTotal-previousTotal)/previousTotal)*100).toFixed(2)) : null,
+        newEmployees:lines.filter((line)=>line.variance_type==='NEW'&&line.included).length,
+        changedEmployees:lines.filter((line)=>line.variance_type==='CHANGED'&&line.included).length,
+        removedEmployees:removed.length } } };
   }
 
   if (resource === 'exceptions') {
@@ -278,12 +333,134 @@ async function executeAction(database, body, actor, env, organizationId) {
     return { status: 201, data: { ok: true, submission: row } };
   }
 
+  if (body.action === 'CREATE_PAY_RUN') {
+    if (!PROCESSOR_ROLES.has(actor.role) && !CLIENT_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
+    if (!assertClientScope(actor, env, body.clientId) || !assertProjectScope(actor, body.projectId)) return { status:403, data:{ error:'Scope denied' } };
+    const project = await d1First(database, `SELECT id FROM projects WHERE id=? AND client_id=? AND org_id=? AND status='ACTIVE' LIMIT 1`,
+      [body.projectId, body.clientId, organizationId]);
+    if (!project) return { status:409, data:{ error:'Project aktif tidak ditemukan pada klien tersebut' } };
+    const effectiveDate = `${body.period}-01`;
+    const plan = await d1First(database, `SELECT * FROM client_service_plans WHERE id=? AND client_id=? AND status='ACTIVE'
+      AND effective_from<=? AND (effective_until IS NULL OR effective_until>=?) LIMIT 1`,
+      [body.servicePlanId, body.clientId, effectiveDate, effectiveDate]);
+    if (!plan) return { status:409, data:{ error:'Service plan tidak aktif pada periode payroll' } };
+    if (body.runType === 'ADJUSTMENT' && !body.parentSubmissionId) return { status:422, data:{ error:'Adjustment wajib mereferensikan Pay Run induk' } };
+    let sourceSubmission = null;
+    if (body.sourceMode === 'COPY_PREVIOUS') {
+      sourceSubmission = await d1First(database, `SELECT id,period FROM payroll_submissions WHERE org_id=? AND client_id=?
+        AND project_id=? AND run_type='REGULAR' AND period<? AND state<>'CANCELLED' ORDER BY period DESC,created_at DESC LIMIT 1`,
+        [organizationId, body.clientId, body.projectId, body.period]);
+      if (!sourceSubmission) return { status:409, data:{ error:'Belum ada Pay Run periode sebelumnya untuk disalin' } };
+      const sourceLines = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_run_lines WHERE submission_id=?`, [sourceSubmission.id]);
+      if (!Number(sourceLines?.count||0)) return { status:409, data:{ error:'Pay Run sebelumnya belum memiliki snapshot canonical; gunakan Upload data final untuk periode pertama' } };
+    }
+    if (body.parentSubmissionId) {
+      const parent = await d1First(database, `SELECT id FROM payroll_submissions WHERE id=? AND org_id=? AND client_id=? AND project_id=? LIMIT 1`,
+        [body.parentSubmissionId, organizationId, body.clientId, body.projectId]);
+      if (!parent) return { status:409, data:{ error:'Pay Run induk tidak valid' } };
+    }
+    const eligible = await d1First(database, `SELECT COUNT(*) AS count FROM employees e WHERE e.org_id=? AND e.client_id=? AND e.project_id=?
+      AND UPPER(COALESCE(e.status_aktif,'ACTIVE'))='ACTIVE'`, [organizationId, body.clientId, body.projectId]);
+    if (!Number(eligible?.count || 0) && !sourceSubmission) return { status:409, data:{ error:'Project tidak memiliki karyawan aktif untuk payroll' } };
+    const id = `SUB-${crypto.randomUUID()}`;
+    const inputStatus = body.sourceMode === 'COPY_PREVIOUS' ? 'READY' : 'PENDING';
+    const operations = [{ statement:`INSERT INTO payroll_submissions
+      (id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,payment_date,
+       run_type,source_mode,parent_submission_id,input_status,state,created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?)`, bindings:[id,organizationId,body.clientId,body.projectId,
+        body.servicePlanId,plan.tier,body.period,body.paymentPeriod,body.paymentDate,body.runType,body.sourceMode,
+        body.parentSubmissionId || null,inputStatus,actor.email] }];
+    if (sourceSubmission) {
+      operations.push({ statement:`INSERT INTO payroll_run_lines
+        (id,submission_id,employee_id,employee_code,employee_name,employment_status,bank_name,account_last4,
+         gross_amount,deduction_amount,net_amount,components,source,included)
+        SELECT 'PRL-'||lower(hex(randomblob(16))),?,l.employee_id,l.employee_code,l.employee_name,l.employment_status,
+          COALESCE((SELECT bank_name FROM employee_bank_accounts WHERE employee_id=l.employee_id AND is_primary=1 LIMIT 1),l.bank_name),
+          COALESCE((SELECT substr(account_no,-4) FROM employee_bank_accounts WHERE employee_id=l.employee_id AND is_primary=1 LIMIT 1),l.account_last4),
+          l.gross_amount,l.deduction_amount,l.net_amount,l.components,'COPY_PREVIOUS',l.included
+        FROM payroll_run_lines l WHERE l.submission_id=?`, bindings:[id,sourceSubmission.id] });
+    } else {
+      operations.push({ statement:`INSERT INTO payroll_run_lines
+        (id,submission_id,employee_id,employee_code,employee_name,employment_status,bank_name,account_last4,
+         gross_amount,deduction_amount,net_amount,components,source,included)
+        SELECT 'PRL-'||lower(hex(randomblob(16))),?,e.id,e.employee_code,e.name,e.status_aktif,
+          (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
+          (SELECT substr(account_no,-4) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
+          0,0,0,'{}',?,1 FROM employees e WHERE e.org_id=? AND e.client_id=? AND e.project_id=?
+          AND UPPER(COALESCE(e.status_aktif,'ACTIVE'))='ACTIVE'`, bindings:[id,body.sourceMode,organizationId,body.clientId,body.projectId] });
+    }
+    operations.push(auditOperation(organizationId, actor, 'PAY_RUN_CREATED', `${body.runType} ${body.period} · ${body.sourceMode}`, 'payroll_submission', id));
+    try { await d1Batch(database, operations); }
+    catch (error) {
+      if (/idx_one_regular_pay_run_scope|UNIQUE constraint failed/i.test(String(error?.message || error))) return { status:409, data:{ error:'Pay Run reguler untuk klien, project, dan periode tersebut sudah ada' } };
+      throw error;
+    }
+    const row = await d1First(database, `${SUBMISSION_SELECT} WHERE s.id=? LIMIT 1`, [id]);
+    return { status:201, data:{ ok:true, submission:row, sourcePeriod:sourceSubmission?.period || null } };
+  }
+
+  if (body.action === 'UPDATE_PAY_RUN_LINE') {
+    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
+    const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
+    if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
+    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','REVISION_REQUIRED'].includes(submission.state)) return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci' } };
+    const row = await d1First(database, `UPDATE payroll_run_lines SET gross_amount=?,deduction_amount=?,net_amount=?,included=?,components=?,updated_at=${NOW}
+      WHERE submission_id=? AND employee_id=? RETURNING *`, [body.grossAmount,body.deductionAmount,body.netAmount,
+      body.included===false?0:1,JSON.stringify(body.components||{}),body.submissionId,body.employeeId]);
+    if (!row) return { status:404, data:{ error:'Karyawan tidak ditemukan pada snapshot Pay Run' } };
+    await d1First(database, `UPDATE payroll_submissions SET input_status='PENDING',updated_at=${NOW} WHERE id=? RETURNING id`, [body.submissionId]);
+    return { data:{ ok:true,line:row } };
+  }
+
+  if (body.action === 'FINALIZE_PAY_RUN_INPUT') {
+    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
+    const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
+    if (!submission || submission.period_status==='CLOSED') return { status:409, data:{ error:'Pay Run tidak tersedia untuk finalisasi input' } };
+    const quality = await d1First(database, `SELECT COUNT(*) AS recipients,
+      SUM(CASE WHEN net_amount<=0 THEN 1 ELSE 0 END) AS invalid_net,
+      SUM(CASE WHEN bank_name IS NULL OR account_last4 IS NULL THEN 1 ELSE 0 END) AS invalid_bank
+      FROM payroll_run_lines WHERE submission_id=? AND included=1`, [submission.id]);
+    if (!Number(quality?.recipients||0)) return { status:409, data:{ error:'Pay Run tidak memiliki penerima aktif' } };
+    if (Number(quality?.invalid_net||0) || Number(quality?.invalid_bank||0)) return { status:409, data:{ error:`Input belum valid: ${Number(quality?.invalid_net||0)} THP dan ${Number(quality?.invalid_bank||0)} rekening bermasalah` } };
+    await d1Batch(database, [
+      { statement:`UPDATE payroll_submissions SET input_status='READY',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },
+      auditOperation(organizationId,actor,'PAY_RUN_INPUT_FINALIZED',`${quality.recipients} penerima tervalidasi`,'payroll_submission',submission.id),
+    ]);
+    return { data:{ ok:true,inputStatus:'READY',recipients:Number(quality.recipients) } };
+  }
+
+  if (body.action === 'CLOSE_PAY_RUN') {
+    if (!CONTROLLER_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
+    const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
+    if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
+    if (submission.input_status!=='READY' || !['PAYROLL_FINALIZED','COMPLETED'].includes(submission.state)) return { status:409, data:{ error:'Pay Run hanya dapat ditutup setelah input final dan payroll finalized' } };
+    const row = await d1First(database, `UPDATE payroll_submissions SET period_status='CLOSED',closed_at=${NOW},closed_by=?,updated_at=${NOW} WHERE id=? RETURNING *`, [actor.email,submission.id]);
+    return { data:{ ok:true,submission:row } };
+  }
+
+  if (body.action === 'REOPEN_PAY_RUN') {
+    if (!CONTROLLER_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
+    const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
+    if (!submission || submission.period_status!=='CLOSED') return { status:409, data:{ error:'Periode tidak sedang ditutup' } };
+    const payment = await d1First(database, `SELECT id FROM payment_instructions WHERE submission_id=? LIMIT 1`, [submission.id]);
+    if (payment || submission.state==='COMPLETED') return { status:409, data:{ error:'Periode dengan PI atau pembayaran tidak boleh dibuka kembali; buat adjustment Pay Run' } };
+    await d1Batch(database, [
+      { statement:`UPDATE payroll_submissions SET period_status='OPEN',input_status='PENDING',state='REVISION_REQUIRED',closed_at=NULL,closed_by=NULL,reopen_reason=?,updated_at=${NOW} WHERE id=? RETURNING *`, bindings:[String(body.reason).trim(),submission.id] },
+      auditOperation(organizationId,actor,'PAY_RUN_REOPENED',String(body.reason).trim(),'payroll_submission',submission.id),
+    ]);
+    const reopened = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=?', [submission.id]);
+    return { data:{ ok:true,submission:reopened } };
+  }
+
   if (body.action === 'TRANSITION_SUBMISSION') {
     const submission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
     if (!submission) return { status: 404, data: { error: 'Submission not found' } };
     if (!assertClientScope(actor, env, submission.client_id) || !assertProjectScope(actor, submission.project_id)) return { status: 403, data: { error: 'Scope denied' } };
     const targetState = resolveTierTransition(submission.service_tier, submission.state, body.toState);
     if (!canTransition(submission.state, targetState)) return { status: 409, data: { error: `Invalid transition ${submission.state} → ${targetState}` } };
+    if (submission.state === 'DRAFT' && targetState === 'SUBMITTED' && submission.input_status === 'PENDING') {
+      return { status:409, data:{ error:'Input payroll belum final. Lengkapi perubahan bulanan dan finalisasi data terlebih dahulu.' } };
+    }
     if (submission.service_tier === 'TIER_1_PAYMENT_PROCESSING' && ['INGESTING','PAYROLL_FINALIZED'].includes(targetState)) {
       return { status: 409, data: { error: 'Tier 1 langsung menggunakan data final klien tanpa kalkulasi ulang' } };
     }
@@ -301,11 +478,12 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (processorReview) { update += `,processor_reviewed_at=${NOW},processor_reviewed_by=?,processor_review_note=?`; bindings.push(actor.email, String(body.reviewNote || '').slice(0, 1000)); }
     if (controllerReview) { update += `,controller_reviewed_at=${NOW},controller_reviewed_by=?,controller_review_note=?`; bindings.push(actor.email, String(body.reviewNote || '').slice(0, 1000)); }
     update += ' WHERE id=? RETURNING *'; bindings.push(submission.id);
-    const results = await d1Batch(database, [
+    await d1Batch(database, [
       { statement: update, bindings },
       auditOperation(organizationId, actor, 'SUBMISSION_TRANSITION', `${submission.state} → ${targetState}`, 'payroll_submission', submission.id),
     ]);
-    return { data: { ok: true, submission: results[0]?.results?.[0] } };
+    const updatedSubmission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=?', [submission.id]);
+    return { data: { ok: true, submission: updatedSubmission } };
   }
 
   if (body.action === 'UPDATE_SUBMISSION_PERIODS') {
@@ -328,15 +506,23 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (submission.state !== 'PAYMENT_INSTRUCTION_READY') return { status: 409, data: { error: 'Submission belum siap dibuatkan payment instruction' } };
     const existing = await d1First(database, 'SELECT * FROM payment_instructions WHERE submission_id=? AND org_id=? LIMIT 1', [submission.id, organizationId]);
     if (existing) return { data: { ok: true, paymentInstruction: existing, idempotentReplay: true } };
-    const source = await d1All(database, `SELECT e.id,e.name,COALESCE(ec.imported_net,0) AS amount,
-      (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS bank_name,
-      (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS account_no
-      FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id WHERE e.client_id=?
-      AND (? IS NULL OR e.project_id=?) AND ec.payroll_source_period=? ORDER BY e.name`,
-      [submission.client_id, submission.project_id || null, submission.project_id || null, submission.period]);
+    const snapshotCount = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_run_lines WHERE submission_id=?`, [submission.id]);
+    const source = Number(snapshotCount?.count || 0) ? await d1All(database, `SELECT l.employee_id AS id,l.employee_name AS name,l.net_amount AS amount,
+      eba.bank_name,eba.account_no,l.account_last4 FROM payroll_run_lines l
+      LEFT JOIN employee_bank_accounts eba ON eba.employee_id=l.employee_id AND eba.is_primary=1
+      WHERE l.submission_id=? AND l.included=1 ORDER BY l.employee_name`, [submission.id])
+      : await d1All(database, `SELECT e.id,e.name,COALESCE(ec.imported_net,0) AS amount,
+        (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS bank_name,
+        (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS account_no,
+        (SELECT substr(account_no,-4) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS account_last4
+        FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id WHERE e.client_id=?
+        AND (? IS NULL OR e.project_id=?) AND ec.payroll_source_period=? ORDER BY e.name`,
+        [submission.client_id, submission.project_id || null, submission.project_id || null, submission.period]);
     if (!source.length) return { status: 409, data: { error: 'Tidak ada data payroll final untuk periode submission' } };
     const invalid = source.filter((row) => Number(row.amount || 0) <= 0 || !row.bank_name || !row.account_no);
     if (invalid.length) return { status: 409, data: { error: `${invalid.length} karyawan belum memiliki THP atau rekening bank yang valid` } };
+    const changedAccounts = source.filter((row) => row.account_last4 && String(row.account_no).slice(-4) !== String(row.account_last4));
+    if (changedAccounts.length) return { status:409, data:{ error:`${changedAccounts.length} rekening berubah setelah snapshot; review dan finalisasi ulang Pay Run diperlukan` } };
     if (!env.PI_ENCRYPTION_KEY || String(env.PI_ENCRYPTION_KEY).length < 32) return { status: 503, data: { error: 'PI_ENCRYPTION_KEY belum dikonfigurasi dengan aman' } };
     const expectedTotal = source.reduce((sum, row) => sum + Number(row.amount), 0);
     const id = `PI-${crypto.randomUUID()}`;

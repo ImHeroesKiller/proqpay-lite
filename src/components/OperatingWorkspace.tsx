@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { executeOperatingAction, getPaymentInstructionDetail, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
+import { executeOperatingAction, getPayRunDetail, getPaymentInstructionDetail, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 
@@ -29,12 +29,13 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   const [clientFilter, setClientFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [query, setQuery] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setMessage('');
     try {
-      const resources: OperatingResource[] = mode === 'payruns' ? ['submissions']
+      const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup']
         : mode === 'actions' ? ['submissions','exceptions']
         : mode === 'payments' ? ['submissions','payment-instructions','payment-proofs','reconciliations']
         : mode === 'integrations' ? ['integrations'] : [];
@@ -118,10 +119,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           <h2 style={{ fontSize: 22, fontWeight: 720, margin: '4px 0 0' }}>{profile.title}</h2>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>{profile.description}</p>
         </div>
-        <div className="card" style={{ padding: '8px 12px', fontSize: 12 }}>
-          <strong>{actor?.email || 'Memuat pengguna…'}</strong>
-          <span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span>
-        </div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR','CLIENT_USER'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div></div>
       </div>
 
       {!['billing','integrations'].includes(mode) ? <div className="operations-control-bar">
@@ -160,8 +158,31 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           {mode === 'integrations' && <Integrations rows={data.integrations || []} canCreate={isProcessor} />}
         </>
       )}
+      {createOpen ? <CreatePayRunWizard clients={data.clients||[]} projects={data.projects||[]} servicePlans={data.servicePlans||[]} submissions={submissions} onClose={()=>setCreateOpen(false)} onCreated={async()=>{setCreateOpen(false);await load();}} /> : null}
     </section>
   );
+}
+
+function CreatePayRunWizard({clients,projects,servicePlans,submissions,onClose,onCreated}:{clients:any[];projects:any[];servicePlans:any[];submissions:any[];onClose:()=>void;onCreated:()=>Promise<void>}) {
+  const currentPeriod=new Date().toISOString().slice(0,7);
+  const [step,setStep]=useState(1); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
+  const [form,setForm]=useState({clientId:'',projectId:'',servicePlanId:'',period:currentPeriod,paymentPeriod:currentPeriod,paymentDate:`${currentPeriod}-25`,runType:'REGULAR',sourceMode:'COPY_PREVIOUS',parentSubmissionId:''});
+  const scopedProjects=projects.filter((row)=>row.client_id===form.clientId);
+  const scopedPlans=servicePlans.filter((row)=>row.client_id===form.clientId&&row.effective_from<=`${form.period}-01`&&(!row.effective_until||row.effective_until>=`${form.period}-01`));
+  const parentRuns=submissions.filter((row)=>row.client_id===form.clientId&&row.project_id===form.projectId);
+  const project=scopedProjects.find((row)=>row.id===form.projectId); const plan=scopedPlans.find((row)=>row.id===form.servicePlanId);
+  const patch=(value:Record<string,string>)=>setForm((current)=>({...current,...value}));
+  const canNext=step===1?Boolean(form.clientId&&form.projectId&&form.servicePlanId):step===2?Boolean(form.period&&form.paymentPeriod&&form.paymentDate&&form.runType&&form.sourceMode&&(form.runType!=='ADJUSTMENT'||form.parentSubmissionId)):true;
+  async function create(){setBusy(true);setError('');try{await executeOperatingAction({action:'CREATE_PAY_RUN',...form});await onCreated();}catch(cause){setError(cause instanceof Error?cause.message:'Pay Run gagal dibuat');setBusy(false);}}
+  return createPortal(<div className="directory-modal-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!busy)onClose();}}><div className="directory-modal pay-run-wizard" role="dialog" aria-modal="true" aria-label="Buat Pay Run">
+    <div className="directory-modal-title"><div><span>CREATE PAY RUN · STEP {step}/3</span><h3>{step===1?'Pilih scope payroll':step===2?'Atur periode dan sumber':'Review & buat snapshot'}</h3></div><button type="button" disabled={busy} onClick={onClose}>✕</button></div>
+    <div className="pay-run-stepper"><i className={step>=1?'active':''}/><i className={step>=2?'active':''}/><i className={step>=3?'active':''}/></div>
+    {step===1?<div className="directory-form-grid"><label>Klien<select value={form.clientId} onChange={(event)=>patch({clientId:event.target.value,projectId:'',servicePlanId:''})}><option value="">Pilih klien</option>{clients.map((row)=><option key={row.id} value={row.id}>{row.name}</option>)}</select></label><label>Project<select value={form.projectId} disabled={!form.clientId} onChange={(event)=>patch({projectId:event.target.value})}><option value="">Pilih project</option>{scopedProjects.map((row)=><option key={row.id} value={row.id}>{row.name} · {Number(row.employee_count||0)} karyawan</option>)}</select></label><label className="directory-form-wide">Service tier<select value={form.servicePlanId} disabled={!form.clientId} onChange={(event)=>patch({servicePlanId:event.target.value})}><option value="">Pilih service plan aktif</option>{scopedPlans.map((row)=><option key={row.id} value={row.id}>{String(row.tier).replaceAll('_',' ')}</option>)}</select></label></div>:null}
+    {step===2?<div className="directory-form-grid"><label>Periode payroll<input type="month" value={form.period} onChange={(event)=>patch({period:event.target.value})}/></label><label>Periode pembayaran<input type="month" value={form.paymentPeriod} onChange={(event)=>patch({paymentPeriod:event.target.value})}/></label><label>Tanggal pembayaran<input type="date" value={form.paymentDate} onChange={(event)=>patch({paymentDate:event.target.value})}/></label><label>Jenis Pay Run<select value={form.runType} onChange={(event)=>patch({runType:event.target.value,parentSubmissionId:''})}><option value="REGULAR">Regular payroll</option><option value="OFF_CYCLE">Off-cycle payroll</option><option value="ADJUSTMENT">Adjustment</option></select></label><label className="directory-form-wide">Sumber data<select value={form.sourceMode} onChange={(event)=>patch({sourceMode:event.target.value})}><option value="COPY_PREVIOUS">Salin periode sebelumnya</option><option value="UPLOAD_FINAL">Upload data final klien</option><option value="MASTER_CURRENT">Master data terbaru</option><option value="HRIS">Integrasi HRIS</option></select><small>{form.sourceMode==='COPY_PREVIOUS'?'Snapshot nominal sebelumnya disalin; perubahan bulan ini dapat direview sebagai delta.':form.sourceMode==='UPLOAD_FINAL'?'Snapshot peserta dibuat dengan nominal kosong sampai file final diunggah.':form.sourceMode==='MASTER_CURRENT'?'Snapshot master dibuat tanpa menghitung nominal secara otomatis.':'Snapshot menunggu data dari konektor HRIS.'}</small></label>{form.runType==='ADJUSTMENT'?<label className="directory-form-wide">Pay Run induk<select value={form.parentSubmissionId} onChange={(event)=>patch({parentSubmissionId:event.target.value})}><option value="">Pilih Pay Run yang dikoreksi</option>{parentRuns.map((row)=><option key={row.id} value={row.id}>{row.period} · {row.id}</option>)}</select></label>:null}</div>:null}
+    {step===3?<div className="pay-run-review"><div><span>Scope</span><strong>{clients.find((row)=>row.id===form.clientId)?.name||'-'}</strong><small>{project?.name||'-'} · {Number(project?.employee_count||0)} karyawan aktif</small></div><div><span>Periode</span><strong>{form.period}</strong><small>Bayar {form.paymentDate}</small></div><div><span>Service</span><strong>{String(plan?.tier||'-').replaceAll('_',' ')}</strong><small>{form.runType.replaceAll('_',' ')}</small></div><div><span>Sumber</span><strong>{form.sourceMode.replaceAll('_',' ')}</strong><small>Snapshot terpisah dari master data</small></div><p>Pay Run dibuat per project dan periode. Perubahan master berikutnya tidak akan mengubah snapshot periode ini.</p></div>:null}
+    {error?<div className="app-notice-bubble app-notice-error"><strong>Pay Run belum dibuat</strong><span>{error}</span></div>:null}
+    <div className="directory-modal-actions"><button type="button" className="btn" disabled={busy} onClick={()=>step===1?onClose():setStep((value)=>value-1)}>{step===1?'Batal':'Kembali'}</button>{step<3?<button type="button" className="btn btn-primary" disabled={!canNext} onClick={()=>setStep((value)=>value+1)}>Lanjut</button>:<button type="button" className="btn btn-primary" disabled={busy} onClick={()=>void create()}>{busy?'Membuat snapshot…':'Buat Pay Run'}</button>}</div>
+  </div></div>,document.body);
 }
 
 function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
@@ -170,6 +191,8 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
   const [reviewNote, setReviewNote] = useState('');
   const [paymentPeriod, setPaymentPeriod] = useState('');
   const [arrearsText, setArrearsText] = useState('');
+  const [runDetail,setRunDetail]=useState<any|null>(null);
+  const [runDetailLoading,setRunDetailLoading]=useState(false);
   if (!rows.length) return <Empty title="Belum ada payroll submission" detail="Submission baru akan tampil setelah service plan klien aktif dan data periode dikirim." />;
   const processorNext: Record<string, string> = { DRAFT:'SUBMITTED', SUBMITTED:'INGESTING', INGESTING:'AI_VALIDATING', AI_VALIDATING:'VALIDATED', EXCEPTION_FOUND:'CLIENT_ACTION_REQUIRED', CLIENT_RESUBMITTED:'AI_VALIDATING', VALIDATED:'STANDARDIZED', STANDARDIZED:'CONTROLLER_REVIEW', REVISION_REQUIRED:'AI_VALIDATING' };
   const controllerNext: Record<string, string> = { CONTROLLER_REVIEW:'DATA_APPROVED', DATA_APPROVED:'PAYROLL_FINALIZED', PAYROLL_FINALIZED:'PAYMENT_INSTRUCTION_READY' };
@@ -187,10 +210,12 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
     setSelected(row); setConfirmed(false); setReviewNote('');
     setPaymentPeriod(row.payment_period || row.period || '');
     setArrearsText(Array.isArray(row.arrears_periods) ? row.arrears_periods.join(', ') : '');
+    setRunDetail(null);setRunDetailLoading(true);
+    void getPayRunDetail(row.id).then(setRunDetail).finally(()=>setRunDetailLoading(false));
   }
   const actionName = (state:string) => ({ DRAFT:'Review & submit', SUBMITTED:'Periksa submission', INGESTING:'Mulai validasi', AI_VALIDATING:'Review validasi', EXCEPTION_FOUND:'Minta perbaikan klien', VALIDATED:'Standardisasi data', STANDARDIZED:'Review akhir Processor', CONTROLLER_REVIEW:'Review Controller', DATA_APPROVED:'Siapkan payment', PAYROLL_FINALIZED:'Siapkan payment', PAYMENT_INSTRUCTION_READY:'Buat payment instruction', CLIENT_ACTION_REQUIRED:'Kirim perbaikan' }[state] || 'Lihat detail');
   const table = <CardTable headers={['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={rows.map((r) => [
-    <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id}</small></div>,
+    <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id} · {String(r.run_type||'REGULAR').replaceAll('_',' ')}</small></div>,
     String(r.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' '),
     <Badge key="state" text={r.state} />,
     <div key="summary"><strong>{Number(r.employee_count || 0)} karyawan</strong><small style={small}>{formatIDR(Number(r.total_net || 0))} · {Number(r.blocking_count || 0)} blocker</small></div>,
@@ -208,16 +233,27 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
     <div className="directory-modal payroll-review-modal" role="dialog" aria-modal="true" aria-label="Review payroll submission">
       <div className="directory-modal-title"><div><span>PAYROLL REVIEW</span><h3>{selected.client_name || selected.client_id}</h3></div><button type="button" onClick={() => setSelected(null)}>✕</button></div>
       <div className="payroll-review-meta"><div><span>Payroll</span><strong>{selected.period}</strong></div><div><span>Project</span><strong>{selected.project_name || '-'}</strong></div><div><span>Tier</span><strong>{String(selected.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' ')}</strong></div><div><span>Status</span><strong>{selected.state}</strong></div></div>
+      <div className="pay-run-lifecycle"><span className={selected.input_status==='READY'?'ready':''}>Input {selected.input_status||'LEGACY'}</span><span>{String(selected.run_type||'REGULAR').replaceAll('_',' ')}</span><span>{String(selected.source_mode||'UPLOAD_FINAL').replaceAll('_',' ')}</span><span className={selected.period_status==='CLOSED'?'closed':''}>Periode {selected.period_status||'OPEN'}</span></div>
       <div className="payroll-review-totals"><div><span>Karyawan</span><strong>{Number(selected.employee_count || 0)}</strong></div><div><span>Gross</span><strong>{formatIDR(Number(selected.total_gross || 0))}</strong></div><div><span>Potongan</span><strong>{formatIDR(Number(selected.total_deduction || 0))}</strong></div><div><span>Net/THP</span><strong>{formatIDR(Number(selected.total_net || 0))}</strong></div></div>
+      {runDetailLoading?<div className="directory-hint">Menghitung variance terhadap periode sebelumnya…</div>:runDetail?<div className="pay-run-variance"><div><span>Periode pembanding</span><strong>{runDetail.previousPeriod||'Periode pertama'}</strong></div><div><span>Variance THP</span><strong>{formatIDR(Number(runDetail.variance?.amount||0))}</strong><small>{runDetail.variance?.percent===null?'-':`${runDetail.variance.percent}%`}</small></div><div><span>Karyawan baru</span><strong>{runDetail.variance?.newEmployees||0}</strong></div><div><span>Berubah / keluar</span><strong>{runDetail.variance?.changedEmployees||0} / {runDetail.variance?.removedEmployees||0}</strong></div></div>:null}
+      {runDetail?<PayRunLineTable detail={runDetail} editable={['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.period_status!=='CLOSED'&&['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','REVISION_REQUIRED'].includes(selected.state)} onEdit={async(line,gross,deduction,included)=>{await act({action:'UPDATE_PAY_RUN_LINE',submissionId:selected.id,employeeId:line.employee_id,grossAmount:gross,deductionAmount:deduction,netAmount:gross-deduction,included},'Data bulanan karyawan diperbarui');setSelected(null);}}/>:null}
       <div className="payroll-review-alert"><strong>{Number(selected.blocking_count || 0)} blocker · {Number(selected.exception_count || 0)} total temuan</strong><span>{Number(selected.blocking_count || 0) ? 'Temuan kritis harus diselesaikan sebelum approval.' : 'Tidak ada temuan kritis yang memblokir tahap berikutnya.'}</span></div>
       <div className="directory-form-grid"><label>Periode payroll<input type="month" value={selected.period} readOnly /></label><label>Periode pembayaran<input type="month" value={paymentPeriod} onChange={(event) => setPaymentPeriod(event.target.value)} /></label></div>
       <label>Periode rapel (opsional)<input value={arrearsText} placeholder="Contoh: 2026-05, 2026-06" onChange={(event) => setArrearsText(event.target.value)} /></label>
       <p className="directory-hint">Periode payroll mengikuti sumber data. Periode pembayaran menentukan bulan pencairan; rapel mencatat periode tambahan yang dibayarkan bersamaan.</p>
       <button type="button" className="btn" onClick={() => void act({ action:'UPDATE_SUBMISSION_PERIODS', submissionId:selected.id, paymentPeriod, arrearsPeriods:arrears }, 'Periode pembayaran dan rapel diperbarui')}>Simpan periode</button>
       {reviewCheckpoint ? <><label>Catatan review<textarea rows={3} maxLength={1000} value={reviewNote} placeholder="Catatan akhir sebelum diserahkan ke tahap berikutnya" onChange={(event) => setReviewNote(event.target.value)} /></label><label className="payroll-review-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />Saya sudah memeriksa periode, jumlah karyawan, nilai payroll, dan exception.</label></> : null}
-      <div className="directory-modal-actions"><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button>{next ? <button type="button" className="btn btn-primary" disabled={reviewCheckpoint && !confirmed} onClick={() => void act(next === 'GENERATE_PAYMENT_INSTRUCTION' ? { action:next, submissionId:selected.id } : { action:'TRANSITION_SUBMISSION', submissionId:selected.id, toState:next, reviewConfirmed:reviewCheckpoint || undefined, reviewNote:reviewNote || undefined }, next === 'GENERATE_PAYMENT_INSTRUCTION' ? 'Payment instruction berhasil dibuat dan menunggu approval' : `Status diperbarui ke ${next}`).then(() => setSelected(null))}>{actionName(selected.state)}</button> : null}</div>
+      <div className="directory-modal-actions"><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button>{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.input_status==='PENDING'?<button type="button" className="btn" onClick={()=>void act({action:'FINALIZE_PAY_RUN_INPUT',submissionId:selected.id,confirmation:'DATA PAYROLL FINAL'},'Input Pay Run berhasil difinalisasi').then(()=>setSelected(null))}>Finalisasi input</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status==='CLOSED'?<button type="button" className="btn" onClick={()=>{const reason=window.prompt('Alasan membuka kembali periode (minimal 10 karakter):');if(reason)void act({action:'REOPEN_PAY_RUN',submissionId:selected.id,reason,confirmation:'BUKA KEMBALI'},'Periode dibuka kembali untuk revisi').then(()=>setSelected(null));}}>Buka kembali</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status!=='CLOSED'&&['PAYROLL_FINALIZED','COMPLETED'].includes(selected.state)?<button type="button" className="btn" onClick={()=>{if(window.confirm('Tutup periode payroll ini? Snapshot tidak dapat diubah.'))void act({action:'CLOSE_PAY_RUN',submissionId:selected.id,confirmation:'TUTUP PERIODE'},'Periode payroll ditutup').then(()=>setSelected(null));}}>Tutup periode</button>:null}{next ? <button type="button" className="btn btn-primary" disabled={(reviewCheckpoint && !confirmed)||selected.input_status==='PENDING'} onClick={() => void act(next === 'GENERATE_PAYMENT_INSTRUCTION' ? { action:next, submissionId:selected.id } : { action:'TRANSITION_SUBMISSION', submissionId:selected.id, toState:next, reviewConfirmed:reviewCheckpoint || undefined, reviewNote:reviewNote || undefined }, next === 'GENERATE_PAYMENT_INSTRUCTION' ? 'Payment instruction berhasil dibuat dan menunggu approval' : `Status diperbarui ke ${next}`).then(() => setSelected(null))}>{actionName(selected.state)}</button> : null}</div>
     </div>
   </div>, document.body)}</>;
+}
+
+function PayRunLineTable({detail,editable,onEdit}:{detail:any;editable:boolean;onEdit:(line:any,gross:number,deduction:number,included:boolean)=>Promise<void>}) {
+  const [query,setQuery]=useState(''); const [page,setPage]=useState(1); const size=10;
+  const rows=(detail.lines||[]).filter((line:any)=>!query||[line.employee_name,line.employee_code,line.employee_id].join(' ').toLowerCase().includes(query.toLowerCase()));
+  const pages=Math.max(1,Math.ceil(rows.length/size)); const visible=rows.slice((page-1)*size,page*size);
+  function edit(line:any){const gross=window.prompt(`Gross ${line.employee_name}:`,String(line.gross_amount||0));if(gross===null)return;const deduction=window.prompt(`Potongan ${line.employee_name}:`,String(line.deduction_amount||0));if(deduction===null)return;const grossNumber=Number(gross),deductionNumber=Number(deduction);if(!Number.isSafeInteger(grossNumber)||!Number.isSafeInteger(deductionNumber)||grossNumber<deductionNumber||deductionNumber<0){window.alert('Nominal tidak valid. Gunakan angka bulat dan gross harus lebih besar atau sama dengan potongan.');return;}void onEdit(line,grossNumber,deductionNumber,line.included!==0);}
+  return <details className="pay-run-lines"><summary>Preview seluruh penerima <b>{rows.length}</b></summary><div className="pay-run-line-toolbar"><input value={query} placeholder="Cari nama atau ID karyawan" onChange={(event)=>{setQuery(event.target.value);setPage(1);}}/><span>Halaman {Math.min(page,pages)}/{pages}</span></div><div className="pay-run-line-scroll"><table><thead><tr><th>Karyawan</th><th>Gross</th><th>Potongan</th><th>THP</th><th>Variance</th>{editable?<th>Aksi</th>:null}</tr></thead><tbody>{visible.map((line:any)=><tr key={line.id}><td><strong>{line.employee_name}</strong><small>{line.employee_code||line.employee_id} · {line.bank_name||'Bank belum ada'} ••••{line.account_last4||'----'}</small></td><td>{formatIDR(Number(line.gross_amount||0))}</td><td>{formatIDR(Number(line.deduction_amount||0))}</td><td><strong>{formatIDR(Number(line.net_amount||0))}</strong></td><td><Badge text={line.variance_type||'NEW'}/></td>{editable?<td><button type="button" className="btn" onClick={()=>edit(line)}>Edit</button></td>:null}</tr>)}</tbody></table></div><div className="control-pagination"><span>{rows.length} penerima · {detail.removed?.length||0} keluar</span><div><button className="btn" disabled={page<=1} onClick={()=>setPage((value)=>value-1)}>←</button><button className="btn" disabled={page>=pages} onClick={()=>setPage((value)=>value+1)}>→</button></div></div></details>;
 }
 
 function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string; canResolve: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {

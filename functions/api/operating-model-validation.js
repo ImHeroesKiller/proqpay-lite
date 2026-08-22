@@ -1,5 +1,8 @@
 const ID = /^[A-Za-z0-9._:-]{1,120}$/;
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const RUN_TYPES = new Set(['REGULAR','OFF_CYCLE','ADJUSTMENT']);
+const SOURCE_MODES = new Set(['MASTER_CURRENT','COPY_PREVIOUS','UPLOAD_FINAL','HRIS']);
 const TIERS = new Set([
   'TIER_1_PAYMENT_PROCESSING',
   'TIER_2_MANAGED_PAYROLL',
@@ -56,6 +59,29 @@ export function validateOperatingAction(input) {
   } else if (action === 'CREATE_SUBMISSION') {
     for (const key of ['clientId', 'servicePlanId']) if (!validId(input[key])) errors.push(`${key} tidak valid`);
     if (!PERIOD.test(String(input.period || ''))) errors.push('period tidak valid');
+  } else if (action === 'CREATE_PAY_RUN') {
+    for (const key of ['clientId','projectId','servicePlanId']) if (!validId(input[key])) errors.push(`${key} tidak valid`);
+    if (!PERIOD.test(String(input.period || ''))) errors.push('period tidak valid');
+    if (!PERIOD.test(String(input.paymentPeriod || ''))) errors.push('paymentPeriod tidak valid');
+    if (!DATE.test(String(input.paymentDate || ''))) errors.push('paymentDate tidak valid');
+    if (!RUN_TYPES.has(input.runType)) errors.push('runType tidak valid');
+    if (!SOURCE_MODES.has(input.sourceMode)) errors.push('sourceMode tidak valid');
+    if (input.parentSubmissionId && !validId(input.parentSubmissionId)) errors.push('parentSubmissionId tidak valid');
+  } else if (action === 'UPDATE_PAY_RUN_LINE') {
+    if (!validId(input.submissionId) || !validId(input.employeeId)) errors.push('submissionId/employeeId tidak valid');
+    for (const key of ['grossAmount','deductionAmount','netAmount']) if (!Number.isSafeInteger(input[key]) || input[key] < 0) errors.push(`${key} tidak valid`);
+    if (input.netAmount !== input.grossAmount - input.deductionAmount) errors.push('netAmount harus sama dengan grossAmount dikurangi deductionAmount');
+    if (input.included !== undefined && typeof input.included !== 'boolean') errors.push('included tidak valid');
+  } else if (action === 'FINALIZE_PAY_RUN_INPUT') {
+    if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+    if (input.confirmation !== 'DATA PAYROLL FINAL') errors.push('Konfirmasi wajib: DATA PAYROLL FINAL');
+  } else if (action === 'CLOSE_PAY_RUN') {
+    if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+    if (input.confirmation !== 'TUTUP PERIODE') errors.push('Konfirmasi wajib: TUTUP PERIODE');
+  } else if (action === 'REOPEN_PAY_RUN') {
+    if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+    if (input.confirmation !== 'BUKA KEMBALI') errors.push('Konfirmasi wajib: BUKA KEMBALI');
+    if (String(input.reason || '').trim().length < 10 || String(input.reason || '').length > 500) errors.push('reason wajib 10-500 karakter');
   } else if (action === 'TRANSITION_SUBMISSION') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (!STATES.has(input.toState)) errors.push('toState tidak valid');

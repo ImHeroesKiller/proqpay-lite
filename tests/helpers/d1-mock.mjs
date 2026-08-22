@@ -18,7 +18,10 @@ class Statement {
 export class D1Mock {
   constructor() {
     this.sqlite = new DatabaseSync(':memory:');
-    this.sqlite.exec(fs.readFileSync(new URL('../../migrations/0001_cloudflare_native.sql', import.meta.url), 'utf8'));
+    const migrationDirectory = new URL('../../migrations/', import.meta.url);
+    for (const file of fs.readdirSync(migrationDirectory).filter((name) => name.endsWith('.sql')).sort()) {
+      this.sqlite.exec(fs.readFileSync(new URL(file, migrationDirectory), 'utf8'));
+    }
   }
   prepare(sql) { return new Statement(this.sqlite.prepare(sql)); }
   async batch(statements) {

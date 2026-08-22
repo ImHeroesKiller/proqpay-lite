@@ -48,6 +48,36 @@ jobs:
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
           npx wrangler whoami
 
+      - name: Validate resumable D1 state
+        shell: bash
+        run: |
+          npx wrangler d1 execute proqpay-lite-production --remote \
+            --command="SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_cf_%' ORDER BY name" \
+            --json > /tmp/proqpay-d1-inventory.json
+          node scripts/validate-d1-cutover-state.mjs /tmp/proqpay-d1-inventory.json
+
+      - name: Export pre-deployment D1 backup
+        run: npx wrangler d1 export proqpay-lite-production --remote --output=/tmp/proqpay-pre-deploy.sql --skip-confirmation
+
+      - name: Preserve D1 backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: proqpay-d1-pre-deploy-${{ github.run_id }}
+          path: /tmp/proqpay-pre-deploy.sql
+          retention-days: 30
+
+      - name: Apply pending D1 migrations
+        run: npx wrangler d1 migrations apply proqpay-lite-production --remote
+
+      - name: Reconcile canonical payment invariants
+        shell: bash
+        run: |
+          reconcile_sql="$(sed '/^[[:space:]]*--/d' ops/d1-reconcile.sql | tr '\n' ' ')"
+          assert_sql="$(sed '/^[[:space:]]*--/d' ops/d1-cutover-assert.sql | tr '\n' ' ')"
+          npx wrangler d1 execute proqpay-lite-production --remote --command="$reconcile_sql" --json > /tmp/proqpay-reconcile.json
+          npx wrangler d1 execute proqpay-lite-production --remote --command="$assert_sql" --json > /tmp/proqpay-assert.json
+          node -e "const x=require('/tmp/proqpay-assert.json');const rows=(Array.isArray(x)?x:[]).flatMap(v=>v.results||[]);if(rows.length){console.error(rows);process.exit(1)}"
+
       - name: Deploy reviewed commit to production
         run: npx wrangler pages deploy out --project-name="$PAGES_PROJECT_NAME" --branch=main --commit-hash="${{ github.sha }}"
 

@@ -1,6 +1,8 @@
 export type OperatingResource =
   | 'dashboard'
   | 'service-plans'
+  | 'pay-run-setup'
+  | 'pay-run-detail'
   | 'submissions'
   | 'exceptions'
   | 'payment-instructions'
@@ -51,6 +53,11 @@ export function invalidateOperatingCache() {
 
 export async function getPaymentInstructionDetail(paymentInstructionId: string) {
   const params = new URLSearchParams({ resource:'payment-instruction-detail', paymentInstructionId });
+  return parseResponse(await fetch(`/api/operating-model?${params}`, { headers:{Accept:'application/json'} }));
+}
+
+export async function getPayRunDetail(submissionId: string) {
+  const params = new URLSearchParams({ resource:'pay-run-detail', submissionId });
   return parseResponse(await fetch(`/api/operating-model?${params}`, { headers:{Accept:'application/json'} }));
 }
 
