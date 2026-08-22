@@ -133,3 +133,36 @@ test('rejected PI returns to Processor and creates a new immutable revision', as
   const rejected = rows.find((row) => row.id === first.id);
   assert.equal(rejected.rejection_reason, 'Nominal penerima pertama harus diperbaiki');
 });
+
+test('Processor can review and resubmit an unchanged rejected PI without redundant edits', async () => {
+  const DB = new D1Mock();
+  seed396(DB);
+  const env = { DB, FILES: new R2Mock(), DEFAULT_ORG_ID: 'ORG-OTSINDO', PI_ENCRYPTION_KEY: 'uat-native-cloudflare-key-32-bytes-minimum' };
+  const maker = { id:'USR-MAKER', email:'maker@proqpay.test', role:'PAYROLL_PROCESSOR', permissions:['payment:prepare'] };
+  const controller = { id:'USR-CONTROLLER', email:'controller@proqpay.test', role:'PAYROLL_CONTROLLER', permissions:['payment:approve'] };
+  const client = { id:'USR-CLIENT', email:'client@proqpay.test', role:'CLIENT_USER', permissions:[], clientIds:['CLI-UAT'], projectIds:['PRJ-UAT'] };
+
+  const first = (await (await handleD1OperatingModel({ request:post({action:'GENERATE_PAYMENT_INSTRUCTION',submissionId:'SUB-UAT'}),env },maker)).json()).paymentInstruction;
+  await handleD1OperatingModel({ request:post({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:first.id,confirmation:'SUBMIT PI'}),env },maker);
+
+  const makerCannotApprove = await handleD1OperatingModel({ request:post({action:'APPROVE_PAYMENT',paymentInstructionId:first.id,actionHash:first.content_hash,confirmation:'KONFIRMASI PAYMENT'}),env },maker);
+  assert.equal(makerCannotApprove.status,403);
+  const clientCannotReject = await handleD1OperatingModel({ request:post({action:'REJECT_PAYMENT',paymentInstructionId:first.id,reason:'Client tidak boleh menolak payment instruction'}),env },client);
+  assert.equal(clientCannotReject.status,403);
+
+  const rejected = await handleD1OperatingModel({ request:post({action:'REJECT_PAYMENT',paymentInstructionId:first.id,reason:'Mohon review ulang periode pembayaran dan konfirmasi'}),env },controller);
+  assert.equal(rejected.status,200,await rejected.clone().text());
+  DB.sqlite.prepare(`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY' WHERE id='SUB-UAT'`).run();
+
+  const reviewedResponse = await handleD1OperatingModel({ request:post({action:'GENERATE_PAYMENT_INSTRUCTION',submissionId:'SUB-UAT'}),env },maker);
+  assert.equal(reviewedResponse.status,200,await reviewedResponse.clone().text());
+  const reviewedPayload = await reviewedResponse.json();
+  assert.equal(reviewedPayload.reviewedUnchanged,true);
+  assert.equal(reviewedPayload.paymentInstruction.id,first.id);
+  assert.equal(reviewedPayload.paymentInstruction.status,'PAYMENT_INSTRUCTION_READY');
+
+  const resubmitted = await handleD1OperatingModel({ request:post({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:first.id,confirmation:'SUBMIT PI'}),env },maker);
+  assert.equal(resubmitted.status,200,await resubmitted.clone().text());
+  const approved = await handleD1OperatingModel({ request:post({action:'APPROVE_PAYMENT',paymentInstructionId:first.id,actionHash:first.content_hash,confirmation:'KONFIRMASI PAYMENT'}),env },controller);
+  assert.equal(approved.status,200,await approved.clone().text());
+});
