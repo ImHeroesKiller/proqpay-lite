@@ -47,10 +47,10 @@ test('multi-role UAT enforces client scope and payroll responsibilities',async()
   assert.equal(deniedScope.response.status,403,'client di luar scope harus ditolak');
 
   const clientSubmit=await action(DB,client,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'SUBMITTED'});
-  assert.equal(clientSubmit.response.status,200,JSON.stringify(clientSubmit.payload));
+  assert.equal(clientSubmit.response.status,403,'client memiliki akses monitoring saja');
 
-  const processorValidate=await action(DB,processor,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'INGESTING'});
-  assert.equal(processorValidate.response.status,200,JSON.stringify(processorValidate.payload));
+  const processorSubmit=await action(DB,processor,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'SUBMITTED'});
+  assert.equal(processorSubmit.response.status,200,JSON.stringify(processorSubmit.payload));
 
   const clientProcessorStep=await action(DB,client,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'AI_VALIDATING'});
   assert.equal(clientProcessorStep.response.status,403,'client tidak boleh mengambil alih processor step');
@@ -58,20 +58,11 @@ test('multi-role UAT enforces client scope and payroll responsibilities',async()
   const controllerProcessorStep=await action(DB,controller,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'AI_VALIDATING'});
   assert.equal(controllerProcessorStep.response.status,403,'controller tidak boleh mengambil alih processor step');
 
-  const processorContinue=await action(DB,processor,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'AI_VALIDATING'});
-  assert.equal(processorContinue.response.status,200,JSON.stringify(processorContinue.payload));
-  const validated=await action(DB,processor,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'VALIDATED'});
+  const validated=await action(DB,processor,{action:'ADVANCE_PAY_RUN',submissionId:id,command:'VALIDATE',reviewConfirmed:true});
   assert.equal(validated.response.status,200,JSON.stringify(validated.payload));
-  const standardized=await action(DB,processor,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'STANDARDIZED'});
-  assert.equal(standardized.response.status,200,JSON.stringify(standardized.payload));
-
-  const withoutReview=await action(DB,processor,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'CONTROLLER_REVIEW'});
-  assert.equal(withoutReview.response.status,409,'processor review confirmation wajib');
-  const reviewed=await action(DB,processor,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'CONTROLLER_REVIEW',reviewConfirmed:true,reviewNote:'Processor review complete'});
-  assert.equal(reviewed.response.status,200,JSON.stringify(reviewed.payload));
-
-  const processorCannotApprove=await action(DB,processor,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'DATA_APPROVED',reviewConfirmed:true});
-  assert.equal(processorCannotApprove.response.status,403,'processor tidak boleh melakukan controller approval');
-  const controllerApprove=await action(DB,controller,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'DATA_APPROVED',reviewConfirmed:true,reviewNote:'Controller approved'});
-  assert.equal(controllerApprove.response.status,200,JSON.stringify(controllerApprove.payload));
+  const controllerCannotFinalize=await action(DB,controller,{action:'ADVANCE_PAY_RUN',submissionId:id,command:'FINALIZE_PAYROLL',reviewConfirmed:true});
+  assert.equal(controllerCannotFinalize.response.status,403,'controller tidak boleh memfinalisasi payroll');
+  const finalized=await action(DB,processor,{action:'ADVANCE_PAY_RUN',submissionId:id,command:'FINALIZE_PAYROLL',reviewConfirmed:true,reviewNote:'Processor review complete'});
+  assert.equal(finalized.response.status,200,JSON.stringify(finalized.payload));
+  assert.equal(finalized.payload.submission.state,'PAYMENT_INSTRUCTION_READY');
 });
