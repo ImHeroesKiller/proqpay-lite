@@ -191,7 +191,7 @@ export default function Home() {
           </div>
         </main>
       </div>
-      {actor.mustChangePassword && ['database', 'session'].includes(actor.authMode || '') ? <ChangePasswordModal forced /> : null}
+      {actor.mustChangePassword && ['database', 'session', 'd1'].includes(actor.authMode || '') ? <ChangePasswordModal forced /> : null}
 
       <SystemHealthBubble />
       {idaMounted ? <IdaFab openSignal={idaOpenSignal} /> : null}

@@ -24,3 +24,10 @@ test('accent tokens drive hover and pipeline colors without forced purple', () =
   assert.match(css,/\.btn-primary:hover[\s\S]*?var\(--accent-contrast\)/);
   assert.match(polish,/\.btn\.btn-primary:hover[\s\S]*?background:[\s\S]*?!important/);
 });
+
+test('D1 first login forces the password change modal', () => {
+  const page = readFileSync('src/app/page.tsx', 'utf8');
+  assert.match(page, /\['database', 'session', 'd1'\]\.includes\(actor\.authMode/);
+  assert.match(page, /actor\.mustChangePassword/);
+  assert.match(page, /<ChangePasswordModal forced/);
+});
