@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
+import './polish.css';
 import PwaRegister from '@/components/PwaRegister';
 
 const inter = Inter({
