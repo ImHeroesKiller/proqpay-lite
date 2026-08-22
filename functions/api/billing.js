@@ -12,6 +12,12 @@ function integer(value,min=0,max=Number.MAX_SAFE_INTEGER) { const n=Number(value
 function processor(role) { return ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role); }
 function controller(role) { return ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role); }
 function parseJson(value) { try { return JSON.parse(value||'[]'); } catch { return []; } }
+const SLA_TRIGGERS=['PAYROLL_PAID','INVOICE_ISSUED','COMPLETE_DOCUMENT_RECEIVED','RECEIPT_ACKNOWLEDGED','BAST_SIGNED','CUSTOM'];
+function addTerms(startDate,days,basis,holidays=new Set()) {
+  const date=new Date(`${startDate}T00:00:00.000Z`); let counted=0;
+  while(counted<days){date.setUTCDate(date.getUTCDate()+1);const iso=date.toISOString().slice(0,10),day=date.getUTCDay();if(basis==='CALENDAR_DAYS'||(day!==0&&day!==6&&!holidays.has(iso))) counted+=1;}
+  return date.toISOString().slice(0,10);
+}
 function validate(body) {
   if (!body||typeof body!=='object'||Array.isArray(body)) return 'JSON object required';
   if (!body.action) return 'action wajib diisi';
@@ -38,8 +44,8 @@ export async function onRequest({request,env}) {
   try {
     if (request.method==='GET') {
       const cs=clientFilter(actor,'id'),is=clientFilter(actor,'i.client_id'),as=clientFilter(actor,'ar.client_id');
-      const [clients,billablePayments,invoices,arItems]=await Promise.all([
-        d1All(database,`SELECT id,code,name,npwp,nitku,billing_address,billing_email,payment_terms_days,tax_status,
+      const [clients,billablePayments,invoices,arItems,holidays]=await Promise.all([
+        d1All(database,`SELECT id,code,name,npwp,nitku,billing_address,billing_email,payment_terms_days,payment_terms_basis,sla_trigger,sla_trigger_label,sla_required_documents,tax_status,
           purchase_order,billing_method,billing_rate,billing_admin_fee,billing_tax_rate FROM clients
           WHERE org_id=?${cs.sql} ORDER BY name`,[organizationId,...cs.bindings]),
         actor.role==='CLIENT_USER'?Promise.resolve([]):d1All(database,`SELECT pi.id,pi.id AS instruction_number,pi.client_id,
@@ -58,12 +64,14 @@ export async function onRequest({request,env}) {
           LEFT JOIN projects p ON p.id=i.project_id LEFT JOIN ar_monitor ar ON ar.invoice_id=i.id
           WHERE i.org_id=?${is.sql}${actor.role==='CLIENT_USER'?" AND i.status IN ('ISSUED','PARTIALLY_PAID','PAID')":''}
           ORDER BY (i.issued_at IS NULL),i.issued_at DESC,i.updated_at DESC LIMIT 500`,[organizationId,...is.bindings]),
-        d1All(database,`SELECT ar.*,i.invoice_number,i.total_amount,i.issued_at,c.name AS client_name,p.name AS project_name,
-          CASE WHEN ar.status NOT IN ('PAID','DISPUTED') AND date(ar.due_date)<date('now') THEN 'OVERDUE'
+        d1All(database,`SELECT ar.*,i.invoice_number,i.total_amount,i.issued_at,i.sla_trigger,i.sla_status,c.name AS client_name,p.name AS project_name,
+          CASE WHEN ar.due_date IS NULL THEN 'AWAITING_TRIGGER'
+          WHEN ar.status NOT IN ('PAID','DISPUTED') AND date(ar.due_date)<date('now') THEN 'OVERDUE'
           WHEN ar.status='OUTSTANDING' AND date(ar.due_date)>=date('now') THEN 'NOT_DUE' ELSE ar.status END AS display_status,
           MAX(CAST(julianday('now')-julianday(ar.due_date) AS INTEGER),0) AS age_days,
           MAX(CAST(julianday('now')-julianday(ar.due_date) AS INTEGER),0) AS aging_days,
-          CASE WHEN date(ar.due_date)>=date('now') THEN 'BELUM_JATUH_TEMPO'
+          CASE WHEN ar.due_date IS NULL THEN 'SLA_BELUM_MULAI'
+          WHEN date(ar.due_date)>=date('now') THEN 'BELUM_JATUH_TEMPO'
           WHEN julianday('now')-julianday(ar.due_date)<=30 THEN '1-30' WHEN julianday('now')-julianday(ar.due_date)<=60 THEN '31-60'
           WHEN julianday('now')-julianday(ar.due_date)<=90 THEN '61-90' ELSE '>90' END AS aging_bucket,
           COALESCE((SELECT json_group_array(json_object('id',ap.id,'amount',ap.amount,'payment_date',ap.payment_date,
@@ -72,23 +80,33 @@ export async function onRequest({request,env}) {
           'created_by',af.created_by,'created_at',af.created_at)) FROM ar_follow_ups af WHERE af.ar_id=ar.id),'[]') AS follow_ups
           FROM ar_monitor ar JOIN invoices i ON i.id=ar.invoice_id JOIN clients c ON c.id=ar.client_id
           LEFT JOIN projects p ON p.id=ar.project_id WHERE ar.org_id=?${as.sql} ORDER BY ar.due_date DESC LIMIT 500`,[organizationId,...as.bindings]),
+        actor.role==='CLIENT_USER'?Promise.resolve([]):d1All(database,'SELECT id,holiday_date,name FROM business_holidays WHERE org_id=? ORDER BY holiday_date DESC LIMIT 200',[organizationId]),
       ]);
       for (const invoice of invoices) invoice.items=parseJson(invoice.items);
       for (const ar of arItems) { ar.payments=parseJson(ar.payments); ar.follow_ups=parseJson(ar.follow_ups); }
-      return respond({ok:true,clients,billablePayments,invoices,arItems});
+      return respond({ok:true,clients,billablePayments,invoices,arItems,holidays});
     }
     const body=await request.json().catch(()=>null),error=validate(body);
     if (error) return respond({error},422);
     if (body.action==='UPDATE_BILLING_PROFILE') {
       if (!processor(actor.role)) return respond({error:'Hanya Super Admin atau Payroll Processor yang dapat mengubah profil billing'},403);
       const method=String(body.billingMethod||''),terms=integer(body.paymentTermsDays,0,365),rate=Number(body.billingRate),
-        admin=integer(body.billingAdminFee??body.adminFee,0),taxRate=Number(body.billingTaxRate??body.taxRate),taxStatus=String(body.taxStatus||'NON_PKP');
-      if (!['PER_EMPLOYEE','FIXED','PERCENTAGE_OF_PAYROLL'].includes(method)||terms===null||!Number.isFinite(rate)||rate<0||admin===null||!Number.isFinite(taxRate)||taxRate<0||taxRate>100||!['PKP','NON_PKP'].includes(taxStatus)) return respond({error:'Nilai billing tidak valid'},422);
+        admin=integer(body.billingAdminFee??body.adminFee,0),taxRate=Number(body.billingTaxRate??body.taxRate),taxStatus=String(body.taxStatus||'NON_PKP'),
+        termsBasis=String(body.paymentTermsBasis||'CALENDAR_DAYS'),slaTrigger=String(body.slaTrigger||'INVOICE_ISSUED'),requiredDocuments=Array.isArray(body.slaRequiredDocuments)?body.slaRequiredDocuments.map((item)=>String(item).trim()).filter(Boolean).slice(0,20):[];
+      if (!['PER_EMPLOYEE','FIXED','PERCENTAGE_OF_PAYROLL'].includes(method)||terms===null||!Number.isFinite(rate)||rate<0||admin===null||!Number.isFinite(taxRate)||taxRate<0||taxRate>100||!['PKP','NON_PKP'].includes(taxStatus)||!['CALENDAR_DAYS','BUSINESS_DAYS'].includes(termsBasis)||!SLA_TRIGGERS.includes(slaTrigger)) return respond({error:'Nilai billing atau SLA tidak valid'},422);
       const client=await d1First(database,`UPDATE clients SET npwp=?,nitku=?,billing_address=?,billing_email=?,payment_terms_days=?,
-        tax_status=?,purchase_order=?,billing_method=?,billing_rate=?,billing_admin_fee=?,billing_tax_rate=? WHERE id=? AND org_id=? RETURNING *`,
-        [text(body.npwp,40),text(body.nitku,40),text(body.billingAddress,1000),text(body.billingEmail,254),terms,taxStatus,
+        payment_terms_basis=?,sla_trigger=?,sla_trigger_label=?,sla_required_documents=?,tax_status=?,purchase_order=?,billing_method=?,billing_rate=?,billing_admin_fee=?,billing_tax_rate=? WHERE id=? AND org_id=? RETURNING *`,
+        [text(body.npwp,40),text(body.nitku,40),text(body.billingAddress,1000),text(body.billingEmail,254),terms,termsBasis,slaTrigger,text(body.slaTriggerLabel,120),JSON.stringify(requiredDocuments),taxStatus,
         text(body.purchaseOrder,120),method,rate,admin,taxRate,body.clientId,organizationId]);
       return client?respond({ok:true,client}):respond({error:'Klien tidak ditemukan'},404);
+    }
+    if (body.action==='UPSERT_BUSINESS_HOLIDAY') {
+      if (!controller(actor.role)) return respond({error:'Hanya Super Admin atau Payroll Controller yang dapat mengelola kalender hari kerja'},403);
+      const holidayDate=String(body.holidayDate||''),name=text(body.name,120);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(holidayDate)||!name) return respond({error:'Tanggal dan nama hari libur wajib diisi'},422);
+      const holiday=await d1First(database,`INSERT INTO business_holidays(id,org_id,holiday_date,name,created_by) VALUES(?,?,?,?,?)
+        ON CONFLICT(org_id,holiday_date) DO UPDATE SET name=excluded.name RETURNING *`,[`HOL-${organizationId}-${holidayDate}`,organizationId,holidayDate,name,actor.email]);
+      return respond({ok:true,holiday});
     }
     if (body.action==='GENERATE_INVOICE') {
       if (!processor(actor.role)) return respond({error:'Hanya Payroll Processor yang dapat menyiapkan invoice'},403);
@@ -140,13 +158,29 @@ export async function onRequest({request,env}) {
     }
     if (body.action==='ISSUE_INVOICE') {
       if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat menerbitkan invoice'},403);
-      const invoice=await d1First(database,`SELECT i.*,c.payment_terms_days,c.tax_status FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.id=? AND i.org_id=? LIMIT 1`,[body.invoiceId,organizationId]);
+      const invoice=await d1First(database,`SELECT i.*,c.payment_terms_days,c.payment_terms_basis,c.sla_trigger,c.tax_status FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.id=? AND i.org_id=? LIMIT 1`,[body.invoiceId,organizationId]);
       if (!invoice||invoice.status!=='APPROVED') return respond({error:'Invoice belum disetujui'},409);
       if (invoice.tax_status==='PKP'&&invoice.tax_invoice_status!=='APPROVED') return respond({error:'Faktur pajak Coretax belum disetujui'},409);
-      const due=new Date();due.setUTCDate(due.getUTCDate()+Number(invoice.payment_terms_days||30));const dueDate=due.toISOString().slice(0,10),arId=`AR-${crypto.randomUUID()}`;
-      await d1Batch(database,[{statement:`UPDATE invoices SET status='ISSUED',issued_at=${NOW},sent_at=${NOW},due_date=?,updated_at=${NOW} WHERE id=?`,bindings:[dueDate,invoice.id]},
+      const issuedDate=new Date().toISOString().slice(0,10),autoStart=invoice.sla_trigger==='INVOICE_ISSUED';
+      const holidays=autoStart&&invoice.payment_terms_basis==='BUSINESS_DAYS'?new Set((await d1All(database,'SELECT holiday_date FROM business_holidays WHERE org_id=?',[organizationId])).map((row)=>row.holiday_date)):new Set();
+      const dueDate=autoStart?addTerms(issuedDate,Number(invoice.payment_terms_days||30),invoice.payment_terms_basis,holidays):null,arId=`AR-${crypto.randomUUID()}`;
+      await d1Batch(database,[{statement:`UPDATE invoices SET status='ISSUED',issued_at=${NOW},sent_at=${NOW},due_date=?,sla_trigger=?,sla_trigger_date=?,sla_status=?,updated_at=${NOW} WHERE id=?`,bindings:[dueDate,invoice.sla_trigger,autoStart?issuedDate:null,autoStart?'RUNNING':'NOT_STARTED',invoice.id]},
         {statement:`INSERT INTO ar_monitor(id,org_id,client_id,project_id,company,invoice_id,amount,paid_amount,balance,status,due_date,days_overdue,type,notes,updated_at) VALUES(?,?,?,?,?,?,?,0,?,'OUTSTANDING',?,0,'INVOICE','Billing package diterbitkan',${NOW})`,bindings:[arId,organizationId,invoice.client_id,invoice.project_id,invoice.company,invoice.id,invoice.total_amount,invoice.total_amount,dueDate]}]);
       return respond({ok:true,invoiceId:invoice.id,arId});
+    }
+    if (body.action==='START_INVOICE_SLA') {
+      if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat memulai SLA invoice'},403);
+      const triggerDate=String(body.triggerDate||''),trigger=String(body.slaTrigger||'');
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(triggerDate)||!SLA_TRIGGERS.includes(trigger)) return respond({error:'Trigger dan tanggal SLA tidak valid'},422);
+      const invoice=await d1First(database,`SELECT i.*,c.payment_terms_days,c.payment_terms_basis,c.sla_trigger FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.id=? AND i.org_id=? LIMIT 1`,[body.invoiceId,organizationId]);
+      if(!invoice||!['ISSUED','PARTIALLY_PAID'].includes(invoice.status)||invoice.sla_status!=='NOT_STARTED') return respond({error:'Invoice tidak siap memulai SLA'},409);
+      if(trigger!==invoice.sla_trigger) return respond({error:'Trigger tidak sesuai kontrak klien'},409);
+      const holidays=invoice.payment_terms_basis==='BUSINESS_DAYS'?new Set((await d1All(database,'SELECT holiday_date FROM business_holidays WHERE org_id=?',[organizationId])).map((row)=>row.holiday_date)):new Set();
+      const dueDate=addTerms(triggerDate,Number(invoice.payment_terms_days||30),invoice.payment_terms_basis,holidays);
+      await d1Batch(database,[{statement:`UPDATE invoices SET sla_trigger_date=?,sla_status='RUNNING',sla_evidence_notes=?,due_date=?,updated_at=${NOW} WHERE id=?`,bindings:[triggerDate,text(body.notes,1000),dueDate,invoice.id]},
+        {statement:`UPDATE ar_monitor SET due_date=?,notes=?,updated_at=${NOW} WHERE invoice_id=?`,bindings:[dueDate,`SLA ${trigger} dimulai ${triggerDate}`,invoice.id]},
+        {statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id) VALUES(?,?,?,?,'INVOICE_SLA_STARTED',?,'invoice',?)`,bindings:[`AUD-${crypto.randomUUID()}`,organizationId,actor.email,actor.role,JSON.stringify({trigger,triggerDate,dueDate,notes:text(body.notes,1000)}),invoice.id]}]);
+      return respond({ok:true,dueDate,trigger});
     }
     if (body.action==='RECORD_AR_PAYMENT') {
       if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat mencatat pembayaran AR'},403);
@@ -157,7 +191,7 @@ export async function onRequest({request,env}) {
       const applied=Math.min(amount,Number(ar.balance||0)),paid=Number(ar.paid_amount||0)+applied,balance=Number(ar.amount||0)-paid,status=balance===0?'PAID':'PARTIAL_PAID';
       await d1Batch(database,[{statement:'INSERT INTO ar_payments(id,ar_id,amount,payment_date,reference,notes,recorded_by) VALUES(?,?,?,?,?,?,?)',bindings:[`ARP-${crypto.randomUUID()}`,ar.id,applied,paymentDate,text(body.reference,120),text(body.notes,500),actor.email]},
         {statement:`UPDATE ar_monitor SET paid_amount=?,balance=?,status=?,updated_at=${NOW} WHERE id=?`,bindings:[paid,balance,status,ar.id]},
-        {statement:`UPDATE invoices SET status=?,paid_at=?,updated_at=${NOW} WHERE id=?`,bindings:[status==='PAID'?'PAID':'PARTIAL_PAID',status==='PAID'?paymentDate:null,ar.invoice_id]}]);
+        {statement:`UPDATE invoices SET status=?,paid_at=?,sla_status=CASE WHEN ?='PAID' THEN 'COMPLETED' ELSE sla_status END,updated_at=${NOW} WHERE id=?`,bindings:[status==='PAID'?'PAID':'PARTIAL_PAID',status==='PAID'?paymentDate:null,status,ar.invoice_id]}]);
       return respond({ok:true,applied,balance,status});
     }
     if (body.action==='FOLLOW_UP_AR') {

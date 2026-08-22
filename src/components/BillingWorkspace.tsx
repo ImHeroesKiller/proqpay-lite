@@ -6,7 +6,8 @@ import { formatIDR } from '@/lib/format';
 
 type Actor = { email: string; role: string };
 type Section = 'invoice' | 'tax' | 'ar' | 'setup';
-type BillingData = { clients:any[]; billablePayments:any[]; invoices:any[]; arItems:any[] };
+type BillingData = { clients:any[]; billablePayments:any[]; invoices:any[]; arItems:any[]; holidays:any[] };
+const slaTriggerLabels:Record<string,string>={PAYROLL_PAID:'Pembayaran gaji',INVOICE_ISSUED:'Invoice diterbitkan',COMPLETE_DOCUMENT_RECEIVED:'Dokumen invoice lengkap diterima',RECEIPT_ACKNOWLEDGED:'Tanda terima klien',BAST_SIGNED:'BAST ditandatangani',CUSTOM:'Trigger kontraktual lainnya'};
 
 const sections: Record<Section,string> = {
   invoice: 'Invoice',
@@ -15,7 +16,7 @@ const sections: Record<Section,string> = {
   setup: 'Billing Setup',
 };
 
-const initialData: BillingData = { clients:[], billablePayments:[], invoices:[], arItems:[] };
+const initialData: BillingData = { clients:[], billablePayments:[], invoices:[], arItems:[], holidays:[] };
 
 export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
   const [section,setSection] = useState<Section>('invoice');
@@ -81,7 +82,9 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
   function openGenerate(row:any){ setForm({reimbursement:0,discount:0}); setModal({kind:'generate',row}); }
   function openTax(row:any){ setForm({status:'APPROVED',taxInvoiceNumber:row.tax_invoice_number||'',taxInvoiceDate:new Date().toISOString().slice(0,10),coretaxReference:row.coretax_reference||''}); setModal({kind:'tax',row}); }
   function openPayment(row:any){ setForm({amount:row.balance||0,paidAt:new Date().toISOString().slice(0,10),reference:'',notes:''}); setModal({kind:'payment',row}); }
-  function openSetup(row:any){ setForm({...row,paymentTermsDays:row.payment_terms_days||30,taxStatus:row.tax_status||'NON_PKP',billingMethod:row.billing_method||'FIXED',billingRate:row.billing_rate||0,billingAdminFee:row.billing_admin_fee||0,billingTaxRate:row.billing_tax_rate??11}); setModal({kind:'setup',row}); }
+  function openSetup(row:any){ setForm({...row,paymentTermsDays:row.payment_terms_days||30,paymentTermsBasis:row.payment_terms_basis||'CALENDAR_DAYS',slaTrigger:row.sla_trigger||'INVOICE_ISSUED',slaTriggerLabel:row.sla_trigger_label||'',slaRequiredDocuments:parseList(row.sla_required_documents),taxStatus:row.tax_status||'NON_PKP',billingMethod:row.billing_method||'FIXED',billingRate:row.billing_rate||0,billingAdminFee:row.billing_admin_fee||0,billingTaxRate:row.billing_tax_rate??11}); setModal({kind:'setup',row}); }
+  function openSla(row:any){ setForm({slaTrigger:row.sla_trigger,triggerDate:new Date().toISOString().slice(0,10),notes:''}); setModal({kind:'sla',row}); }
+  function openHoliday(){ setForm({holidayDate:new Date().toISOString().slice(0,10),name:''}); setModal({kind:'holiday',row:null}); }
 
   async function followUp(row:any){
     const notes=window.prompt('Catatan follow-up untuk klien:');
@@ -120,14 +123,16 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
 
     {section==='invoice' && <InvoiceSection data={data} canPrepare={canPrepare} canControl={canControl} act={act} generate={openGenerate} revise={revise} tax={openTax} detail={(row:any)=>setModal({kind:'detail',row})}/>}
     {section==='tax' && <TaxSection rows={data.invoices} canControl={canControl} openTax={openTax} exportCoretax={exportCoretax}/>}
-    {section==='ar' && <ARSection rows={data.arItems} canControl={canControl} canFollow={canControl||canPrepare} payment={openPayment} follow={followUp}/>}
-    {section==='setup' && <SetupSection clients={data.clients} canEdit={canPrepare} open={openSetup}/>}
+    {section==='ar' && <ARSection rows={data.arItems} canControl={canControl} canFollow={canControl||canPrepare} payment={openPayment} follow={followUp} startSla={openSla}/>}
+    {section==='setup' && <SetupSection clients={data.clients} holidays={data.holidays} canEdit={canPrepare} canEditHoliday={canControl} open={openSetup} openHoliday={openHoliday}/>}
 
     {modal && <Modal title={modalTitle(modal.kind)} close={()=>{setModal(null);setForm({});}}>
       {modal.kind==='generate' && <GenerateForm row={modal.row} form={form} setForm={setForm} submit={()=>act('GENERATE_INVOICE',{paymentInstructionId:modal.row.id,reimbursement:Number(form.reimbursement||0),discount:Number(form.discount||0)},'Draft invoice berhasil dibuat.')}/>}
       {modal.kind==='tax' && <TaxForm form={form} setForm={setForm} submit={()=>saveTaxInvoice(modal.row)}/>}
       {modal.kind==='payment' && <PaymentForm row={modal.row} form={form} setForm={setForm} submit={()=>act('RECORD_AR_PAYMENT',{arId:modal.row.id,amount:Number(form.amount),paidAt:form.paidAt,reference:form.reference,notes:form.notes},'Penerimaan AR berhasil dicatat.')}/>}
       {modal.kind==='setup' && <SetupForm form={form} setForm={setForm} submit={()=>act('UPDATE_BILLING_PROFILE',{clientId:modal.row.id,...form},'Billing profile klien tersimpan.')}/>}
+      {modal.kind==='sla' && <SlaForm row={modal.row} form={form} setForm={setForm} submit={()=>act('START_INVOICE_SLA',{invoiceId:modal.row.invoice_id,slaTrigger:form.slaTrigger,triggerDate:form.triggerDate,notes:form.notes},'SLA invoice dimulai dan jatuh tempo dihitung ulang.')}/>}
+      {modal.kind==='holiday' && <HolidayForm form={form} setForm={setForm} submit={()=>act('UPSERT_BUSINESS_HOLIDAY',{holidayDate:form.holidayDate,name:form.name},'Kalender hari kerja diperbarui.')}/>}
       {modal.kind==='detail' && <InvoiceDetail row={modal.row}/>}
     </Modal>}
   </div>;
@@ -170,26 +175,28 @@ function TaxSection({rows,canControl,openTax,exportCoretax}:any){
   </Panel>;
 }
 
-function ARSection({rows,canControl,canFollow,payment,follow}:any){
-  const buckets=['BELUM_JATUH_TEMPO','1-30','31-60','61-90','>90'];
+function ARSection({rows,canControl,canFollow,payment,follow,startSla}:any){
+  const buckets=['SLA_BELUM_MULAI','BELUM_JATUH_TEMPO','1-30','31-60','61-90','>90'];
   const totals=Object.fromEntries(buckets.map((b)=>[b,rows.filter((r:any)=>r.aging_bucket===b).reduce((n:number,r:any)=>n+Number(r.balance||0),0)]));
   return <div style={{display:'grid',gap:16}}>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))',gap:10}}>{buckets.map((b)=><Metric key={b} label={b.replaceAll('_',' ')} value={formatIDR(totals[b])} note="Saldo berjalan" danger={b!==buckets[0]&&totals[b]>0}/>)}</div>
     <Panel title="Monitoring piutang" detail="Pembayaran parsial otomatis mengurangi saldo. Aging dihitung dari tanggal jatuh tempo.">
       {rows.length?<Table headers={['Invoice','Klien','Jatuh tempo','Aging','Nilai','Terbayar','Saldo','Status','Aksi']} rows={rows.map((r:any)=>[
-        r.invoice_number,<div key="c"><strong>{r.company}</strong><small>{r.project_name||'-'}</small></div>,date(r.due_date),r.aging_days>0?`${r.aging_days} hari`:'Belum jatuh tempo',formatIDR(Number(r.amount||0)),formatIDR(Number(r.paid_amount||0)),formatIDR(Number(r.balance||0)),<Badge key="s" text={r.display_status||r.status}/>,
-        <div key="a" style={{display:'flex',gap:6,flexWrap:'wrap'}}>{canControl&&Number(r.balance)>0&&<button style={button} onClick={()=>payment(r)}>Catat bayar</button>}{canFollow&&Number(r.balance)>0&&<button style={secondary} onClick={()=>follow(r)}>Follow-up</button>}</div>
+        r.invoice_number,<div key="c"><strong>{r.company}</strong><small>{r.project_name||'-'}</small></div>,r.due_date?date(r.due_date):'Menunggu trigger',r.due_date?(r.aging_days>0?`${r.aging_days} hari`:'Belum jatuh tempo'):'SLA belum mulai',formatIDR(Number(r.amount||0)),formatIDR(Number(r.paid_amount||0)),formatIDR(Number(r.balance||0)),<Badge key="s" text={r.display_status||r.status}/>,
+        <div key="a" style={{display:'flex',gap:6,flexWrap:'wrap'}}>{canControl&&Number(r.balance)>0&&!r.due_date&&<button style={button} onClick={()=>startSla(r)}>Catat trigger SLA</button>}{canControl&&Number(r.balance)>0&&<button style={button} onClick={()=>payment(r)}>Catat bayar</button>}{canFollow&&Number(r.balance)>0&&<button style={secondary} onClick={()=>follow(r)}>Follow-up</button>}</div>
       ])}/>:<Empty text="Belum ada piutang. Terbitkan invoice untuk membentuk AR."/>}
     </Panel>
   </div>;
 }
 
-function SetupSection({clients,canEdit,open}:any){return <Panel title="Billing profile klien" detail="NPWP, status pajak, TOP, alamat tagihan, dan formula fee menjadi sumber invoice otomatis.">
+function SetupSection({clients,holidays,canEdit,canEditHoliday,open,openHoliday}:any){return <div style={{display:'grid',gap:16}}><Panel title="Billing profile klien" detail="NPWP, status pajak, TOP, trigger SLA, dan formula fee menjadi sumber invoice otomatis.">
   {clients.length?<Table headers={['Klien','Email tagihan','Pajak','TOP','Metode','Rate','Aksi']} rows={clients.map((r:any)=>[
-    <div key="c"><strong>{r.name}</strong><small>{r.code}</small></div>,r.billing_email||'-',<Badge key="t" text={r.tax_status||'NON_PKP'}/>,`${r.payment_terms_days||30} hari`,String(r.billing_method||'FIXED').replaceAll('_',' '),r.billing_method==='PERCENTAGE_OF_PAYROLL'?`${Number(r.billing_rate||0).toLocaleString('id-ID')}%`:formatIDR(Number(r.billing_rate||0)),
+    <div key="c"><strong>{r.name}</strong><small>{r.code}</small></div>,r.billing_email||'-',<Badge key="t" text={r.tax_status||'NON_PKP'}/>,`${r.payment_terms_days||30} ${r.payment_terms_basis==='BUSINESS_DAYS'?'hari kerja':'hari kalender'} · ${slaTriggerLabels[r.sla_trigger]||r.sla_trigger}`,String(r.billing_method||'FIXED').replaceAll('_',' '),r.billing_method==='PERCENTAGE_OF_PAYROLL'?`${Number(r.billing_rate||0).toLocaleString('id-ID')}%`:formatIDR(Number(r.billing_rate||0)),
     canEdit?<button key="a" style={secondary} onClick={()=>open(r)}>Atur billing</button>:<small key="a">Read only</small>
   ])}/>:<Empty text="Belum ada klien."/>}
-</Panel>}
+</Panel><Panel title="Kalender hari kerja" detail="Tanggal ini tidak dihitung untuk SLA berbasis hari kerja." action={canEditHoliday?<button style={secondary} onClick={openHoliday}>Tambah hari libur</button>:null}>
+  {holidays.length?<Table headers={['Tanggal','Nama']} rows={holidays.map((row:any)=>[date(row.holiday_date),row.name])}/>:<Empty text="Belum ada hari libur tambahan. Akhir pekan tetap otomatis dikecualikan."/>}
+</Panel></div>}
 
 function GenerateForm({row,form,setForm,submit}:any){return <Form submit={submit} buttonText="Buat draft invoice">
   <Info label="Payment" value={row.instruction_number}/><Info label="Klien" value={row.company}/><Info label="Payroll" value={formatIDR(Number(row.payroll_total||0))}/>
@@ -217,11 +224,26 @@ function SetupForm({form,setForm,submit}:any){return <Form submit={submit} butto
   <div style={grid2}><Field label="NPWP" value={form.npwp||''} onChange={(v:any)=>setForm({...form,npwp:v})}/><Field label="NITKU" value={form.nitku||''} onChange={(v:any)=>setForm({...form,nitku:v})}/></div>
   <Field label="Alamat tagihan" value={form.billing_address||''} onChange={(v:any)=>setForm({...form,billingAddress:v,billing_address:v})}/>
   <Field label="Email tagihan" type="email" value={form.billing_email||''} onChange={(v:any)=>setForm({...form,billingEmail:v,billing_email:v})}/>
-  <div style={grid2}><Field label="TOP (hari)" type="number" value={form.paymentTermsDays} onChange={(v:any)=>setForm({...form,paymentTermsDays:v})}/><Select label="Status pajak" value={form.taxStatus} options={['NON_PKP','PKP']} onChange={(v:any)=>setForm({...form,taxStatus:v})}/></div>
+  <div style={grid2}><Field label="TOP / SLA (hari)" type="number" value={form.paymentTermsDays} onChange={(v:any)=>setForm({...form,paymentTermsDays:v})}/><Select label="Basis perhitungan" value={form.paymentTermsBasis} options={['CALENDAR_DAYS','BUSINESS_DAYS']} onChange={(v:any)=>setForm({...form,paymentTermsBasis:v})}/></div>
+  <Select label="Trigger mulai SLA" value={form.slaTrigger} options={Object.keys(slaTriggerLabels)} onChange={(v:any)=>setForm({...form,slaTrigger:v})}/>
+  {form.slaTrigger==='CUSTOM'?<Field label="Nama trigger kontraktual" value={form.slaTriggerLabel||''} onChange={(v:any)=>setForm({...form,slaTriggerLabel:v})}/>:null}
+  <Field label="Dokumen wajib (pisahkan dengan koma)" value={(form.slaRequiredDocuments||[]).join(', ')} onChange={(v:any)=>setForm({...form,slaRequiredDocuments:String(v).split(',').map((item)=>item.trim()).filter(Boolean)})}/>
+  <Select label="Status pajak" value={form.taxStatus} options={['NON_PKP','PKP']} onChange={(v:any)=>setForm({...form,taxStatus:v})}/>
   <Field label="Nomor PO / kontrak" value={form.purchase_order||''} onChange={(v:any)=>setForm({...form,purchaseOrder:v,purchase_order:v})}/>
   <Select label="Metode billing" value={form.billingMethod} options={['FIXED','PER_EMPLOYEE','PERCENTAGE_OF_PAYROLL']} onChange={(v:any)=>setForm({...form,billingMethod:v})}/>
   <div style={grid2}><Field label="Rate" type="number" value={form.billingRate} onChange={(v:any)=>setForm({...form,billingRate:v})}/><Field label="Admin fee" type="number" value={form.billingAdminFee} onChange={(v:any)=>setForm({...form,billingAdminFee:v})}/></div>
   <Field label="Tarif PPN (%)" type="number" value={form.billingTaxRate} onChange={(v:any)=>setForm({...form,billingTaxRate:v})}/>
+</Form>}
+
+function SlaForm({row,form,setForm,submit}:any){return <Form submit={submit} buttonText="Mulai SLA invoice">
+  <Info label="Invoice" value={row.invoice_number}/><Info label="Trigger kontrak" value={slaTriggerLabels[form.slaTrigger]||form.slaTrigger}/>
+  <Field label="Tanggal bukti trigger" type="date" value={form.triggerDate} onChange={(v:any)=>setForm({...form,triggerDate:v})}/>
+  <Field label="Catatan / referensi dokumen" value={form.notes} onChange={(v:any)=>setForm({...form,notes:v})}/>
+</Form>}
+
+function HolidayForm({form,setForm,submit}:any){return <Form submit={submit} buttonText="Simpan hari libur">
+  <Field label="Tanggal" type="date" value={form.holidayDate} onChange={(v:any)=>setForm({...form,holidayDate:v})}/>
+  <Field label="Nama hari libur" value={form.name} onChange={(v:any)=>setForm({...form,name:v})}/>
 </Form>}
 
 function InvoiceDetail({row}:any){return <div>
@@ -253,7 +275,8 @@ function Select({label,value,onChange,options}:any){return <label style={labelSt
 function Info({label,value}:any){return <div style={{display:'flex',justifyContent:'space-between',gap:16,fontSize:12,padding:'9px 0',borderBottom:'1px solid var(--border-soft)'}}><span style={{color:'var(--text3)'}}>{label}</span><strong>{value}</strong></div>}
 const date=(v:any)=>v?new Date(v).toLocaleDateString('id-ID'):'-';
 const csvCell=(v:any)=>`"${String(v??'').replaceAll('"','""')}"`;
-const modalTitle=(kind:string)=>({generate:'Buat draft invoice',tax:'Faktur Pajak / Coretax',payment:'Catat penerimaan AR',setup:'Billing profile klien',detail:'Detail invoice'} as any)[kind]||'Billing';
+const modalTitle=(kind:string)=>({generate:'Buat draft invoice',tax:'Faktur Pajak / Coretax',payment:'Catat penerimaan AR',setup:'Billing profile klien',sla:'Mulai SLA invoice',holiday:'Kalender hari kerja',detail:'Detail invoice'} as any)[kind]||'Billing';
+function parseList(value:any){try{const parsed=JSON.parse(value||'[]');return Array.isArray(parsed)?parsed:[];}catch{return [];}}
 const muted:any={color:'var(--text3)',fontSize:11};
 const grid2:any={display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:12};
 const th:any={textAlign:'left',padding:'10px 12px',background:'var(--bg-subtle)',color:'var(--text2)',fontSize:10,textTransform:'uppercase',whiteSpace:'nowrap'};
