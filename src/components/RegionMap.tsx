@@ -112,13 +112,13 @@ export default function RegionMap({ employees, pageSize = 5, onOpenEmployees }: 
           let fill = '#e2e8f0';
           if (count >= 3) fill = '#f97316';
           else if (count >= 2) fill = '#f59e0b';
-          else if (count >= 1) fill = '#818cf8';
+          else if (count >= 1) fill = 'var(--accent)';
 
           return {
             fillColor: fill,
             weight: count > 0 ? 1.5 : 0.8,
             opacity: 1,
-            color: count > 0 ? '#4338ca' : '#94a3b8',
+            color: count > 0 ? 'var(--accent-hover)' : '#94a3b8',
             fillOpacity: count > 0 ? 0.72 : 0.35,
           };
         }

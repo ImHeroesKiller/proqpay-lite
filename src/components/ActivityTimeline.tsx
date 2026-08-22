@@ -17,7 +17,7 @@ export default function ActivityTimeline({ logs, pageSize = 5 }: { logs: any[]; 
       {!items.length ? <div className="client-panel-empty">Belum ada aktivitas terbaru.</div> : (
         <div key={safePage} className="activity-list paginated-content">
           {visible.map((log: any) => {
-            const color = log.action?.includes('PAYROLL') ? '#3b82f6' : log.action?.includes('PAYMENT') ? '#10b981' : log.action?.includes('APPROVED') ? '#8b5cf6' : '#94a3b8';
+            const color = log.action?.includes('PAYROLL') ? '#3b82f6' : log.action?.includes('PAYMENT') || log.action?.includes('APPROVED') ? '#10b981' : '#94a3b8';
             return (
               <div key={log.id} className="activity-item">
                 <i style={{ background: color, boxShadow: `0 0 0 3px ${color}22` }} />

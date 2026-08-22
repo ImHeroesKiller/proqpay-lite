@@ -18,7 +18,7 @@ const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; descriptio
 };
 
 const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') ? '#dc2626'
-  : state.includes('APPROVED') || state === 'COMPLETED' || state === 'MATCHED' ? '#059669' : '#4f46e5';
+  : state.includes('APPROVED') || state === 'COMPLETED' || state === 'MATCHED' ? '#059669' : 'var(--accent)';
 
 export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: WorkspaceMode }) {
   const [actor, setActor] = useState<Actor | null>(null);
