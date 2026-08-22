@@ -104,3 +104,32 @@ test('D1 processes 396 recipients through PI approval, proof, and reconciliation
 
   assert.throws(() => DB.sqlite.prepare('UPDATE payment_instruction_lines SET amount=1 WHERE payment_instruction_id=?').run(pi.id), /immutable/);
 });
+
+test('rejected PI returns to Processor and creates a new immutable revision', async () => {
+  const DB = new D1Mock();
+  seed396(DB);
+  const env = { DB, FILES: new R2Mock(), DEFAULT_ORG_ID: 'ORG-OTSINDO', PI_ENCRYPTION_KEY: 'uat-native-cloudflare-key-32-bytes-minimum' };
+  const maker = { id: 'USR-MAKER', email: 'maker@proqpay.test', role: 'PAYROLL_PROCESSOR', permissions: ['payment:prepare'] };
+  const controller = { id: 'USR-CONTROLLER', email: 'controller@proqpay.test', role: 'PAYROLL_CONTROLLER', permissions: ['payment:approve'] };
+
+  const firstResponse = await handleD1OperatingModel({ request: post({ action:'GENERATE_PAYMENT_INSTRUCTION', submissionId:'SUB-UAT' }), env }, maker);
+  const first = (await firstResponse.json()).paymentInstruction;
+  await handleD1OperatingModel({ request: post({ action:'SUBMIT_PAYMENT_INSTRUCTION', paymentInstructionId:first.id, confirmation:'SUBMIT PI' }), env }, maker);
+  const rejectedResponse = await handleD1OperatingModel({ request: post({ action:'REJECT_PAYMENT', paymentInstructionId:first.id, reason:'Nominal penerima pertama harus diperbaiki' }), env }, controller);
+  assert.equal(rejectedResponse.status, 200, await rejectedResponse.clone().text());
+
+  DB.sqlite.prepare(`UPDATE employee_compensation SET imported_net=imported_net+1000,imported_gross=imported_gross+1000 WHERE employee_id='EMP-001'`).run();
+  DB.sqlite.prepare(`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY' WHERE id='SUB-UAT'`).run();
+  const revisedResponse = await handleD1OperatingModel({ request: post({ action:'GENERATE_PAYMENT_INSTRUCTION', submissionId:'SUB-UAT' }), env }, maker);
+  assert.equal(revisedResponse.status, 201, await revisedResponse.clone().text());
+  const revised = (await revisedResponse.json()).paymentInstruction;
+  assert.notEqual(revised.id, first.id);
+  assert.notEqual(revised.content_hash, first.content_hash);
+  assert.equal(revised.status, 'PAYMENT_INSTRUCTION_READY');
+  assert.equal(DB.sqlite.prepare('SELECT status FROM payment_instructions WHERE id=?').get(first.id).status, 'REJECTED');
+
+  const listResponse = await handleD1OperatingModel({ request: request('/api/operating-model?resource=payment-instructions', { method:'GET' }), env }, maker);
+  const rows = (await listResponse.json()).paymentInstructions;
+  const rejected = rows.find((row) => row.id === first.id);
+  assert.equal(rejected.rejection_reason, 'Nominal penerima pertama harus diperbaiki');
+});

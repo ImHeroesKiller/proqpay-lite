@@ -74,7 +74,9 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   const isProcessor = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role);
   const isController = ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role);
   const isClient = role === 'CLIENT_USER';
-  const canApprovePayment = actor?.permissions?.includes('payment:approve') || false;
+  // The backend remains authoritative; role fallback prevents a stale /api/me
+  // permission payload from hiding the Controller approval workflow.
+  const canApprovePayment = isController || actor?.permissions?.includes('payment:approve') || false;
   const submissions = useMemo(() => data.submissions || [], [data.submissions]);
   const periods = useMemo(() => [...new Set(submissions.map((row) => String(row.period || '')).filter(Boolean))].sort((a, b) => b.localeCompare(a)), [submissions]);
   const clients = useMemo(() => {
@@ -391,13 +393,16 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
       if (r.status === 'PAYMENT_INSTRUCTION_READY') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
         ? <button style={actionButton} onClick={() => void act({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:r.id,confirmation:'SUBMIT PI'},'PI dikirim ke Controller untuk approval')}>Submit PI</button>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button>;
-      if (r.status === 'PAYMENT_APPROVAL_PENDING') action = canApprove
+      else if (r.status === 'PAYMENT_APPROVAL_PENDING') action = canApprove
         ? <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview & Approve</button>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button>;
-      if (canReview && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
-      if (canReview && r.status === 'PROOF_UPLOADED') action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
-      if (!['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(r.status)) action = <button style={actionButton} onClick={() => void openDetail(r.id)}>Detail PI</button>;
-      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small></div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
+      else if (canReview && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
+      else if (canReview && r.status === 'PROOF_UPLOADED') action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
+      else if (r.status === 'REVISION_REQUIRED') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
+        ? <a className="btn btn-primary" href={`?view=operations&submissionId=${encodeURIComponent(r.submission_id)}`}>Perbaiki Pay Run</a>
+        : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
+      else action = <button style={actionButton} onClick={() => void openDetail(r.id)}>Detail PI</button>;
+      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
     })} />
     {detailLoading ? <div className="card" style={{padding:18}}>Memuat snapshot Payment Instruction…</div> : null}
     {detailError ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Detail PI gagal</strong><span>{detailError}</span></div> : null}
@@ -417,6 +422,7 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
           <div><strong>{detail.control.balanced ? '✓ Control total seimbang' : '⛔ Control total tidak seimbang'}</strong><span>Expected {formatIDR(detail.control.expectedTotal)} · Snapshot {formatIDR(detail.control.totalAmount)} · Selisih {formatIDR(detail.control.totalAmount - detail.control.expectedTotal)}</span></div>
           <div><strong>{detail.paymentInstruction.content_hash ? '✓ Snapshot terverifikasi' : '⚠ Snapshot legacy'}</strong><span>{detail.paymentInstruction.content_hash ? `SHA-256 · ${detail.paymentInstruction.content_hash}` : 'Content hash tidak tersedia; regenerasi PI diperlukan untuk approval.'}</span></div>
         </section>
+        {detail.paymentInstruction.rejection_reason ? <section className="app-notice-bubble app-notice-error" role="alert"><strong>PI dikembalikan untuk revisi</strong><span>{detail.paymentInstruction.rejection_reason} · {detail.paymentInstruction.rejected_by || 'Payroll Controller'}</span></section> : null}
         <section className="pi-bank-section" aria-label="Breakdown bank">
           <div className="pi-section-heading"><div><span>DISTRIBUSI PEMBAYARAN</span><h4>Ringkasan per bank</h4></div><small>{bankSummaries.length} bank · {detailLines.length.toLocaleString('id-ID')} transaksi</small></div>
           <div className="pi-bank-grid">{bankSummaries.map(([bank,summary])=><button type="button" key={bank} className={detailBank===bank?'active':''} onClick={()=>setDetailBank(detailBank===bank?'ALL':bank)}><span>{bank}</span><strong>{formatIDR(summary.total)}</strong><small>{summary.count.toLocaleString('id-ID')} penerima</small></button>)}</div>
