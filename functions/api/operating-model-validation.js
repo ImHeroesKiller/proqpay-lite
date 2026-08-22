@@ -75,6 +75,9 @@ export function validateOperatingAction(input) {
     if (input.included !== undefined && typeof input.included !== 'boolean') errors.push('included tidak valid');
   } else if (action === 'REFRESH_PAY_RUN_FROM_MASTER') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+  } else if (action === 'DELETE_PAY_RUN') {
+    if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+    if (input.confirmation !== 'HAPUS PAY RUN') errors.push('Konfirmasi wajib: HAPUS PAY RUN');
   } else if (action === 'FINALIZE_PAY_RUN_INPUT') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (input.confirmation !== 'DATA PAYROLL FINAL') errors.push('Konfirmasi wajib: DATA PAYROLL FINAL');

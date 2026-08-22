@@ -464,6 +464,28 @@ async function executeAction(database, body, actor, env, organizationId) {
       totalDeduction:Number(quality?.total_deduction||0),totalNet:Number(quality?.total_net||0)} } };
   }
 
+  if (body.action === 'DELETE_PAY_RUN') {
+    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
+    const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId,organizationId]);
+    if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
+    if (submission.state!=='DRAFT' || submission.period_status==='CLOSED') {
+      return { status:409, data:{ error:'Hanya Pay Run DRAFT dengan periode terbuka yang dapat dihapus' } };
+    }
+    const protectedRecord = await d1First(database, `SELECT
+      EXISTS(SELECT 1 FROM payment_instructions WHERE submission_id=?) AS has_pi,
+      EXISTS(SELECT 1 FROM payroll_submissions WHERE parent_submission_id=?) AS has_child`, [submission.id,submission.id]);
+    if (Number(protectedRecord?.has_pi||0)) return { status:409, data:{ error:'Pay Run sudah memiliki Payment Instruction dan tidak boleh dihapus' } };
+    if (Number(protectedRecord?.has_child||0)) return { status:409, data:{ error:'Pay Run menjadi induk adjustment dan tidak boleh dihapus' } };
+    await d1Batch(database, [
+      { statement:'DELETE FROM payroll_exceptions WHERE submission_id=?', bindings:[submission.id] },
+      { statement:'DELETE FROM submission_versions WHERE submission_id=?', bindings:[submission.id] },
+      { statement:'DELETE FROM payroll_run_lines WHERE submission_id=?', bindings:[submission.id] },
+      { statement:'DELETE FROM payroll_submissions WHERE id=? AND org_id=?', bindings:[submission.id,organizationId] },
+      auditOperation(organizationId,actor,'PAY_RUN_DELETED',`${submission.client_id} · ${submission.project_id} · ${submission.period} · ${submission.run_type}`,'payroll_submission',submission.id),
+    ]);
+    return { data:{ ok:true,deletedId:submission.id } };
+  }
+
   if (body.action === 'UPDATE_PAY_RUN_LINE') {
     if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);

@@ -80,4 +80,13 @@ test('Pay Run snapshots monthly data, compares variance, and controls period lif
   const reopened=await action(DB,{action:'REOPEN_PAY_RUN',submissionId:secondId,reason:'Koreksi data lembur bulan Agustus',confirmation:'BUKA KEMBALI'});
   assert.equal(reopened.payload.submission.period_status,'OPEN');
   assert.equal(reopened.payload.submission.state,'REVISION_REQUIRED');
+
+  const disposable=await action(DB,{action:'CREATE_PAY_RUN',clientId:'CLI-RUN',projectId:'PRJ-RUN',servicePlanId:'SP-RUN',period:'2026-09',paymentPeriod:'2026-09',paymentDate:'2026-09-25',runType:'OFF_CYCLE',sourceMode:'MASTER_CURRENT'});
+  assert.equal(disposable.response.status,201,JSON.stringify(disposable.payload));
+  const deniedDelete=await action(DB,{action:'DELETE_PAY_RUN',submissionId:disposable.payload.submission.id,confirmation:'hapus'});
+  assert.equal(deniedDelete.response.status,422);
+  const deleted=await action(DB,{action:'DELETE_PAY_RUN',submissionId:disposable.payload.submission.id,confirmation:'HAPUS PAY RUN'});
+  assert.equal(deleted.response.status,200,JSON.stringify(deleted.payload));
+  assert.equal(DB.sqlite.prepare('SELECT COUNT(*) count FROM payroll_submissions WHERE id=?').get(disposable.payload.submission.id).count,0);
+  assert.equal(DB.sqlite.prepare('SELECT COUNT(*) count FROM payroll_run_lines WHERE submission_id=?').get(disposable.payload.submission.id).count,0);
 });
