@@ -79,11 +79,9 @@ config.kv_namespaces = (config.kv_namespaces || []).filter((binding) =>
 );
 if (!config.kv_namespaces.length) delete config.kv_namespaces;
 config.ai = { binding: 'AI' };
-config.observability = {
-  enabled: true,
-  logs: { enabled: true, head_sampling_rate: 1 },
-  traces: { enabled: true, head_sampling_rate: 0.05 },
-};
+// Cloudflare Pages rejects the Workers-only `observability` property. Remove
+// it even when it came from the reviewed template or a downloaded config.
+delete config.observability;
 config.vars = {
   ...(config.vars || {}),
   DEFAULT_ORG_ID: 'ORG-OTSINDO',
