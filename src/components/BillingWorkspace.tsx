@@ -53,6 +53,21 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
     } catch(error){ setNotice(error instanceof Error ? error.message : 'Aksi gagal'); }
   }
 
+  async function saveTaxInvoice(row:any){
+    setNotice('Memproses…');
+    try {
+      if(form.file){
+        const upload=new FormData(); upload.set('invoiceId',row.id); upload.set('file',form.file);
+        const uploadResponse=await fetch('/api/tax-invoice-file',{method:'POST',credentials:'same-origin',body:upload});
+        const uploadBody=await uploadResponse.json();
+        if(!uploadResponse.ok) throw new Error(uploadBody.error||`HTTP ${uploadResponse.status}`);
+      }
+      const response=await fetch('/api/billing',{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',body:JSON.stringify({action:'RECORD_TAX_INVOICE',invoiceId:row.id,taxInvoiceStatus:form.status,taxInvoiceNumber:form.taxInvoiceNumber,taxInvoiceDate:form.taxInvoiceDate,coretaxReference:form.coretaxReference})});
+      const body=await response.json(); if(!response.ok) throw new Error(body.error||`HTTP ${response.status}`);
+      setModal(null); setForm({}); await load(); setNotice(form.file?'Faktur pajak dan file pendukung tersimpan.':'Status faktur pajak diperbarui.');
+    } catch(error){setNotice(error instanceof Error?error.message:'Faktur pajak gagal disimpan');}
+  }
+
   const totals=useMemo(()=>{
     const open=data.arItems.filter((r)=>Number(r.balance)>0);
     return {
@@ -110,7 +125,7 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
 
     {modal && <Modal title={modalTitle(modal.kind)} close={()=>{setModal(null);setForm({});}}>
       {modal.kind==='generate' && <GenerateForm row={modal.row} form={form} setForm={setForm} submit={()=>act('GENERATE_INVOICE',{paymentInstructionId:modal.row.id,reimbursement:Number(form.reimbursement||0),discount:Number(form.discount||0)},'Draft invoice berhasil dibuat.')}/>}
-      {modal.kind==='tax' && <TaxForm form={form} setForm={setForm} submit={()=>act('RECORD_TAX_INVOICE',{invoiceId:modal.row.id,taxInvoiceStatus:form.status,taxInvoiceNumber:form.taxInvoiceNumber,taxInvoiceDate:form.taxInvoiceDate,coretaxReference:form.coretaxReference},'Status faktur pajak diperbarui.')}/>}
+      {modal.kind==='tax' && <TaxForm form={form} setForm={setForm} submit={()=>saveTaxInvoice(modal.row)}/>}
       {modal.kind==='payment' && <PaymentForm row={modal.row} form={form} setForm={setForm} submit={()=>act('RECORD_AR_PAYMENT',{arId:modal.row.id,amount:Number(form.amount),paidAt:form.paidAt,reference:form.reference,notes:form.notes},'Penerimaan AR berhasil dicatat.')}/>}
       {modal.kind==='setup' && <SetupForm form={form} setForm={setForm} submit={()=>act('UPDATE_BILLING_PROFILE',{clientId:modal.row.id,...form},'Billing profile klien tersimpan.')}/>}
       {modal.kind==='detail' && <InvoiceDetail row={modal.row}/>}
@@ -150,7 +165,7 @@ function TaxSection({rows,canControl,openTax,exportCoretax}:any){
   return <Panel title="Faktur Pajak" detail="Catat hasil Coretax setelah invoice disetujui. Nomor faktur wajib sebelum invoice PKP diterbitkan." action={<button style={secondary} onClick={exportCoretax}>Export data Coretax</button>}>
     {taxable.length?<Table headers={['Invoice','Klien','DPP','PPN','Nomor Faktur','Status','Aksi']} rows={taxable.map((r:any)=>[
       r.invoice_number,r.company,formatIDR(Number(r.subtotal||0)),formatIDR(Number(r.tax_amount||0)),r.tax_invoice_number||'-',<Badge key="s" text={r.tax_invoice_status||'PENDING'}/>,
-      canControl&&['APPROVED','ISSUED','PARTIALLY_PAID','PAID'].includes(r.status)?<button key="a" style={secondary} onClick={()=>openTax(r)}>Update Coretax</button>:<small key="a">Invoice belum disetujui</small>
+      canControl&&['APPROVED','ISSUED','PARTIALLY_PAID','PAID'].includes(r.status)?<div key="a" style={{display:'flex',gap:6,flexWrap:'wrap'}}><button style={secondary} onClick={()=>openTax(r)}>Update / upload</button>{r.tax_invoice_file_uploaded?<a style={{...secondary,textDecoration:'none'}} href={`/api/tax-invoice-file?invoiceId=${encodeURIComponent(r.id)}`}>Unduh faktur</a>:null}</div>:<small key="a">Invoice belum disetujui</small>
     ])}/>:<Empty text="Tidak ada invoice klien PKP."/>}
   </Panel>;
 }
@@ -171,7 +186,7 @@ function ARSection({rows,canControl,canFollow,payment,follow}:any){
 
 function SetupSection({clients,canEdit,open}:any){return <Panel title="Billing profile klien" detail="NPWP, status pajak, TOP, alamat tagihan, dan formula fee menjadi sumber invoice otomatis.">
   {clients.length?<Table headers={['Klien','Email tagihan','Pajak','TOP','Metode','Rate','Aksi']} rows={clients.map((r:any)=>[
-    <div key="c"><strong>{r.name}</strong><small>{r.code}</small></div>,r.billing_email||'-',<Badge key="t" text={r.tax_status||'NON_PKP'}/>,`${r.payment_terms_days||30} hari`,String(r.billing_method||'FIXED').replaceAll('_',' '),formatIDR(Number(r.billing_rate||0)),
+    <div key="c"><strong>{r.name}</strong><small>{r.code}</small></div>,r.billing_email||'-',<Badge key="t" text={r.tax_status||'NON_PKP'}/>,`${r.payment_terms_days||30} hari`,String(r.billing_method||'FIXED').replaceAll('_',' '),r.billing_method==='PERCENTAGE_OF_PAYROLL'?`${Number(r.billing_rate||0).toLocaleString('id-ID')}%`:formatIDR(Number(r.billing_rate||0)),
     canEdit?<button key="a" style={secondary} onClick={()=>open(r)}>Atur billing</button>:<small key="a">Read only</small>
   ])}/>:<Empty text="Belum ada klien."/>}
 </Panel>}
@@ -187,6 +202,7 @@ function TaxForm({form,setForm,submit}:any){return <Form submit={submit} buttonT
   <Field label="Nomor faktur pajak" value={form.taxInvoiceNumber} onChange={(v:any)=>setForm({...form,taxInvoiceNumber:v})}/>
   <Field label="Tanggal faktur" type="date" value={form.taxInvoiceDate} onChange={(v:any)=>setForm({...form,taxInvoiceDate:v})}/>
   <Field label="Referensi Coretax" value={form.coretaxReference} onChange={(v:any)=>setForm({...form,coretaxReference:v})}/>
+  <label style={{display:'grid',gap:6,fontSize:12,fontWeight:700}}>File faktur pajak (opsional)<input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event)=>setForm({...form,file:event.target.files?.[0]||null})}/><small style={muted}>Fallback manual ketika API Coretax belum aktif. PDF/JPG/PNG, maksimal 5 MB.</small></label>
 </Form>}
 
 function PaymentForm({row,form,setForm,submit}:any){return <Form submit={submit} buttonText="Catat penerimaan">

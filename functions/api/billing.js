@@ -52,6 +52,7 @@ export async function onRequest({request,env}) {
           ORDER BY pi.updated_at DESC LIMIT 200`,[organizationId]),
         d1All(database,`SELECT i.*,c.name AS client_name,c.billing_email,c.billing_address,c.npwp,c.nitku,c.tax_status,
           c.tax_status AS client_tax_status,p.name AS project_name,
+          EXISTS(SELECT 1 FROM audit_logs al WHERE al.org_id=i.org_id AND al.entity='tax_invoice_file' AND al.entity_id=i.id AND al.action='TAX_INVOICE_FILE_UPLOADED') AS tax_invoice_file_uploaded,
           COALESCE(ar.status,CASE WHEN i.status='ISSUED' THEN 'OUTSTANDING' ELSE NULL END) AS ar_status,
           COALESCE(ar.balance,i.total_amount) AS ar_balance,ar.id AS ar_id FROM invoices i JOIN clients c ON c.id=i.client_id
           LEFT JOIN projects p ON p.id=i.project_id LEFT JOIN ar_monitor ar ON ar.invoice_id=i.id
