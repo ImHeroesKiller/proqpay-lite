@@ -169,29 +169,36 @@ function CreatePayRunWizard({clients,projects,servicePlans,submissions,onClose,o
     const end=new Date(Date.UTC(year,month,0)).toISOString().slice(0,10);
     return row.effective_from<=end&&(!row.effective_until||row.effective_until>=start);
   };
+  const plansForScope=(clientId:string,projectId:string,period:string)=>{
+    const candidates=servicePlans.filter((row)=>row.client_id===clientId&&(!row.project_id||row.project_id===projectId)&&planCoversPeriod(row,period));
+    const exact=candidates.filter((row)=>row.project_id===projectId);
+    return exact.length?exact:candidates.filter((row)=>!row.project_id);
+  };
   const currentPeriod=new Date().toISOString().slice(0,7);
   const [step,setStep]=useState(1); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
   const [form,setForm]=useState({clientId:'',projectId:'',servicePlanId:'',period:currentPeriod,paymentPeriod:currentPeriod,paymentDate:`${currentPeriod}-25`,runType:'REGULAR',sourceMode:'MASTER_CURRENT',parentSubmissionId:''});
   const scopedProjects=projects.filter((row)=>row.client_id===form.clientId);
   const client=clients.find((row)=>row.id===form.clientId);
   const clientPlans=servicePlans.filter((row)=>row.client_id===form.clientId);
-  const scopedPlans=servicePlans.filter((row)=>row.client_id===form.clientId&&planCoversPeriod(row,form.period));
+  const scopedPlans=plansForScope(form.clientId,form.projectId,form.period);
   const parentRuns=submissions.filter((row)=>row.client_id===form.clientId&&row.project_id===form.projectId);
   const project=scopedProjects.find((row)=>row.id===form.projectId); const plan=scopedPlans.find((row)=>row.id===form.servicePlanId);
   const patch=(value:Record<string,string>)=>setForm((current)=>({...current,...value}));
   const canNext=step===1?Boolean(form.clientId&&form.projectId&&Number(project?.employee_count||0)>0&&form.servicePlanId&&plan):step===2?Boolean(form.paymentPeriod&&form.paymentDate&&form.runType&&form.sourceMode&&(form.runType!=='ADJUSTMENT'||form.parentSubmissionId)):true;
   function selectClient(clientId:string){
     const availableProjects=projects.filter((row)=>row.client_id===clientId&&Number(row.employee_count||0)>0);
-    const availablePlans=servicePlans.filter((row)=>row.client_id===clientId&&planCoversPeriod(row,form.period));
-    patch({clientId,projectId:availableProjects.length===1?availableProjects[0].id:'',servicePlanId:availablePlans.length===1?availablePlans[0].id:''});
+    const projectId=availableProjects.length===1?availableProjects[0].id:'';
+    const availablePlans=plansForScope(clientId,projectId,form.period);
+    patch({clientId,projectId,servicePlanId:availablePlans.length===1?availablePlans[0].id:''});
   }
   function selectPeriod(period:string){
-    const availablePlans=servicePlans.filter((row)=>row.client_id===form.clientId&&planCoversPeriod(row,period));
+    const availablePlans=plansForScope(form.clientId,form.projectId,period);
     patch({period,paymentPeriod:period,paymentDate:`${period}-25`,servicePlanId:availablePlans.length===1?availablePlans[0].id:''});
   }
   function selectProject(projectId:string){
     const hasPrevious=submissions.some((row)=>row.client_id===form.clientId&&row.project_id===projectId&&row.run_type==='REGULAR'&&row.period<form.period&&row.state!=='CANCELLED');
-    patch({projectId,sourceMode:hasPrevious?'COPY_PREVIOUS':'MASTER_CURRENT'});
+    const availablePlans=plansForScope(form.clientId,projectId,form.period);
+    patch({projectId,servicePlanId:availablePlans.length===1?availablePlans[0].id:'',sourceMode:hasPrevious?'COPY_PREVIOUS':'MASTER_CURRENT'});
   }
   async function create(){setBusy(true);setError('');try{await executeOperatingAction({action:'CREATE_PAY_RUN',...form});await onCreated();}catch(cause){setError(cause instanceof Error?cause.message:'Pay Run gagal dibuat');setBusy(false);}}
   return createPortal(<div className="directory-modal-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!busy)onClose();}}><div className="directory-modal pay-run-wizard" role="dialog" aria-modal="true" aria-label="Buat Pay Run">

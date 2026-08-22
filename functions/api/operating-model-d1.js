@@ -139,7 +139,7 @@ async function readResource(database, params, actor, env, organizationId) {
       d1All(database, `SELECT p.id,p.client_id,p.name,p.code,p.status,
         (SELECT COUNT(*) FROM employees e WHERE e.project_id=p.id AND e.client_id=p.client_id AND e.org_id=p.org_id AND ${ACTIVE_EMPLOYEE}) AS employee_count
         FROM projects p WHERE ${projectScope.sql} AND p.status='ACTIVE' ORDER BY p.name`, projectScope.bindings),
-      d1All(database, `SELECT sp.id,sp.client_id,sp.tier,sp.effective_from,sp.effective_until
+      d1All(database, `SELECT sp.id,sp.client_id,sp.project_id,sp.tier,sp.effective_from,sp.effective_until
         FROM client_service_plans sp JOIN clients c ON c.id=sp.client_id
         WHERE c.org_id=? AND (? IS NULL OR sp.client_id=?) AND sp.status='ACTIVE' ORDER BY sp.effective_from DESC`, [organizationId,clientId||null,clientId||null]),
     ]);
@@ -314,15 +314,19 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (!PROCESSOR_ROLES.has(actor.role)) return { status: 403, data: { error: 'Insufficient role' } };
     const client = await d1First(database, 'SELECT id FROM clients WHERE id=? AND org_id=? LIMIT 1', [body.clientId, organizationId]);
     if (!client) return { status: 404, data: { error: 'Client not found' } };
-    const overlap = await d1First(database, `SELECT id FROM client_service_plans WHERE client_id=? AND status='ACTIVE'
+    if (body.projectId) {
+      const project=await d1First(database,'SELECT id FROM projects WHERE id=? AND client_id=? AND org_id=? LIMIT 1',[body.projectId,body.clientId,organizationId]);
+      if (!project) return {status:404,data:{error:'Project tidak ditemukan pada klien tersebut'}};
+    }
+    const overlap = await d1First(database, `SELECT id FROM client_service_plans WHERE client_id=? AND COALESCE(project_id,'')=COALESCE(?,'') AND status='ACTIVE'
       AND effective_from<=COALESCE(?,'9999-12-31') AND COALESCE(effective_until,'9999-12-31')>=? LIMIT 1`,
-      [body.clientId, body.effectiveUntil || null, body.effectiveFrom]);
+      [body.clientId,body.projectId||null,body.effectiveUntil||null,body.effectiveFrom]);
     if (overlap) return { status: 409, data: { error: 'Service plan effective period overlaps an active plan', conflictingPlanId: overlap.id } };
     const id = body.id || `SP-${crypto.randomUUID()}`;
     const row = await d1First(database, `INSERT INTO client_service_plans
-      (id,client_id,tier,status,contract_reference,effective_from,effective_until,created_by)
-      VALUES (?,?,?,'ACTIVE',?,?,?,?) RETURNING *`,
-      [id, body.clientId, body.tier, body.contractReference || null, body.effectiveFrom, body.effectiveUntil || null, actor.email]);
+      (id,client_id,project_id,tier,status,contract_reference,effective_from,effective_until,created_by)
+      VALUES (?,?,?,?,'ACTIVE',?,?,?,?) RETURNING *`,
+      [id,body.clientId,body.projectId||null,body.tier,body.contractReference||null,body.effectiveFrom,body.effectiveUntil||null,actor.email]);
     return { status: 201, data: { ok: true, servicePlan: row } };
   }
 
@@ -348,9 +352,9 @@ async function executeAction(database, body, actor, env, organizationId) {
       [body.projectId, body.clientId, organizationId]);
     if (!project) return { status:409, data:{ error:'Project aktif tidak ditemukan pada klien tersebut' } };
     const effectiveDate = `${body.period}-01`;
-    const plan = await d1First(database, `SELECT * FROM client_service_plans WHERE id=? AND client_id=? AND status='ACTIVE'
+    const plan = await d1First(database, `SELECT * FROM client_service_plans WHERE id=? AND client_id=? AND (project_id=? OR project_id IS NULL) AND status='ACTIVE'
       AND effective_from<date(?,'+1 month') AND (effective_until IS NULL OR effective_until>=?) LIMIT 1`,
-      [body.servicePlanId, body.clientId, effectiveDate, effectiveDate]);
+      [body.servicePlanId,body.clientId,body.projectId,effectiveDate,effectiveDate]);
     if (!plan) return { status:409, data:{ error:'Service plan tidak aktif pada periode payroll' } };
     if (body.runType === 'ADJUSTMENT' && !body.parentSubmissionId) return { status:422, data:{ error:'Adjustment wajib mereferensikan Pay Run induk' } };
     let sourceSubmission = null;

@@ -46,12 +46,12 @@ test('D1 master flow creates client, project, and employee', async () => {
   const { env, cookie } = await authenticated();
   const authHeaders = { Cookie: cookie, 'Content-Type': 'application/json' };
   const createClient = await directory({
-    request: request('/api/client-projects', { method: 'POST', headers: authHeaders, body: JSON.stringify({ action: 'CREATE_CLIENT', id: 'CLI-UAT', name: 'PT UAT Native', status: 'ACTIVE' }) }),
+    request: request('/api/client-projects', { method: 'POST', headers: authHeaders, body: JSON.stringify({ action:'CREATE_CLIENT',id:'CLI-UAT',name:'PT UAT Native',status:'ACTIVE',npwp:'01.234.567.8-999.000',taxStatus:'PKP',billingEmail:'finance@uat.example',paymentTermsDays:30,billingMethod:'PER_EMPLOYEE',billingRate:25000,billingTaxRate:11 }) }),
     env,
   });
   assert.equal(createClient.status, 201, await createClient.text());
   const createProject = await directory({
-    request: request('/api/client-projects', { method: 'POST', headers: authHeaders, body: JSON.stringify({ action: 'CREATE_PROJECT', id: 'PRJ-UAT', clientId: 'CLI-UAT', name: 'Payroll UAT', status: 'ACTIVE' }) }),
+    request: request('/api/client-projects', { method: 'POST', headers: authHeaders, body: JSON.stringify({ action:'CREATE_PROJECT',id:'PRJ-UAT',clientId:'CLI-UAT',name:'Payroll UAT',status:'ACTIVE',tier:'TIER_2_MANAGED_PAYROLL',tierEffectiveFrom:'2026-08-15',contractReference:'CTR-UAT' }) }),
     env,
   });
   assert.equal(createProject.status, 201, await createProject.text());
@@ -66,4 +66,10 @@ test('D1 master flow creates client, project, and employee', async () => {
   assert.equal(payload.count, 1);
   assert.equal(payload.employees[0].employeeCode, 'UAT-001');
   assert.equal(payload.employees[0].salaryGross, 5_000_000);
+  const directoryResponse=await directory({request:request('/api/client-projects',{headers:{Cookie:cookie}}),env});
+  const master=await directoryResponse.json();
+  assert.equal(master.clients[0].tax_status,'PKP');
+  assert.equal(master.clients[0].billing_rate,25000);
+  assert.equal(master.projects[0].tier,'TIER_2_MANAGED_PAYROLL');
+  assert.equal(master.projects[0].contract_reference,'CTR-UAT');
 });

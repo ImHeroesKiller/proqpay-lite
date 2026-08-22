@@ -54,6 +54,7 @@ export function validateOperatingAction(input) {
 
   if (action === 'CREATE_SERVICE_PLAN') {
     if (!validId(input.clientId)) errors.push('clientId tidak valid');
+    if (input.projectId && !validId(input.projectId)) errors.push('projectId tidak valid');
     if (!TIERS.has(input.tier)) errors.push('tier tidak valid');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.effectiveFrom || ''))) errors.push('effectiveFrom tidak valid');
   } else if (action === 'CREATE_SUBMISSION') {

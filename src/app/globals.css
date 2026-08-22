@@ -770,7 +770,7 @@ a:hover { text-decoration: underline; }
 .directory-badge { display: inline-block; padding: 3px 7px; border-radius: 99px; color: #047857; background: #d1fae5; font-size: 9px; font-weight: 750; }
 .directory-empty { padding: 32px; color: var(--text3); font-size: 12px; text-align: center; }
 .directory-modal-backdrop { position: fixed; inset: 58px 0 0; z-index: 320; display: grid; align-items: start; justify-items: center; padding: 20px; overflow-y: auto; background: rgba(15,23,42,.5); backdrop-filter: blur(4px); }
-.directory-modal { width: min(480px, 100%); max-height: calc(100dvh - 98px); padding: 22px; overflow-y: auto; border: 1px solid var(--border); border-radius: 18px; background: var(--bg-surface); box-shadow: var(--shadow-lg); }
+.directory-modal { width: min(640px, 100%); max-height: calc(100dvh - 98px); padding: 22px; overflow-y: auto; border: 1px solid var(--border); border-radius: 18px; background: var(--bg-surface); box-shadow: var(--shadow-lg); }
 .directory-modal-title { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
 .directory-modal-title span { color: var(--accent); font-size: 9px; font-weight: 800; letter-spacing: .1em; }
 .directory-modal-title h3 { margin: 3px 0 0; font-size: 19px; }
@@ -778,6 +778,7 @@ a:hover { text-decoration: underline; }
 .directory-modal label { display: grid; gap: 6px; margin-top: 12px; color: var(--text2); font-size: 11px; font-weight: 650; }
 .directory-modal input, .directory-modal select, .directory-modal textarea { width: 100%; padding: 10px 11px; border: 1px solid var(--border-strong); border-radius: 9px; color: var(--text); background: var(--bg-surface); font: 12px inherit; resize: vertical; }
 .directory-modal input[readonly] { color: var(--text3); background: var(--bg-subtle); }
+.directory-form-section { margin:20px 0 2px;padding-top:14px;border-top:1px solid var(--border);color:var(--text);font-size:12px;letter-spacing:.02em; }
 .directory-hint { margin: 10px 0 0; color: var(--text3); font-size: 10.5px; line-height: 1.5; }
 .directory-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .directory-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border); }

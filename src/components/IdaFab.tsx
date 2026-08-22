@@ -420,14 +420,15 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       if (!directoryResponse.ok) throw new Error(directory.error || 'Gagal memeriksa master klien');
       const client = (directory.clients || []).find((item: any) => normalizedName(item.name) === normalizedName(clientName));
       const projects = client ? (directory.projects || []).filter((item: any) => item.client_id === client.id) : [];
+      const project = projects.length === 1 ? projects[0] : null;
       let activePlan: any = null;
       if (client) {
         const planResponse = await fetch(`/api/operating-model?resource=service-plans&clientId=${encodeURIComponent(client.id)}`);
         const planData = await planResponse.json().catch(() => ({}));
-        if (planResponse.ok) activePlan = (planData.servicePlans || []).find((plan: any) => plan.status === 'ACTIVE');
+        if (planResponse.ok) activePlan = (planData.servicePlans || []).find((plan: any) => plan.status === 'ACTIVE' && (!plan.project_id || plan.project_id === project?.id));
       }
       const context: PendingImportContext = {
-        clientName, clientId: client?.id, projectId: projects[0]?.id,
+        clientName, clientId: client?.id, projectId: project?.id,
         servicePlanId: activePlan?.id, tier: activePlan?.tier,
         period: db?.meta?.currentPeriod || new Date().toISOString().slice(0, 7),
       };
@@ -881,7 +882,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           projectId = result.project.id;
         }
         const planResponse = await fetch('/api/operating-model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-          action: 'CREATE_SERVICE_PLAN', clientId, tier, effectiveFrom: new Date().toISOString().slice(0, 10),
+          action: 'CREATE_SERVICE_PLAN', clientId, projectId, tier, effectiveFrom: new Date().toISOString().slice(0, 10),
         }) });
         const planResult = await planResponse.json().catch(() => ({}));
         if (!planResponse.ok) throw new Error(planResult.error || 'Gagal mengaktifkan service tier');
