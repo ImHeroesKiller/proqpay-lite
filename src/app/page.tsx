@@ -8,6 +8,7 @@ import { loadSettings, onSettingsChange, type AppSettings } from '@/lib/app-sett
 import Sidebar, { allowedViewsForRole, type AppView } from '@/components/Sidebar';
 import AppHeader from '@/components/AppHeader';
 import PayrollControlTower from '@/components/PayrollControlTower';
+import RoleDashboard from '@/components/RoleDashboard';
 import SystemHealthBubble from '@/components/SystemHealthBubble';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
@@ -160,7 +161,7 @@ export default function Home() {
         <main style={{ flex: 1, overflowY: 'auto', padding: pad }}>
           <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
             {view === 'dashboard' && (
-              <PayrollControlTower actor={actor} period={period} onNavigate={navigate} />
+              <><RoleDashboard actor={actor} onNavigate={navigate} /><PayrollControlTower actor={actor} period={period} onNavigate={navigate} /></>
             )}
 
             {view === 'employees' && (
