@@ -79,3 +79,17 @@ test('production runtime is Cloudflare-native and excludes Neon configuration', 
   assert.match(runtime, /D1_REQUIRED/);
   assert.match(runtime, /IMMUTABLE_PAYMENT_HISTORY/);
 });
+
+test('runtime and deployment examples exclude Gemini configuration', () => {
+  const files = [
+    '../functions/api/ida.js',
+    '../.env.example',
+    '../wrangler.example.jsonc',
+    '../scripts/prepare-pages-config.mjs',
+  ];
+  const source = files
+    .map((file) => fs.readFileSync(new URL(file, import.meta.url), 'utf8'))
+    .join('\n');
+  assert.doesNotMatch(source, /GEMINI_API_KEY|GEMINI_MODEL|generativelanguage\.googleapis/i);
+  assert.match(source, /WORKERS_AI_FALLBACK_MODEL/);
+});

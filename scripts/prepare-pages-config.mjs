@@ -79,12 +79,18 @@ config.kv_namespaces = (config.kv_namespaces || []).filter((binding) =>
 );
 if (!config.kv_namespaces.length) delete config.kv_namespaces;
 config.ai = { binding: 'AI' };
+config.observability = {
+  enabled: true,
+  logs: { enabled: true, head_sampling_rate: 1 },
+  traces: { enabled: true, head_sampling_rate: 0.05 },
+};
 config.vars = {
   ...(config.vars || {}),
   DEFAULT_ORG_ID: 'ORG-OTSINDO',
   DATA_BACKEND: 'd1',
   AUTH_MODE: 'session',
   WORKERS_AI_MODEL: config.vars?.WORKERS_AI_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  WORKERS_AI_FALLBACK_MODEL: config.vars?.WORKERS_AI_FALLBACK_MODEL || '@cf/meta/llama-3.1-8b-instruct-fast',
 };
 
 const serialized = JSON.stringify(config, null, 2) + '\n';
