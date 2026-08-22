@@ -93,6 +93,11 @@ export function validateOperatingAction(input) {
     if (!STATES.has(input.toState)) errors.push('toState tidak valid');
     if (input.reviewConfirmed !== undefined && input.reviewConfirmed !== true) errors.push('reviewConfirmed tidak valid');
     if (input.reviewNote && String(input.reviewNote).trim().length > 1000) errors.push('reviewNote terlalu panjang');
+  } else if (action === 'ADVANCE_PAY_RUN') {
+    if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+    if (!['VALIDATE','SEND_FOR_APPROVAL','APPROVE_PAYROLL'].includes(input.command)) errors.push('command tidak valid');
+    if (input.reviewConfirmed !== true) errors.push('reviewConfirmed wajib dikonfirmasi');
+    if (input.reviewNote && String(input.reviewNote).trim().length > 1000) errors.push('reviewNote terlalu panjang');
   } else if (action === 'UPDATE_SUBMISSION_PERIODS') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (!PERIOD.test(String(input.paymentPeriod || ''))) errors.push('paymentPeriod tidak valid');
