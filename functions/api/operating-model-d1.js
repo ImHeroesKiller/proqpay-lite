@@ -500,9 +500,10 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'FINALIZE_PAY_RUN_INPUT') {
-    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
     if (!submission || submission.period_status==='CLOSED') return { status:409, data:{ error:'Pay Run tidak tersedia untuk finalisasi input' } };
+    if (!PROCESSOR_ROLES.has(actor.role) && !CLIENT_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
+    if (!assertClientScope(actor, env, submission.client_id) || !assertProjectScope(actor, submission.project_id)) return { status:403, data:{ error:'Scope denied' } };
     const quality = await d1First(database, `SELECT COUNT(*) AS recipients,
       SUM(CASE WHEN net_amount<=0 THEN 1 ELSE 0 END) AS invalid_net,
       SUM(CASE WHEN bank_name IS NULL OR account_last4 IS NULL THEN 1 ELSE 0 END) AS invalid_bank
@@ -514,6 +515,54 @@ async function executeAction(database, body, actor, env, organizationId) {
       auditOperation(organizationId,actor,'PAY_RUN_INPUT_FINALIZED',`${quality.recipients} penerima tervalidasi`,'payroll_submission',submission.id),
     ]);
     return { data:{ ok:true,inputStatus:'READY',recipients:Number(quality.recipients) } };
+  }
+
+  // High-level workflow commands keep the audit/control points while removing
+  // status-only clicks (INGESTING, AI_VALIDATING, STANDARDIZED, DATA_APPROVED).
+  if (body.action === 'ADVANCE_PAY_RUN') {
+    const submission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
+    if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
+    if (!assertClientScope(actor, env, submission.client_id) || !assertProjectScope(actor, submission.project_id)) return { status:403, data:{ error:'Scope denied' } };
+    if (submission.period_status === 'CLOSED') return { status:409, data:{ error:'Periode Pay Run sudah ditutup' } };
+
+    const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
+      AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
+    const blockingCount = Number(blocking?.count || 0);
+    let targetState;
+    let reviewFields = '';
+    const bindings = [];
+
+    if (body.command === 'VALIDATE') {
+      if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat menjalankan validasi' } };
+      if (!['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','CLIENT_RESUBMITTED','REVISION_REQUIRED','EXCEPTION_FOUND'].includes(submission.state)) {
+        return { status:409, data:{ error:`Pay Run berstatus ${submission.state} tidak dapat divalidasi ulang` } };
+      }
+      if (submission.input_status !== 'READY') return { status:409, data:{ error:'Finalisasi input payroll sebelum menjalankan validasi' } };
+      targetState = blockingCount ? 'EXCEPTION_FOUND' : 'VALIDATED';
+    } else if (body.command === 'SEND_FOR_APPROVAL') {
+      if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat mengirim approval' } };
+      if (!['VALIDATED','STANDARDIZED'].includes(submission.state)) return { status:409, data:{ error:'Pay Run harus selesai divalidasi sebelum dikirim ke Controller' } };
+      if (blockingCount) return { status:409, data:{ error:`${blockingCount} critical exception masih terbuka` } };
+      targetState = 'CONTROLLER_REVIEW';
+      reviewFields = `,processor_reviewed_at=${NOW},processor_reviewed_by=?,processor_review_note=?`;
+      bindings.push(actor.email, String(body.reviewNote || '').slice(0,1000));
+    } else {
+      if (!CONTROLLER_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Controller yang dapat menyetujui payroll' } };
+      if (!['CONTROLLER_REVIEW','DATA_APPROVED','PAYROLL_FINALIZED'].includes(submission.state)) return { status:409, data:{ error:'Pay Run belum menunggu approval Controller' } };
+      if (blockingCount) return { status:409, data:{ error:`${blockingCount} critical exception masih terbuka` } };
+      targetState = 'PAYMENT_INSTRUCTION_READY';
+      reviewFields = `,controller_reviewed_at=${NOW},controller_reviewed_by=?,controller_review_note=?`;
+      bindings.push(actor.email, String(body.reviewNote || '').slice(0,1000));
+    }
+
+    bindings.unshift(targetState);
+    bindings.push(submission.id);
+    await d1Batch(database, [
+      { statement:`UPDATE payroll_submissions SET state=?,updated_at=${NOW}${reviewFields} WHERE id=?`, bindings },
+      auditOperation(organizationId,actor,'PAY_RUN_ADVANCED',`${body.command}: ${submission.state} → ${targetState}`,'payroll_submission',submission.id),
+    ]);
+    const updated = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=?', [submission.id]);
+    return { data:{ ok:true,submission:updated,blockingCount } };
   }
 
   if (body.action === 'CLOSE_PAY_RUN') {
