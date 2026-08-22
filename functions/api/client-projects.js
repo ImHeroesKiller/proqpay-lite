@@ -142,9 +142,14 @@ export async function onRequest({ request, env }) {
           sp.effective_from AS tier_effective_from,sp.effective_until AS tier_effective_until,
           (SELECT COUNT(*) FROM user_project_scopes ups WHERE ups.project_id=p.id) AS assigned_user_count
           FROM projects p JOIN clients c ON c.id=p.client_id
-          LEFT JOIN client_service_plans sp ON sp.id=(SELECT sp2.id FROM client_service_plans sp2
-            WHERE sp2.client_id=p.client_id AND (sp2.project_id=p.id OR sp2.project_id IS NULL) AND sp2.status='ACTIVE'
-            ORDER BY CASE WHEN sp2.project_id=p.id THEN 0 ELSE 1 END,sp2.effective_from DESC LIMIT 1)
+          LEFT JOIN client_service_plans sp ON sp.id=COALESCE(
+            (SELECT sp2.id FROM client_service_plans sp2
+              WHERE sp2.project_id=p.id AND sp2.status='ACTIVE'
+              ORDER BY sp2.effective_from DESC LIMIT 1),
+            (SELECT sp3.id FROM client_service_plans sp3
+              WHERE sp3.client_id=p.client_id AND sp3.project_id IS NULL AND sp3.status='ACTIVE'
+              ORDER BY sp3.effective_from DESC LIMIT 1)
+          )
           WHERE p.org_id=?${projectClientFilter}${projectFilter}
           ORDER BY p.created_at DESC LIMIT 500`, [organizationId, ...(clientRestricted ? scope : []), ...(clientRestricted && projectScope?.length ? projectScope : [])]),
       ]);
