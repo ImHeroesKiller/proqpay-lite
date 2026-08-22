@@ -57,6 +57,16 @@ test('Pay Run snapshots monthly data, compares variance, and controls period lif
   assert.equal(submitted.response.status,200,JSON.stringify(submitted.payload));
   assert.equal(submitted.payload.submission.state,'SUBMITTED');
 
+  const validated=await action(DB,{action:'ADVANCE_PAY_RUN',submissionId:firstId,command:'VALIDATE',reviewConfirmed:true});
+  assert.equal(validated.response.status,200,JSON.stringify(validated.payload));
+  assert.equal(validated.payload.submission.state,'VALIDATED','status teknis harus diringkas menjadi satu checkpoint validasi');
+  const sentForApproval=await action(DB,{action:'ADVANCE_PAY_RUN',submissionId:firstId,command:'SEND_FOR_APPROVAL',reviewConfirmed:true,reviewNote:'Control total dan variance telah diperiksa'});
+  assert.equal(sentForApproval.response.status,200,JSON.stringify(sentForApproval.payload));
+  assert.equal(sentForApproval.payload.submission.state,'CONTROLLER_REVIEW');
+  const approved=await action(DB,{action:'ADVANCE_PAY_RUN',submissionId:firstId,command:'APPROVE_PAYROLL',reviewConfirmed:true,reviewNote:'Payroll disetujui'});
+  assert.equal(approved.response.status,200,JSON.stringify(approved.payload));
+  assert.equal(approved.payload.submission.state,'PAYMENT_INSTRUCTION_READY','approval harus langsung menyiapkan checkpoint penerbitan PI');
+
   const duplicate=await action(DB,{action:'CREATE_PAY_RUN',clientId:'CLI-RUN',projectId:'PRJ-RUN',servicePlanId:'SP-RUN',period:'2026-07',paymentPeriod:'2026-07',paymentDate:'2026-07-25',runType:'REGULAR',sourceMode:'MASTER_CURRENT'});
   assert.equal(duplicate.response.status,409);
 
