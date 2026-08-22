@@ -686,7 +686,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     })));
     if (existing?.content_hash === contentHash) {
       await d1Batch(database, [
-        { statement:`UPDATE payment_instructions SET status='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[existing.id] },
+        { statement:`UPDATE payment_instructions SET status='PAYMENT_INSTRUCTION_READY',creator_user_id=?,updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[actor.id,existing.id] },
         { statement:`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },
         auditOperation(organizationId, actor, 'PAYMENT_INSTRUCTION_REVIEWED_UNCHANGED',
           'Processor mengonfirmasi snapshot PI tetap benar setelah meninjau alasan reject', 'payment_instruction', existing.id),
@@ -717,10 +717,9 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat submit PI' } };
     const payment = await d1First(database, `SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
     if (!payment) return { status:404, data:{ error:'Payment instruction tidak ditemukan' } };
-    if (String(payment.creator_user_id) !== String(actor.id) && actor.role !== 'SUPER_ADMIN') return { status:403, data:{ error:'Hanya maker PI yang dapat melakukan submit' } };
     if (payment.status !== 'PAYMENT_INSTRUCTION_READY') return { status:409, data:{ error:'PI tidak berada pada status siap submit' } };
     await d1Batch(database, [
-      { statement:`UPDATE payment_instructions SET status='PAYMENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=?`, bindings:[payment.id] },
+      { statement:`UPDATE payment_instructions SET status='PAYMENT_APPROVAL_PENDING',creator_user_id=?,updated_at=${NOW} WHERE id=?`, bindings:[actor.id,payment.id] },
       { statement:`UPDATE payroll_submissions SET state='PAYMENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=?`, bindings:[payment.submission_id] },
       auditOperation(organizationId, actor, 'PAYMENT_INSTRUCTION_SUBMITTED', 'PI dikirim ke Controller untuk approval', 'payment_instruction', payment.id),
     ]);
