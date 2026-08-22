@@ -33,3 +33,21 @@ test('D1 atomically imports 396 payroll recipients and creates a submission',asy
   assert.equal(DB.sqlite.prepare('SELECT COUNT(*) AS n FROM payroll_run_lines WHERE submission_id=?').get(payload.submissionId).n,396);
   assert.equal(DB.sqlite.prepare('SELECT SUM(net_amount) AS total FROM payroll_run_lines WHERE submission_id=?').get(payload.submissionId).total,396*4250000);
 });
+
+test('D1 import validates service tier against payroll period, not current date',async()=>{
+  const DB=new D1Mock();
+  DB.sqlite.exec(`
+    INSERT INTO clients(id,org_id,code,name) VALUES('CLI-HIST','ORG-OTSINDO','HIST','PT Historical');
+    INSERT INTO projects(id,org_id,client_id,code,name,created_by) VALUES('PRJ-HIST','ORG-OTSINDO','CLI-HIST','HIST','Historical Project','seed');
+    INSERT INTO client_service_plans(id,client_id,tier,status,effective_from,effective_until,created_by)
+      VALUES('SP-HIST','CLI-HIST','TIER_1_PAYMENT_PROCESSING','ACTIVE','2025-01-01','2025-06-30','seed');
+  `);
+  const rows=[{nrk:'EMP-HIST-001',name:'Historical Employee',client:'PT Historical',clientCode:'HIST',branch:'Jakarta',lokasi:'Jakarta',province:'DKI Jakarta',basicSalary:5000000,grossPay:5000000,totalDeductions:0,netPay:5000000,bank:'BCA',accountNo:'1234567890'}];
+  const origin='https://proqpay.test';
+  const body=JSON.stringify({rows,context:{clientId:'CLI-HIST',projectId:'PRJ-HIST',servicePlanId:'SP-HIST',tier:'TIER_1_PAYMENT_PROCESSING',period:'2025-06'}});
+  const response=await importEmployees({request:new Request(`${origin}/api/import`,{method:'POST',headers:{Origin:origin,'Sec-Fetch-Site':'same-origin','Content-Type':'application/json'},body}),env:{DB,DEFAULT_ORG_ID:'ORG-OTSINDO'}});
+  assert.equal(response.status,200,await response.clone().text());
+  const payload=await response.json();
+  assert.equal(payload.total,1);
+  assert.ok(payload.submissionId);
+});

@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { ChangePasswordModal } from '@/components/AuthViews';
 import { listOperatingDashboard } from '@/lib/operating-model-api';
 import { allowedViewsForRole, type AppView } from './Sidebar';
@@ -23,7 +22,6 @@ const SEARCH_ITEMS:Array<{label:string;keywords:string;view:AppView}>=[
 ];
 
 export default function AppHeader({period,periods,view,clientCount,onPeriodChange,onNavigate,onHelp,onMenu,actor}:Props) {
-  const router=useRouter();
   const [accountOpen,setAccountOpen]=useState(false); const [alertsOpen,setAlertsOpen]=useState(false); const [searchOpen,setSearchOpen]=useState(false);
   const [profileOpen,setProfileOpen]=useState(false); const [passwordOpen,setPasswordOpen]=useState(false); const [query,setQuery]=useState('');
   const [alerts,setAlerts]=useState({exceptions:0,approvals:0}); const shellRef=useRef<HTMLDivElement>(null);
@@ -38,7 +36,18 @@ export default function AppHeader({period,periods,view,clientCount,onPeriodChang
   useEffect(()=>{const close=(event:MouseEvent)=>{if(!shellRef.current?.contains(event.target as Node)){setAccountOpen(false);setAlertsOpen(false);setSearchOpen(false);}};const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setAccountOpen(false);setAlertsOpen(false);setSearchOpen(false);}};document.addEventListener('mousedown',close);document.addEventListener('keydown',escape);return()=>{document.removeEventListener('mousedown',close);document.removeEventListener('keydown',escape);};},[]);
   const matches=useMemo(()=>{const allowed=new Set(allowedViewsForRole(actor.role));return SEARCH_ITEMS.filter((item)=>allowed.has(item.view)&&`${item.label} ${item.keywords}`.toLowerCase().includes(query.toLowerCase())).slice(0,5);},[actor.role,query]);
   const totalAlerts=alerts.exceptions+alerts.approvals;
-  async function logout(){setAccountOpen(false);if(actor.authMode==='access')window.location.replace('/cdn-cgi/access/logout');else{await fetch('/api/logout',{method:'POST'}).catch(()=>null);router.push('/');router.refresh();}}
+  async function logout(){
+    setAccountOpen(false);
+    if(actor.authMode==='access'){
+      window.location.replace('/cdn-cgi/access/logout');
+      return;
+    }
+    try {
+      await fetch('/api/logout',{method:'POST',credentials:'same-origin',cache:'no-store'});
+    } finally {
+      window.location.replace('/');
+    }
+  }
   return <>
     <header className="app-header"><div className="header-context">
       <button type="button" className="header-menu-button" aria-label="Buka navigasi" onClick={onMenu}><IconMenu aria-hidden="true" /></button>

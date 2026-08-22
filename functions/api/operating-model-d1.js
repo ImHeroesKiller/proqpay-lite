@@ -539,20 +539,15 @@ async function executeAction(database, body, actor, env, organizationId) {
       }
       if (submission.input_status !== 'READY') return { status:409, data:{ error:'Finalisasi input payroll sebelum menjalankan validasi' } };
       targetState = blockingCount ? 'EXCEPTION_FOUND' : 'VALIDATED';
-    } else if (body.command === 'SEND_FOR_APPROVAL') {
-      if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat mengirim approval' } };
-      if (!['VALIDATED','STANDARDIZED'].includes(submission.state)) return { status:409, data:{ error:'Pay Run harus selesai divalidasi sebelum dikirim ke Controller' } };
+    } else if (body.command === 'FINALIZE_PAYROLL') {
+      if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat memfinalisasi payroll' } };
+      if (!['VALIDATED','STANDARDIZED'].includes(submission.state)) return { status:409, data:{ error:'Pay Run harus selesai divalidasi sebelum difinalisasi' } };
       if (blockingCount) return { status:409, data:{ error:`${blockingCount} critical exception masih terbuka` } };
-      targetState = 'CONTROLLER_REVIEW';
+      targetState = 'PAYMENT_INSTRUCTION_READY';
       reviewFields = `,processor_reviewed_at=${NOW},processor_reviewed_by=?,processor_review_note=?`;
       bindings.push(actor.email, String(body.reviewNote || '').slice(0,1000));
     } else {
-      if (!CONTROLLER_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Controller yang dapat menyetujui payroll' } };
-      if (!['CONTROLLER_REVIEW','DATA_APPROVED','PAYROLL_FINALIZED'].includes(submission.state)) return { status:409, data:{ error:'Pay Run belum menunggu approval Controller' } };
-      if (blockingCount) return { status:409, data:{ error:`${blockingCount} critical exception masih terbuka` } };
-      targetState = 'PAYMENT_INSTRUCTION_READY';
-      reviewFields = `,controller_reviewed_at=${NOW},controller_reviewed_by=?,controller_review_note=?`;
-      bindings.push(actor.email, String(body.reviewNote || '').slice(0,1000));
+      return { status:422, data:{ error:'Command workflow tidak didukung' } };
     }
 
     bindings.unshift(targetState);
@@ -636,7 +631,7 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'GENERATE_PAYMENT_INSTRUCTION') {
-    if (!CONTROLLER_ROLES.has(actor.role)) return { status: 403, data: { error: 'Insufficient role' } };
+    if (!PROCESSOR_ROLES.has(actor.role)) return { status: 403, data: { error: 'Hanya Payroll Processor yang dapat membuat PI' } };
     const submission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
     if (!submission) return { status: 404, data: { error: 'Submission not found' } };
     if (submission.state !== 'PAYMENT_INSTRUCTION_READY') return { status: 409, data: { error: 'Submission belum siap dibuatkan payment instruction' } };
@@ -681,15 +676,29 @@ async function executeAction(database, body, actor, env, organizationId) {
       { statement: `INSERT INTO payment_instructions
         (id,org_id,client_id,submission_id,status,expected_total,creator_user_id,idempotency_key,
          document_no,content_hash,currency,execution_date,recipient_count)
-        VALUES (?,?,?,?,'PAYMENT_APPROVAL_PENDING',?,?,?,?,?,'IDR',?,?)`,
+        VALUES (?,?,?,?,'PAYMENT_INSTRUCTION_READY',?,?,?,?,?,'IDR',?,?)`,
         bindings: [id, organizationId, submission.client_id, submission.id, expectedTotal, actor.id, idempotencyKey,
           documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length] },
       ...lineInsertOperations(id, snapshotLines),
-      { statement: `UPDATE payroll_submissions SET state='PAYMENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=?`, bindings: [submission.id] },
+      { statement: `UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`, bindings: [submission.id] },
       auditOperation(organizationId, actor, 'PAYMENT_INSTRUCTION_CREATED', `${documentNo} · ${snapshotLines.length} penerima · ${contentHash}`, 'payment_instruction', id),
     ]);
     const paymentInstruction = await d1First(database, 'SELECT * FROM payment_instructions WHERE id=?', [id]);
     return { status: 201, data: { ok: true, paymentInstruction } };
+  }
+
+  if (body.action === 'SUBMIT_PAYMENT_INSTRUCTION') {
+    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat submit PI' } };
+    const payment = await d1First(database, `SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
+    if (!payment) return { status:404, data:{ error:'Payment instruction tidak ditemukan' } };
+    if (String(payment.creator_user_id) !== String(actor.id) && actor.role !== 'SUPER_ADMIN') return { status:403, data:{ error:'Hanya maker PI yang dapat melakukan submit' } };
+    if (payment.status !== 'PAYMENT_INSTRUCTION_READY') return { status:409, data:{ error:'PI tidak berada pada status siap submit' } };
+    await d1Batch(database, [
+      { statement:`UPDATE payment_instructions SET status='PAYMENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=?`, bindings:[payment.id] },
+      { statement:`UPDATE payroll_submissions SET state='PAYMENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=?`, bindings:[payment.submission_id] },
+      auditOperation(organizationId, actor, 'PAYMENT_INSTRUCTION_SUBMITTED', 'PI dikirim ke Controller untuk approval', 'payment_instruction', payment.id),
+    ]);
+    return { data:{ ok:true,paymentInstruction:await d1First(database,'SELECT * FROM payment_instructions WHERE id=?',[payment.id]) } };
   }
 
   if (body.action === 'CREATE_EXCEPTION') {
@@ -748,11 +757,12 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'APPROVE_PAYMENT') {
-    if (!actor.permissions?.includes('payment:approve')) return { status: 403, data: { error: 'PAYMENT_APPROVER permission required' } };
+    if (!CONTROLLER_ROLES.has(actor.role)) return { status: 403, data: { error: 'Hanya Payroll Controller yang dapat approve PI' } };
     const payment = await d1First(database, `SELECT pi.*,
       COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total
       FROM payment_instructions pi WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
     if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
+    if (payment.status !== 'PAYMENT_APPROVAL_PENDING') return { status:409, data:{ error:'PI belum disubmit atau tidak lagi menunggu approval' } };
     if (String(payment.creator_user_id) === String(actor.id)) return { status: 409, data: { error: 'Maker cannot approve the same payment instruction' } };
     if (Number(payment.instruction_total) !== Number(payment.expected_total)) return { status: 409, data: { error: 'Payment total mismatch blocks approval' } };
     if (!payment.content_hash || body.actionHash !== payment.content_hash) return { status: 409, data: { error: 'Content hash payment berubah atau tidak sesuai preview' } };
@@ -769,10 +779,23 @@ async function executeAction(database, body, actor, env, organizationId) {
     return { data: { ok: true, approval: { id: approvalId, paymentInstructionId: payment.id, status: 'APPROVED' } } };
   }
 
+  if (body.action === 'REJECT_PAYMENT') {
+    if (!CONTROLLER_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Controller yang dapat reject PI' } };
+    const payment = await d1First(database, `SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
+    if (!payment) return { status:404, data:{ error:'Payment instruction tidak ditemukan' } };
+    if (payment.status !== 'PAYMENT_APPROVAL_PENDING') return { status:409, data:{ error:'PI tidak sedang menunggu approval' } };
+    await d1Batch(database, [
+      { statement:`UPDATE payment_instructions SET status='REVISION_REQUIRED',updated_at=${NOW} WHERE id=?`, bindings:[payment.id] },
+      { statement:`UPDATE payroll_submissions SET state='REVISION_REQUIRED',updated_at=${NOW} WHERE id=?`, bindings:[payment.submission_id] },
+      auditOperation(organizationId, actor, 'PAYMENT_INSTRUCTION_REJECTED', String(body.reason).trim(), 'payment_instruction', payment.id),
+    ]);
+    return { data:{ ok:true,status:'REVISION_REQUIRED' } };
+  }
+
   if (body.action === 'UPLOAD_PAYMENT_PROOF') return { status: 409, data: { error: 'Use /api/payment-proof multipart upload so evidence is stored in R2' } };
 
   if (body.action === 'RECONCILE_PAYMENT') {
-    if (!CONTROLLER_ROLES.has(actor.role)) return { status: 403, data: { error: 'Insufficient role' } };
+    if (!PROCESSOR_ROLES.has(actor.role) && !CONTROLLER_ROLES.has(actor.role)) return { status: 403, data: { error: 'Role tidak dapat melakukan rekonsiliasi' } };
     const payment = await d1First(database, `SELECT pi.id,pi.submission_id,pi.expected_total,
       COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total,
       COALESCE((SELECT SUM(amount) FROM payment_proofs WHERE payment_instruction_id=pi.id),0) AS proof_total
@@ -829,6 +852,7 @@ export async function handleD1OperatingModel({ request, env }, actor) {
     catch (error) { return respond({ error: error.message === 'PAYLOAD_TOO_LARGE' ? 'Payload too large' : 'Invalid JSON' }, error.message === 'PAYLOAD_TOO_LARGE' ? 413 : 400); }
     const validation = validateOperatingAction(body);
     if (!validation.ok) return respond({ error: validation.errors.join('; ') }, 422);
+    if (actor.role === 'CLIENT_USER') return respond({ error:'Client User memiliki akses monitoring saja' }, 403);
     const result = await executeAction(env.DB, body, actor, env, organizationId);
     return respond(result.data, result.status || 200);
   } catch (error) {

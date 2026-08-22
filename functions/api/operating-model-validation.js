@@ -65,6 +65,8 @@ export function validateOperatingAction(input) {
     if (!PERIOD.test(String(input.period || ''))) errors.push('period tidak valid');
     if (!PERIOD.test(String(input.paymentPeriod || ''))) errors.push('paymentPeriod tidak valid');
     if (!DATE.test(String(input.paymentDate || ''))) errors.push('paymentDate tidak valid');
+    if (PERIOD.test(String(input.paymentPeriod || '')) && DATE.test(String(input.paymentDate || ''))
+      && !String(input.paymentDate).startsWith(`${input.paymentPeriod}-`)) errors.push('paymentDate harus berada pada paymentPeriod yang dipilih');
     if (!RUN_TYPES.has(input.runType)) errors.push('runType tidak valid');
     if (!SOURCE_MODES.has(input.sourceMode)) errors.push('sourceMode tidak valid');
     if (input.parentSubmissionId && !validId(input.parentSubmissionId)) errors.push('parentSubmissionId tidak valid');
@@ -95,7 +97,7 @@ export function validateOperatingAction(input) {
     if (input.reviewNote && String(input.reviewNote).trim().length > 1000) errors.push('reviewNote terlalu panjang');
   } else if (action === 'ADVANCE_PAY_RUN') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
-    if (!['VALIDATE','SEND_FOR_APPROVAL','APPROVE_PAYROLL'].includes(input.command)) errors.push('command tidak valid');
+    if (!['VALIDATE','FINALIZE_PAYROLL'].includes(input.command)) errors.push('command tidak valid');
     if (input.reviewConfirmed !== true) errors.push('reviewConfirmed wajib dikonfirmasi');
     if (input.reviewNote && String(input.reviewNote).trim().length > 1000) errors.push('reviewNote terlalu panjang');
   } else if (action === 'UPDATE_SUBMISSION_PERIODS') {
@@ -105,6 +107,9 @@ export function validateOperatingAction(input) {
       || input.arrearsPeriods.some((period) => !PERIOD.test(String(period)))) errors.push('arrearsPeriods tidak valid');
   } else if (action === 'GENERATE_PAYMENT_INSTRUCTION') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+  } else if (action === 'SUBMIT_PAYMENT_INSTRUCTION') {
+    if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
+    if (input.confirmation !== 'SUBMIT PI') errors.push('Konfirmasi wajib: SUBMIT PI');
   } else if (action === 'CREATE_EXCEPTION') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (!['CRITICAL', 'WARNING', 'INFO'].includes(input.severity)) errors.push('severity tidak valid');
@@ -136,6 +141,9 @@ export function validateOperatingAction(input) {
     if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
     if (!/^[a-f0-9]{64}$/.test(String(input.actionHash || ''))) errors.push('actionHash tidak valid');
     if (input.confirmation !== 'KONFIRMASI PAYMENT') errors.push('Konfirmasi wajib: KONFIRMASI PAYMENT');
+  } else if (action === 'REJECT_PAYMENT') {
+    if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
+    if (String(input.reason || '').trim().length < 10 || String(input.reason || '').length > 1000) errors.push('reason wajib 10-1000 karakter');
   } else if (action === 'UPLOAD_PAYMENT_PROOF') {
     if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
     if (!String(input.bank || '').trim()) errors.push('bank wajib diisi');
