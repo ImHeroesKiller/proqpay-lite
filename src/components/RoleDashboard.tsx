@@ -13,20 +13,20 @@ const ROLE_CONTENT: Record<string, { title: string; description: string; tasks: 
   },
   PAYROLL_PROCESSOR: {
     title: 'Payroll Preparation Workspace',
-    description: 'Fokus pada intake, normalisasi, validasi, exception handling, dan standardisasi datasheet.',
-    tasks: ['Tinjau submission masuk', 'Selesaikan anomali data', 'Kirim dataset bersih ke Controller'],
+    description: 'Maker dari kesiapan data sampai pembuatan dan submit Payment Instruction.',
+    tasks: ['Perbaiki blocker Data Readiness', 'Finalisasi payroll', 'Buat dan submit PI ke Controller'],
     actions: [{ label: 'Buka submission', view: 'operations' }, { label: 'Periksa karyawan', view: 'employees' }, { label: 'Lihat klien', view: 'clients' }],
   },
   PAYROLL_CONTROLLER: {
     title: 'Payroll Control Workspace',
-    description: 'Fokus pada review dataset, kalkulasi, exception, payment instruction, dan rekonsiliasi.',
-    tasks: ['Review dataset terstandar', 'Approve/revise payroll', 'Pantau disbursement & rekonsiliasi'],
+    description: 'Checker independen untuk approval PI, bukti bayar, rekonsiliasi, dan billing.',
+    tasks: ['Review dan approve/reject PI', 'Verifikasi bukti bayar', 'Kontrol rekonsiliasi dan billing'],
     actions: [{ label: 'Review payroll', view: 'operations' }, { label: 'Lihat laporan', view: 'reports' }],
   },
   CLIENT_USER: {
     title: 'Client Payroll Workspace',
-    description: 'Data dan aktivitas dibatasi hanya untuk klien yang ditetapkan pada akun Anda.',
-    tasks: ['Kirim data payroll', 'Tindak lanjuti revision request', 'Pantau status dan bukti transfer'],
+    description: 'Monitoring read-only untuk data klien dan project yang ditetapkan pada akun Anda.',
+    tasks: ['Pantau status payroll', 'Pantau status pembayaran', 'Unduh laporan dan invoice'],
     actions: [{ label: 'Lihat status submission', view: 'operations' }, { label: 'Unduh laporan', view: 'reports' }],
   },
 };
