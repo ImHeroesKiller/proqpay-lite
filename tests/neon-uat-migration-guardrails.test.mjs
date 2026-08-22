@@ -16,6 +16,7 @@ test('Neon UAT migration is explicit, backed up, and excludes legacy payment sou
   assert.ok(workflow.indexOf('Export current D1 backup') < workflow.indexOf('Import canonical UAT master data'));
   assert.doesNotMatch(script, /['"](?:payments|approvals|payrolls)['"]/);
   assert.match(script, /BEGIN READ ONLY/);
+  assert.doesNotMatch(script, /['"]BEGIN TRANSACTION;|['"]COMMIT;/);
   assert.match(script, /primarySeen/);
 });
 

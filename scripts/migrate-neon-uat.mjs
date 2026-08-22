@@ -69,7 +69,9 @@ if (snapshotFile) {
 
 const orgId = 'ORG-OTSINDO';
 const migrationTime = new Date().toISOString();
-const lines = ['PRAGMA foreign_keys = ON;', 'BEGIN TRANSACTION;'];
+// Wrangler/D1 manages remote file execution transactions internally and rejects
+// explicit BEGIN/COMMIT statements.
+const lines = ['PRAGMA foreign_keys = ON;'];
 lines.push(insert('organizations', ['id', 'name', 'code'], [orgId, 'OTSINDO', 'OTSINDO'], '(id) DO UPDATE SET name=excluded.name'));
 
 const clientIds = new Set();
@@ -169,10 +171,9 @@ for (const row of bankRows) {
 lines.push(insert('audit_logs', ['id','org_id','username','role','action','detail','entity'], [
   `LOG-NEON-UAT-${Date.now()}`,orgId,'SYSTEM_NEON_UAT','SYSTEM','NEON_UAT_MIGRATION',`clients=${clientIds.size};employees=${employeeIds.size};banks=${primarySeen.size}`,'Migration',
 ]));
-lines.push('COMMIT;');
 fs.writeFileSync(outputPath, `${lines.join('\n')}\n`, { mode: 0o600 });
 console.log(JSON.stringify({
   sourceTables: Object.fromEntries(Object.entries(snapshot).map(([key, rows]) => [key, rows.length])),
-  migration: { clients: clientIds.size, projects: projectByClient.size, employees: employeeIds.size, primaryBanks: primarySeen.size, statements: lines.length - 3 },
+  migration: { clients: clientIds.size, projects: projectByClient.size, employees: employeeIds.size, primaryBanks: primarySeen.size, statements: lines.length - 1 },
   outputPath,
 }));
