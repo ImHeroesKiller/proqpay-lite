@@ -38,7 +38,14 @@ test('Pay Run snapshots monthly data, compares variance, and controls period lif
   assert.equal(first.response.status,201,JSON.stringify(first.payload));
   const firstId=first.payload.submission.id;
   assert.equal(DB.sqlite.prepare('SELECT COUNT(*) count FROM payroll_run_lines WHERE submission_id=?').get(firstId).count,2);
+  assert.equal(DB.sqlite.prepare('SELECT SUM(gross_amount) total FROM payroll_run_lines WHERE submission_id=?').get(firstId).total,11_000_000,
+    'MASTER_CURRENT harus membuat nominal awal dari kompensasi master');
   assert.equal(first.payload.submission.input_status,'PENDING');
+
+  DB.sqlite.prepare("UPDATE employee_compensation SET basic_salary=7000000 WHERE employee_id='EMP-B'").run();
+  const refreshed=await action(DB,{action:'REFRESH_PAY_RUN_FROM_MASTER',submissionId:firstId});
+  assert.equal(refreshed.response.status,200,JSON.stringify(refreshed.payload));
+  assert.deepEqual(refreshed.payload.summary,{recipients:2,calculated:2,missingSalary:0,totalGross:12_000_000,totalDeduction:0,totalNet:12_000_000});
 
   for (const [employeeId,gross,deduction] of [['EMP-A',5_500_000,500_000],['EMP-B',6_500_000,500_000]]) {
     const updated=await action(DB,{action:'UPDATE_PAY_RUN_LINE',submissionId:firstId,employeeId,grossAmount:gross,deductionAmount:deduction,netAmount:gross-deduction,included:true});

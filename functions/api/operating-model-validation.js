@@ -73,6 +73,8 @@ export function validateOperatingAction(input) {
     for (const key of ['grossAmount','deductionAmount','netAmount']) if (!Number.isSafeInteger(input[key]) || input[key] < 0) errors.push(`${key} tidak valid`);
     if (input.netAmount !== input.grossAmount - input.deductionAmount) errors.push('netAmount harus sama dengan grossAmount dikurangi deductionAmount');
     if (input.included !== undefined && typeof input.included !== 'boolean') errors.push('included tidak valid');
+  } else if (action === 'REFRESH_PAY_RUN_FROM_MASTER') {
+    if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
   } else if (action === 'FINALIZE_PAY_RUN_INPUT') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (input.confirmation !== 'DATA PAYROLL FINAL') errors.push('Konfirmasi wajib: DATA PAYROLL FINAL');

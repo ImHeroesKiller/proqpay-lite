@@ -406,8 +406,21 @@ async function executeAction(database, body, actor, env, organizationId) {
         SELECT 'PRL-'||lower(hex(randomblob(16))),?,e.id,e.employee_code,e.name,e.status_aktif,
           (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
           (SELECT substr(account_no,-4) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
-          0,0,0,'{}',?,1 FROM employees e WHERE e.org_id=? AND e.client_id=? AND e.project_id=?
-          AND ${ACTIVE_EMPLOYEE}`, bindings:[id,body.sourceMode,organizationId,body.clientId,body.projectId] });
+          CASE WHEN ?='MASTER_CURRENT' THEN CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0
+            THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END ELSE 0 END,
+          CASE WHEN ?='MASTER_CURRENT' AND ec.payroll_source_period=? AND ec.imported_gross>0
+            THEN COALESCE(ec.imported_deduction,0) ELSE 0 END,
+          CASE WHEN ?='MASTER_CURRENT' THEN MAX(0,
+            CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END
+            - CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.imported_deduction,0) ELSE 0 END)
+            ELSE 0 END,
+          CASE WHEN ?='MASTER_CURRENT' AND ec.payroll_source_period=? AND ec.imported_gross>0
+            THEN COALESCE(ec.payroll_components,'{}')
+            WHEN ?='MASTER_CURRENT' THEN json_object('Gaji Pokok',COALESCE(ec.basic_salary,0)) ELSE '{}' END,
+          ?,1 FROM employees e LEFT JOIN employee_compensation ec ON ec.employee_id=e.id
+          WHERE e.org_id=? AND e.client_id=? AND e.project_id=? AND ${ACTIVE_EMPLOYEE}`,
+        bindings:[id,body.sourceMode,body.period,body.sourceMode,body.period,body.sourceMode,body.period,body.period,
+          body.sourceMode,body.period,body.sourceMode,body.sourceMode,organizationId,body.clientId,body.projectId] });
     }
     operations.push(auditOperation(organizationId, actor, 'PAY_RUN_CREATED', `${body.runType} ${body.period} · ${body.sourceMode}`, 'payroll_submission', id));
     try { await d1Batch(database, operations); }
@@ -417,6 +430,38 @@ async function executeAction(database, body, actor, env, organizationId) {
     }
     const row = await d1First(database, `${SUBMISSION_SELECT} WHERE s.id=? LIMIT 1`, [id]);
     return { status:201, data:{ ok:true, submission:row, sourcePeriod:sourceSubmission?.period || null } };
+  }
+
+  if (body.action === 'REFRESH_PAY_RUN_FROM_MASTER') {
+    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
+    const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId,organizationId]);
+    if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
+    if (submission.source_mode!=='MASTER_CURRENT') return { status:409, data:{ error:'Hitung ulang master hanya tersedia untuk sumber MASTER_CURRENT' } };
+    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','REVISION_REQUIRED'].includes(submission.state)) {
+      return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci dan tidak dapat dihitung ulang' } };
+    }
+    await d1Batch(database, [
+      { statement:`UPDATE payroll_run_lines SET
+          gross_amount=CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END,
+          deduction_amount=CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.imported_deduction,0) ELSE 0 END,
+          net_amount=MAX(0,(CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END)
+            -(CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.imported_deduction,0) ELSE 0 END)),
+          components=CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.payroll_components,'{}')
+            ELSE json_object('Gaji Pokok',COALESCE(ec.basic_salary,0)) END,
+          source='MASTER_CURRENT',updated_at=${NOW}
+        FROM employee_compensation ec WHERE payroll_run_lines.submission_id=? AND ec.employee_id=payroll_run_lines.employee_id`,
+        bindings:[submission.period,submission.period,submission.period,submission.period,submission.period,submission.id] },
+      { statement:`UPDATE payroll_submissions SET input_status='PENDING',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },
+      auditOperation(organizationId,actor,'PAY_RUN_MASTER_REFRESHED',`Master compensation refreshed for ${submission.period}`,'payroll_submission',submission.id),
+    ]);
+    const quality = await d1First(database, `SELECT COUNT(*) AS recipients,
+      SUM(CASE WHEN gross_amount>0 THEN 1 ELSE 0 END) AS calculated,
+      SUM(CASE WHEN gross_amount<=0 THEN 1 ELSE 0 END) AS missing_salary,
+      SUM(gross_amount) AS total_gross,SUM(deduction_amount) AS total_deduction,SUM(net_amount) AS total_net
+      FROM payroll_run_lines WHERE submission_id=? AND included=1`, [submission.id]);
+    return { data:{ ok:true,summary:{recipients:Number(quality?.recipients||0),calculated:Number(quality?.calculated||0),
+      missingSalary:Number(quality?.missing_salary||0),totalGross:Number(quality?.total_gross||0),
+      totalDeduction:Number(quality?.total_deduction||0),totalNet:Number(quality?.total_net||0)} } };
   }
 
   if (body.action === 'UPDATE_PAY_RUN_LINE') {
