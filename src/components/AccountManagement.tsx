@@ -106,14 +106,17 @@ export default function AccountManagement() {
       {ROLES.map((role) => <div key={role.value}><strong>{role.label}</strong><span>{role.value === 'SUPER_ADMIN' ? 'Seluruh akses dan konfigurasi' : role.value === 'PAYROLL_PROCESSOR' ? 'Intake, validasi, normalisasi, dan payroll' : role.value === 'PAYROLL_CONTROLLER' ? 'Review, kontrol, payment instruction' : 'Akses terbatas pada klien yang ditetapkan'}</span></div>)}
     </div>
 
-    <div className="account-create-grid">
+    <div className="account-create-panel">
+      <div className="account-panel-heading"><div><strong>Tambah akun</strong><span>Buat akses baru sesuai tanggung jawab pengguna.</span></div><span>NEW USER</span></div>
+      <div className="account-create-grid">
       <label><span>Nama lengkap</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Nama pengguna" /></label>
       <label><span>Email login</span><input type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} placeholder="nama@perusahaan.com" /></label>
       <label><span>Role</span><select value={draft.role} onChange={(event) => setDraft({ ...draft, role: event.target.value as AppRole, clientIds: [], projectIds: [] })}>{ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select></label>
       {draft.role === 'PAYROLL_CONTROLLER' ? <label className="account-check"><input type="checkbox" checked={draft.paymentApprover} onChange={(event) => setDraft({ ...draft, paymentApprover: event.target.checked })} /><span>Berikan permission PAYMENT_APPROVER</span></label> : null}
+      </div>
+      {needsClient ? <AccessScopes clients={clients} projects={projects} clientIds={draft.clientIds} projectIds={draft.projectIds} onChange={(clientIds, projectIds) => setDraft({ ...draft, clientIds, projectIds })} /> : null}
+      <div className="account-create-actions"><span>Password sementara dibuat otomatis dan wajib diganti saat login pertama.</span><button type="button" className="btn btn-primary" disabled={busy === 'create' || !draft.name.trim() || !draft.email.trim() || (needsClient && !draft.clientIds.length)} onClick={() => void createAccount()}>{busy === 'create' ? 'Membuat…' : 'Buat akun'}</button></div>
     </div>
-    {needsClient ? <AccessScopes clients={clients} projects={projects} clientIds={draft.clientIds} projectIds={draft.projectIds} onChange={(clientIds, projectIds) => setDraft({ ...draft, clientIds, projectIds })} /> : null}
-    <button type="button" className="btn btn-primary" disabled={busy === 'create' || !draft.name.trim() || !draft.email.trim() || (needsClient && !draft.clientIds.length)} onClick={() => void createAccount()}>{busy === 'create' ? 'Membuat…' : '+ Buat akun & password'}</button>
 
     {credential ? <div className="account-credential" role="status"><div><strong>Password sementara — hanya ditampilkan sekali</strong><span>{credential.email}</span></div><code>{credential.password}</code><button type="button" className="btn" onClick={() => void navigator.clipboard.writeText(credential.password)}>Salin</button></div> : null}
     {error ? <div className="settings-status error" role="alert">{error}</div> : null}
@@ -121,15 +124,16 @@ export default function AccountManagement() {
     <div className="account-list-heading"><strong>Akun tersimpan di database</strong><span>{users.length} akun</span></div>
     {loading ? <p className="account-empty">Memuat akun…</p> : users.length === 0 ? <p className="account-empty">Belum ada akun. Buat Super Admin sebelum mengaktifkan login database.</p> : <div className="account-list">
       {users.map((user) => <article key={user.id} className="account-card">
-        <div className="account-avatar">{user.name.slice(0, 2).toUpperCase()}</div>
+        <div className="account-card-identity"><div className="account-avatar">{user.name.slice(0, 2).toUpperCase()}</div><div><strong>{user.name}</strong><span>{user.email} · {user.lastLoginAt ? `Login ${new Date(user.lastLoginAt).toLocaleDateString('id-ID')}` : 'Belum pernah login'}</span></div></div>
+        <div className="account-card-fields">
+          <label><span>Nama pengguna</span><input aria-label={`Nama ${user.email}`} value={user.name} onChange={(event) => updateLocal(user.id, { name: event.target.value })} /></label>
+          <label><span>Role</span><select aria-label={`Role ${user.email}`} value={user.role} onChange={(event) => updateLocal(user.id, { role: event.target.value as AppRole, clientIds: [], projectIds: [] })}>{ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select></label>
+          <label><span>Status</span><select aria-label={`Status ${user.email}`} value={user.status} onChange={(event) => updateLocal(user.id, { status: event.target.value as AccountStatus })}><option value="ACTIVE">Aktif</option><option value="SUSPENDED">Ditangguhkan</option><option value="INACTIVE">Nonaktif</option></select></label>
+          <label className="account-approver"><span>Approval PI</span><span><input type="checkbox" disabled={user.role !== 'PAYROLL_CONTROLLER'} checked={user.role === 'PAYROLL_CONTROLLER' && user.paymentApprover} onChange={(event) => updateLocal(user.id, { paymentApprover: event.target.checked })} /> Approver</span></label>
+        </div>
         <div className="account-fields">
-          <input aria-label={`Nama ${user.email}`} value={user.name} onChange={(event) => updateLocal(user.id, { name: event.target.value })} />
-          <span>{user.email} · {user.lastLoginAt ? `Login ${new Date(user.lastLoginAt).toLocaleDateString('id-ID')}` : 'Belum pernah login'}</span>
           {user.role === 'CLIENT_USER' ? <AccessScopes clients={clients} projects={projects} clientIds={user.clientIds} projectIds={user.projectIds || []} onChange={(clientIds, projectIds) => updateLocal(user.id, { clientIds, projectIds })} compact /> : null}
         </div>
-        <select aria-label={`Role ${user.email}`} value={user.role} onChange={(event) => updateLocal(user.id, { role: event.target.value as AppRole, clientIds: [], projectIds: [] })}>{ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select>
-        <select aria-label={`Status ${user.email}`} value={user.status} onChange={(event) => updateLocal(user.id, { status: event.target.value as AccountStatus })}><option value="ACTIVE">Aktif</option><option value="SUSPENDED">Ditangguhkan</option><option value="INACTIVE">Nonaktif</option></select>
-        <label className="account-approver"><input type="checkbox" disabled={user.role !== 'PAYROLL_CONTROLLER'} checked={user.role === 'PAYROLL_CONTROLLER' && user.paymentApprover} onChange={(event) => updateLocal(user.id, { paymentApprover: event.target.checked })} /> Approver</label>
         <div className="account-actions"><button type="button" className="btn" disabled={Boolean(busy)} onClick={() => void resetPassword(user)}>Reset password</button><button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={() => void saveAccount(user)}>{busy === user.id ? 'Menyimpan…' : 'Simpan'}</button></div>
       </article>)}
     </div>}
