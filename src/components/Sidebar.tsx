@@ -10,8 +10,8 @@ export type AppView = 'dashboard' | 'operations' | 'exceptions' | 'payments' | '
 const ROLE_VIEWS: Record<string, AppView[]> = {
   SUPER_ADMIN: ['dashboard','operations','exceptions','payments','billing','integrations','employees','clients','reports','logs'],
   PAYROLL_PROCESSOR: ['dashboard','operations','exceptions','payments','billing','integrations','employees','clients','reports'],
-  PAYROLL_CONTROLLER: ['dashboard','operations','exceptions','payments','employees','reports'],
-  CLIENT_USER: ['dashboard','operations','exceptions','payments','employees','reports'],
+  PAYROLL_CONTROLLER: ['dashboard','operations','exceptions','payments','billing','reports'],
+  CLIENT_USER: ['dashboard','operations','payments','billing','reports'],
 };
 
 export function allowedViewsForRole(role?:string) { return ROLE_VIEWS[role || ''] || ['dashboard']; }
@@ -31,8 +31,8 @@ export default function Sidebar({view,onView,onOpenIda,onOpenHelp,role,compact=f
         <img className="sidebar-brand-icon" src="/assets/proqpay-192.png" alt="ProQPay Lite" />
         <button type="button" className="sidebar-mobile-close" aria-label="Tutup navigasi" onClick={onMobileClose}>✕</button>
       </div>
-      <NavGroup label="Payroll"><NavBtn active={view==='dashboard'} icon={<IconDashboard/>} title="Dashboard" onClick={()=>go('dashboard')} />{allowed.has('operations')?<NavBtn active={view==='operations'} icon={<IconWallet/>} title="Pay Runs" onClick={()=>go('operations')} />:null}{allowed.has('exceptions')?<NavBtn active={view==='exceptions'} icon={<IconMessage/>} title="Action Center" onClick={()=>go('exceptions')} />:null}</NavGroup>
-      <NavGroup label="Payment & Finance">{allowed.has('payments')?<NavBtn active={view==='payments'} icon={<IconFile/>} title="Payment Control" onClick={()=>go('payments')} />:null}{allowed.has('billing')?<NavBtn active={view==='billing'} icon={<IconWallet/>} title="Billing & AR" onClick={()=>go('billing')} />:null}{allowed.has('reports')?<NavBtn active={view==='reports'} icon={<IconChart/>} title="Reports" onClick={()=>go('reports')} />:null}</NavGroup>
+      <NavGroup label="Payroll"><NavBtn active={view==='dashboard'} icon={<IconDashboard/>} title="Dashboard" onClick={()=>go('dashboard')} />{allowed.has('operations')?<NavBtn active={view==='operations'} icon={<IconWallet/>} title={role==='CLIENT_USER'?'Payroll Status':'Pay Runs'} onClick={()=>go('operations')} />:null}{allowed.has('exceptions')?<NavBtn active={view==='exceptions'} icon={<IconMessage/>} title="Data Readiness" onClick={()=>go('exceptions')} />:null}</NavGroup>
+      <NavGroup label="Payment & Finance">{allowed.has('payments')?<NavBtn active={view==='payments'} icon={<IconFile/>} title={role==='CLIENT_USER'?'Payment Status':'Payment Instructions'} onClick={()=>go('payments')} />:null}{allowed.has('billing')?<NavBtn active={view==='billing'} icon={<IconWallet/>} title={role==='CLIENT_USER'?'Invoices':'Billing & AR'} onClick={()=>go('billing')} />:null}{allowed.has('reports')?<NavBtn active={view==='reports'} icon={<IconChart/>} title="Reports" onClick={()=>go('reports')} />:null}</NavGroup>
       <NavGroup label="Master Data">{allowed.has('clients')?<NavBtn active={view==='clients'} icon={<IconBuilding/>} title="Clients & Projects" onClick={()=>go('clients')} />:null}{allowed.has('employees')?<NavBtn active={view==='employees'} icon={<IconUsers/>} title="Employees" onClick={()=>go('employees')} />:null}</NavGroup>
       {role==='SUPER_ADMIN'?<NavGroup label="Administration">{allowed.has('integrations')?<NavBtn active={view==='integrations'} icon={<IconTerminal/>} title="Integrations" onClick={()=>go('integrations')} />:null}<NavBtn active={view==='logs'} icon={<IconTerminal/>} title="Audit Logs" onClick={()=>go('logs')} /><NavBtn active={settingsOpen} icon={<IconSettings/>} title="Settings" onClick={()=>{onSettingsOpen(true);onMobileClose();}} /></NavGroup>:null}
       <div className="sidebar-spacer" />
