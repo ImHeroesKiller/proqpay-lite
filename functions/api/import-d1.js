@@ -26,11 +26,12 @@ export async function importRowsD1({env,actor,body,rows,respond,requestId}) {
     let verifiedPlan=null,targetSubmission=null;
     if (context) {
       if (!clientId||!servicePlanId||!serviceTier) return respond({error:'Klien dan service tier wajib ditentukan sebelum import.'},409);
+      const effectiveDate=`${period}-01`;
       verifiedPlan=await d1First(database,`SELECT sp.* FROM client_service_plans sp JOIN clients c ON c.id=sp.client_id
         WHERE sp.id=? AND sp.client_id=? AND sp.tier=? AND (sp.project_id IS NULL OR sp.project_id=?) AND sp.status='ACTIVE' AND c.org_id=?
-        AND sp.effective_from<=date('now') AND (sp.effective_until IS NULL OR sp.effective_until>=date('now')) LIMIT 1`,
-        [servicePlanId,clientId,serviceTier,projectId||null,organizationId]);
-      if (!verifiedPlan) return respond({error:'Service tier klien belum aktif atau tidak cocok.'},409);
+        AND sp.effective_from<date(?,'+1 month') AND (sp.effective_until IS NULL OR sp.effective_until>=?) LIMIT 1`,
+        [servicePlanId,clientId,serviceTier,projectId||null,organizationId,effectiveDate,effectiveDate]);
+      if (!verifiedPlan) return respond({error:`Service tier klien tidak aktif atau tidak cocok untuk periode payroll ${period}.`},409);
       if (projectId) {
         const project=await d1First(database,'SELECT id FROM projects WHERE id=? AND client_id=? AND org_id=? LIMIT 1',[projectId,clientId,organizationId]);
         if (!project) return respond({error:'Project import tidak sesuai dengan klien.'},409);
