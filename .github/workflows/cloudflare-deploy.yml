@@ -48,6 +48,22 @@ jobs:
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
           npx wrangler whoami
 
+      - name: Prepare production Pages and D1 configuration
+        shell: bash
+        run: |
+          npx wrangler d1 list --json > /tmp/proqpay-d1.json
+          d1_id=$(node -e "const x=require('/tmp/proqpay-d1.json');const row=x.find(v=>v.name==='proqpay-lite-production');if(!row?.uuid)process.exit(1);process.stdout.write(row.uuid)")
+          npx wrangler pages download config "$PAGES_PROJECT_NAME" --force
+          config_file=""
+          for candidate in wrangler.jsonc wrangler.json wrangler.toml; do
+            if [ -f "$candidate" ]; then config_file="$candidate"; break; fi
+          done
+          test -n "$config_file" || { echo "Downloaded Pages config was not generated"; exit 1; }
+          node scripts/prepare-pages-config.mjs "$d1_id"
+          grep -q '"binding": "DB"' wrangler.jsonc
+          grep -q '"binding": "FILES"' wrangler.jsonc
+          grep -q '"binding": "AI"' wrangler.jsonc
+
       - name: Validate resumable D1 state
         shell: bash
         run: |
