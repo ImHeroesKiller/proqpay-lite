@@ -58,6 +58,13 @@ test('D1 processes 396 recipients through PI approval, proof, and reconciliation
   const maker = { id: 'USR-MAKER', email: 'maker@proqpay.test', role: 'PAYROLL_CONTROLLER', permissions: ['payment:prepare'] };
   const approver = { id: 'USR-APPROVER', email: 'approver@proqpay.test', role: 'PAYROLL_CONTROLLER', permissions: ['payment:approve'] };
 
+  const dashboardResponse = await handleD1OperatingModel({ request: request('/api/operating-model?resource=dashboard', { method: 'GET' }), env }, maker);
+  assert.equal(dashboardResponse.status, 200, await dashboardResponse.clone().text());
+  const dashboard = await dashboardResponse.json();
+  assert.deepEqual(dashboard.portfolioSummary, {
+    clients: 1, projects: 1, employees: 396, activeEmployees: 396, primaryAccounts: 396, bankCoveragePercent: 100,
+  });
+
   const generated = await handleD1OperatingModel({ request: post({ action: 'GENERATE_PAYMENT_INSTRUCTION', submissionId: 'SUB-UAT' }), env }, maker);
   assert.equal(generated.status, 201, await generated.clone().text());
   const generatedPayload = await generated.json();

@@ -6,22 +6,21 @@ import { executeOperatingAction, getPaymentInstructionDetail, listOperatingResou
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 
-type Tab = 'submissions' | 'exceptions' | 'payments' | 'billing' | 'integrations';
+type WorkspaceMode = 'payruns' | 'actions' | 'payments' | 'billing' | 'integrations';
 type Actor = { email: string; role: string; permissions?: string[]; clientIds?: string[]; projectIds?: string[] };
 
-const labels: Record<Tab, string> = {
-  submissions: 'Payroll Workspace',
-  exceptions: 'Exception Center',
-  payments: 'Payment & Rekonsiliasi',
-  billing: 'Billing & AR',
-  integrations: 'Integrasi',
+const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; description:string; search:string }> = {
+  payruns: { title:'Pay Runs', eyebrow:'PAYROLL EXECUTION', description:'Kelola setiap periode payroll dari intake sampai siap dibayarkan.', search:'Klien, project, pay run…' },
+  actions: { title:'Action Center', eyebrow:'EXCEPTION WORK QUEUE', description:'Selesaikan blocker dan temuan payroll berdasarkan prioritas dan status.', search:'Karyawan, temuan, klien…' },
+  payments: { title:'Payment Control', eyebrow:'PAYMENT INTEGRITY', description:'Kontrol Payment Instruction, approval, proof, dan rekonsiliasi.', search:'Dokumen PI, klien, project…' },
+  billing: { title:'Billing & AR', eyebrow:'FINANCE OPERATIONS', description:'Kelola invoice layanan, jatuh tempo, dan pelunasan piutang.', search:'Invoice, klien, periode…' },
+  integrations: { title:'Integrations', eyebrow:'CONNECTED SYSTEMS', description:'Pantau koneksi HRIS, attendance, accounting, dan bank.', search:'Koneksi, tipe, status…' },
 };
 
 const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') ? '#dc2626'
   : state.includes('APPROVED') || state === 'COMPLETED' || state === 'MATCHED' ? '#059669' : '#4f46e5';
 
-export default function OperatingWorkspace({ initialTab = 'submissions' }: { initialTab?: Tab }) {
-  const [tab, setTab] = useState<Tab>(initialTab);
+export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: WorkspaceMode }) {
   const [actor, setActor] = useState<Actor | null>(null);
   const [data, setData] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
@@ -35,7 +34,10 @@ export default function OperatingWorkspace({ initialTab = 'submissions' }: { ini
     setLoading(true);
     setMessage('');
     try {
-      const resources: OperatingResource[] = ['submissions','exceptions','payment-instructions','payment-proofs','reconciliations','integrations'];
+      const resources: OperatingResource[] = mode === 'payruns' ? ['submissions']
+        : mode === 'actions' ? ['submissions','exceptions']
+        : mode === 'payments' ? ['submissions','payment-instructions','payment-proofs','reconciliations']
+        : mode === 'integrations' ? ['integrations'] : [];
       const meResponse = await fetch('/api/me');
       const me = await meResponse.json();
       if (!meResponse.ok) throw new Error(me.error || `HTTP ${meResponse.status}`);
@@ -52,10 +54,9 @@ export default function OperatingWorkspace({ initialTab = 'submissions' }: { ini
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [mode]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setTab(initialTab); }, [initialTab]);
 
   async function act(payload: Record<string, unknown>, success: string) {
     setMessage('Memproses…');
@@ -101,13 +102,21 @@ export default function OperatingWorkspace({ initialTab = 'submissions' }: { ini
   const totalNet = visibleSubmissions.reduce((sum, row) => sum + Number(row.total_net || 0), 0);
   const blockers = visibleSubmissions.reduce((sum, row) => sum + Number(row.blocking_count || 0), 0);
   const pendingActions = visibleSubmissions.filter((row) => !['COMPLETED','RECONCILIATION'].includes(row.state)).length;
+  const openExceptions = visibleExceptions.filter((row) => !['RESOLVED','ACCEPTED','AUTO_NORMALIZED'].includes(row.status));
+  const criticalExceptions = openExceptions.filter((row) => row.severity === 'CRITICAL');
+  const affectedRuns = new Set(openExceptions.map((row) => row.submission_id)).size;
+  const awaitingApproval = visibleInstructions.filter((row) => ['PAYMENT_INSTRUCTION_READY','PAYMENT_APPROVAL_PENDING'].includes(row.status)).length;
+  const approvedPayments = visibleInstructions.filter((row) => ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(row.status)).length;
+  const matchedPayments = visibleReconciliations.filter((row) => row.status === 'MATCHED').length;
+  const profile = profiles[mode];
 
   return (
     <section>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ fontSize: 22, fontWeight: 720, margin: 0 }}>Operations Center</h2>
-          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>Controlled workflow dari submission, payment, sampai invoice dan AR.</p>
+          <span className="workspace-eyebrow">{profile.eyebrow}</span>
+          <h2 style={{ fontSize: 22, fontWeight: 720, margin: '4px 0 0' }}>{profile.title}</h2>
+          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>{profile.description}</p>
         </div>
         <div className="card" style={{ padding: '8px 12px', fontSize: 12 }}>
           <strong>{actor?.email || 'Memuat pengguna…'}</strong>
@@ -115,34 +124,40 @@ export default function OperatingWorkspace({ initialTab = 'submissions' }: { ini
         </div>
       </div>
 
-      <div className="operations-control-bar">
+      {!['billing','integrations'].includes(mode) ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((period) => <option key={period} value={period}>{period}</option>)}</select></label>
         <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        <label><span>Status submission</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">Semua status</option>{[...new Set(submissions.map((row) => row.state))].sort().map((state) => <option key={state} value={state}>{String(state).replaceAll('_', ' ')}</option>)}</select></label>
-        <label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Klien, project, PI…" /></label>
-      </div>
+        <label><span>Status pay run</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">Semua status</option>{[...new Set(submissions.map((row) => row.state))].sort().map((state) => <option key={state} value={state}>{String(state).replaceAll('_', ' ')}</option>)}</select></label>
+        <label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>
+      </div> : null}
 
-      <div className="operations-summary-grid">
-        <div><span>Pay run</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
-        <div><span>Control total</span><strong>{formatIDR(totalNet)}</strong><small>Net/THP submission</small></div>
-        <div><span>Perlu tindakan</span><strong>{pendingActions}</strong><small>{blockers} blocker aktif</small></div>
-        <div><span>Payment Instruction</span><strong>{visibleInstructions.length}</strong><small>{visibleReconciliations.filter((row) => row.status === 'MATCHED').length} matched</small></div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, margin: '18px 0', overflowX: 'auto' }}>
-        {(Object.keys(labels) as Tab[]).map((item) => (
-          <button key={item} type="button" onClick={() => setTab(item)} style={tabButton(tab === item)}>{labels[item]}{item === 'submissions' ? ` (${visibleSubmissions.length})` : item === 'exceptions' ? ` (${visibleExceptions.length})` : item === 'payments' ? ` (${visibleInstructions.length})` : ''}</button>
-        ))}
-      </div>
+      {!['billing','integrations'].includes(mode) ? <div className="operations-summary-grid">
+        {mode === 'payruns' ? <>
+          <div><span>Pay runs</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
+          <div><span>Control total</span><strong>{formatIDR(totalNet)}</strong><small>Net/THP submission</small></div>
+          <div><span>Active workflow</span><strong>{pendingActions}</strong><small>{visibleSubmissions.reduce((sum,row)=>sum+Number(row.employee_count||0),0).toLocaleString('id-ID')} penerima</small></div>
+          <div><span>Blocked</span><strong>{blockers}</strong><small>Temuan kritis aktif</small></div>
+        </> : mode === 'actions' ? <>
+          <div><span>Open exceptions</span><strong>{openExceptions.length}</strong><small>Antrean aktif</small></div>
+          <div><span>Critical blockers</span><strong>{criticalExceptions.length}</strong><small>Harus diselesaikan</small></div>
+          <div><span>Affected pay runs</span><strong>{affectedRuns}</strong><small>Dari {visibleSubmissions.length} pay run</small></div>
+          <div><span>Client action</span><strong>{openExceptions.filter((row)=>row.status==='CLIENT_ACTION_REQUIRED').length}</strong><small>Menunggu perbaikan</small></div>
+        </> : <>
+          <div><span>Payment Instructions</span><strong>{visibleInstructions.length}</strong><small>{visibleInstructions.reduce((sum,row)=>sum+Number(row.recipient_count||0),0).toLocaleString('id-ID')} penerima</small></div>
+          <div><span>PI value</span><strong>{formatIDR(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</strong><small>Control total</small></div>
+          <div><span>Awaiting approval</span><strong>{awaitingApproval}</strong><small>{approvedPayments} approved / processing</small></div>
+          <div><span>Reconciliation</span><strong>{matchedPayments}</strong><small>{visibleReconciliations.length-matchedPayments} belum match</small></div>
+        </>}
+      </div> : null}
 
       {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
       {loading ? <Empty title="Memuat data operasional…" /> : (
         <>
-          {tab === 'submissions' && <Submissions rows={visibleSubmissions} role={role} act={act} />}
-          {tab === 'exceptions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
-          {tab === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} canReview={isController} canApprove={canApprovePayment} act={act} />}
-          {tab === 'billing' && <BillingWorkspace actor={actor} />}
-          {tab === 'integrations' && <Integrations rows={data.integrations || []} canCreate={isProcessor} />}
+          {mode === 'payruns' && <Submissions rows={visibleSubmissions} role={role} act={act} />}
+          {mode === 'actions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
+          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} canReview={isController} canApprove={canApprovePayment} act={act} />}
+          {mode === 'billing' && actor && <BillingWorkspace actor={actor} />}
+          {mode === 'integrations' && <Integrations rows={data.integrations || []} canCreate={isProcessor} />}
         </>
       )}
     </section>
@@ -384,7 +399,7 @@ function Integrations({ rows, canCreate }: { rows:any[]; canCreate:boolean }) {
   return <div style={{ display:'grid', gap:14 }}>
     <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))', gap:12 }}>
       {['HRIS','ATTENDANCE','ACCOUNTING','BANK'].map((type) => {
-        const connection = rows.find((r) => r.connector_type === type);
+        const connection = rows.find((row) => row.connector_type === type);
         return <div key={type} className="card" style={{ padding:18 }}><strong>{type === 'ATTENDANCE' ? 'Attendance' : type}</strong><p style={{ ...small, margin:'8px 0 0' }}>{connection ? `Status: ${connection.status}` : 'Belum terhubung'}</p></div>;
       })}
     </div>
@@ -402,4 +417,3 @@ const th: React.CSSProperties = { textAlign:'left', padding:'11px 14px', backgro
 const td: React.CSSProperties = { padding:'12px 14px', verticalAlign:'middle' };
 const actionButton: React.CSSProperties = { border:0, borderRadius:8, background:'var(--accent)', color:'#fff', padding:'7px 11px', fontSize:11, fontWeight:650, cursor:'pointer', whiteSpace:'nowrap' };
 const input: React.CSSProperties = { border:'1px solid var(--border)', borderRadius:8, background:'var(--bg-surface)', color:'var(--text)', padding:'9px 10px', fontSize:12, minWidth:0 };
-const tabButton = (active:boolean):React.CSSProperties => ({ border:`1px solid ${active ? 'var(--accent)' : 'var(--border)'}`, borderRadius:9, background:active ? 'var(--accent-soft)' : 'var(--bg-surface)', color:active ? 'var(--accent)' : 'var(--text2)', padding:'9px 12px', fontSize:12, fontWeight:650, cursor:'pointer', whiteSpace:'nowrap' });

@@ -178,11 +178,13 @@ export default function Home() {
 
             {view === 'logs' && <SystemLogs auditLogs={db.auditLogs || []} />}
 
-            {view === 'operations' && <OperatingWorkspace />}
+            {view === 'operations' && <OperatingWorkspace mode="payruns" />}
 
-            {view === 'exceptions' && <OperatingWorkspace initialTab="exceptions" />}
+            {view === 'exceptions' && <OperatingWorkspace mode="actions" />}
 
-            {view === 'payments' && <OperatingWorkspace initialTab="payments" />}
+            {view === 'payments' && <OperatingWorkspace mode="payments" />}
+            {view === 'billing' && <OperatingWorkspace mode="billing" />}
+            {view === 'integrations' && <OperatingWorkspace mode="integrations" />}
 
             {view === 'reports' && <ReportsWorkspace />}
           </div>

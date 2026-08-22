@@ -200,15 +200,31 @@ async function readResource(database, params, actor, env, organizationId) {
     ORDER BY s.created_at DESC LIMIT 200`, submissionScope.bindings);
   parseJsonFields(submissions, ['arrears_periods']);
   if (resource !== 'dashboard') return { data: { ok: true, submissions } };
-  const [exceptions, paymentInstructions, paymentProofs, reconciliations] = await Promise.all([
+  const clientScope = scopeWhere({ organizationId, clientId, projectIds: [], orgColumn: 'c.org_id', clientColumn: 'c.id' });
+  const projectScope = scopeWhere({ organizationId, clientId, projectIds, orgColumn: 'p.org_id', clientColumn: 'p.client_id', projectColumn: 'p.id' });
+  const employeeScope = scopeWhere({ organizationId, clientId, projectIds, orgColumn: 'e.org_id', clientColumn: 'e.client_id', projectColumn: 'e.project_id' });
+  const [exceptions, paymentInstructions, paymentProofs, reconciliations, clientCount, projectCount, employeeCount, bankCount] = await Promise.all([
     readResource(database, new URLSearchParams({ resource: 'exceptions', ...(clientId ? { clientId } : {}) }), actor, env, organizationId),
     readResource(database, new URLSearchParams({ resource: 'payment-instructions', ...(clientId ? { clientId } : {}) }), actor, env, organizationId),
     readResource(database, new URLSearchParams({ resource: 'payment-proofs', ...(clientId ? { clientId } : {}) }), actor, env, organizationId),
     readResource(database, new URLSearchParams({ resource: 'reconciliations', ...(clientId ? { clientId } : {}) }), actor, env, organizationId),
+    d1First(database, `SELECT COUNT(*) AS total FROM clients c WHERE ${clientScope.sql}`, clientScope.bindings),
+    d1First(database, `SELECT COUNT(*) AS total FROM projects p WHERE ${projectScope.sql}`, projectScope.bindings),
+    d1First(database, `SELECT COUNT(*) AS total,
+      SUM(CASE WHEN UPPER(COALESCE(e.status_aktif,'ACTIVE'))='ACTIVE' THEN 1 ELSE 0 END) AS active
+      FROM employees e WHERE ${employeeScope.sql}`, employeeScope.bindings),
+    d1First(database, `SELECT COUNT(DISTINCT e.id) AS total FROM employees e
+      JOIN employee_bank_accounts eba ON eba.employee_id=e.id AND eba.is_primary=1
+      WHERE ${employeeScope.sql}`, employeeScope.bindings),
   ]);
+  const employees = Number(employeeCount?.total || 0);
+  const primaryAccounts = Number(bankCount?.total || 0);
   return { data: { ok: true, submissions, exceptions: exceptions.data.exceptions,
     paymentInstructions: paymentInstructions.data.paymentInstructions,
-    paymentProofs: paymentProofs.data.paymentProofs, reconciliations: reconciliations.data.reconciliations } };
+    paymentProofs: paymentProofs.data.paymentProofs, reconciliations: reconciliations.data.reconciliations,
+    portfolioSummary: { clients: Number(clientCount?.total || 0), projects: Number(projectCount?.total || 0),
+      employees, activeEmployees: Number(employeeCount?.active || 0), primaryAccounts,
+      bankCoveragePercent: employees ? Math.round((primaryAccounts / employees) * 100) : 0 } } };
 }
 
 function auditOperation(organizationId, actor, action, detail, entity, entityId) {

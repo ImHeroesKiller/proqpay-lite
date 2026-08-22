@@ -9,12 +9,14 @@ import { IconBell, IconChevronDown, IconMenu, IconSearch } from './Icons';
 
 type HeaderActor = { id:string; name?:string; email:string; role:string; authMode?:string; clientIds?:string[]|null };
 type Props = { period:string; periods:string[]; view:AppView; clientCount:number; onPeriodChange:(period:string)=>void; onNavigate:(view:AppView)=>void; onHelp:()=>void; onMenu:()=>void; actor:HeaderActor };
-const VIEW_LABELS:Record<AppView,string>={dashboard:'Dashboard',operations:'Pay Runs',exceptions:'Action Center',payments:'Payment Control',employees:'Employees',clients:'Clients & Projects',reports:'Reports',logs:'Audit Logs'};
+const VIEW_LABELS:Record<AppView,string>={dashboard:'Dashboard',operations:'Pay Runs',exceptions:'Action Center',payments:'Payment Control',billing:'Billing & AR',integrations:'Integrations',employees:'Employees',clients:'Clients & Projects',reports:'Reports',logs:'Audit Logs'};
 const SEARCH_ITEMS:Array<{label:string;keywords:string;view:AppView}>=[
   {label:'Dashboard',keywords:'home control tower ringkasan',view:'dashboard'},
   {label:'Pay Runs',keywords:'payroll submission proses',view:'operations'},
   {label:'Action Center',keywords:'exception blocker approval',view:'exceptions'},
   {label:'Payment Control',keywords:'payment instruction proof reconciliation',view:'payments'},
+  {label:'Billing & AR',keywords:'invoice billing piutang finance',view:'billing'},
+  {label:'Integrations',keywords:'hris attendance accounting bank koneksi',view:'integrations'},
   {label:'Employees',keywords:'karyawan rekening',view:'employees'},
   {label:'Clients & Projects',keywords:'klien project',view:'clients'},
   {label:'Reports',keywords:'laporan payment',view:'reports'},

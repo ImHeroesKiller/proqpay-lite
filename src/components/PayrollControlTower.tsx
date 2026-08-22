@@ -9,6 +9,8 @@ import { IconAlertTriangle, IconCheckCircle, IconClock, IconLayers, IconRefresh,
 type Actor = { email:string; role:string; permissions:string[]; clientIds?:string[]|null };
 type Props = { actor:Actor; period:string; onNavigate:(view:AppView)=>void };
 type Tone = 'danger'|'warning'|'info'|'success';
+type PortfolioSummary = { clients:number;projects:number;employees:number;activeEmployees:number;primaryAccounts:number;bankCoveragePercent:number };
+type DashboardData = { submissions?:any[];exceptions?:any[];paymentInstructions?:any[];paymentProofs?:any[];reconciliations?:any[];portfolioSummary?:Partial<PortfolioSummary> };
 
 const DONE_STATES = new Set(['COMPLETED','RECONCILIATION']);
 const PIPELINE = [
@@ -27,7 +29,7 @@ function stageFor(state:string) { return PIPELINE.find((stage)=>stage.states.inc
 function daysFromNow(value:string) { return Math.ceil((new Date(value).getTime()-Date.now())/86_400_000); }
 
 export default function PayrollControlTower({actor,period,onNavigate}:Props) {
-  const [data,setData] = useState<Record<string,any[]>>({});
+  const [data,setData] = useState<DashboardData>({});
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState('');
   const [client,setClient] = useState('ALL');
@@ -41,8 +43,15 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
     try {
       const scopedClientIds=actor.role==='CLIENT_USER'?(actor.clientIds||[]):[undefined];
       const results=await Promise.all(scopedClientIds.map((clientId)=>listOperatingDashboard(clientId)));
-      const merged:Record<string,any[]>={};
-      results.forEach((result)=>Object.entries(result).forEach(([key,value])=>{if(Array.isArray(value))merged[key]=[...(merged[key]||[]),...value];}));
+      const merged:Record<string,any>={};
+      results.forEach((result)=>Object.entries(result).forEach(([key,value])=>{
+        if(Array.isArray(value)) merged[key]=[...(merged[key]||[]),...value];
+        else if(key==='portfolioSummary'&&value&&typeof value==='object') {
+          const previous=merged[key]||{}; const current=value as Record<string,number>;
+          merged[key]={clients:Number(previous.clients||0)+Number(current.clients||0),projects:Number(previous.projects||0)+Number(current.projects||0),employees:Number(previous.employees||0)+Number(current.employees||0),activeEmployees:Number(previous.activeEmployees||0)+Number(current.activeEmployees||0),primaryAccounts:Number(previous.primaryAccounts||0)+Number(current.primaryAccounts||0)};
+        }
+      }));
+      if(merged.portfolioSummary){const summary=merged.portfolioSummary;summary.bankCoveragePercent=summary.employees?Math.round((summary.primaryAccounts/summary.employees)*100):0;}
       setData(merged);
     } catch (loadError) { setError(loadError instanceof Error?loadError.message:'Dashboard operasional gagal dimuat'); }
     finally { setLoading(false); }
@@ -54,6 +63,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const proofs=useMemo(()=>data.paymentProofs||[],[data.paymentProofs]);
   const exceptions=useMemo(()=>data.exceptions||[],[data.exceptions]);
   const reconciliations=useMemo(()=>data.reconciliations||[],[data.reconciliations]);
+  const portfolio=data.portfolioSummary||{};
   const instructionBySubmission=useMemo(()=>new Map(instructions.map((row)=>[row.submission_id,row])),[instructions]);
   const reconciliationByInstruction=useMemo(()=>new Map(reconciliations.map((row)=>[row.payment_instruction_id,row])),[reconciliations]);
   const operationalSubmissions=useMemo(()=>submissions.map((row)=>{
@@ -120,6 +130,12 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
     </div>
     {error?<div className="app-notice-bubble app-notice-error"><strong>Dashboard gagal dimuat</strong><span>{error}</span></div>:null}
     {loading?<div className="card control-loading">Menyiapkan payroll control tower…</div>:<>
+      <div className="portfolio-snapshot" aria-label="Ringkasan kesiapan master data">
+        <span>Data readiness</span><b>{Number(portfolio.employees||0).toLocaleString('id-ID')} karyawan</b><i aria-hidden="true" />
+        <b>{Number(portfolio.clients||0).toLocaleString('id-ID')} klien</b><i aria-hidden="true" />
+        <b>{Number(portfolio.projects||0).toLocaleString('id-ID')} project</b><i aria-hidden="true" />
+        <b>{Number(portfolio.bankCoveragePercent||0)}% rekening utama</b>
+      </div>
       <div className="control-kpis">
         <Kpi label="Active pay runs" value={String(activeRuns)} note={`${visible.length} pay run terfilter`} tone="blue" icon={<IconLayers />} onClick={()=>onNavigate('operations')} />
         <Kpi label="Need attention" value={String(actions.filter((item)=>item.tone==='danger').length)} note={`${blockers} blocker aktif`} tone="red" icon={<IconAlertTriangle />} onClick={()=>onNavigate('operations')} />
