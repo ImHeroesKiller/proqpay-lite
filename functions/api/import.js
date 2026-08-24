@@ -37,14 +37,18 @@ export async function onRequest({ request, env }) {
     return respond({ error: 'Invalid JSON' }, 400);
   }
 
-  // Client users may not mutate HR/master records through this legacy JSON endpoint.
-  // Final payroll uploads must use /api/payroll-upload so the original source file,
-  // SHA-256, row provenance and control totals are preserved before canonical import.
-  if (authorization.actor.role === 'CLIENT_USER') {
+  // UPLOAD_FINAL is a controlled financial-source workflow. JSON-only imports are
+  // prohibited because they lose the original Excel bytes and source checksum.
+  if (body?.context) {
     return respond({
-      error: 'Client payroll upload wajib melalui /api/payroll-upload',
+      error: 'Upload payroll final wajib melalui menu Reports > Upload Payroll Final agar file Excel asli, SHA-256, row hash dan control total tersimpan.',
       code: 'PAYROLL_PROVENANCE_REQUIRED',
-    }, 403);
+    }, 409);
+  }
+
+  // Client users cannot mutate HR/master records through the legacy import path.
+  if (authorization.actor.role === 'CLIENT_USER') {
+    return respond({ error: 'Client user tidak memiliki akses ke master import', code: 'MASTER_IMPORT_FORBIDDEN' }, 403);
   }
 
   const validation = validateImportRows(body.rows);
