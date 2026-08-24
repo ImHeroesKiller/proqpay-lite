@@ -1,20 +1,93 @@
 import { authorize, enforceRateLimit, handlePreflight, secureJson } from './_security.js';
-import { d1First, hasD1 } from './_d1.js';
+import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import { handleD1OperatingModel } from './operating-model-d1.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'CLIENT_USER'];
 const RECONCILIABLE_STATUSES = new Set(['PROOF_UPLOADED', 'RECONCILIATION', 'PAYMENT_EXCEPTION']);
+const encoder = new TextEncoder();
 
-async function guardSensitivePaymentActions(request, env) {
-  if (request.method !== 'POST') return null;
-  let body;
-  try {
-    body = await request.clone().json();
-  } catch {
-    return null;
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(String(value)));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function normalizeAccount(value) {
+  return String(value || '').replace(/\s+/g, '');
+}
+
+async function bankFingerprint(bankName, accountNo) {
+  return sha256Hex(`${String(bankName || '').trim().toUpperCase()}|${normalizeAccount(accountNo)}`);
+}
+
+async function captureBankSnapshot(env, submissionId) {
+  const rows = await d1All(env.DB, `SELECT l.employee_id,eba.bank_name,eba.account_no
+    FROM payroll_run_lines l
+    LEFT JOIN employee_bank_accounts eba ON eba.employee_id=l.employee_id AND eba.is_primary=1
+    WHERE l.submission_id=? AND l.included=1 ORDER BY l.employee_id`, [submissionId]);
+  if (!rows.length) return;
+  const invalid = rows.filter((row) => !row.bank_name || !/^\d{6,34}$/.test(normalizeAccount(row.account_no)));
+  if (invalid.length) throw new Error(`BANK_SNAPSHOT_INVALID:${invalid.length}`);
+  const operations = [];
+  for (const row of rows) {
+    const account = normalizeAccount(row.account_no);
+    const fingerprint = await bankFingerprint(row.bank_name, account);
+    operations.push({
+      statement: `INSERT INTO payroll_bank_snapshots
+        (submission_id,employee_id,bank_name,account_last4,account_fingerprint,captured_at)
+        VALUES (?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        ON CONFLICT(submission_id,employee_id) DO UPDATE SET
+        bank_name=excluded.bank_name,account_last4=excluded.account_last4,
+        account_fingerprint=excluded.account_fingerprint,captured_at=excluded.captured_at`,
+      bindings: [submissionId, row.employee_id, String(row.bank_name), account.slice(-4), fingerprint],
+    });
   }
-  if (body?.action !== 'RECONCILE_PAYMENT') return null;
+  await d1Batch(env.DB, operations);
+}
+
+async function validateBankSnapshot(env, submissionId) {
+  let snapshots;
+  try {
+    snapshots = await d1All(env.DB, `SELECT s.employee_id,s.account_fingerprint,eba.bank_name,eba.account_no
+      FROM payroll_bank_snapshots s
+      LEFT JOIN employee_bank_accounts eba ON eba.employee_id=s.employee_id AND eba.is_primary=1
+      WHERE s.submission_id=? ORDER BY s.employee_id`, [submissionId]);
+  } catch (error) {
+    if (/no such table/i.test(String(error?.message || error))) return { ok: true, legacy: true };
+    throw error;
+  }
+  if (!snapshots.length) return { ok: true, legacy: true };
+  const changed = [];
+  for (const row of snapshots) {
+    if (!row.bank_name || !/^\d{6,34}$/.test(normalizeAccount(row.account_no))) {
+      changed.push(row.employee_id);
+      continue;
+    }
+    const current = await bankFingerprint(row.bank_name, row.account_no);
+    if (current !== row.account_fingerprint) changed.push(row.employee_id);
+  }
+  return { ok: changed.length === 0, changed, legacy: false };
+}
+
+async function readPostBody(request) {
+  if (request.method !== 'POST') return null;
+  try { return await request.clone().json(); } catch { return null; }
+}
+
+async function guardSensitivePaymentActions(body, env) {
+  if (!body) return null;
+  if (body.action === 'GENERATE_PAYMENT_INSTRUCTION') {
+    const submissionId = String(body.submissionId || '').trim();
+    if (!submissionId) return { status: 422, data: { error: 'submissionId wajib diisi' } };
+    const snapshot = await validateBankSnapshot(env, submissionId);
+    if (!snapshot.ok) {
+      return { status: 409, data: {
+        error: `${snapshot.changed.length} rekening berubah setelah payroll difinalisasi. Review dan finalisasi ulang sebelum membuat PI.`,
+        code: 'BANK_SNAPSHOT_CHANGED',
+      } };
+    }
+  }
+  if (body.action !== 'RECONCILE_PAYMENT') return null;
   const paymentInstructionId = String(body.paymentInstructionId || '').trim();
   if (!paymentInstructionId) {
     return { status: 422, data: { error: 'paymentInstructionId wajib diisi' } };
@@ -60,7 +133,20 @@ export async function onRequest(context) {
       METHODS
     );
   }
-  const guarded = await guardSensitivePaymentActions(request, env);
+  const body = await readPostBody(request);
+  const guarded = await guardSensitivePaymentActions(body, env);
   if (guarded) return secureJson(guarded.data, guarded.status, request, env, METHODS);
-  return handleD1OperatingModel(context, authorization.actor);
+
+  const response = await handleD1OperatingModel(context, authorization.actor);
+  if (body?.action === 'ADVANCE_PAY_RUN' && body?.command === 'FINALIZE_PAYROLL' && response?.ok) {
+    try {
+      await captureBankSnapshot(env, String(body.submissionId || ''));
+    } catch (error) {
+      return secureJson({
+        error: 'Payroll sudah difinalisasi tetapi snapshot rekening gagal dikunci. Jangan membuat PI sebelum masalah diperbaiki.',
+        code: 'BANK_SNAPSHOT_FAILED',
+      }, 500, request, env, METHODS);
+    }
+  }
+  return response;
 }
