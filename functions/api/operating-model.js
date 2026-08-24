@@ -4,6 +4,7 @@ import { handleD1OperatingModel } from './operating-model-d1.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'CLIENT_USER'];
+const SNAPSHOT_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
 const RECONCILIABLE_STATUSES = new Set(['PROOF_UPLOADED', 'RECONCILIATION', 'PAYMENT_EXCEPTION']);
 const encoder = new TextEncoder();
 
@@ -110,6 +111,27 @@ async function guardSensitivePaymentActions(body, env) {
   return null;
 }
 
+async function validateSnapshotCapture(body, actor, env) {
+  if (body?.action !== 'ADVANCE_PAY_RUN' || body?.command !== 'FINALIZE_PAYROLL') return null;
+  if (!SNAPSHOT_ROLES.has(actor.role)) return { status: 403, data: { error: 'Hanya Payroll Processor yang dapat memfinalisasi payroll' } };
+  const submissionId = String(body.submissionId || '').trim();
+  const submission = await d1First(env.DB, 'SELECT id,state FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1',
+    [submissionId, String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO')]);
+  if (!submission) return { status: 404, data: { error: 'Pay Run tidak ditemukan' } };
+  if (!['VALIDATED','STANDARDIZED'].includes(String(submission.state || '').toUpperCase())) {
+    return { status: 409, data: { error: `Pay Run berstatus ${submission.state} tidak dapat difinalisasi` } };
+  }
+  try {
+    await captureBankSnapshot(env, submissionId);
+  } catch {
+    return { status: 409, data: {
+      error: 'Snapshot rekening gagal dikunci. Payroll belum difinalisasi; periksa rekening utama karyawan lalu coba lagi.',
+      code: 'BANK_SNAPSHOT_FAILED',
+    } };
+  }
+  return null;
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
@@ -136,17 +158,7 @@ export async function onRequest(context) {
   const body = await readPostBody(request);
   const guarded = await guardSensitivePaymentActions(body, env);
   if (guarded) return secureJson(guarded.data, guarded.status, request, env, METHODS);
-
-  if (body?.action === 'ADVANCE_PAY_RUN' && body?.command === 'FINALIZE_PAYROLL') {
-    try {
-      await captureBankSnapshot(env, String(body.submissionId || ''));
-    } catch (error) {
-      return secureJson({
-        error: 'Snapshot rekening gagal dikunci. Payroll belum difinalisasi; periksa rekening utama karyawan lalu coba lagi.',
-        code: 'BANK_SNAPSHOT_FAILED',
-      }, 409, request, env, METHODS);
-    }
-  }
-
+  const snapshotGuard = await validateSnapshotCapture(body, authorization.actor, env);
+  if (snapshotGuard) return secureJson(snapshotGuard.data, snapshotGuard.status, request, env, METHODS);
   return handleD1OperatingModel(context, authorization.actor);
 }
