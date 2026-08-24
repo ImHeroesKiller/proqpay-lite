@@ -2,7 +2,7 @@
 
 export default function Sparkline({
   data,
-  color = '#5b5ef0',
+  color = 'var(--accent)',
   height = 36,
 }: {
   data: number[];
