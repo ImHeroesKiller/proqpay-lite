@@ -21,5 +21,5 @@ BEFORE INSERT ON unapplied_cash
 WHEN NEW.status<>'VOID'
   AND EXISTS(SELECT 1 FROM unapplied_cash WHERE ar_id=NEW.ar_id AND reference=NEW.reference AND status<>'VOID')
 BEGIN
-  SELECT RAISE(ABORT, 'UNIQUE constraint failed: unapplied_cash.ar_id, unapplied_cash.reference');
+  SELECT RAISE(IGNORE);
 END;
