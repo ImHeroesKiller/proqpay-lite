@@ -44,13 +44,13 @@ async function loadNet(database, employeeId) {
 async function snapshot(database, actor) {
   const orgId = actor.orgId;
   const policy = await loadPolicy(database, orgId, actor.clientId);
-  const earned = earnedDaysInPeriod();
   const contract = await d1First(
     database,
     'SELECT join_date, accepted_date FROM employee_contracts WHERE employee_id=? AND is_current=1 LIMIT 1',
     [actor.id],
   );
   const joinDate = contract?.join_date || contract?.accepted_date || '';
+  const earned = earnedDaysInPeriod(new Date(), joinDate);
   const tenureMonths = tenureMonthsFromJoin(joinDate);
   const tenureDays = tenureDaysFromJoin(joinDate);
   const net = await loadNet(database, actor.id);
