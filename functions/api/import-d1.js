@@ -1,4 +1,5 @@
 import { d1All, d1Batch, d1First } from './_d1.js';
+import { applyEwaRepayments } from './_ewa.js';
 import { clientIdsFor, projectIdsFor, publicError } from './_security.js';
 
 const MAX_BINDINGS=90;
@@ -111,6 +112,12 @@ export async function importRowsD1({env,actor,body,rows,respond,requestId}) {
     }
     operations.push({statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity) VALUES(?,?,?,?,?,?,?)`,bindings:[`LOG-IMP-${crypto.randomUUID()}`,organizationId,actor.email,actor.role,targetSubmission?'PAY_RUN_INPUT_REPLACED':'EMPLOYEE_IMPORT',`Import ${inserted} new, ${updated} updated, 0 errors${targetSubmission?` · ${submissionId}`:''}`,targetSubmission?'payroll_submission':'Employee']});
     await d1Batch(database,operations);
+    if (submissionId) {
+      try { await applyEwaRepayments(database, submissionId); }
+      catch (error) {
+        if (!/no such table|no such column/i.test(String(error?.message || error))) throw error;
+      }
+    }
     return respond({ok:true,atomic:true,inserted,updated,errors:0,errorSamples:[],provinceStats,total:rows.length,submissionId,serviceTier,clientId,projectId});
   } catch(error) {
     return respond({ok:false,atomic:true,error:'Import transaction failed',...publicError(error,requestId)},500);

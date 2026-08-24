@@ -1,3 +1,5 @@
+import { d1All, d1First, d1Run } from './_d1.js';
+
 export const DEFAULT_EWA_POLICY = Object.freeze({
   enabled: 1,
   fee_rate: 0.03,
@@ -88,4 +90,100 @@ export function policyToRules(policy = DEFAULT_EWA_POLICY) {
     minTenureMonths: Number(policy.min_tenure_months),
     enabled: Boolean(Number(policy.enabled)),
   };
+}
+
+function parseComponents(raw) {
+  try {
+    const parsed = JSON.parse(raw || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function hasEwaComponent(components) {
+  if (Array.isArray(components)) {
+    return components.some((item) => /ewa/i.test(String(item?.name || item?.label || item?.code || '')));
+  }
+  return Object.keys(components || {}).some((key) => /ewa/i.test(key));
+}
+
+function attachEwa(components, amount, fee) {
+  if (Array.isArray(components)) {
+    return [...components, { name: 'ewaRepayment', amount: -Math.abs(amount) }, { name: 'ewaFee', amount: -Math.abs(fee) }];
+  }
+  return { ...components, ewaRepayment: -Math.abs(amount), ewaFee: -Math.abs(fee) };
+}
+
+/** Deduct disbursed EWA from pay-run snapshot. Idempotent. Does not create PI or change workflow. */
+export async function applyEwaRepayments(database, submissionId) {
+  if (!database || !submissionId) return { applied: 0 };
+  const submission = await d1First(database, 'SELECT id, period FROM payroll_submissions WHERE id=? LIMIT 1', [submissionId]);
+  if (!submission) return { applied: 0 };
+  let rows = [];
+  try {
+    rows = await d1All(
+      database,
+      `SELECT r.id, r.amount, r.fee, r.repayment, r.status, r.employee_id,
+          l.deduction_amount, l.net_amount, l.components
+        FROM ewa_requests r
+        JOIN payroll_run_lines l ON l.submission_id=? AND l.employee_id=r.employee_id AND l.included=1
+        WHERE r.status IN ('DISBURSED','REPAYING') AND r.period=?`,
+      [submissionId, submission.period],
+    );
+  } catch (error) {
+    if (/no such table/i.test(String(error?.message || error))) return { applied: 0 };
+    throw error;
+  }
+  let applied = 0;
+  for (const row of rows) {
+    const components = parseComponents(row.components);
+    const repayment = Math.max(0, Math.round(Number(row.repayment || (Number(row.amount) + Number(row.fee))) || 0));
+    if (hasEwaComponent(components)) {
+      if (row.status === 'DISBURSED') {
+        await d1Run(
+          database,
+          `UPDATE ewa_requests SET status='REPAYING', payroll_submission_id=?,
+            applied_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE id=?`,
+          [submissionId, row.id],
+        );
+      }
+      continue;
+    }
+    const net = Number(row.net_amount || 0);
+    if (repayment <= 0 || net - repayment <= 0) continue;
+    const next = attachEwa(components, Number(row.amount) || 0, Number(row.fee) || 0);
+    await d1Run(
+      database,
+      `UPDATE payroll_run_lines SET deduction_amount=?, net_amount=?, components=?,
+        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE submission_id=? AND employee_id=? AND included=1`,
+      [Number(row.deduction_amount || 0) + repayment, net - repayment, JSON.stringify(next), submissionId, row.employee_id],
+    );
+    await d1Run(
+      database,
+      `UPDATE ewa_requests SET status='REPAYING', payroll_submission_id=?,
+        applied_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id=?`,
+      [submissionId, row.id],
+    );
+    applied += 1;
+  }
+  return { applied };
+}
+
+export async function markEwaRepaid(database, submissionId) {
+  if (!database || !submissionId) return;
+  try {
+    await d1Run(
+      database,
+      `UPDATE ewa_requests SET status='REPAID', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE payroll_submission_id=? AND status='REPAYING'`,
+      [submissionId],
+    );
+  } catch (error) {
+    if (/no such table|no such column/i.test(String(error?.message || error))) return;
+    throw error;
+  }
 }

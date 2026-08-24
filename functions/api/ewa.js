@@ -58,7 +58,7 @@ export async function onRequest({ request, env }) {
     if (action === 'APPROVE' && current.status === 'SUBMITTED') nextStatus = 'APPROVED';
     else if (action === 'REJECT' && current.status === 'SUBMITTED') nextStatus = 'REJECTED';
     else if (action === 'DISBURSE' && current.status === 'APPROVED') nextStatus = 'DISBURSED';
-    else if (action === 'REPAY' && current.status === 'DISBURSED') nextStatus = 'REPAID';
+    else if (action === 'REPAY' && (current.status === 'DISBURSED' || current.status === 'REPAYING')) nextStatus = 'REPAID';
     else return respond({ error: 'Aksi tidak valid untuk status saat ini' }, 409);
 
     const note = String(body.note || '').slice(0, 240);

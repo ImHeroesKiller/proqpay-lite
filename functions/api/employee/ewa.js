@@ -57,7 +57,7 @@ async function snapshot(database, actor) {
   });
   const open = await d1First(
     database,
-    `SELECT * FROM ewa_requests WHERE employee_id=? AND status IN ('SUBMITTED','APPROVED','DISBURSED')
+    `SELECT * FROM ewa_requests WHERE employee_id=? AND status IN ('SUBMITTED','APPROVED','DISBURSED','REPAYING')
       ORDER BY created_at DESC LIMIT 1`,
     [actor.id],
   );
