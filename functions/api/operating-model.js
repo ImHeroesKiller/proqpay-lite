@@ -6,6 +6,7 @@ const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'CLIENT_USER'];
 const SNAPSHOT_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
 const RECONCILIABLE_STATUSES = new Set(['PROOF_UPLOADED', 'RECONCILIATION', 'PAYMENT_EXCEPTION']);
+const APPROVED_OR_LATER_STATUSES = new Set(['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED']);
 const encoder = new TextEncoder();
 
 async function sha256Hex(value) {
@@ -75,8 +76,35 @@ async function readPostBody(request) {
   try { return await request.clone().json(); } catch { return null; }
 }
 
+async function healCompletedPayment(env, payment) {
+  if (!payment?.submission_id) return;
+  try {
+    await d1Batch(env.DB, [{
+      statement: `UPDATE ewa_requests SET status='REPAID',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE payroll_submission_id=? AND status='REPAYING'`,
+      bindings: [payment.submission_id],
+    }]);
+  } catch (error) {
+    if (!/no such table|no such column/i.test(String(error?.message || error))) throw error;
+  }
+}
+
 async function guardSensitivePaymentActions(body, env) {
   if (!body) return null;
+  if (body.action === 'APPROVE_PAYMENT') {
+    const paymentInstructionId = String(body.paymentInstructionId || '').trim();
+    if (!paymentInstructionId) return { status: 422, data: { error: 'paymentInstructionId wajib diisi' } };
+    const payment = await d1First(env.DB, `SELECT id,status,content_hash FROM payment_instructions
+      WHERE id=? AND org_id=? LIMIT 1`, [paymentInstructionId, String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO')]);
+    if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
+    if (APPROVED_OR_LATER_STATUSES.has(String(payment.status || '').toUpperCase())) {
+      const approval = await d1First(env.DB, `SELECT * FROM payment_approvals
+        WHERE payment_instruction_id=? AND action_hash=? LIMIT 1`, [payment.id, String(body.actionHash || '')]);
+      if (approval && payment.content_hash && String(body.actionHash || '') === String(payment.content_hash)) {
+        return { status: 200, data: { ok: true, approval, idempotentReplay: true } };
+      }
+    }
+  }
   if (body.action === 'GENERATE_PAYMENT_INSTRUCTION') {
     const submissionId = String(body.submissionId || '').trim();
     if (!submissionId) return { status: 422, data: { error: 'submissionId wajib diisi' } };
@@ -102,14 +130,15 @@ async function guardSensitivePaymentActions(body, env) {
   if (body.action !== 'RECONCILE_PAYMENT') return null;
   const paymentInstructionId = String(body.paymentInstructionId || '').trim();
   if (!paymentInstructionId) return { status: 422, data: { error: 'paymentInstructionId wajib diisi' } };
-  const payment = await d1First(env.DB, `SELECT pi.id,pi.status,
+  const payment = await d1First(env.DB, `SELECT pi.id,pi.status,pi.submission_id,
     COALESCE((SELECT COUNT(*) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0) AS proof_count
     FROM payment_instructions pi WHERE pi.id=? AND pi.org_id=? LIMIT 1`,
   [paymentInstructionId, String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO')]);
   if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
   if (payment.status === 'COMPLETED') {
+    await healCompletedPayment(env, payment);
     const reconciliation = await d1First(env.DB, 'SELECT * FROM reconciliations WHERE payment_instruction_id=? LIMIT 1', [payment.id]);
-    return { status: 200, data: { ok: true, reconciliation, idempotentReplay: true } };
+    return { status: 200, data: { ok: true, reconciliation, idempotentReplay: true, healed: true } };
   }
   if (!RECONCILIABLE_STATUSES.has(String(payment.status || '').toUpperCase())) {
     return { status: 409, data: { error: `PI berstatus ${payment.status || 'UNKNOWN'} belum dapat direkonsiliasi` } };
