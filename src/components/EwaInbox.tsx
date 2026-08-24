@@ -63,12 +63,12 @@ export default function EwaInbox() {
         <div>
           <p style={{ margin: 0, fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text3)' }}>Employee portal</p>
           <h1>Advance Salary</h1>
-          <p>Pengajuan EWA dari portal karyawan. Persetujuan di sini tidak mengubah pay run, PI, atau billing.</p>
+          <p>Pengajuan EWA dari portal karyawan. Persetujuan dan pencairan tidak mengubah PI atau billing. Potongan masuk ke pay run saat input difinalisasi.</p>
         </div>
         <span className="status-pill">{pending} menunggu</span>
       </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        {['SUBMITTED', 'APPROVED', 'DISBURSED', 'REJECTED', ''].map((value) => (
+        {['SUBMITTED', 'APPROVED', 'DISBURSED', 'REPAYING', 'REPAID', 'REJECTED', ''].map((value) => (
           <button key={value || 'ALL'} type="button" className={`btn${status === value ? ' btn-primary' : ''}`} onClick={() => setStatus(value)}>
             {value || 'Semua'}
           </button>

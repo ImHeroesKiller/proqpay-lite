@@ -1,4 +1,5 @@
 import { d1All, d1Batch, d1First } from './_d1.js';
+import { applyEwaRepayments, markEwaRepaid } from './_ewa.js';
 import { handlePreflight, publicError, secureJson } from './_security.js';
 import { canTransition, resolveTierTransition, validateOperatingAction } from './operating-model-validation.js';
 import { canonicalBankCode, encryptAccountNumber, instructionContentHash, sha256Hex } from './payment-instruction-core.js';
@@ -517,6 +518,10 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (!submission || submission.period_status==='CLOSED') return { status:409, data:{ error:'Pay Run tidak tersedia untuk finalisasi input' } };
     if (!PROCESSOR_ROLES.has(actor.role) && !CLIENT_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
     if (!assertClientScope(actor, env, submission.client_id) || !assertProjectScope(actor, submission.project_id)) return { status:403, data:{ error:'Scope denied' } };
+    try { await applyEwaRepayments(database, submission.id); }
+    catch (error) {
+      if (!/no such table|no such column/i.test(String(error?.message || error))) throw error;
+    }
     const quality = await d1First(database, `SELECT COUNT(*) AS recipients,
       SUM(CASE WHEN net_amount<=0 THEN 1 ELSE 0 END) AS invalid_net,
       SUM(CASE WHEN bank_name IS NULL OR account_last4 IS NULL THEN 1 ELSE 0 END) AS invalid_bank
@@ -842,6 +847,12 @@ async function executeAction(database, body, actor, env, organizationId) {
         bindings: [status === 'MATCHED' ? 'COMPLETED' : 'PAYMENT_EXCEPTION', payment.submission_id] },
       auditOperation(organizationId, actor, 'PAYMENT_RECONCILED', `${status} · difference ${difference}`, 'payment_instruction', payment.id),
     ]);
+    if (status === 'MATCHED') {
+      try { await markEwaRepaid(database, payment.submission_id); }
+      catch (error) {
+        if (!/no such table|no such column/i.test(String(error?.message || error))) throw error;
+      }
+    }
     const reconciliation = await d1First(database, 'SELECT * FROM reconciliations WHERE payment_instruction_id=?', [payment.id]);
     return { data: { ok: true, reconciliation } };
   }
