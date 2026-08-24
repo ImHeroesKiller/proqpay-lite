@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import { listOperatingResource } from '@/lib/operating-model-api';
 import PanelPagination from '@/components/PanelPagination';
+import PayrollSourceUpload from '@/components/PayrollSourceUpload';
 
 type PaymentReport = {
   id:string; client_name?:string; project_name?:string; payroll_period?:string; payment_period?:string;
@@ -92,6 +93,7 @@ export default function ReportsWorkspace() {
   }
 
   return <section>
+    <PayrollSourceUpload />
     <div className="reports-heading"><div><h2>Payroll & Payment Reports</h2><p>Audit trail dari raw source, canonical payroll snapshot, payslip final, pembayaran dan rekonsiliasi.</p></div><button className="btn btn-primary" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div>
     <div className="report-filter" style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>{(Object.keys(LABELS) as ReportType[]).map((item)=><button key={item} type="button" className={`btn ${type===item?'btn-primary':''}`} onClick={()=>setType(item)}>{LABELS[item]}</button>)}</div>
 
