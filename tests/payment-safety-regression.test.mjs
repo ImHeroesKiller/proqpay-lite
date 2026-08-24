@@ -6,6 +6,7 @@ const operatingModel = await readFile(new URL('../functions/api/operating-model.
 const employeeInit = await readFile(new URL('../functions/api/employee/init.js', import.meta.url), 'utf8');
 const ewa = await readFile(new URL('../functions/api/_ewa.js', import.meta.url), 'utf8');
 const migration = await readFile(new URL('../migrations/0009_payroll_bank_snapshot.sql', import.meta.url), 'utf8');
+const invoiceSodMigration = await readFile(new URL('../migrations/0010_invoice_approval_sod.sql', import.meta.url), 'utf8');
 
 test('reconciliation is gated by payment state and evidence', () => {
   assert.match(operatingModel, /RECONCILIABLE_STATUSES/);
@@ -37,6 +38,14 @@ test('EWA repayment is batched and insufficient net blocks processing', () => {
   assert.match(ewa, /EWA_REPAYMENT_EXCEEDS_NET/);
   assert.match(ewa, /EWA_REPAYMENT_INVALID/);
   assert.doesNotMatch(ewa, /net - repayment <= 0\) continue/);
+});
+
+test('invoice approval enforces maker-checker for every role', () => {
+  assert.match(invoiceSodMigration, /invoice_maker_checker_update/);
+  assert.match(invoiceSodMigration, /NEW\.status = 'APPROVED'/);
+  assert.match(invoiceSodMigration, /NEW\.created_by/);
+  assert.match(invoiceSodMigration, /NEW\.approved_by/);
+  assert.match(invoiceSodMigration, /RAISE\(ABORT/);
 });
 
 test('unknown payroll state is explicit and never shown as paid', () => {
