@@ -25,7 +25,7 @@ async function captureBankSnapshot(env, submissionId) {
     FROM payroll_run_lines l
     LEFT JOIN employee_bank_accounts eba ON eba.employee_id=l.employee_id AND eba.is_primary=1
     WHERE l.submission_id=? AND l.included=1 ORDER BY l.employee_id`, [submissionId]);
-  if (!rows.length) return;
+  if (!rows.length) throw new Error('BANK_SNAPSHOT_EMPTY');
   const invalid = rows.filter((row) => !row.bank_name || !/^\d{6,34}$/.test(normalizeAccount(row.account_no)));
   if (invalid.length) throw new Error(`BANK_SNAPSHOT_INVALID:${invalid.length}`);
   const operations = [];
@@ -137,16 +137,16 @@ export async function onRequest(context) {
   const guarded = await guardSensitivePaymentActions(body, env);
   if (guarded) return secureJson(guarded.data, guarded.status, request, env, METHODS);
 
-  const response = await handleD1OperatingModel(context, authorization.actor);
-  if (body?.action === 'ADVANCE_PAY_RUN' && body?.command === 'FINALIZE_PAYROLL' && response?.ok) {
+  if (body?.action === 'ADVANCE_PAY_RUN' && body?.command === 'FINALIZE_PAYROLL') {
     try {
       await captureBankSnapshot(env, String(body.submissionId || ''));
     } catch (error) {
       return secureJson({
-        error: 'Payroll sudah difinalisasi tetapi snapshot rekening gagal dikunci. Jangan membuat PI sebelum masalah diperbaiki.',
+        error: 'Snapshot rekening gagal dikunci. Payroll belum difinalisasi; periksa rekening utama karyawan lalu coba lagi.',
         code: 'BANK_SNAPSHOT_FAILED',
-      }, 500, request, env, METHODS);
+      }, 409, request, env, METHODS);
     }
   }
-  return response;
+
+  return handleD1OperatingModel(context, authorization.actor);
 }
