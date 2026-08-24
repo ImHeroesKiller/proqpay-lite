@@ -42,7 +42,7 @@ async function derivePassword(password, salt, iterations = PASSWORD_ITERATIONS) 
   return bytesToBase64Url(new Uint8Array(bits));
 }
 
-function constantTimeEqual(left, right) {
+export function constantTimeEqual(left, right) {
   const a = encoder.encode(String(left || ''));
   const b = encoder.encode(String(right || ''));
   const length = Math.max(a.length, b.length);

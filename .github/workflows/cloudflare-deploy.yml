@@ -85,6 +85,9 @@ jobs:
       - name: Apply pending D1 migrations
         run: npx wrangler d1 migrations apply proqpay-lite-production --remote
 
+      - name: Seed missing employee portal credentials
+        run: node scripts/seed-employee-portal-passwords.mjs
+
       - name: Reconcile canonical payment invariants
         shell: bash
         run: |

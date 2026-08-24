@@ -1,0 +1,55 @@
+name: Deploy ESS companion
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proqpay-ess-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout ESS
+        uses: actions/checkout@v4
+        with:
+          repository: ImHeroesKiller/proqpay-ess
+          ref: main
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Verify Cloudflare credentials
+        run: |
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
+
+      - name: Install and build Worker
+        run: |
+          npm ci
+          npx opennextjs-cloudflare build
+
+      - name: Deploy ESS Worker
+        run: npx wrangler deploy
+
+      - name: Verify ESS is up
+        run: |
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error https://proqpay-ess.arywibowo.workers.dev/ > /dev/null; then
+              exit 0
+            fi
+            echo "ESS health attempt ${attempt}/12"
+            sleep 5
+          done
+          exit 1
