@@ -26,6 +26,9 @@ Minimal:
 | `DATA_BACKEND` | variable | `d1` |
 | `AUTH_MODE` | variable | Wajib `session` untuk production |
 | `SESSION_HOURS` | variable | Durasi sesi login, default `8`, maksimum `168` |
+| `EMPLOYEE_SESSION_HOURS` | variable | Durasi sesi portal karyawan, default `12` |
+| `EMPLOYEE_PORTAL_ORIGINS` | variable | Origin ESS yang diizinkan memanggil `/api/employee/*`, dipisahkan koma |
+| `EMPLOYEE_PORTAL_KEY` | secret | Opsional; header `X-Portal-Key` untuk panggilan server-to-server dari ESS |
 | `PI_ENCRYPTION_KEY` | secret | Minimal 32 karakter; key AES-256-GCM untuk snapshot rekening PI |
 | `PROQPAY_BOOTSTRAP_ADMIN_EMAIL` | GitHub secret | Email Super Admin pertama untuk workflow cutover |
 | `PROQPAY_BOOTSTRAP_ADMIN_PASSWORD` | GitHub secret | Password kuat sementara; tidak ditulis ke log/SQL plaintext |
@@ -74,6 +77,9 @@ Hak akses API:
 | `POST /api/import` | `SUPER_ADMIN`, `PAYROLL_PROCESSOR`, `CLIENT_USER` sesuai scope |
 | `POST /api/schema` | `SUPER_ADMIN` |
 | `GET/POST /api/accounts` | Daftar untuk `SUPER_ADMIN`; ganti password untuk pemilik akun |
+| `GET/POST /api/employee-credentials` | Super Admin / Processor: terbitkan password portal ESS |
+| `POST /api/employee/login`, `/api/employee/logout`, `/api/employee/password` | Sesi portal karyawan (bukan `app_users`) |
+| `GET /api/employee/me` | Identitas karyawan dari cookie `proqpay_employee` |
 | `POST /api/login`, `/api/logout` | Login database dan pencabutan sesi |
 | `/api/ida`, `/api/wilayah` | semua role terautentikasi |
 | `GET/POST /api/state` | role internal sesuai workflow |

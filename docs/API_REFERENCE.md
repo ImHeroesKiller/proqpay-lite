@@ -29,6 +29,11 @@ Base path: `/api`. Seluruh response JSON memakai security headers dan `Cache-Con
 | `/schema` | POST | Super admin | Migration/bootstrap | Harus dijalankan saat deployment, bukan hot path. |
 | `/reset` | POST | Super admin | Reset data terkontrol | Exact confirmation + transaction. |
 | `/wilayah` | GET/POST | Authorized | Reference wilayah | Deterministic lookup/update. |
+| `/employee-credentials` | GET/POST | Super admin / processor | Issue/reset password portal ESS | Batch 10; plaintext sekali; hash PBKDF2. |
+| `/employee/login` | POST | Public (portal origin) | Sesi karyawan | Lockout 5 gagal; cookie `proqpay_employee`. |
+| `/employee/logout` | POST | Portal session | Cabut sesi karyawan | Safe replay. |
+| `/employee/me` | GET | Portal session | Identitas karyawan | Bukan `app_users`. |
+| `/employee/password` | POST | Portal session | Ganti password portal | Policy kuat; seluruh sesi dicabut. |
 
 ## Canonical Payment Instruction actions
 
