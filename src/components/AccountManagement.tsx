@@ -144,10 +144,10 @@ function AccessScopes({ clients, projects, clientIds, projectIds, onChange, comp
   return <div className={`client-scope-picker${compact ? ' compact' : ''}`}><span>Pasangkan akses klien dan project</span><div>{clients.length ? clients.map((client) => {
     const selected = clientIds.includes(client.id);
     const clientProjects = projects.filter((project) => project.client_id === client.id);
-    return <div key={client.id} style={{display:'grid',gap:4}}><label><input type="checkbox" checked={selected} onChange={(event) => {
+    return <div key={client.id} className={`client-scope-group${selected?' selected':''}`}><label><input type="checkbox" checked={selected} onChange={(event) => {
       const nextClients = event.target.checked ? [...clientIds, client.id] : clientIds.filter((id) => id !== client.id);
       const nextProjects = event.target.checked ? projectIds : projectIds.filter((id) => !clientProjects.some((project) => project.id === id));
       onChange(nextClients, nextProjects);
-    }} /> <strong>{client.name}</strong></label>{selected && clientProjects.length ? <div style={{display:'grid',paddingLeft:22,gap:3}}>{clientProjects.map((project) => <label key={project.id}><input type="checkbox" checked={projectIds.includes(project.id)} onChange={(event) => onChange(clientIds, event.target.checked ? [...projectIds, project.id] : projectIds.filter((id) => id !== project.id))} /> {project.name}</label>)}<em style={{fontSize:10}}>Tanpa project dipilih = akses seluruh project klien</em></div> : null}</div>;
+    }} /> <strong>{client.name}</strong></label>{selected && clientProjects.length ? <div className="client-project-list">{clientProjects.map((project) => <label key={project.id}><input type="checkbox" checked={projectIds.includes(project.id)} onChange={(event) => onChange(clientIds, event.target.checked ? [...projectIds, project.id] : projectIds.filter((id) => id !== project.id))} /> {project.name}</label>)}<em>Tanpa project dipilih = akses seluruh project klien</em></div> : null}</div>;
   }) : <em>Belum ada klien. Tambahkan klien terlebih dahulu.</em>}</div></div>;
 }
