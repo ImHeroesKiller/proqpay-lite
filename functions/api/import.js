@@ -36,6 +36,17 @@ export async function onRequest({ request, env }) {
   } catch {
     return respond({ error: 'Invalid JSON' }, 400);
   }
+
+  // Client users may not mutate HR/master records through this legacy JSON endpoint.
+  // Final payroll uploads must use /api/payroll-upload so the original source file,
+  // SHA-256, row provenance and control totals are preserved before canonical import.
+  if (authorization.actor.role === 'CLIENT_USER') {
+    return respond({
+      error: 'Client payroll upload wajib melalui /api/payroll-upload',
+      code: 'PAYROLL_PROVENANCE_REQUIRED',
+    }, 403);
+  }
+
   const validation = validateImportRows(body.rows);
   if (!validation.ok) {
     return respond({ ok: false, error: 'Import validation failed', issues: validation.issues }, 422);
