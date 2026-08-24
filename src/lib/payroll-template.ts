@@ -1,8 +1,8 @@
 export const PAYROLL_TEMPLATE_VERSION = 'PROQPAY_PAYROLL_V1';
 
 export async function downloadPayrollTemplate() {
-  const module = await import('exceljs');
-  const ExcelJS = module.default || module;
+  const excelJsModule = await import('exceljs');
+  const ExcelJS = excelJsModule.default || excelJsModule;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'ProQPay';
   workbook.subject = 'Canonical payroll upload template';

@@ -105,6 +105,30 @@ test('D1 processes 396 recipients through PI approval, proof, and reconciliation
   assert.throws(() => DB.sqlite.prepare('UPDATE payment_instruction_lines SET amount=1 WHERE payment_instruction_id=?').run(pi.id), /immutable/);
 });
 
+test('Controller approval publishes exactly one PI atomically and retries idempotently', async () => {
+  const DB = new D1Mock();
+  seed396(DB);
+  DB.sqlite.prepare(`UPDATE payroll_submissions SET state='CONTROLLER_REVIEW' WHERE id='SUB-UAT'`).run();
+  const env = { DB, DEFAULT_ORG_ID:'ORG-OTSINDO', PI_ENCRYPTION_KEY:'uat-native-cloudflare-key-32-bytes-minimum' };
+  const controller = { id:'USR-CONTROLLER', email:'controller@proqpay.test', role:'PAYROLL_CONTROLLER', permissions:['payment:approve'] };
+  const payload = { action:'APPROVE_PAYROLL_AND_GENERATE_PI', submissionId:'SUB-UAT', reviewConfirmed:true,
+    reviewNote:'Control total, daftar penerima, dan rekening telah diverifikasi.' };
+
+  const approved = await handleD1OperatingModel({ request:post(payload), env }, controller);
+  assert.equal(approved.status,201,await approved.clone().text());
+  const first = (await approved.json()).paymentInstruction;
+  assert.equal(first.status,'PAYMENT_INSTRUCTION_READY');
+  assert.equal(DB.sqlite.prepare(`SELECT state FROM payroll_submissions WHERE id='SUB-UAT'`).get().state,'PAYMENT_INSTRUCTION_READY');
+  assert.equal(DB.sqlite.prepare(`SELECT COUNT(*) AS count FROM payment_instructions WHERE submission_id='SUB-UAT' AND status<>'REJECTED'`).get().count,1);
+
+  const replay = await handleD1OperatingModel({ request:post(payload), env }, controller);
+  assert.equal(replay.status,200,await replay.clone().text());
+  const replayPayload = await replay.json();
+  assert.equal(replayPayload.idempotentReplay,true);
+  assert.equal(replayPayload.paymentInstruction.id,first.id);
+  assert.equal(DB.sqlite.prepare(`SELECT COUNT(*) AS count FROM payment_instructions WHERE submission_id='SUB-UAT' AND status<>'REJECTED'`).get().count,1);
+});
+
 test('rejected PI returns to Processor and creates a new immutable revision', async () => {
   const DB = new D1Mock();
   seed396(DB);
