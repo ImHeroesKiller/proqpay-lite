@@ -5,14 +5,25 @@ import { validatePayrollControlRows } from '../functions/api/payroll-upload-vali
 
 const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
-test('strict payroll controls require Gross - Deduction = Net', () => {
-  const valid = validatePayrollControlRows([{ nrk:'E1', name:'A', grossPay:1000, totalDeductions:200, netPay:800, bank:'BCA', accountNo:'12345678' }]);
+test('strict payroll controls require row and component balances', () => {
+  const valid = validatePayrollControlRows([{
+    nrk:'E1', name:'A', grossPay:1000, totalDeductions:200, netPay:800, bank:'BCA', accountNo:'12345678',
+    payrollComponents:{ basicSalary:900, overtime:100, jhtDeduction:100, taxDeduction:100 },
+  }]);
   assert.equal(valid.ok, true);
   assert.deepEqual(valid.totals, { gross:1000, deduction:200, net:800, employees:1 });
 
-  const invalid = validatePayrollControlRows([{ nrk:'E1', name:'A', grossPay:1000, totalDeductions:200, netPay:900, bank:'BCA', accountNo:'12345678' }]);
-  assert.equal(invalid.ok, false);
-  assert.ok(invalid.issues.some((issue) => issue.field === 'controlTotal'));
+  const invalidNet = validatePayrollControlRows([{ nrk:'E1', name:'A', grossPay:1000, totalDeductions:200, netPay:900, bank:'BCA', accountNo:'12345678' }]);
+  assert.equal(invalidNet.ok, false);
+  assert.ok(invalidNet.issues.some((issue) => issue.field === 'controlTotal'));
+
+  const invalidComponents = validatePayrollControlRows([{
+    nrk:'E1', name:'A', grossPay:1000, totalDeductions:200, netPay:800, bank:'BCA', accountNo:'12345678',
+    payrollComponents:{ basicSalary:900, taxDeduction:100 },
+  }]);
+  assert.equal(invalidComponents.ok, false);
+  assert.ok(invalidComponents.issues.some((issue) => issue.field === 'earningComponents'));
+  assert.ok(invalidComponents.issues.some((issue) => issue.field === 'deductionComponents'));
 });
 
 test('final payroll upload preserves source and never calls master importer', () => {
@@ -45,10 +56,27 @@ test('D1 migrations lock source rows and final payroll snapshots', () => {
 test('reporting exposes register control upload audit and final payslip datasets', () => {
   const api = read('functions/api/payroll-reports.js');
   for (const report of ["type === 'register'", "type === 'control'", "type === 'uploads'", "type === 'payslips'", "type === 'exceptions'"]) {
-    assert.match(api, new RegExp(report.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.ok(api.includes(report), `missing ${report}`);
   }
   assert.match(api, /pi\.status='COMPLETED'/);
   assert.match(api, /COALESCE\(r\.status,''\)='MATCHED'/);
+});
+
+test('raw source can be retrieved only through secure scoped endpoint', () => {
+  const source = read('functions/api/payroll-source-file.js');
+  assert.match(source, /authorize/);
+  assert.match(source, /clientIdsFor/);
+  assert.match(source, /X-ProQPay-File-SHA256/);
+  assert.match(source, /private, no-store/);
+});
+
+test('canonical final payslips are keyed by submission and require matched reconciliation', () => {
+  const source = read('functions/api/employee/payslips.js');
+  assert.match(source, /submissionId/);
+  assert.match(source, /runType/);
+  assert.match(source, /pi\.status='COMPLETED'/);
+  assert.match(source, /r\.status='MATCHED'/);
+  assert.doesNotMatch(source, /seen\.has\(.*period/);
 });
 
 test('canonical Excel template contains required control sheets and columns', () => {
