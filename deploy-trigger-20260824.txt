@@ -1,0 +1,2 @@
+Force Cloudflare Pages redeploy after controller auto-PI hotfix.
+Commit source fix: 1e02fe938e088e05669e6416d13377dce25792a2
