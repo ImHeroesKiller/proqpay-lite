@@ -22,7 +22,7 @@ export default function DataIntakePage() {
   useEffect(()=>{
     void Promise.all([
       fetch('/api/me').then(async r=>{const x=await r.json();if(!r.ok)throw new Error(x.error||'Unauthorized');return x.user;}),
-      fetch('/api/operating-model?resource=pay-run-setup').then(async r=>{const x=await r.json();if(!r.ok)throw new Error(x.error||'Setup gagal dimuat');return x;}),
+      fetch('/api/payroll-intake-setup').then(async r=>{const x=await r.json();if(!r.ok)throw new Error(x.error||'Setup gagal dimuat');return x;}),
     ]).then(([user,data])=>{setActor(user);setSetup({clients:data.clients||[],projects:data.projects||[],servicePlans:data.servicePlans||[]});}).catch(e=>setMessage(e.message));
   },[]);
 
