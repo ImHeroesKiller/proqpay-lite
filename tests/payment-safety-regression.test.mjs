@@ -13,11 +13,14 @@ test('reconciliation is gated by payment state and evidence', () => {
   assert.match(operatingModel, /idempotentReplay: true/);
 });
 
-test('bank account is fingerprinted at payroll finalization', () => {
+test('bank account is fingerprinted only at valid payroll finalization', () => {
   assert.match(operatingModel, /account_fingerprint/);
   assert.match(operatingModel, /captureBankSnapshot/);
   assert.match(operatingModel, /FINALIZE_PAYROLL/);
   assert.match(operatingModel, /BANK_SNAPSHOT_CHANGED/);
+  assert.match(operatingModel, /validateSnapshotCapture/);
+  assert.match(operatingModel, /\['VALIDATED','STANDARDIZED'\]/);
+  assert.match(operatingModel, /SNAPSHOT_ROLES/);
   assert.match(migration, /PRIMARY KEY \(submission_id, employee_id\)/);
 });
 
