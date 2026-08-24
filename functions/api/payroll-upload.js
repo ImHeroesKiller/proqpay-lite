@@ -148,24 +148,26 @@ export async function onRequest({ request, env }) {
         normalizeAccount(row.accountNo).slice(-4), Number(row.grossPay), Number(row.totalDeductions), Number(row.netPay), JSON.stringify(row.payrollComponents || {}),
         'UPLOAD_FINAL', 1, batchId, index + 1, rowHashes[index]];
     });
+    const validationSummary = JSON.stringify({ control: control.totals, submissionId: submission.id });
     const operations = [
       { statement:'DELETE FROM payroll_exceptions WHERE submission_id=?', bindings:[submission.id] },
       { statement:'DELETE FROM submission_versions WHERE submission_id=?', bindings:[submission.id] },
       { statement:'DELETE FROM payroll_run_lines WHERE submission_id=?', bindings:[submission.id] },
       ...bulkInsertPayrollLines(lineRows),
       { statement:`UPDATE payroll_submissions SET input_status='READY',state='DRAFT',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings:[submission.id] },
+      { statement:`UPDATE payroll_upload_batches SET status='SUPERSEDED' WHERE submission_id=? AND id<>? AND status='IMPORTED'`, bindings:[submission.id,batchId] },
+      { statement:`UPDATE payroll_upload_batches SET status='IMPORTED',accepted_row_count=?,rejected_row_count=0,validation_summary=? WHERE id=?`,
+        bindings:[baseValidation.rows.length,validationSummary,batchId] },
       { statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id) VALUES(?,?,?,?,?,?,?,?)`,
         bindings:[`AUD-${crypto.randomUUID()}`,orgId,authorization.actor.email,authorization.actor.role,'PAYROLL_SOURCE_IMPORTED',JSON.stringify({batchId,fileSha256:fileHash,templateVersion,totals:control.totals}),'payroll_submission',submission.id] },
     ];
     await d1Batch(env.DB, operations);
-    await d1Run(env.DB, `UPDATE payroll_upload_batches SET status='IMPORTED',accepted_row_count=?,rejected_row_count=0,validation_summary=? WHERE id=?`,
-      [baseValidation.rows.length, JSON.stringify({ control: control.totals, submissionId: submission.id }), batchId]);
 
     return respond({ ok:true, total:baseValidation.rows.length, inserted:0, updated:baseValidation.rows.length, errors:0,
       batchId, fileSha256:fileHash, templateVersion, totals:control.totals, submissionId:submission.id }, 201);
   } catch (error) {
     if (batchId) {
-      try { await d1Run(env.DB, `UPDATE payroll_upload_batches SET status='ERROR',validation_summary=? WHERE id=?`, [JSON.stringify({ error: String(error?.message || error), requestId }), batchId]); } catch {}
+      try { await d1Run(env.DB, `UPDATE payroll_upload_batches SET status='ERROR',validation_summary=? WHERE id=? AND status<>'IMPORTED'`, [JSON.stringify({ error: String(error?.message || error), requestId }), batchId]); } catch {}
     } else if (objectKey) {
       try { await bucket.delete(objectKey); } catch {}
     }
