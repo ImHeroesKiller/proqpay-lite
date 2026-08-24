@@ -36,6 +36,20 @@ Karyawan **bukan** baris `app_users`. Cookie portal `proqpay_employee`, terpisah
 | POST | `/api/employee/logout` | Sesi portal |
 | GET/POST | `/api/employee/ewa` | Sesi portal (quote / ajukan / batal) |
 | GET | `/api/portal-audit` | Ops: login ESS + jejak EWA |
+| GET/POST | `/api/portal-settings` | Ops: aturan EWA, banner, teks, ads platform |
+
+## Portal Settings (ESS dari Lite)
+
+Semua aturan dan tampilan portal karyawan diatur di menu **Portal Settings**. Pay run / PI / billing tidak disentuh.
+
+| Tab | Isi | Disimpan di |
+|---|---|---|
+| Aturan advance | on/off, % plafond, fee, fee min, hari kerja, masa kerja, tenor | `ewa_policies` |
+| Banner / iklan | isi, CTA, tautan https, gambar, penempatan HOME/EWA/PAYSLIP, pixel | `portal_ads` |
+| Teks portal | tagline, subjudul, copy kartu EWA | `portal_settings.copy_json` |
+| Ads platform | NONE / GENERIC / Google Ads / Meta (pixel 1×1, tanpa JS pihak ketiga) | `portal_settings.ads_platform_json` |
+
+Lingkup: default organisasi, atau override per klien. ESS membaca lewat `GET /api/employee/init`. URL berbahaya (`javascript:`, `data:`) dibuang di server.
 
 ## Fase 3 — batas Access dan audit
 
