@@ -53,7 +53,11 @@ Urutan aktivasi production:
 4. Login dengan akun bootstrap lalu segera ganti password sementara.
 
 Mode `access` tetap tersedia bila Cloudflare Access hendak digunakan sebagai
-identity provider terpisah.
+identity provider terpisah **untuk ops saja**. Jangan pasang Access pada
+hostname ESS. Jika Access membungkus `proqpay-lite.pages.dev`, tambahkan
+aplikasi Bypass untuk `/api/employee*` dan `/api/health` agar Worker ESS tetap
+bisa login. Sesi karyawan memakai cookie `proqpay_employee`, bukan
+`Cf-Access-Jwt-Assertion`.
 
 Binding R2 production wajib bernama `FILES` dan mengarah ke bucket private
 `proqpay-lite-files`. Bukti pembayaran diunggah melalui
@@ -80,6 +84,9 @@ Hak akses API:
 | `GET/POST /api/employee-credentials` | Super Admin / Processor: terbitkan password portal ESS |
 | `POST /api/employee/login`, `/api/employee/logout`, `/api/employee/password` | Sesi portal karyawan (bukan `app_users`) |
 | `GET /api/employee/me` | Identitas karyawan dari cookie `proqpay_employee` |
+| `GET/POST /api/ewa` | Ops: antrian Advance Salary |
+| `GET /api/employee/ewa` | Sesi portal: quote/submit EWA |
+| `GET /api/portal-audit` | Ops: jejak login ESS dan EWA (bukan payroll) |
 | `POST /api/login`, `/api/logout` | Login database dan pencabutan sesi |
 | `/api/ida`, `/api/wilayah` | semua role terautentikasi |
 | `GET/POST /api/state` | role internal sesuai workflow |

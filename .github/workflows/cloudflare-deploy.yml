@@ -116,3 +116,7 @@ jobs:
           cat /tmp/proqpay-health.json 2>/dev/null || true
           echo "Production health check failed."
           exit 1
+
+      - name: Assert Access split (ops ≠ employee portal)
+        shell: bash
+        run: node scripts/assert-access-split.mjs

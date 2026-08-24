@@ -1,10 +1,10 @@
-import { authenticateEmployee, isActiveEmployee, portalMutationAllowed } from '../_employee-auth.js';
+import { authenticateEmployee, employeeHandlePreflight, employeeJson, isActiveEmployee, portalMutationAllowed } from '../_employee-auth.js';
 import { d1All, d1First, d1Run, hasD1 } from '../_d1.js';
 import {
   DEFAULT_EWA_POLICY, earnedDaysInPeriod, ewaEligibility, ewaFee, ewaPlafond,
   payrollStageIndex, policyToRules, tenureMonthsFromJoin,
 } from '../_ewa.js';
-import { handlePreflight, publicError, secureJson } from '../_security.js';
+import { publicError } from '../_security.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 
@@ -96,23 +96,23 @@ async function snapshot(database, actor) {
 }
 
 export async function onRequest({ request, env }) {
-  if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
+  if (request.method === 'OPTIONS') return employeeHandlePreflight(request, env, METHODS);
   if (!['GET', 'POST'].includes(request.method)) {
-    return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
+    return employeeJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
   }
   if (request.method === 'POST' && !portalMutationAllowed(request, env)) {
-    return secureJson({ error: 'Origin not allowed' }, 403, request, env, METHODS);
+    return employeeJson({ error: 'Origin not allowed' }, 403, request, env, METHODS);
   }
   if (!hasD1(env)) {
-    return secureJson({ error: 'Cloudflare D1 binding unavailable', code: 'D1_REQUIRED' }, 503, request, env, METHODS);
+    return employeeJson({ error: 'Cloudflare D1 binding unavailable', code: 'D1_REQUIRED' }, 503, request, env, METHODS);
   }
   const actor = await authenticateEmployee(request, env);
-  if (!actor) return secureJson({ error: 'Sesi tidak valid atau kedaluwarsa.' }, 401, request, env, METHODS);
+  if (!actor) return employeeJson({ error: 'Sesi tidak valid atau kedaluwarsa.' }, 401, request, env, METHODS);
   if (!isActiveEmployee(actor)) {
-    return secureJson({ error: 'Karyawan tidak aktif' }, 403, request, env, METHODS);
+    return employeeJson({ error: 'Karyawan tidak aktif' }, 403, request, env, METHODS);
   }
 
-  const respond = (data, status = 200) => secureJson(data, status, request, env, METHODS);
+  const respond = (data, status = 200) => employeeJson(data, status, request, env, METHODS);
 
   try {
     const state = await snapshot(env.DB, actor);

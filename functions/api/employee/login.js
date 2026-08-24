@@ -1,17 +1,18 @@
 import {
-  countRecentFailures, createEmployeeSession, findEmployeeForLogin, isActiveEmployee,
-  portalMutationAllowed, recordLoginAttempt, verifyEmployeeSecret,
+  countRecentFailures, createEmployeeSession, employeeHandlePreflight, employeeJson,
+  findEmployeeForLogin, isActiveEmployee, portalMutationAllowed, recordLoginAttempt,
+  verifyEmployeeSecret,
 } from '../_employee-auth.js';
 import { d1First, d1Run, hasD1 } from '../_d1.js';
-import { enforceRateLimit, handlePreflight, publicError, secureJson } from '../_security.js';
+import { enforceRateLimit, publicError } from '../_security.js';
 
 const METHODS = 'POST, OPTIONS';
 
 export async function onRequest({ request, env }) {
-  if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
-  if (request.method !== 'POST') return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
+  if (request.method === 'OPTIONS') return employeeHandlePreflight(request, env, METHODS);
+  if (request.method !== 'POST') return employeeJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
   if (!portalMutationAllowed(request, env)) {
-    return secureJson({ error: 'Origin not allowed' }, 403, request, env, METHODS);
+    return employeeJson({ error: 'Origin not allowed' }, 403, request, env, METHODS);
   }
 
   const limited = await enforceRateLimit(
@@ -24,18 +25,18 @@ export async function onRequest({ request, env }) {
   if (limited) return limited;
 
   if (!hasD1(env)) {
-    return secureJson({ error: 'Cloudflare D1 binding unavailable', code: 'D1_REQUIRED' }, 503, request, env, METHODS);
+    return employeeJson({ error: 'Cloudflare D1 binding unavailable', code: 'D1_REQUIRED' }, 503, request, env, METHODS);
   }
 
   let body;
   try { body = await request.json(); } catch {
-    return secureJson({ error: 'Invalid JSON' }, 400, request, env, METHODS);
+    return employeeJson({ error: 'Invalid JSON' }, 400, request, env, METHODS);
   }
 
   const empId = String(body.emp_id || body.empId || '').trim().slice(0, 80);
   const password = String(body.password || '').slice(0, 256);
   if (!empId || !password) {
-    return secureJson({ error: 'Employee ID dan password wajib diisi' }, 422, request, env, METHODS);
+    return employeeJson({ error: 'Employee ID dan password wajib diisi' }, 422, request, env, METHODS);
   }
 
   const ip = request.headers.get('CF-Connecting-IP')
@@ -46,12 +47,12 @@ export async function onRequest({ request, env }) {
     await recordLoginAttempt(env.DB, {
       employeeIdInput: empId, employeeId: reason.employeeId, ip, success: false, reason: reason.code,
     });
-    return secureJson({ error: 'Employee ID atau password tidak valid' }, 401, request, env, METHODS);
+    return employeeJson({ error: 'Employee ID atau password tidak valid' }, 401, request, env, METHODS);
   };
 
   try {
     if (await countRecentFailures(env.DB, ip, empId) >= 5) {
-      return secureJson({ error: 'Terlalu banyak percobaan. Coba kembali 10 menit lagi.' }, 429, request, env, METHODS);
+      return employeeJson({ error: 'Terlalu banyak percobaan. Coba kembali 10 menit lagi.' }, 429, request, env, METHODS);
     }
 
     const employee = await findEmployeeForLogin(env.DB, empId, orgId);
@@ -73,7 +74,7 @@ export async function onRequest({ request, env }) {
       await recordLoginAttempt(env.DB, {
         employeeIdInput: empId, employeeId: employee.id, ip, success: false, reason: 'LOCKED',
       });
-      return secureJson({ error: 'Akun terkunci sementara. Coba kembali 15 menit lagi.' }, 429, request, env, METHODS);
+      return employeeJson({ error: 'Akun terkunci sementara. Coba kembali 15 menit lagi.' }, 429, request, env, METHODS);
     }
 
     const session = await createEmployeeSession(env.DB, employee.id, env);
@@ -84,7 +85,7 @@ export async function onRequest({ request, env }) {
       employeeIdInput: empId, employeeId: employee.id, ip, success: true, reason: 'OK',
     });
 
-    return secureJson({
+    return employeeJson({
       ok: true,
       emp_id: employee.employee_code || employee.id,
       emp_code: employee.employee_code || employee.id,
@@ -95,6 +96,6 @@ export async function onRequest({ request, env }) {
       token: session.token,
     }, 200, request, env, METHODS, { 'Set-Cookie': session.cookie });
   } catch (error) {
-    return secureJson({ error: 'Employee login failed', ...publicError(error, crypto.randomUUID()) }, 500, request, env, METHODS);
+    return employeeJson({ error: 'Employee login failed', ...publicError(error, crypto.randomUUID()) }, 500, request, env, METHODS);
   }
 }
