@@ -5,6 +5,7 @@ import {
   DEFAULT_EWA_POLICY,
   earnedDaysInPeriod,
   ewaEligibility,
+  payrollStageIndex,
 } from '../functions/api/_ewa.js';
 
 test('EWA default policy is fail-closed', () => {
@@ -37,4 +38,17 @@ test('earned days never include dates before employee joins', () => {
     '2026-08-20',
   );
   assert.equal(result.daysWorked, 3);
+});
+
+test('payment exception remains in payment stage, not paid', () => {
+  assert.equal(payrollStageIndex('PAYMENT_EXCEPTION', '', 'EXCEPTION'), 4);
+});
+
+test('substring statuses such as UNPAID never count as PAID', () => {
+  assert.notEqual(payrollStageIndex('DISBURSEMENT_PROCESSING', 'UNPAID', ''), 5);
+});
+
+test('only exact matched reconciliation closes payroll', () => {
+  assert.equal(payrollStageIndex('RECONCILIATION', '', 'MATCHED'), 5);
+  assert.notEqual(payrollStageIndex('RECONCILIATION', '', 'UNMATCHED'), 5);
 });
