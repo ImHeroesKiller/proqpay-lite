@@ -24,6 +24,13 @@ function clientFilter(actor,column) {
   if (!ids.length) return {sql:' AND 1=0',bindings:[]};
   return {sql:` AND ${column} IN (${ids.map(()=>'?').join(',')})`,bindings:ids};
 }
+async function nextInvoiceSequence(database, organizationId, period) {
+  const row = await d1First(database, `INSERT INTO invoice_sequences(org_id,period,next_number,updated_at)
+    VALUES(?,?,2,${NOW})
+    ON CONFLICT(org_id,period) DO UPDATE SET next_number=invoice_sequences.next_number+1,updated_at=${NOW}
+    RETURNING next_number-1 AS number`, [organizationId, period]);
+  return Number(row?.number || 1);
+}
 
 export async function onRequest({request,env}) {
   if (request.method==='OPTIONS') return handlePreflight(request,env,METHODS);
@@ -68,13 +75,15 @@ export async function onRequest({request,env}) {
           WHEN julianday('now')-julianday(ar.due_date)<=90 THEN '61-90' ELSE '>90' END AS aging_bucket,
           COALESCE((SELECT json_group_array(json_object('id',ap.id,'amount',ap.amount,'payment_date',ap.payment_date,
           'reference',ap.reference,'notes',ap.notes,'recorded_by',ap.recorded_by,'created_at',ap.created_at)) FROM ar_payments ap WHERE ap.ar_id=ar.id),'[]') AS payments,
+          COALESCE((SELECT json_group_array(json_object('id',uc.id,'amount',uc.amount,'payment_date',uc.payment_date,
+          'reference',uc.reference,'status',uc.status,'notes',uc.notes,'created_at',uc.created_at)) FROM unapplied_cash uc WHERE uc.ar_id=ar.id AND uc.status<>'VOID'),'[]') AS unapplied_cash,
           COALESCE((SELECT json_group_array(json_object('id',af.id,'note',af.note,'next_follow_up_at',af.next_follow_up_at,
           'created_by',af.created_by,'created_at',af.created_at)) FROM ar_follow_ups af WHERE af.ar_id=ar.id),'[]') AS follow_ups
           FROM ar_monitor ar JOIN invoices i ON i.id=ar.invoice_id JOIN clients c ON c.id=ar.client_id
           LEFT JOIN projects p ON p.id=ar.project_id WHERE ar.org_id=?${as.sql} ORDER BY ar.due_date DESC LIMIT 500`,[organizationId,...as.bindings]),
       ]);
       for (const invoice of invoices) invoice.items=parseJson(invoice.items);
-      for (const ar of arItems) { ar.payments=parseJson(ar.payments); ar.follow_ups=parseJson(ar.follow_ups); }
+      for (const ar of arItems) { ar.payments=parseJson(ar.payments); ar.unapplied_cash=parseJson(ar.unapplied_cash); ar.follow_ups=parseJson(ar.follow_ups); }
       return respond({ok:true,clients,billablePayments,invoices,arItems});
     }
     const body=await request.json().catch(()=>null),error=validate(body);
@@ -107,16 +116,24 @@ export async function onRequest({request,env}) {
       const subtotal=serviceFee+adminFee+reimbursement-discount,taxRate=item.tax_status==='PKP'?Number(item.billing_tax_rate||0):0,
         taxAmount=Math.round(subtotal*taxRate/100),total=subtotal+taxAmount,period=String(item.payment_period||item.period||new Date().toISOString().slice(0,7));
       if (!PERIOD.test(period)) return respond({error:'Periode invoice tidak valid'},409);
-      const sequence=await d1First(database,'SELECT COUNT(*)+1 AS number FROM invoices WHERE org_id=? AND period=?',[organizationId,period]);
-      const invoiceNumber=`INV/${period.replace('-','')}/${String(item.code||'CLIENT').replace(/[^A-Z0-9]/gi,'').slice(0,10)}/${String(sequence?.number||1).padStart(4,'0')}`,
+      const sequence=await nextInvoiceSequence(database,organizationId,period);
+      const invoiceNumber=`INV/${period.replace('-','')}/${String(item.code||'CLIENT').replace(/[^A-Z0-9]/gi,'').slice(0,10)}/${String(sequence).padStart(4,'0')}`,
         id=`INV-${crypto.randomUUID()}`,items=[{description:'Payroll service fee',quantity:item.billing_method==='PER_EMPLOYEE'?employees:1,rate,amount:serviceFee},
         ...(adminFee?[{description:'Administration fee',quantity:1,rate:adminFee,amount:adminFee}]:[]),...(reimbursement?[{description:'Reimbursement',quantity:1,rate:reimbursement,amount:reimbursement}]:[]),
         ...(discount?[{description:'Discount',quantity:1,rate:-discount,amount:-discount}]:[])];
-      const invoice=await d1First(database,`INSERT INTO invoices(id,org_id,client_id,project_id,payment_instruction_id,company,period,invoice_number,
-        amount,subtotal,tax_rate,tax_amount,total_amount,status,items,tax_invoice_status,created_by,updated_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,${NOW}) RETURNING *`,[id,organizationId,item.client_id,item.project_id,item.id,item.name,period,
-        invoiceNumber,subtotal,subtotal,taxRate,taxAmount,total,JSON.stringify(items),item.tax_status==='PKP'?'PENDING':'NOT_REQUIRED',actor.email]);
-      invoice.items=items; return respond({ok:true,invoice},201);
+      try {
+        const invoice=await d1First(database,`INSERT INTO invoices(id,org_id,client_id,project_id,payment_instruction_id,company,period,invoice_number,
+          amount,subtotal,tax_rate,tax_amount,total_amount,status,items,tax_invoice_status,created_by,updated_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,${NOW}) RETURNING *`,[id,organizationId,item.client_id,item.project_id,item.id,item.name,period,
+          invoiceNumber,subtotal,subtotal,taxRate,taxAmount,total,JSON.stringify(items),item.tax_status==='PKP'?'PENDING':'NOT_REQUIRED',actor.email]);
+        invoice.items=items; return respond({ok:true,invoice},201);
+      } catch (insertError) {
+        if (/payment_instruction_id|UNIQUE constraint failed: invoices\.payment_instruction_id/i.test(String(insertError?.message||insertError))) {
+          const replay=await d1First(database,'SELECT * FROM invoices WHERE payment_instruction_id=? LIMIT 1',[item.id]);
+          if (replay) return respond({ok:true,invoice:replay,idempotentReplay:true});
+        }
+        throw insertError;
+      }
     }
     const transition=async(sql,bindings,message)=>{const invoice=await d1First(database,sql,bindings);return invoice?respond({ok:true,invoice}):respond({error:message},409);};
     if (body.action==='SUBMIT_INVOICE') {
@@ -125,7 +142,7 @@ export async function onRequest({request,env}) {
     }
     if (body.action==='APPROVE_INVOICE') {
       if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat menyetujui invoice'},403);
-      return transition(`UPDATE invoices SET status='APPROVED',approved_at=${NOW},approved_by=?,updated_at=${NOW} WHERE id=? AND org_id=? AND status='UNDER_REVIEW' AND (?='SUPER_ADMIN' OR created_by<>?) RETURNING *`,[actor.email,body.invoiceId,organizationId,actor.role,actor.email],'Invoice belum diajukan atau maker tidak boleh menyetujui invoice sendiri');
+      return transition(`UPDATE invoices SET status='APPROVED',approved_at=${NOW},approved_by=?,updated_at=${NOW} WHERE id=? AND org_id=? AND status='UNDER_REVIEW' AND created_by<>? RETURNING *`,[actor.email,body.invoiceId,organizationId,actor.email],'Invoice belum diajukan atau maker tidak boleh menyetujui invoice sendiri');
     }
     if (body.action==='REVISE_INVOICE') {
       if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat meminta revisi'},403);
@@ -141,24 +158,80 @@ export async function onRequest({request,env}) {
     if (body.action==='ISSUE_INVOICE') {
       if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat menerbitkan invoice'},403);
       const invoice=await d1First(database,`SELECT i.*,c.payment_terms_days,c.tax_status FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.id=? AND i.org_id=? LIMIT 1`,[body.invoiceId,organizationId]);
-      if (!invoice||invoice.status!=='APPROVED') return respond({error:'Invoice belum disetujui'},409);
+      if (!invoice) return respond({error:'Invoice tidak ditemukan'},404);
+      if (invoice.status==='ISSUED') {
+        const ar=await d1First(database,'SELECT id FROM ar_monitor WHERE invoice_id=? AND org_id=? LIMIT 1',[invoice.id,organizationId]);
+        return respond({ok:true,invoiceId:invoice.id,arId:ar?.id||null,idempotentReplay:true});
+      }
+      if (invoice.status!=='APPROVED') return respond({error:'Invoice belum disetujui'},409);
       if (invoice.tax_status==='PKP'&&invoice.tax_invoice_status!=='APPROVED') return respond({error:'Faktur pajak Coretax belum disetujui'},409);
       const due=new Date();due.setUTCDate(due.getUTCDate()+Number(invoice.payment_terms_days||30));const dueDate=due.toISOString().slice(0,10),arId=`AR-${crypto.randomUUID()}`;
-      await d1Batch(database,[{statement:`UPDATE invoices SET status='ISSUED',issued_at=${NOW},sent_at=${NOW},due_date=?,updated_at=${NOW} WHERE id=?`,bindings:[dueDate,invoice.id]},
-        {statement:`INSERT INTO ar_monitor(id,org_id,client_id,project_id,company,invoice_id,amount,paid_amount,balance,status,due_date,days_overdue,type,notes,updated_at) VALUES(?,?,?,?,?,?,?,0,?,'OUTSTANDING',?,0,'INVOICE','Billing package diterbitkan',${NOW})`,bindings:[arId,organizationId,invoice.client_id,invoice.project_id,invoice.company,invoice.id,invoice.total_amount,invoice.total_amount,dueDate]}]);
-      return respond({ok:true,invoiceId:invoice.id,arId});
+      try {
+        await d1Batch(database,[
+          {statement:`UPDATE invoices SET status='ISSUED',issued_at=${NOW},sent_at=${NOW},due_date=?,updated_at=${NOW} WHERE id=? AND status='APPROVED'`,bindings:[dueDate,invoice.id]},
+          {statement:`INSERT INTO ar_monitor(id,org_id,client_id,project_id,company,invoice_id,amount,paid_amount,balance,status,due_date,days_overdue,type,notes,updated_at) VALUES(?,?,?,?,?,?,?,0,?,'OUTSTANDING',?,0,'INVOICE','Billing package diterbitkan',${NOW})`,bindings:[arId,organizationId,invoice.client_id,invoice.project_id,invoice.company,invoice.id,invoice.total_amount,invoice.total_amount,dueDate]},
+        ]);
+        return respond({ok:true,invoiceId:invoice.id,arId});
+      } catch (issueError) {
+        if (/ar_monitor\.invoice_id|idx_ar_one_invoice|UNIQUE constraint/i.test(String(issueError?.message||issueError))) {
+          const ar=await d1First(database,'SELECT id FROM ar_monitor WHERE invoice_id=? AND org_id=? LIMIT 1',[invoice.id,organizationId]);
+          if (ar) return respond({ok:true,invoiceId:invoice.id,arId:ar.id,idempotentReplay:true});
+        }
+        throw issueError;
+      }
     }
     if (body.action==='RECORD_AR_PAYMENT') {
       if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat mencatat pembayaran AR'},403);
-      const amount=integer(body.amount,1),paymentDate=body.paidAt??body.paymentDate;
-      if (amount===null||!/^\d{4}-\d{2}-\d{2}$/.test(String(paymentDate||''))||!text(body.reference,120)) return respond({error:'Data pembayaran AR tidak valid'},422);
+      const amount=integer(body.amount,1),paymentDate=body.paidAt??body.paymentDate,reference=text(body.reference,120);
+      if (amount===null||!/^\d{4}-\d{2}-\d{2}$/.test(String(paymentDate||''))||!reference) return respond({error:'Data pembayaran AR tidak valid'},422);
       const ar=await d1First(database,'SELECT * FROM ar_monitor WHERE id=? AND org_id=? LIMIT 1',[body.arId,organizationId]);
-      if (!ar||ar.status==='PAID') return respond({error:'AR tidak ditemukan atau sudah lunas'},409);
-      const applied=Math.min(amount,Number(ar.balance||0)),paid=Number(ar.paid_amount||0)+applied,balance=Number(ar.amount||0)-paid,status=balance===0?'PAID':'PARTIAL_PAID';
-      await d1Batch(database,[{statement:'INSERT INTO ar_payments(id,ar_id,amount,payment_date,reference,notes,recorded_by) VALUES(?,?,?,?,?,?,?)',bindings:[`ARP-${crypto.randomUUID()}`,ar.id,applied,paymentDate,text(body.reference,120),text(body.notes,500),actor.email]},
-        {statement:`UPDATE ar_monitor SET paid_amount=?,balance=?,status=?,updated_at=${NOW} WHERE id=?`,bindings:[paid,balance,status,ar.id]},
-        {statement:`UPDATE invoices SET status=?,paid_at=?,updated_at=${NOW} WHERE id=?`,bindings:[status==='PAID'?'PAID':'PARTIAL_PAID',status==='PAID'?paymentDate:null,ar.invoice_id]}]);
-      return respond({ok:true,applied,balance,status});
+      if (!ar) return respond({error:'AR tidak ditemukan'},404);
+      const existingPayment=await d1First(database,'SELECT * FROM ar_payments WHERE ar_id=? AND reference=? LIMIT 1',[ar.id,reference]);
+      const existingUnapplied=await d1First(database,"SELECT * FROM unapplied_cash WHERE ar_id=? AND reference=? AND status<>'VOID' LIMIT 1",[ar.id,reference]);
+      if (existingPayment||existingUnapplied) {
+        const current=await d1First(database,'SELECT * FROM ar_monitor WHERE id=? LIMIT 1',[ar.id]);
+        return respond({ok:true,applied:Number(existingPayment?.amount||0),unapplied:Number(existingUnapplied?.amount||0),balance:Number(current?.balance||0),status:current?.status,idempotentReplay:true});
+      }
+      if (ar.status==='PAID' || Number(ar.balance||0)<=0) {
+        const unappliedId=`UC-${crypto.randomUUID()}`;
+        await d1Batch(database,[{statement:`INSERT INTO unapplied_cash(id,org_id,client_id,ar_id,invoice_id,amount,payment_date,reference,notes,status,recorded_by,updated_at)
+          VALUES(?,?,?,?,?,?,?,?,?,'OPEN',?,${NOW})`,bindings:[unappliedId,organizationId,ar.client_id,ar.id,ar.invoice_id,amount,paymentDate,reference,text(body.notes,500),actor.email]}]);
+        return respond({ok:true,applied:0,unapplied:amount,balance:0,status:'PAID'});
+      }
+      const paymentId=`ARP-${crypto.randomUUID()}`,unappliedId=`UC-${crypto.randomUUID()}`;
+      const operations=[
+        {statement:`INSERT INTO ar_payments(id,ar_id,amount,payment_date,reference,notes,recorded_by)
+          SELECT ?,id,MIN(?,balance),?,?,?,? FROM ar_monitor WHERE id=? AND org_id=? AND balance>0`,
+          bindings:[paymentId,amount,paymentDate,reference,text(body.notes,500),actor.email,ar.id,organizationId]},
+        {statement:`INSERT INTO unapplied_cash(id,org_id,client_id,ar_id,invoice_id,amount,payment_date,reference,notes,status,recorded_by,updated_at)
+          SELECT ?,org_id,client_id,id,invoice_id,MAX(?-balance,0),?,?,?,'OPEN',?,${NOW}
+          FROM ar_monitor WHERE id=? AND org_id=? AND ?>balance`,
+          bindings:[unappliedId,amount,paymentDate,reference,text(body.notes,500),actor.email,ar.id,organizationId,amount]},
+        {statement:`UPDATE ar_monitor SET
+          paid_amount=MIN(amount,COALESCE((SELECT SUM(ap.amount) FROM ar_payments ap WHERE ap.ar_id=ar_monitor.id),0)),
+          balance=MAX(0,amount-COALESCE((SELECT SUM(ap.amount) FROM ar_payments ap WHERE ap.ar_id=ar_monitor.id),0)),
+          status=CASE WHEN amount-COALESCE((SELECT SUM(ap.amount) FROM ar_payments ap WHERE ap.ar_id=ar_monitor.id),0)<=0 THEN 'PAID' ELSE 'PARTIAL_PAID' END,
+          updated_at=${NOW} WHERE id=?`,bindings:[ar.id]},
+        {statement:`UPDATE invoices SET status=CASE WHEN (SELECT balance FROM ar_monitor WHERE id=?)=0 THEN 'PAID' ELSE 'PARTIAL_PAID' END,
+          paid_at=CASE WHEN (SELECT balance FROM ar_monitor WHERE id=?)=0 THEN ? ELSE NULL END,updated_at=${NOW} WHERE id=?`,
+          bindings:[ar.id,ar.id,paymentDate,ar.invoice_id]},
+      ];
+      try { await d1Batch(database,operations); }
+      catch (paymentError) {
+        if (/idx_ar_payment_reference|idx_unapplied_cash_reference|UNIQUE constraint/i.test(String(paymentError?.message||paymentError))) {
+          const replayPayment=await d1First(database,'SELECT * FROM ar_payments WHERE ar_id=? AND reference=? LIMIT 1',[ar.id,reference]);
+          const replayUnapplied=await d1First(database,"SELECT * FROM unapplied_cash WHERE ar_id=? AND reference=? AND status<>'VOID' LIMIT 1",[ar.id,reference]);
+          const current=await d1First(database,'SELECT * FROM ar_monitor WHERE id=? LIMIT 1',[ar.id]);
+          if (replayPayment||replayUnapplied) return respond({ok:true,applied:Number(replayPayment?.amount||0),unapplied:Number(replayUnapplied?.amount||0),balance:Number(current?.balance||0),status:current?.status,idempotentReplay:true});
+        }
+        throw paymentError;
+      }
+      const [recorded,unapplied,current]=await Promise.all([
+        d1First(database,'SELECT amount FROM ar_payments WHERE id=?',[paymentId]),
+        d1First(database,'SELECT amount FROM unapplied_cash WHERE id=?',[unappliedId]),
+        d1First(database,'SELECT balance,status FROM ar_monitor WHERE id=?',[ar.id]),
+      ]);
+      return respond({ok:true,applied:Number(recorded?.amount||0),unapplied:Number(unapplied?.amount||0),balance:Number(current?.balance||0),status:current?.status});
     }
     if (body.action==='FOLLOW_UP_AR') {
       if (!processor(actor.role)&&!controller(actor.role)) return respond({error:'Role tidak dapat melakukan follow-up AR'},403);
