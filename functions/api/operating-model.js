@@ -76,6 +76,20 @@ async function readPostBody(request) {
   try { return await request.clone().json(); } catch { return null; }
 }
 
+function contextWithJsonBody(context, body) {
+  const headers = new Headers(context.request.headers);
+  headers.set('content-type', 'application/json');
+  headers.delete('content-length');
+  return {
+    ...context,
+    request: new Request(context.request.url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    }),
+  };
+}
+
 async function healCompletedPayment(env, payment) {
   if (!payment?.submission_id) return;
   try {
@@ -160,6 +174,37 @@ async function validateSnapshotCapture(body, actor, env) {
   return null;
 }
 
+async function completeControllerApprovalToPI(context, actor, body) {
+  if (context.request.method !== 'POST' || actor.role !== 'PAYROLL_CONTROLLER' || body?.action !== 'TRANSITION_SUBMISSION') return null;
+  const target = String(body.toState || '').toUpperCase();
+  if (!['DATA_APPROVED','PAYMENT_INSTRUCTION_READY'].includes(target)) return null;
+
+  const first = await handleD1OperatingModel(context, actor);
+  if (!first.ok) return first;
+
+  const submissionId = String(body.submissionId || '').trim();
+  if (!submissionId) return first;
+
+  if (target === 'DATA_APPROVED') {
+    const readyContext = contextWithJsonBody(context, {
+      action: 'TRANSITION_SUBMISSION',
+      submissionId,
+      toState: 'PAYMENT_INSTRUCTION_READY',
+    });
+    const ready = await handleD1OperatingModel(readyContext, actor);
+    if (!ready.ok) return ready;
+  }
+
+  const generateContext = contextWithJsonBody(context, {
+    action: 'GENERATE_PAYMENT_INSTRUCTION',
+    submissionId,
+  });
+  const guard = await guardSensitivePaymentActions({ action: 'GENERATE_PAYMENT_INSTRUCTION', submissionId }, context.env);
+  if (guard) return secureJson(guard.data, guard.status, context.request, context.env, METHODS);
+  const delegatedActor = { ...actor, role: 'PAYROLL_PROCESSOR', delegatedFromRole: actor.role };
+  return handleD1OperatingModel(generateContext, delegatedActor);
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
@@ -170,6 +215,8 @@ export async function onRequest(context) {
   if (limited) return limited;
   if (!hasD1(env)) return secureJson({ error: 'Cloudflare D1 binding unavailable', code: 'D1_REQUIRED' }, 503, request, env, METHODS);
   const body = await readPostBody(request);
+  const controllerAutoPI = await completeControllerApprovalToPI(context, authorization.actor, body);
+  if (controllerAutoPI) return controllerAutoPI;
   const guarded = await guardSensitivePaymentActions(body, env);
   if (guarded) return secureJson(guarded.data, guarded.status, request, env, METHODS);
   const snapshotGuard = await validateSnapshotCapture(body, authorization.actor, env);
