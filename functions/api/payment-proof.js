@@ -39,6 +39,11 @@ function validDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
+function sameProofPayload(existing, amount, transactionDate) {
+  return Number(existing?.amount) === amount
+    && String(existing?.transaction_date || '').slice(0, 10) === transactionDate;
+}
+
 export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
   if (!['GET','POST'].includes(request.method)) return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
@@ -105,9 +110,7 @@ export async function onRequest({ request, env }) {
     const existing = await d1First(database, `SELECT * FROM payment_proofs
       WHERE payment_instruction_id=? AND bank=? AND reference=? LIMIT 1`, [paymentInstructionId, bank, reference]);
     if (existing) {
-      const samePayload = Number(existing.amount) === amount
-        && String(existing.transaction_date).slice(0, 10) === transactionDate;
-      if (!samePayload) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
+      if (!sameProofPayload(existing, amount, transactionDate)) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
       return respond({ ok: true, paymentProof: existing, idempotentReplay: true });
     }
     const proofId = `PP-${crypto.randomUUID()}`;
@@ -136,6 +139,14 @@ export async function onRequest({ request, env }) {
       return respond({ ok: true, paymentProof: results[0]?.results?.[0] }, 201);
     } catch (error) {
       await bucket.delete(key);
+      if (/UNIQUE constraint|payment_proofs/i.test(String(error?.message || error))) {
+        const replay = await d1First(database, `SELECT * FROM payment_proofs
+          WHERE payment_instruction_id=? AND bank=? AND reference=? LIMIT 1`, [paymentInstructionId, bank, reference]);
+        if (replay) {
+          if (!sameProofPayload(replay, amount, transactionDate)) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
+          return respond({ ok: true, paymentProof: replay, idempotentReplay: true });
+        }
+      }
       throw error;
     }
   } catch (error) {
