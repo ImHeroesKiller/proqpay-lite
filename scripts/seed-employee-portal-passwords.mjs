@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assignDefaultPasswords, isActiveEmployee } from '../functions/api/_employee-auth.js';
@@ -7,6 +9,7 @@ import { assignDefaultPasswords, isActiveEmployee } from '../functions/api/_empl
 const ORG_ID = process.env.DEFAULT_ORG_ID || 'ORG-OTSINDO';
 const DATABASE = 'proqpay-lite-production';
 const ITERATIONS = 100_000;
+const INSERT_BATCH = 25;
 
 function b64url(buffer) {
   return Buffer.from(buffer).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -22,7 +25,7 @@ function sqlString(value) {
   return `'${String(value ?? '').replaceAll("'", "''")}'`;
 }
 
-function d1(command) {
+function d1Command(command) {
   const output = execFileSync(
     'npx',
     ['wrangler', 'd1', 'execute', DATABASE, '--remote', '--json', '--command', command],
@@ -33,12 +36,29 @@ function d1(command) {
   return JSON.parse(output.slice(start));
 }
 
+function d1File(sql) {
+  const filePath = path.join(os.tmpdir(), `proqpay-seed-${crypto.randomUUID()}.sql`);
+  fs.writeFileSync(filePath, sql);
+  try {
+    const output = execFileSync(
+      'npx',
+      ['wrangler', 'd1', 'execute', DATABASE, '--remote', '--json', '--file', filePath],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    const start = output.indexOf('[');
+    if (start < 0) return [];
+    return JSON.parse(output.slice(start));
+  } finally {
+    fs.rmSync(filePath, { force: true });
+  }
+}
+
 function results(payload) {
   return (Array.isArray(payload) ? payload : []).flatMap((entry) => entry.results || []);
 }
 
 export function seedEmployeePortalPasswords() {
-  const pending = results(d1(`
+  const pending = results(d1Command(`
     SELECT e.id, e.employee_code, e.name, e.status_aktif, e.created_at,
            p.code AS project_code, p.name AS project_name,
            c.join_date, c.accepted_date
@@ -54,23 +74,26 @@ export function seedEmployeePortalPasswords() {
   const assigned = assignDefaultPasswords(eligible);
   let issued = 0;
 
-  for (const row of assigned) {
-    const record = hashPortalPassword(row.password);
-    d1(`
-      INSERT INTO employee_credentials
+  for (let index = 0; index < assigned.length; index += INSERT_BATCH) {
+    const chunk = assigned.slice(index, index + INSERT_BATCH);
+    const statements = chunk.map((row) => {
+      const record = hashPortalPassword(row.password);
+      return `INSERT INTO employee_credentials
         (employee_id, password_hash, password_salt, password_iterations, must_change_password,
          failed_login_attempts, locked_until, default_password_scheme, default_password_issued_at, updated_at)
       VALUES (
         ${sqlString(row.id)}, ${sqlString(record.hash)}, ${sqlString(record.salt)}, ${record.iterations}, 1,
         0, NULL, ${sqlString(row.scheme)}, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')
       )
-      ON CONFLICT(employee_id) DO NOTHING
-    `);
-    issued += 1;
+      ON CONFLICT(employee_id) DO NOTHING;`;
+    });
+    d1File(statements.join('\n'));
+    issued += chunk.length;
+    console.log(JSON.stringify({ progress: issued, of: assigned.length }));
   }
 
   if (issued) {
-    d1(`
+    d1Command(`
       INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity)
       VALUES (
         ${sqlString(`AUD-${crypto.randomUUID()}`)}, ${sqlString(ORG_ID)}, 'github-actions', 'SUPER_ADMIN',
@@ -80,7 +103,7 @@ export function seedEmployeePortalPasswords() {
     `);
   }
 
-  const summary = results(d1(`
+  const summary = results(d1Command(`
     SELECT
       (SELECT COUNT(*) FROM employees WHERE org_id=${sqlString(ORG_ID)}) AS total,
       (SELECT COUNT(*) FROM employee_credentials c JOIN employees e ON e.id=c.employee_id WHERE e.org_id=${sqlString(ORG_ID)}) AS issued,
