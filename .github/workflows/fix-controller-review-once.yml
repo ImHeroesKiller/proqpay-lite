@@ -1,0 +1,98 @@
+name: Controller Review Hotfix
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/fix-controller-review-once.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch controller review actions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/components/OperatingWorkspace.tsx')
+          s = p.read_text()
+
+          old = """  function nextFor(row:any) {
+    if (role === 'CLIENT_USER') return undefined;
+    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && row.state === 'PAYMENT_INSTRUCTION_READY') return 'GENERATE_PAYMENT_INSTRUCTION';
+    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && validationStates.has(row.state)) return 'ADVANCE_VALIDATE';
+    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && ['VALIDATED','STANDARDIZED'].includes(row.state)) return 'ADVANCE_FINALIZE';
+    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && row.state === 'EXCEPTION_FOUND') return 'CLIENT_ACTION_REQUIRED';
+    return undefined;
+  }
+"""
+          new = """  function nextFor(row:any) {
+    if (role === 'CLIENT_USER') return undefined;
+    if (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && row.state === 'CONTROLLER_REVIEW') return 'DATA_APPROVED';
+    if (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && row.state === 'DATA_APPROVED') return 'PAYMENT_INSTRUCTION_READY';
+    if (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && row.state === 'PAYROLL_FINALIZED') return 'PAYMENT_INSTRUCTION_READY';
+    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && row.state === 'PAYMENT_INSTRUCTION_READY') return 'GENERATE_PAYMENT_INSTRUCTION';
+    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && validationStates.has(row.state)) return 'ADVANCE_VALIDATE';
+    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && ['VALIDATED','STANDARDIZED'].includes(row.state)) return 'ADVANCE_FINALIZE';
+    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && row.state === 'EXCEPTION_FOUND') return 'CLIENT_ACTION_REQUIRED';
+    return undefined;
+  }
+"""
+          assert old in s, 'nextFor block not found'
+          s = s.replace(old, new, 1)
+
+          old = "const actionName = (state:string) => ({ DRAFT:'Validasi Pay Run', SUBMITTED:'Validasi Pay Run', INGESTING:'Selesaikan validasi', AI_VALIDATING:'Selesaikan validasi', EXCEPTION_FOUND:'Minta perbaikan klien', CLIENT_RESUBMITTED:'Validasi ulang', REVISION_REQUIRED:'Validasi ulang', VALIDATED:'Finalisasi Payroll', STANDARDIZED:'Finalisasi Payroll', PAYMENT_INSTRUCTION_READY:'Buat Payment Instruction' }[state] || 'Lihat detail');"
+          new = "const actionName = (state:string) => ({ DRAFT:'Validasi Pay Run', SUBMITTED:'Validasi Pay Run', INGESTING:'Selesaikan validasi', AI_VALIDATING:'Selesaikan validasi', EXCEPTION_FOUND:'Minta perbaikan klien', CLIENT_RESUBMITTED:'Validasi ulang', REVISION_REQUIRED:'Validasi ulang', VALIDATED:'Finalisasi Payroll', STANDARDIZED:'Finalisasi Payroll', CONTROLLER_REVIEW:'Setujui Data Payroll', DATA_APPROVED:'Siapkan Payment Instruction', PAYROLL_FINALIZED:'Siapkan Payment Instruction', PAYMENT_INSTRUCTION_READY:'Buat Payment Instruction' }[state] || 'Lihat detail');"
+          assert old in s, 'actionName block not found'
+          s = s.replace(old, new, 1)
+
+          old = """  const currentFlowIndex=['DRAFT'].includes(selected.state)?0
+      : ['SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED','VALIDATED','STANDARDIZED'].includes(selected.state)?1
+      : selected.state==='PAYMENT_INSTRUCTION_READY'?2:['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(selected.state)?3:4;
+  const reviewCheckpoint = next === 'ADVANCE_FINALIZE';
+"""
+          new = """  const currentFlowIndex=['DRAFT'].includes(selected.state)?0
+      : ['SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED','VALIDATED','STANDARDIZED','CONTROLLER_REVIEW'].includes(selected.state)?1
+      : ['DATA_APPROVED','PAYROLL_FINALIZED','PAYMENT_INSTRUCTION_READY'].includes(selected.state)?2:['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(selected.state)?3:4;
+  const reviewCheckpoint = next === 'ADVANCE_FINALIZE' || (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && selected.state === 'CONTROLLER_REVIEW');
+"""
+          assert old in s, 'flow block not found'
+          s = s.replace(old, new, 1)
+
+          marker = "{next ? <button type=\"button\" className=\"btn btn-primary\" disabled={(reviewCheckpoint && !confirmed)||selected.input_status==='PENDING'}"
+          replacement = "{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.state==='CONTROLLER_REVIEW'?<button type=\"button\" className=\"btn\" onClick={()=>{const reason=window.prompt('Alasan meminta revisi payroll:');if(reason)void act({action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:'REVISION_REQUIRED',reviewNote:reason},'Pay Run dikembalikan ke Processor untuk revisi').then(()=>setSelected(null));}}>Minta revisi</button>:null}{next ? <button type=\"button\" className=\"btn btn-primary\" disabled={(reviewCheckpoint && !confirmed)||selected.input_status==='PENDING'}"
+          assert marker in s, 'next action button marker not found'
+          s = s.replace(marker, replacement, 1)
+          p.write_text(s)
+
+          t = Path('tests/pi-workflow-ui.test.mjs')
+          ts = t.read_text()
+          block = """
+
+test('Controller can approve or return CONTROLLER_REVIEW pay run', () => {
+  assert.match(ui, /PAYROLL_CONTROLLER[\\s\\S]*?CONTROLLER_REVIEW[\\s\\S]*?DATA_APPROVED/);
+  assert.match(ui, /CONTROLLER_REVIEW:'Setujui Data Payroll'/);
+  assert.match(ui, /toState:'REVISION_REQUIRED'/);
+  assert.match(ui, /Minta revisi/);
+  assert.match(ui, /DATA_APPROVED[\\s\\S]*?PAYMENT_INSTRUCTION_READY/);
+});
+"""
+          if "Controller can approve or return CONTROLLER_REVIEW pay run" not in ts:
+              t.write_text(ts + block)
+          PY
+      - name: Remove one-off workflow
+        run: rm .github/workflows/fix-controller-review-once.yml
+      - name: Verify targeted regression
+        run: node --test tests/pi-workflow-ui.test.mjs
+      - name: Commit hotfix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/OperatingWorkspace.tsx tests/pi-workflow-ui.test.mjs .github/workflows/fix-controller-review-once.yml
+          git commit -m 'fix: restore controller review actions'
+          git push origin HEAD:main
