@@ -117,7 +117,7 @@ test('FINALIZE_PAY_RUN_INPUT deducts disbursed EWA then PI uses the new net', as
   assert.match(pi.paymentInstruction.content_hash, /^[a-f0-9]{64}$/);
 });
 
-test('EWA skip when remaining net would be zero or negative', async () => {
+test('EWA repayment fails closed when remaining net would be zero or negative', async () => {
   const DB = new D1Mock();
   seedPayRun(DB);
   insertDisbursed(DB, { amount: 4_900_000, fee: 147000, period: '2026-07' });
@@ -135,15 +135,14 @@ test('EWA skip when remaining net would be zero or negative', async () => {
     action: 'UPDATE_PAY_RUN_LINE', submissionId, employeeId: 'EMP-B',
     grossAmount: 6_000_000, deductionAmount: 0, netAmount: 6_000_000, included: true,
   });
-  const result = await applyEwaRepayments(DB, submissionId);
-  assert.equal(result.applied, 0);
+  await assert.rejects(applyEwaRepayments(DB, submissionId), /EWA_REPAYMENT_EXCEEDS_NET:EWA-1/);
   const line = DB.sqlite.prepare('SELECT net_amount, components FROM payroll_run_lines WHERE submission_id=? AND employee_id=?').get(submissionId, 'EMP-A');
   assert.equal(line.net_amount, 5_000_000);
   assert.equal(JSON.parse(line.components).ewaRepayment, undefined);
   assert.equal(DB.sqlite.prepare('SELECT status FROM ewa_requests WHERE id=?').get('EWA-1').status, 'DISBURSED');
 });
 
-test('UPLOAD_FINAL import attaches EWA after snapshot is written', async () => {
+test('legacy UPLOAD_FINAL JSON path cannot attach EWA without source provenance', async () => {
   const DB = new D1Mock();
   DB.sqlite.exec(`
     INSERT INTO clients(id,org_id,code,name) VALUES('CLI','ORG-OTSINDO','CLI','PT Client');
@@ -170,14 +169,9 @@ test('UPLOAD_FINAL import attaches EWA after snapshot is written', async () => {
     request: request('/api/import', { method: 'POST', body }),
     env: { DB, DEFAULT_ORG_ID: 'ORG-OTSINDO' },
   });
-  assert.equal(response.status, 200, await response.clone().text());
-  const payload = await response.json();
-  const line = DB.sqlite.prepare('SELECT net_amount, deduction_amount, components FROM payroll_run_lines WHERE submission_id=? AND employee_id=?')
-    .get(payload.submissionId, 'EMP-001');
-  assert.equal(line.net_amount, 3_750_000);
-  assert.equal(line.deduction_amount, 250000);
-  assert.equal(JSON.parse(line.components).ewaRepayment, -200000);
-  assert.equal(DB.sqlite.prepare('SELECT status FROM ewa_requests WHERE id=?').get('EWA-IMP').status, 'REPAYING');
+  assert.equal(response.status, 409, await response.clone().text());
+  assert.equal((await response.json()).code, 'PAYROLL_PROVENANCE_REQUIRED');
+  assert.equal(DB.sqlite.prepare('SELECT status FROM ewa_requests WHERE id=?').get('EWA-IMP').status, 'DISBURSED');
 });
 
 test('GET /api/employee/init is scoped to the session and slips come from pay-run lines only', async () => {
@@ -255,4 +249,3 @@ test('reconciliation MATCHED marks REPAYING EWA as REPAID', async () => {
   await markEwaRepaid(DB, 'SUB-R');
   assert.equal(DB.sqlite.prepare('SELECT status FROM ewa_requests WHERE id=?').get('EWA-1').status, 'REPAID');
 });
-

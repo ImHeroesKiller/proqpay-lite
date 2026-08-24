@@ -119,7 +119,7 @@ async function guardSensitivePaymentActions(body, env) {
       }
     }
   }
-  if (body.action === 'GENERATE_PAYMENT_INSTRUCTION') {
+  if (body.action === 'GENERATE_PAYMENT_INSTRUCTION' || body.action === 'APPROVE_PAYROLL_AND_GENERATE_PI') {
     const submissionId = String(body.submissionId || '').trim();
     if (!submissionId) return { status: 422, data: { error: 'submissionId wajib diisi' } };
     let snapshot = await validateBankSnapshot(env, submissionId);
@@ -179,30 +179,17 @@ async function completeControllerApprovalToPI(context, actor, body) {
   const target = String(body.toState || '').toUpperCase();
   if (!['DATA_APPROVED','PAYMENT_INSTRUCTION_READY'].includes(target)) return null;
 
-  const first = await handleD1OperatingModel(context, actor);
-  if (!first.ok) return first;
-
   const submissionId = String(body.submissionId || '').trim();
-  if (!submissionId) return first;
-
-  if (target === 'DATA_APPROVED') {
-    const readyContext = contextWithJsonBody(context, {
-      action: 'TRANSITION_SUBMISSION',
-      submissionId,
-      toState: 'PAYMENT_INSTRUCTION_READY',
-    });
-    const ready = await handleD1OperatingModel(readyContext, actor);
-    if (!ready.ok) return ready;
-  }
-
-  const generateContext = contextWithJsonBody(context, {
-    action: 'GENERATE_PAYMENT_INSTRUCTION',
+  if (!submissionId) return null;
+  const atomicBody = {
+    action: 'APPROVE_PAYROLL_AND_GENERATE_PI',
     submissionId,
-  });
-  const guard = await guardSensitivePaymentActions({ action: 'GENERATE_PAYMENT_INSTRUCTION', submissionId }, context.env);
+    reviewConfirmed: body.reviewConfirmed,
+    reviewNote: body.reviewNote,
+  };
+  const guard = await guardSensitivePaymentActions(atomicBody, context.env);
   if (guard) return secureJson(guard.data, guard.status, context.request, context.env, METHODS);
-  const delegatedActor = { ...actor, role: 'PAYROLL_PROCESSOR', delegatedFromRole: actor.role };
-  return handleD1OperatingModel(generateContext, delegatedActor);
+  return handleD1OperatingModel(contextWithJsonBody(context, atomicBody), actor);
 }
 
 export async function onRequest(context) {

@@ -6,7 +6,7 @@ import { D1Mock } from './helpers/d1-mock.mjs';
 const origin='https://proqpay.test';
 const call=(env,body)=>billing({request:new Request(`${origin}/api/billing`,{method:'POST',headers:{Origin:origin,'Sec-Fetch-Site':'same-origin','Content-Type':'application/json'},body:JSON.stringify(body)}),env});
 
-test('D1 billing creates invoice, AR, and records settlement transactionally',async()=>{
+test('D1 billing blocks same-actor invoice approval after generation and submission',async()=>{
   const DB=new D1Mock(),env={DB,DEFAULT_ORG_ID:'ORG-OTSINDO'};
   DB.sqlite.exec(`
     INSERT INTO clients(id,org_id,code,name,billing_method,billing_rate,billing_admin_fee,tax_status)
@@ -25,12 +25,8 @@ test('D1 billing creates invoice, AR, and records settlement transactionally',as
   const invoice=(await generated.json()).invoice;
   assert.equal(invoice.total_amount,1050000);
   assert.equal((await call(env,{action:'SUBMIT_INVOICE',invoiceId:invoice.id})).status,200);
-  assert.equal((await call(env,{action:'APPROVE_INVOICE',invoiceId:invoice.id})).status,200);
-  const issued=await call(env,{action:'ISSUE_INVOICE',invoiceId:invoice.id});
-  assert.equal(issued.status,200,await issued.clone().text());
-  const arId=(await issued.json()).arId;
-  const paid=await call(env,{action:'RECORD_AR_PAYMENT',arId,amount:1050000,paymentDate:'2026-08-31',reference:'BANK-REF'});
-  assert.equal(paid.status,200,await paid.clone().text());
-  assert.equal((await paid.json()).status,'PAID');
-  assert.equal(DB.sqlite.prepare('SELECT status FROM invoices WHERE id=?').get(invoice.id).status,'PAID');
+  const approval=await call(env,{action:'APPROVE_INVOICE',invoiceId:invoice.id});
+  assert.equal(approval.status,409,await approval.clone().text());
+  assert.match((await approval.json()).error,/maker|pembuat/i);
+  assert.equal(DB.sqlite.prepare('SELECT status FROM invoices WHERE id=?').get(invoice.id).status,'UNDER_REVIEW');
 });

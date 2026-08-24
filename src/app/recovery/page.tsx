@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 type PayRun = {
   id:string;
@@ -21,7 +22,7 @@ export default function RecoveryPage() {
   const [message,setMessage]=useState('');
   const current=useMemo(()=>rows.find((row)=>row.id===selected),[rows,selected]);
 
-  async function load(){
+  const load=useCallback(async ()=>{
     setLoading(true); setMessage('');
     try{
       const response=await fetch('/api/reset-pay-run-workflow',{cache:'no-store'});
@@ -31,9 +32,9 @@ export default function RecoveryPage() {
       if(!selected&&payload.payRuns?.length===1) setSelected(payload.payRuns[0].id);
     }catch(error){setMessage(error instanceof Error?error.message:'Gagal memuat Pay Run recovery');}
     finally{setLoading(false);}
-  }
+  },[selected]);
 
-  useEffect(()=>{void load();},[]);
+  useEffect(()=>{void load();},[load]);
 
   async function reset(){
     if(!selected) return;
@@ -66,7 +67,7 @@ export default function RecoveryPage() {
         <textarea value={reason} maxLength={500} rows={3} onChange={(e)=>setReason(e.target.value)} style={{padding:11,borderRadius:9,border:'1px solid var(--border)',background:'var(--bg-surface)',color:'var(--text)'}}/>
       </label>
       <div style={{padding:12,borderRadius:10,background:'var(--bg-subtle)',fontSize:12,lineHeight:1.6}}>Reset hanya diperbolehkan jika belum ada payment proof, reconciliation, invoice, atau PI pada tahap finansial lanjut. PI awal akan ditandai <b>REJECTED</b>; Pay Run kembali ke <b>CONTROLLER_REVIEW</b>.</div>
-      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><a className="btn" href="/?view=operations">Kembali ke Pay Runs</a><button className="btn btn-primary" disabled={!selected||reason.trim().length<10||busy} onClick={()=>void reset()}>{busy?'Memproses…':'Reset Pay Run Workflow'}</button></div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Link className="btn" href="/?view=operations">Kembali ke Pay Runs</Link><button className="btn btn-primary" disabled={!selected||reason.trim().length<10||busy} onClick={()=>void reset()}>{busy?'Memproses…':'Reset Pay Run Workflow'}</button></div>
       {message?<div className="app-notice-bubble app-notice-info" role="status"><strong>Status recovery</strong><span>{message}</span></div>:null}
     </section>
   </main>;

@@ -105,8 +105,12 @@ export function validateOperatingAction(input) {
     if (!PERIOD.test(String(input.paymentPeriod || ''))) errors.push('paymentPeriod tidak valid');
     if (!Array.isArray(input.arrearsPeriods) || input.arrearsPeriods.length > 24
       || input.arrearsPeriods.some((period) => !PERIOD.test(String(period)))) errors.push('arrearsPeriods tidak valid');
-  } else if (action === 'GENERATE_PAYMENT_INSTRUCTION') {
+  } else if (action === 'GENERATE_PAYMENT_INSTRUCTION' || action === 'APPROVE_PAYROLL_AND_GENERATE_PI') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+    if (action === 'APPROVE_PAYROLL_AND_GENERATE_PI') {
+      if (input.reviewConfirmed !== true) errors.push('reviewConfirmed wajib dikonfirmasi');
+      if (input.reviewNote && String(input.reviewNote).trim().length > 1000) errors.push('reviewNote terlalu panjang');
+    }
   } else if (action === 'SUBMIT_PAYMENT_INSTRUCTION') {
     if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
     if (input.confirmation !== 'SUBMIT PI') errors.push('Konfirmasi wajib: SUBMIT PI');
