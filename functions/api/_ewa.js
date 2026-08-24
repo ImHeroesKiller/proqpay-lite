@@ -1,7 +1,7 @@
 import { d1All, d1First, d1Run } from './_d1.js';
 
 export const DEFAULT_EWA_POLICY = Object.freeze({
-  enabled: 1,
+  enabled: 0,
   fee_rate: 0.03,
   min_fee: 50000,
   min_fee_amount: 1750000,
