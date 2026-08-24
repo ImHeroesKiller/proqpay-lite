@@ -1,4 +1,5 @@
 import { d1All, d1First } from './_d1.js';
+import { loadPortalPresentation } from './_portal-settings.js';
 import {
   DEFAULT_EWA_POLICY, earnedDaysInPeriod, ewaEligibility, ewaPlafond,
   payrollStageIndex, policyToRules, tenureMonthsFromJoin,
@@ -224,21 +225,6 @@ function slipStatus(stage) {
   return stage >= 5 ? 'paid' : 'processing';
 }
 
-async function loadPolicy(database, orgId, clientId) {
-  const scoped = await d1First(
-    database,
-    'SELECT * FROM ewa_policies WHERE org_id=? AND client_id=? LIMIT 1',
-    [orgId, clientId],
-  );
-  if (scoped) return scoped;
-  const org = await d1First(
-    database,
-    'SELECT * FROM ewa_policies WHERE org_id=? AND client_id IS NULL LIMIT 1',
-    [orgId],
-  );
-  return org || { ...DEFAULT_EWA_POLICY, org_id: orgId };
-}
-
 /** Canonical PortalPayload for ESS. Identity from session only — never query emp_id. */
 export async function buildEmployeePortalPayload(database, actor) {
   const empId = actor.id;
@@ -342,9 +328,15 @@ export async function buildEmployeePortalPayload(database, actor) {
   const net = Number(runLines[0]?.net_amount || 0);
   const earned = earnedDaysInPeriod();
   const paid = stage >= 5;
+  let presentation;
+  try {
+    presentation = await loadPortalPresentation(database, actor.orgId, actor.clientId);
+  } catch {
+    presentation = null;
+  }
+  const policy = presentation?.policy || { ...DEFAULT_EWA_POLICY, org_id: actor.orgId };
   let ewa;
   try {
-    const policy = await loadPolicy(database, actor.orgId, actor.clientId);
     const plafond = ewaPlafond({
       net, daysWorked: earned.daysWorked, daysInMonth: earned.daysInMonth, maxPercent: policy.max_percent,
     });
@@ -400,6 +392,30 @@ export async function buildEmployeePortalPayload(database, actor) {
     };
   }
 
+  const copy = presentation?.copy || {
+    companyTagline: 'Payroll & HR Digital',
+    heroSubtitle: 'Your pay hub — all your payroll info in one place',
+    ewaTitle: 'Advance Salary',
+    ewaSubtitle: 'Cairkan gaji yang sudah Anda kerjakan, tanpa menunggu gajian',
+    ewaBody: 'Cairkan gaji yang sudah Anda kerjakan tanpa agunan. Biaya layanan transparan dan dipotong otomatis saat gajian.',
+    ewaCta: 'Request Advance',
+    ewaLimitCaption: "Up to {percent}% of this month's pay",
+  };
+  const ads = (presentation?.ads || []).map((ad) => ({
+    tag: ad.tag,
+    title: ad.title,
+    desc: ad.desc,
+    cta: ad.cta,
+    bg: ad.bg,
+    href: ad.href || '',
+    action: ad.action || 'EWA',
+    placement: ad.placement || 'HOME',
+    imageUrl: ad.imageUrl || '',
+    impressionUrl: ad.impressionUrl || '',
+    clickUrl: ad.clickUrl || '',
+    provider: ad.provider || 'INTERNAL',
+  }));
+
   return {
     config: {
       employee: {
@@ -413,7 +429,7 @@ export async function buildEmployeePortalPayload(database, actor) {
       },
       company: {
         name: companyName,
-        tagline: 'Payroll & HR Digital',
+        tagline: copy.companyTagline || 'Payroll & HR Digital',
         address: employee.billing_address || '',
         contact: contactParts.join(' · '),
         legal: employee.org_name || 'ProQPay',
@@ -427,15 +443,10 @@ export async function buildEmployeePortalPayload(database, actor) {
       },
       stages: STAGES,
       payslips,
-      ads: [
-        {
-          tag: 'Advance Salary',
-          title: 'Get Paid Sooner, Worry Less',
-          desc: 'Cairkan gaji yang sudah Anda kerjakan. Pengajuan diproses sesuai kebijakan perusahaan.',
-          cta: 'Request Advance',
-          bg: 'linear-gradient(115deg, #0f1b3a 0%, #1b2a52 55%, #24355f 100%)',
-        },
-      ],
+      ads,
+      copy,
+      features: presentation?.features || { adsEnabled: true },
+      adsPlatform: presentation?.adsPlatform || { provider: 'NONE' },
       notifications,
     },
     ewa,
