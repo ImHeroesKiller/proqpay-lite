@@ -89,6 +89,9 @@ export default function ExcelUpload() {
             Upload .xlsx → parse kolom → map provinsi (IDA) → simpan ke Cloudflare D1
           </p>
         </div>
+        <a className="btn" href="/templates/proqpay-payroll-monthly-template.xlsx" download>
+          Unduh template
+        </a>
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
