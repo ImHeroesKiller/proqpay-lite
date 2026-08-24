@@ -24,13 +24,15 @@ CREATE TABLE IF NOT EXISTS unapplied_cash (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_ar_payment_reference
-  ON ar_payments(ar_id, reference);
+-- New ledger avoids adding uniqueness constraints to historical financial rows.
+-- A caller owns a reference only when its generated token matches this row.
+CREATE TABLE IF NOT EXISTS ar_payment_idempotency (
+  ar_id TEXT NOT NULL REFERENCES ar_monitor(id),
+  reference TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (ar_id, reference)
+);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_unapplied_cash_reference
-  ON unapplied_cash(ar_id, reference)
-  WHERE status <> 'VOID';
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_ar_one_invoice
-  ON ar_monitor(invoice_id)
-  WHERE invoice_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_unapplied_cash_ar_created
+  ON unapplied_cash(ar_id, created_at DESC);
