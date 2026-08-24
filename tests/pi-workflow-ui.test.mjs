@@ -14,3 +14,12 @@ test('Controller role fallback keeps approve action visible', () => {
   assert.match(ui, /const canApprovePayment = isController \|\|/);
   assert.match(ui, /Preview & Approve/);
 });
+
+test('Controller can approve or return CONTROLLER_REVIEW pay run', () => {
+  assert.match(ui, /PAYROLL_CONTROLLER[\s\S]*?CONTROLLER_REVIEW[\s\S]*?DATA_APPROVED/);
+  assert.match(ui, /CONTROLLER_REVIEW:'Setujui Data Payroll'/);
+  assert.match(ui, /toState:'REVISION_REQUIRED'/);
+  assert.match(ui, /Minta revisi/);
+  assert.match(ui, /DATA_APPROVED[\s\S]*?PAYMENT_INSTRUCTION_READY/);
+  assert.match(ui, /reviewConfirmed:true/);
+});
