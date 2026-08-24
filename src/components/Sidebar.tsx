@@ -5,12 +5,12 @@ import { IconDashboard, IconUsers, IconBuilding, IconChart, IconSettings, IconTe
 
 const SettingsModal = dynamic(() => import('./SettingsModal'));
 
-export type AppView = 'dashboard' | 'operations' | 'exceptions' | 'payments' | 'billing' | 'integrations' | 'employees' | 'clients' | 'reports' | 'logs';
+export type AppView = 'dashboard' | 'operations' | 'exceptions' | 'payments' | 'billing' | 'integrations' | 'employees' | 'clients' | 'reports' | 'logs' | 'ewa';
 
 const ROLE_VIEWS: Record<string, AppView[]> = {
-  SUPER_ADMIN: ['dashboard','operations','exceptions','payments','billing','integrations','employees','clients','reports','logs'],
-  PAYROLL_PROCESSOR: ['dashboard','operations','exceptions','payments','billing','integrations','employees','clients','reports'],
-  PAYROLL_CONTROLLER: ['dashboard','operations','exceptions','payments','billing','reports'],
+  SUPER_ADMIN: ['dashboard','operations','exceptions','payments','billing','integrations','employees','clients','reports','logs','ewa'],
+  PAYROLL_PROCESSOR: ['dashboard','operations','exceptions','payments','billing','integrations','employees','clients','reports','ewa'],
+  PAYROLL_CONTROLLER: ['dashboard','operations','exceptions','payments','billing','reports','ewa'],
   CLIENT_USER: ['dashboard','operations','payments','billing','reports'],
 };
 
@@ -32,7 +32,7 @@ export default function Sidebar({view,onView,onOpenIda,onOpenHelp,role,compact=f
         <button type="button" className="sidebar-mobile-close" aria-label="Tutup navigasi" onClick={onMobileClose}>✕</button>
       </div>
       <NavGroup label="Payroll"><NavBtn active={view==='dashboard'} icon={<IconDashboard/>} title="Dashboard" onClick={()=>go('dashboard')} />{allowed.has('operations')?<NavBtn active={view==='operations'} icon={<IconWallet/>} title={role==='CLIENT_USER'?'Payroll Status':'Pay Runs'} onClick={()=>go('operations')} />:null}{allowed.has('exceptions')?<NavBtn active={view==='exceptions'} icon={<IconMessage/>} title="Data Readiness" onClick={()=>go('exceptions')} />:null}</NavGroup>
-      <NavGroup label="Payment & Finance">{allowed.has('payments')?<NavBtn active={view==='payments'} icon={<IconFile/>} title={role==='CLIENT_USER'?'Payment Status':'Payment Instructions'} onClick={()=>go('payments')} />:null}{allowed.has('billing')?<NavBtn active={view==='billing'} icon={<IconWallet/>} title={role==='CLIENT_USER'?'Invoices':'Billing & AR'} onClick={()=>go('billing')} />:null}{allowed.has('reports')?<NavBtn active={view==='reports'} icon={<IconChart/>} title="Reports" onClick={()=>go('reports')} />:null}</NavGroup>
+      <NavGroup label="Payment & Finance">{allowed.has('payments')?<NavBtn active={view==='payments'} icon={<IconFile/>} title={role==='CLIENT_USER'?'Payment Status':'Payment Instructions'} onClick={()=>go('payments')} />:null}{allowed.has('ewa')?<NavBtn active={view==='ewa'} icon={<IconWallet/>} title="Advance Salary" onClick={()=>go('ewa')} />:null}{allowed.has('billing')?<NavBtn active={view==='billing'} icon={<IconWallet/>} title={role==='CLIENT_USER'?'Invoices':'Billing & AR'} onClick={()=>go('billing')} />:null}{allowed.has('reports')?<NavBtn active={view==='reports'} icon={<IconChart/>} title="Reports" onClick={()=>go('reports')} />:null}</NavGroup>
       <NavGroup label="Master Data">{allowed.has('clients')?<NavBtn active={view==='clients'} icon={<IconBuilding/>} title="Clients & Projects" onClick={()=>go('clients')} />:null}{allowed.has('employees')?<NavBtn active={view==='employees'} icon={<IconUsers/>} title="Employees" onClick={()=>go('employees')} />:null}</NavGroup>
       {role==='SUPER_ADMIN'?<NavGroup label="Administration">{allowed.has('integrations')?<NavBtn active={view==='integrations'} icon={<IconTerminal/>} title="Integrations" onClick={()=>go('integrations')} />:null}<NavBtn active={view==='logs'} icon={<IconTerminal/>} title="Audit Logs" onClick={()=>go('logs')} /><NavBtn active={settingsOpen} icon={<IconSettings/>} title="Settings" onClick={()=>{onSettingsOpen(true);onMobileClose();}} /></NavGroup>:null}
       <div className="sidebar-spacer" />

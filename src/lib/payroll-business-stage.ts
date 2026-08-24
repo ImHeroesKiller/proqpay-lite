@@ -1,4 +1,13 @@
-export type PayrollBusinessStage = 'DATA_READINESS' | 'PAYROLL_PREPARATION' | 'REVIEW_APPROVAL' | 'PAYMENT' | 'RECONCILIATION_CLOSE';
+export const PAYROLL_BUSINESS_STAGE_ORDER = [
+  'DATA_READINESS',
+  'PAYROLL_PREPARATION',
+  'REVIEW_APPROVAL',
+  'PAYMENT',
+  'RECONCILIATION_CLOSE',
+] as const;
+
+export type PayrollBusinessStage = (typeof PAYROLL_BUSINESS_STAGE_ORDER)[number];
+export const PAYROLL_BUSINESS_STAGE_COUNT = PAYROLL_BUSINESS_STAGE_ORDER.length;
 
 const STAGE_BY_STATE: Record<string, PayrollBusinessStage> = {
   DRAFT: 'DATA_READINESS',
@@ -6,10 +15,12 @@ const STAGE_BY_STATE: Record<string, PayrollBusinessStage> = {
   INGESTING: 'PAYROLL_PREPARATION',
   AI_VALIDATING: 'PAYROLL_PREPARATION',
   EXCEPTION_FOUND: 'DATA_READINESS',
+  EXCEPTION_REVIEW: 'DATA_READINESS',
   CLIENT_ACTION_REQUIRED: 'DATA_READINESS',
   CLIENT_RESUBMITTED: 'PAYROLL_PREPARATION',
   VALIDATED: 'PAYROLL_PREPARATION',
   STANDARDIZED: 'PAYROLL_PREPARATION',
+  PROCESSOR_REVIEW: 'PAYROLL_PREPARATION',
   CONTROLLER_REVIEW: 'REVIEW_APPROVAL',
   REVISION_REQUIRED: 'DATA_READINESS',
   DATA_APPROVED: 'REVIEW_APPROVAL',
@@ -40,4 +51,10 @@ export function payrollBusinessStage(state: unknown): PayrollBusinessStage {
 
 export function payrollBusinessStageLabel(state: unknown) {
   return BUSINESS_STAGE_LABELS[payrollBusinessStage(state)];
+}
+
+export function payrollBusinessStageIndex(state: unknown, piStatus?: unknown, recStatus?: unknown) {
+  if (recStatus && /MATCH|COMPLETE/i.test(String(recStatus))) return PAYROLL_BUSINESS_STAGE_COUNT;
+  if (piStatus && /PAID|COMPLETED|RECONCILED/i.test(String(piStatus))) return PAYROLL_BUSINESS_STAGE_COUNT;
+  return PAYROLL_BUSINESS_STAGE_ORDER.indexOf(payrollBusinessStage(state)) + 1;
 }

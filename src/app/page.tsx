@@ -19,6 +19,7 @@ const EmployeeDirectory = dynamic(() => import('@/components/EmployeeDirectory')
 const DirectoryManager = dynamic(() => import('@/components/DirectoryManager'), { loading: () => <ViewLoading /> });
 const ReportsWorkspace = dynamic(() => import('@/components/ReportsWorkspace'), { loading: () => <ViewLoading /> });
 const SystemLogs = dynamic(() => import('@/components/SystemLogs'), { loading: () => <ViewLoading /> });
+const EwaInbox = dynamic(() => import('@/components/EwaInbox'), { loading: () => <ViewLoading /> });
 const IdaFab = dynamic(() => import('@/components/IdaFab'));
 const HelpModal = dynamic(() => import('@/components/HelpModal'));
 
@@ -186,6 +187,8 @@ export default function Home() {
             {view === 'payments' && <OperatingWorkspace mode="payments" />}
             {view === 'billing' && <OperatingWorkspace mode="billing" />}
             {view === 'integrations' && <OperatingWorkspace mode="integrations" />}
+
+            {view === 'ewa' && <EwaInbox />}
 
             {view === 'reports' && <ReportsWorkspace />}
           </div>
