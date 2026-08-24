@@ -1,7 +1,8 @@
 export const PAYROLL_TEMPLATE_VERSION = 'PROQPAY_PAYROLL_V1';
 
 export async function downloadPayrollTemplate() {
-  const ExcelJS = await import('exceljs');
+  const module = await import('exceljs');
+  const ExcelJS = module.default || module;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'ProQPay';
   workbook.subject = 'Canonical payroll upload template';
@@ -48,7 +49,7 @@ export async function downloadPayrollTemplate() {
     { header: 'Netto', key: 'net', width: 16 },
   ];
   payroll.getRow(1).font = { bold: true };
-  payroll.autoFilter = { from: 'A1', to: `AK1` };
+  payroll.autoFilter = { from: 'A1', to: 'AK1' };
   payroll.addRow({
     nrk: 'EMP001', name: 'Contoh Karyawan', clientCode: 'CLIENT01', client: 'Nama Klien', branch: 'Jakarta', lokasi: 'Head Office', position: 'Staff', status: 'ACTIVE',
     bank: 'BCA', accountNo: '1234567890', basicSalary: 5000000, overtime: 250000, mealAllowance: 300000,
@@ -85,7 +86,8 @@ export async function downloadPayrollTemplate() {
   control.getCell('B7').numFmt = '#,##0;[Red]-#,##0';
 
   const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const bytes = new Uint8Array(buffer as ArrayBuffer);
+  const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
