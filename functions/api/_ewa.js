@@ -9,6 +9,7 @@ export const DEFAULT_EWA_POLICY = Object.freeze({
   max_tenor_months: 1,
   min_days_worked: 10,
   min_tenure_months: 1,
+  min_tenure_days: 0,
 });
 
 const STAGE_INDEX = {
@@ -36,11 +37,34 @@ export function earnedDaysInPeriod(now = new Date()) {
   return { daysWorked, daysInMonth, period: `${year}-${String(month + 1).padStart(2, '0')}` };
 }
 
+export function parseDateOnly(value) {
+  const match = String(value || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return { y: Number(match[1]), m: Number(match[2]) - 1, d: Number(match[3]) };
+}
+
+export function tenureDaysFromJoin(joinDate, now = new Date()) {
+  const start = parseDateOnly(joinDate);
+  if (!start) return 0;
+  const from = Date.UTC(start.y, start.m, start.d);
+  const to = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.max(0, Math.round((to - from) / 86400000));
+}
+
 export function tenureMonthsFromJoin(joinDate, now = new Date()) {
-  if (!joinDate) return 0;
-  const start = new Date(joinDate);
-  if (Number.isNaN(start.getTime())) return 0;
-  return Math.max(0, (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()));
+  const start = parseDateOnly(joinDate);
+  if (!start) return 0;
+  let months = (now.getUTCFullYear() - start.y) * 12 + (now.getUTCMonth() - start.m);
+  if (now.getUTCDate() < start.d) months -= 1;
+  return Math.max(0, months);
+}
+
+function joinLabel(joinDate) {
+  const start = parseDateOnly(joinDate);
+  if (!start) return '';
+  return new Date(Date.UTC(start.y, start.m, start.d)).toLocaleDateString('id-ID', {
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+  });
 }
 
 export function ewaFee(amount, policy = DEFAULT_EWA_POLICY) {
@@ -60,6 +84,8 @@ export function ewaEligibility({
   policy = DEFAULT_EWA_POLICY,
   daysWorked,
   tenureMonths,
+  tenureDays,
+  joinDate,
   plafond,
   openRequest,
   paid,
@@ -69,11 +95,20 @@ export function ewaEligibility({
   if (!Number(policy.enabled)) return { eligible: false, reason: 'Advance salary belum diaktifkan' };
   if (paid) return { eligible: false, reason: 'Payroll periode ini sudah dibayar' };
   if (openRequest) return { eligible: false, reason: 'Masih ada pengajuan yang berjalan' };
-  if (Number(tenureMonths) < Number(policy.min_tenure_months || 0)) {
-    return { eligible: false, reason: `Masa kerja minimal ${policy.min_tenure_months} bulan` };
+  const days = Number.isFinite(Number(tenureDays)) ? Number(tenureDays) : 0;
+  const months = Number(tenureMonths) || 0;
+  const needDays = Number(policy.min_tenure_days || 0);
+  const needMonths = Number(policy.min_tenure_months || 0);
+  const joined = joinLabel(joinDate);
+  const joinedBit = joined ? ` (bergabung ${joined})` : ' (tanggal bergabung belum ada di kontrak)';
+  if (needDays > 0 && days < needDays) {
+    return { eligible: false, reason: `Masa kerja ${days} hari${joinedBit}. Minimal ${needDays} hari` };
+  }
+  if (needMonths > 0 && months < needMonths) {
+    return { eligible: false, reason: `Masa kerja ${days} hari${joinedBit}. Minimal ${needMonths} bulan` };
   }
   if (Number(daysWorked) < Number(policy.min_days_worked || 0)) {
-    return { eligible: false, reason: `Minimal ${policy.min_days_worked} hari berjalan di periode ini` };
+    return { eligible: false, reason: `Minimal tanggal ${policy.min_days_worked} di periode gaji ini` };
   }
   if (Number(plafond) < 100000) return { eligible: false, reason: 'Plafond belum mencukupi' };
   return { eligible: true, reason: '' };
@@ -88,6 +123,7 @@ export function policyToRules(policy = DEFAULT_EWA_POLICY) {
     maxPercent: Number(policy.max_percent),
     minDaysWorked: Number(policy.min_days_worked),
     minTenureMonths: Number(policy.min_tenure_months),
+    minTenureDays: Number(policy.min_tenure_days || 0),
     enabled: Boolean(Number(policy.enabled)),
   };
 }

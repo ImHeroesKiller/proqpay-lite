@@ -107,7 +107,8 @@ test('ops can save EWA rules and banners; employee init uses them', async () => 
           maxPercent: 0.2,
           maxTenorMonths: 1,
           minDaysWorked: 7,
-          minTenureMonths: 3,
+          minTenureMonths: 0,
+          minTenureDays: 10,
         },
         copy: {
           companyTagline: 'Gaji Digital Otsindo',
@@ -141,7 +142,8 @@ test('ops can save EWA rules and banners; employee init uses them', async () => 
   assert.equal(saved.status, 200, await saved.clone().text());
   const stored = await saved.json();
   assert.equal(stored.policy.maxPercent, 0.2);
-  assert.equal(stored.policy.minTenureMonths, 3);
+  assert.equal(stored.policy.minTenureDays, 10);
+  assert.equal(stored.policy.minTenureMonths, 0);
   assert.equal(stored.copy.companyTagline, 'Gaji Digital Otsindo');
   assert.equal(stored.ads[1].href, '', 'javascript URLs must be dropped');
   assert.equal(stored.adsPlatform.provider, 'GENERIC');
@@ -172,7 +174,8 @@ test('ops can save EWA rules and banners; employee init uses them', async () => 
   assert.equal(init.status, 200, await init.clone().text());
   const payload = await init.json();
   assert.equal(payload.ewa.rules.maxPercent, 0.2);
-  assert.equal(payload.ewa.rules.minTenureMonths, 3);
+  assert.equal(payload.ewa.rules.minTenureDays, 10);
+  assert.equal(payload.ewa.rules.minTenureMonths, 0);
   assert.equal(payload.ewa.rules.feeRate, 0.025);
   assert.equal(payload.config.company.tagline, 'Gaji Digital Otsindo');
   assert.equal(payload.config.copy.ewaTitle, 'Gaji di Muka');

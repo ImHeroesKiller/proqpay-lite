@@ -11,6 +11,7 @@ type Policy = {
   maxTenorMonths: number;
   minDaysWorked: number;
   minTenureMonths: number;
+  minTenureDays: number;
 };
 
 type Copy = {
@@ -106,7 +107,11 @@ export default function PortalSettings() {
   const apply = useCallback((data: Record<string, unknown>) => {
     setClients((data.clients as Client[]) || []);
     setInherited(Boolean(data.inherited));
-    setPolicy(data.policy as Policy);
+    setPolicy({
+      ...(data.policy as Policy),
+      minTenureDays: Number((data.policy as Policy)?.minTenureDays) || 0,
+      minTenureMonths: Number((data.policy as Policy)?.minTenureMonths) || 0,
+    });
     setCopy(data.copy as Copy);
     setAdsEnabled((data.features as { adsEnabled?: boolean })?.adsEnabled !== false);
     setAds(((data.ads as Ad[]) || []).map((ad, index) => ({ ...EMPTY_AD, ...ad, sortOrder: index })));
@@ -190,6 +195,8 @@ export default function PortalSettings() {
     return <p style={{ color: 'var(--text3)' }}>{message || 'Memuat pengaturan portal…'}</p>;
   }
 
+  const tenureUnit = (policy.minTenureDays || 0) > 0 ? 'days' : 'months';
+
   return (
     <section>
       <div className="page-heading">
@@ -264,14 +271,44 @@ export default function PortalSettings() {
               onChange={(event) => setPolicy({ ...policy, minFeeAmount: Number(event.target.value) || 0 })} />
           </label>
           <label style={field}>
-            Minimal hari kerja di periode ini
+            Hari berjalan di bulan gaji (prorata)
             <input type="number" min={0} max={31} value={policy.minDaysWorked}
               onChange={(event) => setPolicy({ ...policy, minDaysWorked: Number(event.target.value) || 0 })} />
+            <span style={{ fontWeight: 400, color: 'var(--text3)' }}>
+              Bukan masa kerja. Contoh 10 = baru boleh ajukan setelah tanggal 10 bulan ini.
+            </span>
           </label>
           <label style={field}>
-            Minimal masa kerja (bulan)
-            <input type="number" min={0} max={60} value={policy.minTenureMonths}
-              onChange={(event) => setPolicy({ ...policy, minTenureMonths: Number(event.target.value) || 0 })} />
+            Masa kerja minimum (sejak tanggal bergabung)
+            <span style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="number"
+                min={0}
+                max={tenureUnit === 'days' ? 3650 : 60}
+                value={tenureUnit === 'days' ? policy.minTenureDays : policy.minTenureMonths}
+                onChange={(event) => {
+                  const value = Number(event.target.value) || 0;
+                  setPolicy(tenureUnit === 'days'
+                    ? { ...policy, minTenureDays: value, minTenureMonths: 0 }
+                    : { ...policy, minTenureMonths: value, minTenureDays: 0 });
+                }}
+              />
+              <select
+                value={tenureUnit}
+                onChange={(event) => {
+                  const unit = event.target.value;
+                  setPolicy(unit === 'days'
+                    ? { ...policy, minTenureDays: policy.minTenureDays || 10, minTenureMonths: 0 }
+                    : { ...policy, minTenureMonths: policy.minTenureMonths || 1, minTenureDays: 0 });
+                }}
+              >
+                <option value="days">hari</option>
+                <option value="months">bulan</option>
+              </select>
+            </span>
+            <span style={{ fontWeight: 400, color: 'var(--text3)' }}>
+              Dihitung dari join date di kontrak. 0 = tidak ada syarat masa kerja.
+            </span>
           </label>
           <label style={field}>
             Tenor (bulan, 1 = potong saat gajian)
@@ -281,7 +318,7 @@ export default function PortalSettings() {
           <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: 12, color: 'var(--text3)' }}>
             Contoh: plafond {Math.round(policy.maxPercent * 100)}% · fee {Number((policy.feeRate * 100).toFixed(2))}%
             (min Rp {IDR.format(policy.minFee)} jika cair ≤ Rp {IDR.format(policy.minFeeAmount)}).
-            Plafond dan fee dihitung di server, bukan di LLM.
+            Plafond dan fee dihitung di server, bukan di LLM. Masa kerja dihitung dari tanggal bergabung di kontrak.
           </p>
         </div>
       ) : null}

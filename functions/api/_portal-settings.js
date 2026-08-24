@@ -126,6 +126,7 @@ export function sanitizePolicy(input = {}) {
   const minFeeAmount = Math.round(Number(input.minFeeAmount ?? input.min_fee_amount));
   const minDaysWorked = Math.round(Number(input.minDaysWorked ?? input.min_days_worked));
   const minTenureMonths = Math.round(Number(input.minTenureMonths ?? input.min_tenure_months));
+  const minTenureDays = Math.round(Number(input.minTenureDays ?? input.min_tenure_days));
   const maxTenorMonths = Math.round(Number(input.maxTenorMonths ?? input.max_tenor_months));
   const enabled = input.enabled === false || input.enabled === 0 ? 0 : 1;
   return {
@@ -137,6 +138,7 @@ export function sanitizePolicy(input = {}) {
     max_tenor_months: Math.min(6, Math.max(1, Number.isFinite(maxTenorMonths) ? maxTenorMonths : 1)),
     min_days_worked: Math.min(31, Math.max(0, Number.isFinite(minDaysWorked) ? minDaysWorked : DEFAULT_EWA_POLICY.min_days_worked)),
     min_tenure_months: Math.min(60, Math.max(0, Number.isFinite(minTenureMonths) ? minTenureMonths : DEFAULT_EWA_POLICY.min_tenure_months)),
+    min_tenure_days: Math.min(3650, Math.max(0, Number.isFinite(minTenureDays) ? minTenureDays : DEFAULT_EWA_POLICY.min_tenure_days)),
   };
 }
 
@@ -311,11 +313,13 @@ export async function savePortalSettings(database, { orgId, clientId, actor, pol
     await d1Run(
       database,
       `UPDATE ewa_policies SET enabled=?, fee_rate=?, min_fee=?, min_fee_amount=?, max_percent=?,
-        max_tenor_months=?, min_days_worked=?, min_tenure_months=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        max_tenor_months=?, min_days_worked=?, min_tenure_months=?, min_tenure_days=?,
+        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
         WHERE id=?`,
       [
         nextPolicy.enabled, nextPolicy.fee_rate, nextPolicy.min_fee, nextPolicy.min_fee_amount, nextPolicy.max_percent,
-        nextPolicy.max_tenor_months, nextPolicy.min_days_worked, nextPolicy.min_tenure_months, existingPolicy.id,
+        nextPolicy.max_tenor_months, nextPolicy.min_days_worked, nextPolicy.min_tenure_months, nextPolicy.min_tenure_days,
+        existingPolicy.id,
       ],
     );
   } else {
@@ -323,12 +327,13 @@ export async function savePortalSettings(database, { orgId, clientId, actor, pol
       database,
       `INSERT INTO ewa_policies (
         id, org_id, client_id, enabled, fee_rate, min_fee, min_fee_amount, max_percent,
-        max_tenor_months, min_days_worked, min_tenure_months
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        max_tenor_months, min_days_worked, min_tenure_months, min_tenure_days
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         `EWP-${crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`,
         orgId, clientId || null, nextPolicy.enabled, nextPolicy.fee_rate, nextPolicy.min_fee, nextPolicy.min_fee_amount,
         nextPolicy.max_percent, nextPolicy.max_tenor_months, nextPolicy.min_days_worked, nextPolicy.min_tenure_months,
+        nextPolicy.min_tenure_days,
       ],
     );
   }
