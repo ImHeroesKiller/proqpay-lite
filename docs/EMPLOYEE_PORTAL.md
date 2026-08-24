@@ -34,7 +34,14 @@ Karyawan **bukan** baris `app_users`. Cookie portal `proqpay_employee`, terpisah
 | GET | `/api/employee/me` | Sesi portal |
 | POST | `/api/employee/password` | Sesi portal |
 | POST | `/api/employee/logout` | Sesi portal |
+| GET/POST | `/api/employee/ewa` | Sesi portal (quote / ajukan / batal) |
+| GET | `/api/portal-audit` | Ops: login ESS + jejak EWA |
 
-Login ESS berikutnya (Fase 1 lanjutan di repo ESS): Worker ESS memanggil Lite, bukan PIN bersama.
+## Fase 3 — batas Access dan audit
+
+- CORS `/api/employee/*` memakai `EMPLOYEE_PORTAL_ORIGINS`, bukan `APP_ORIGINS`.
+- Endpoint karyawan **tidak** membaca `Cf-Access-Jwt-Assertion`.
+- Hostname ESS jangan masuk aplikasi Cloudflare Access ops.
+- Menu Lite **Portal Audit** menampilkan `portal_login_attempts` dan `audit_logs` EWA/kredensial. Pay run / PI / billing tidak disentuh.
 
 Env: `EMPLOYEE_PORTAL_ORIGINS`, `EMPLOYEE_SESSION_HOURS`, opsional `EMPLOYEE_PORTAL_KEY`.

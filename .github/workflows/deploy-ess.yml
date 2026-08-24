@@ -43,6 +43,11 @@ jobs:
       - name: Deploy ESS Worker
         run: npx wrangler deploy
 
+      - name: Remove deprecated bootstrap PIN
+        run: |
+          printf 'y\n' | npx wrangler secret delete PORTAL_BOOTSTRAP_PIN --name proqpay-ess \
+            || echo "PORTAL_BOOTSTRAP_PIN already absent"
+
       - name: Verify ESS is up
         run: |
           for attempt in {1..12}; do

@@ -86,6 +86,54 @@ export function portalMutationAllowed(request, env) {
   return request.headers.get('Sec-Fetch-Site') === 'same-origin';
 }
 
+/** Origins allowed to call /api/employee/* — never APP_ORIGINS / ops Access. */
+export function employeeAllowedOrigins(request, env) {
+  const currentOrigin = new URL(request.url).origin;
+  const configured = String(env.EMPLOYEE_PORTAL_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return new Set([currentOrigin, ...configured]);
+}
+
+export function employeeCorsHeaders(request, env, methods = 'GET, POST, OPTIONS') {
+  const origin = request.headers.get('Origin');
+  const allowed = employeeAllowedOrigins(request, env);
+  const responseOrigin = origin && allowed.has(origin) ? origin : new URL(request.url).origin;
+  return {
+    'Access-Control-Allow-Origin': responseOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Portal-Key',
+    'Access-Control-Allow-Methods': methods,
+    'Cache-Control': 'no-store',
+    Vary: 'Origin',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'same-origin',
+  };
+}
+
+export function employeeJson(data, status, request, env, methods, extraHeaders = {}) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      ...employeeCorsHeaders(request, env, methods),
+      ...extraHeaders,
+    },
+  });
+}
+
+export function employeeHandlePreflight(request, env, methods) {
+  const origin = request.headers.get('Origin');
+  if (origin && !employeeAllowedOrigins(request, env).has(origin)) {
+    return employeeJson({ error: 'Origin not allowed' }, 403, request, env, methods);
+  }
+  return new Response(null, {
+    status: 204,
+    headers: employeeCorsHeaders(request, env, methods),
+  });
+}
+
 export function employeeSessionCookie(token, hours) {
   const maxAge = Math.max(1, hours) * 3600;
   return `${EMPLOYEE_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
@@ -133,6 +181,7 @@ export async function revokeEmployeeSession(request, database) {
 }
 
 export async function authenticateEmployee(request, env) {
+  // Employee session only. Ignore Cf-Access-Jwt-Assertion — that is ops Access.
   if (!hasD1(env)) return null;
   const token = employeeTokenFromRequest(request);
   if (!token) return null;
