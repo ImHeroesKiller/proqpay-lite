@@ -35,6 +35,10 @@ function field(form, name) {
   return String(form.get(name) || '').trim();
 }
 
+function normalizedKey(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
 function validDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
@@ -93,8 +97,8 @@ export async function onRequest({ request, env }) {
     const validation = validatePaymentProofFile(file);
     if (!validation.ok) return respond({ error: validation.errors.join('; ') }, 422);
     const paymentInstructionId = field(form, 'paymentInstructionId');
-    const bank = field(form, 'bank');
-    const reference = field(form, 'reference');
+    const bank = normalizedKey(field(form, 'bank'));
+    const reference = normalizedKey(field(form, 'reference'));
     const transactionDate = field(form, 'transactionDate');
     const amount = Number(field(form, 'amount'));
     if (!paymentInstructionId || !bank || !reference || !validDate(transactionDate) || !Number.isSafeInteger(amount) || amount <= 0) {
@@ -108,7 +112,7 @@ export async function onRequest({ request, env }) {
       return respond({ error: 'Payment instruction belum disetujui atau belum siap menerima bukti pembayaran' }, 409);
     }
     const existing = await d1First(database, `SELECT * FROM payment_proofs
-      WHERE payment_instruction_id=? AND bank=? AND reference=? LIMIT 1`, [paymentInstructionId, bank, reference]);
+      WHERE payment_instruction_id=? AND UPPER(bank)=? AND UPPER(reference)=? LIMIT 1`, [paymentInstructionId, bank, reference]);
     if (existing) {
       if (!sameProofPayload(existing, amount, transactionDate)) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
       return respond({ ok: true, paymentProof: existing, idempotentReplay: true });
@@ -141,7 +145,7 @@ export async function onRequest({ request, env }) {
       await bucket.delete(key);
       if (/UNIQUE constraint|payment_proofs/i.test(String(error?.message || error))) {
         const replay = await d1First(database, `SELECT * FROM payment_proofs
-          WHERE payment_instruction_id=? AND bank=? AND reference=? LIMIT 1`, [paymentInstructionId, bank, reference]);
+          WHERE payment_instruction_id=? AND UPPER(bank)=? AND UPPER(reference)=? LIMIT 1`, [paymentInstructionId, bank, reference]);
         if (replay) {
           if (!sameProofPayload(replay, amount, transactionDate)) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
           return respond({ ok: true, paymentProof: replay, idempotentReplay: true });
