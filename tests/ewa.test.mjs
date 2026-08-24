@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { passwordRecord } from '../functions/api/_account-auth.js';
-import { ewaFee, ewaPlafond, payrollStageIndex } from '../functions/api/_ewa.js';
+import { ewaEligibility, ewaFee, ewaPlafond, payrollStageIndex, tenureDaysFromJoin, tenureMonthsFromJoin } from '../functions/api/_ewa.js';
 import { onRequest as ewaOps } from '../functions/api/ewa.js';
 import { onRequest as employeeEwa } from '../functions/api/employee/ewa.js';
 import { onRequest as employeeLogin } from '../functions/api/employee/login.js';
@@ -23,6 +23,38 @@ test('EWA fee and plafond are deterministic', () => {
   assert.equal(payrollStageIndex('PAYMENT_APPROVAL_PENDING'), 4);
   assert.equal(payrollStageIndex('COMPLETED'), 5);
 });
+
+test('tenure is counted from join date, not from day-of-month setting', () => {
+  const now = new Date('2026-08-24T04:00:00Z');
+  assert.equal(tenureDaysFromJoin('2026-08-16', now), 8);
+  assert.equal(tenureMonthsFromJoin('2026-08-16', now), 0);
+  assert.equal(tenureMonthsFromJoin('2026-07-24', now), 1);
+  assert.equal(tenureMonthsFromJoin('2026-07-25', now), 0);
+  assert.equal(tenureDaysFromJoin('', now), 0);
+
+  const blocked = ewaEligibility({
+    policy: { enabled: 1, min_tenure_months: 1, min_tenure_days: 0, min_days_worked: 10 },
+    daysWorked: 24, tenureMonths: 0, tenureDays: 8, joinDate: '2026-08-16', plafond: 500000,
+  });
+  assert.equal(blocked.eligible, false);
+  assert.match(blocked.reason, /bergabung/);
+  assert.match(blocked.reason, /2026/);
+  assert.match(blocked.reason, /1 bulan/);
+
+  const daysOk = ewaEligibility({
+    policy: { enabled: 1, min_tenure_months: 0, min_tenure_days: 10, min_days_worked: 10 },
+    daysWorked: 24, tenureMonths: 0, tenureDays: 12, joinDate: '2026-08-12', plafond: 500000,
+  });
+  assert.equal(daysOk.eligible, true);
+
+  const daysShort = ewaEligibility({
+    policy: { enabled: 1, min_tenure_months: 0, min_tenure_days: 10, min_days_worked: 10 },
+    daysWorked: 24, tenureMonths: 0, tenureDays: 8, joinDate: '2026-08-16', plafond: 500000,
+  });
+  assert.equal(daysShort.eligible, false);
+  assert.match(daysShort.reason, /Minimal 10 hari/);
+});
+
 
 async function seed(DB) {
   DB.sqlite.exec(`

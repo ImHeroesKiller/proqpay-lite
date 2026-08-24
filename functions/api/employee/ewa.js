@@ -2,7 +2,7 @@ import { authenticateEmployee, employeeHandlePreflight, employeeJson, isActiveEm
 import { d1All, d1First, d1Run, hasD1 } from '../_d1.js';
 import {
   DEFAULT_EWA_POLICY, earnedDaysInPeriod, ewaEligibility, ewaFee, ewaPlafond,
-  payrollStageIndex, policyToRules, tenureMonthsFromJoin,
+  payrollStageIndex, policyToRules, tenureDaysFromJoin, tenureMonthsFromJoin,
 } from '../_ewa.js';
 import { publicError } from '../_security.js';
 
@@ -50,7 +50,9 @@ async function snapshot(database, actor) {
     'SELECT join_date, accepted_date FROM employee_contracts WHERE employee_id=? AND is_current=1 LIMIT 1',
     [actor.id],
   );
-  const tenureMonths = tenureMonthsFromJoin(contract?.join_date || contract?.accepted_date);
+  const joinDate = contract?.join_date || contract?.accepted_date || '';
+  const tenureMonths = tenureMonthsFromJoin(joinDate);
+  const tenureDays = tenureDaysFromJoin(joinDate);
   const net = await loadNet(database, actor.id);
   const plafond = ewaPlafond({
     net, daysWorked: earned.daysWorked, daysInMonth: earned.daysInMonth, maxPercent: policy.max_percent,
@@ -82,7 +84,8 @@ async function snapshot(database, actor) {
     : 1;
   const paid = stage >= 5;
   const eligibility = ewaEligibility({
-    policy, daysWorked: earned.daysWorked, tenureMonths, plafond, openRequest: open, paid, active: true,
+    policy, daysWorked: earned.daysWorked, tenureMonths, tenureDays, joinDate,
+    plafond, openRequest: open, paid, active: true,
   });
   const history = await d1All(
     database,
@@ -91,7 +94,7 @@ async function snapshot(database, actor) {
     [actor.id],
   );
   return {
-    policy, earned, tenureMonths, net, plafond, open, paid, eligibility, history, period: earned.period,
+    policy, earned, joinDate, tenureMonths, tenureDays, net, plafond, open, paid, eligibility, history, period: earned.period,
   };
 }
 
@@ -124,6 +127,8 @@ export async function onRequest({ request, env }) {
           daysWorked: state.earned.daysWorked,
           daysInMonth: state.earned.daysInMonth,
           tenureMonths: state.tenureMonths,
+          tenureDays: state.tenureDays,
+          joinDate: state.joinDate || '',
           net: state.net,
         },
         plafond: state.plafond,

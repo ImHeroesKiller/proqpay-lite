@@ -44,7 +44,7 @@ Semua aturan dan tampilan portal karyawan diatur di menu **Portal Settings**. Pa
 
 | Tab | Isi | Disimpan di |
 |---|---|---|
-| Aturan advance | on/off, % plafond, fee, fee min, hari kerja, masa kerja, tenor | `ewa_policies` |
+| Aturan advance | on/off, % plafond, fee, hari periode, masa kerja (hari/bulan dari join date), tenor | `ewa_policies` |
 | Banner / iklan | isi, CTA, tautan https, gambar, penempatan HOME/EWA/PAYSLIP, pixel | `portal_ads` |
 | Teks portal | tagline, subjudul, copy kartu EWA | `portal_settings.copy_json` |
 | Ads platform | NONE / GENERIC / Google Ads / Meta (pixel 1×1, tanpa JS pihak ketiga) | `portal_settings.ads_platform_json` |

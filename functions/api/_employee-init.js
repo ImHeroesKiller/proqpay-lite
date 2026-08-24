@@ -2,7 +2,7 @@ import { d1All, d1First } from './_d1.js';
 import { loadPortalPresentation } from './_portal-settings.js';
 import {
   DEFAULT_EWA_POLICY, earnedDaysInPeriod, ewaEligibility, ewaPlafond,
-  payrollStageIndex, policyToRules, tenureMonthsFromJoin,
+  payrollStageIndex, policyToRules, tenureDaysFromJoin, tenureMonthsFromJoin,
 } from './_ewa.js';
 
 const ID_MONTHS = [
@@ -314,7 +314,9 @@ export async function buildEmployeePortalPayload(database, actor) {
   if (employee.contact_email) contactParts.push(`Email ${employee.contact_email}`);
   if (employee.website) contactParts.push(employee.website);
 
-  const tenureMonths = tenureMonthsFromJoin(contract?.join_date || contract?.accepted_date);
+  const joinDate = contract?.join_date || contract?.accepted_date || '';
+  const tenureMonths = tenureMonthsFromJoin(joinDate);
+  const tenureDays = tenureDaysFromJoin(joinDate);
   const notifications = [];
   if (latest) {
     notifications.push({
@@ -354,11 +356,12 @@ export async function buildEmployeePortalPayload(database, actor) {
       [empId],
     );
     const eligibility = ewaEligibility({
-      policy, daysWorked: earned.daysWorked, tenureMonths, plafond, openRequest: open, paid, active: true,
+      policy, daysWorked: earned.daysWorked, tenureMonths, tenureDays, joinDate,
+      plafond, openRequest: open, paid, active: true,
     });
     ewa = {
       rules: policyToRules(policy),
-      emp: { daysWorked: earned.daysWorked, tenureMonths, daysInMonth: earned.daysInMonth, net },
+      emp: { daysWorked: earned.daysWorked, tenureMonths, tenureDays, joinDate, daysInMonth: earned.daysInMonth, net },
       plafond,
       eligible: eligibility.eligible,
       reason: eligibility.reason,
@@ -381,7 +384,7 @@ export async function buildEmployeePortalPayload(database, actor) {
   } catch {
     ewa = {
       rules: policyToRules(DEFAULT_EWA_POLICY),
-      emp: { daysWorked: earned.daysWorked, tenureMonths, daysInMonth: earned.daysInMonth, net },
+      emp: { daysWorked: earned.daysWorked, tenureMonths, tenureDays, joinDate, daysInMonth: earned.daysInMonth, net },
       plafond: ewaPlafond({
         net, daysWorked: earned.daysWorked, daysInMonth: earned.daysInMonth, maxPercent: 0.3,
       }),
