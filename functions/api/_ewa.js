@@ -29,11 +29,34 @@ export function payrollStageIndex(state, piStatus, recStatus) {
   return STAGE_INDEX[String(state || '').toUpperCase()] || 1;
 }
 
-export function earnedDaysInPeriod(now = new Date()) {
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const daysWorked = Math.min(Math.max(now.getDate(), 1), daysInMonth);
+function isBusinessDay(date) {
+  const day = date.getUTCDay();
+  return day !== 0 && day !== 6;
+}
+
+function businessDaysInclusive(start, end) {
+  if (start.getTime() > end.getTime()) return 0;
+  let count = 0;
+  const cursor = new Date(start.getTime());
+  while (cursor.getTime() <= end.getTime()) {
+    if (isBusinessDay(cursor)) count += 1;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return count;
+}
+
+export function earnedDaysInPeriod(now = new Date(), joinDate = '') {
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+  const monthStart = new Date(Date.UTC(year, month, 1));
+  const monthEnd = new Date(Date.UTC(year, month + 1, 0));
+  const today = new Date(Date.UTC(year, month, now.getUTCDate()));
+  const parsedJoin = parseDateOnly(joinDate);
+  const join = parsedJoin ? new Date(Date.UTC(parsedJoin.y, parsedJoin.m, parsedJoin.d)) : null;
+  const effectiveStart = join && join.getTime() > monthStart.getTime() ? join : monthStart;
+  const cappedToday = today.getTime() > monthEnd.getTime() ? monthEnd : today;
+  const daysInMonth = businessDaysInclusive(monthStart, monthEnd);
+  const daysWorked = businessDaysInclusive(effectiveStart, cappedToday);
   return { daysWorked, daysInMonth, period: `${year}-${String(month + 1).padStart(2, '0')}` };
 }
 
@@ -108,7 +131,7 @@ export function ewaEligibility({
     return { eligible: false, reason: `Masa kerja ${days} hari${joinedBit}. Minimal ${needMonths} bulan` };
   }
   if (Number(daysWorked) < Number(policy.min_days_worked || 0)) {
-    return { eligible: false, reason: `Minimal tanggal ${policy.min_days_worked} di periode gaji ini` };
+    return { eligible: false, reason: `Minimal ${policy.min_days_worked} hari kerja di periode gaji ini` };
   }
   if (Number(plafond) < 100000) return { eligible: false, reason: 'Plafond belum mencukupi' };
   return { eligible: true, reason: '' };
