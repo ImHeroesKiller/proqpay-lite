@@ -30,6 +30,8 @@ test('prepare Pages config accepts Wrangler v4 TOML download', () => {
   assert.equal(config.ai.binding, 'AI');
   assert.equal(config.vars.DATA_BACKEND, 'd1');
   assert.equal(config.vars.AUTH_MODE, 'session');
+  assert.equal(config.vars.EMPLOYEE_PORTAL_ORIGINS, 'https://proqpay-ess.arywibowo.workers.dev');
+  assert.equal(config.vars.EMPLOYEE_SESSION_HOURS, '12');
   assert.equal(config.vars.WORKERS_AI_FALLBACK_MODEL, '@cf/meta/llama-3.1-8b-instruct-fast');
   assert.equal(config.observability, undefined);
   assert.equal(config.kv_namespaces, undefined);

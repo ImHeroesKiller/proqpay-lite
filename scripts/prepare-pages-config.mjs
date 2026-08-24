@@ -87,6 +87,10 @@ config.vars = {
   DEFAULT_ORG_ID: 'ORG-OTSINDO',
   DATA_BACKEND: 'd1',
   AUTH_MODE: 'session',
+  EMPLOYEE_SESSION_HOURS: String(config.vars?.EMPLOYEE_SESSION_HOURS || '12'),
+  EMPLOYEE_PORTAL_ORIGINS: String(
+    config.vars?.EMPLOYEE_PORTAL_ORIGINS || 'https://proqpay-ess.arywibowo.workers.dev',
+  ),
   WORKERS_AI_MODEL: config.vars?.WORKERS_AI_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
   WORKERS_AI_FALLBACK_MODEL: config.vars?.WORKERS_AI_FALLBACK_MODEL || '@cf/meta/llama-3.1-8b-instruct-fast',
 };
