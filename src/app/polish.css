@@ -17,11 +17,12 @@
 }
 
 .btn-primary:hover,
-.btn-danger:hover,
 .btn-success:hover,
 .sidebar-ida:hover {
   color: var(--accent-contrast) !important;
 }
+
+.btn-danger:hover { color: #fff !important; }
 
 /* Loaded last: protect semantic button pairs from the generic premium hover. */
 .btn.btn-primary,
@@ -48,8 +49,51 @@ button:focus-visible,
 a:focus-visible,
 select:focus-visible,
 input:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 72%, white);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Dark appearance is token-driven; these late overrides neutralize legacy glass whites. */
+.theme-dark .metric-card,
+.theme-dark .employee-summary-grid > div,
+.theme-dark .operations-summary-grid > div,
+.theme-dark .report-summary,
+.theme-dark .portfolio-table-wrap,
+.theme-dark .employee-table-card,
+.theme-dark .report-table-wrap,
+.theme-dark .pi-recipient-table-wrap,
+.theme-dark .profile-card,
+.theme-dark .auth-modal,
+.theme-dark .directory-modal,
+.theme-dark .pi-detail-modal,
+.theme-dark .pi-detail-header,
+.theme-dark .pi-detail-footer {
+  border-color: var(--border);
+  color: var(--text-primary);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.theme-dark .portfolio-table th,
+.theme-dark .employee-table th,
+.theme-dark .report-table th,
+.theme-dark .pi-recipient-table th,
+.theme-dark input,
+.theme-dark select,
+.theme-dark textarea {
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+}
+
+.theme-dark .portfolio-table tbody tr:hover,
+.theme-dark .report-table tbody tr:hover,
+.theme-dark .pi-recipient-table tbody tr:hover {
+  background: var(--surface-hover);
 }
 
 /* Modern 5-stage payroll pipeline */

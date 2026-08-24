@@ -20,7 +20,7 @@ export type AppSettings = {
   adminFee: number;
   currency: 'IDR';
   locale: 'id-ID';
-  theme: 'light' | 'soft' | 'contrast';
+  theme: 'light' | 'soft' | 'dark' | 'contrast';
   accentColor: 'brand' | 'indigo' | 'blue' | 'teal';
   density: 'comfortable' | 'compact';
   sidebarMode: 'expanded' | 'compact';

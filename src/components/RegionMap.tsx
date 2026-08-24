@@ -253,7 +253,7 @@ export default function RegionMap({ employees, pageSize = 5, onOpenEmployees }: 
           <button type="button" key={region} onClick={() => onOpenEmployees?.(region)} className="region-map-list-row">
             <span style={{
               width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
-              background: count >= 3 ? '#f97316' : count >= 2 ? '#f59e0b' : '#818cf8',
+              background: count >= 3 ? 'var(--error)' : count >= 2 ? 'var(--warning)' : 'var(--accent)',
             }} />
             <span style={{ flex: 1, fontSize: '12.5px', fontWeight: 600 }}>{region}</span>
             <span style={{

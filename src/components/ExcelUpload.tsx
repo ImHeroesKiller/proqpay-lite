@@ -134,7 +134,7 @@ export default function ExcelUpload() {
       )}
 
       {preview && (
-        <button type="button" onClick={doImport} disabled={busy} style={{ padding: '10px 16px', borderRadius: 'var(--r-md)', border: 'none', background: 'linear-gradient(135deg, var(--accent), var(--accent2))', color: '#fff', fontWeight: 700, fontSize: '13px', cursor: busy ? 'wait' : 'pointer' }}>
+        <button type="button" onClick={doImport} disabled={busy} style={{ padding: '10px 16px', borderRadius: 'var(--r-md)', border: 'none', background: 'linear-gradient(135deg, var(--accent), var(--accent2))', color: 'var(--accent-contrast)', fontWeight: 700, fontSize: '13px', cursor: busy ? 'wait' : 'pointer' }}>
           {busy ? 'Mengimpor ke Cloudflare D1…' : 'Import ke database'}
         </button>
       )}

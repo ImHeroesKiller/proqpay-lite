@@ -506,5 +506,5 @@ const date = (value:string) => value ? new Date(value).toLocaleDateString('id-ID
 const small: React.CSSProperties = { display:'block', color:'var(--text3)', fontSize:11, marginTop:3 };
 const th: React.CSSProperties = { textAlign:'left', padding:'11px 14px', background:'var(--bg-subtle)', color:'var(--text2)', fontSize:10.5, textTransform:'uppercase', whiteSpace:'nowrap' };
 const td: React.CSSProperties = { padding:'12px 14px', verticalAlign:'middle' };
-const actionButton: React.CSSProperties = { border:0, borderRadius:8, background:'var(--accent)', color:'#fff', padding:'7px 11px', fontSize:11, fontWeight:650, cursor:'pointer', whiteSpace:'nowrap' };
+const actionButton: React.CSSProperties = { border:0, borderRadius:8, background:'var(--accent)', color:'var(--accent-contrast)', padding:'7px 11px', fontSize:11, fontWeight:650, cursor:'pointer', whiteSpace:'nowrap' };
 const input: React.CSSProperties = { border:'1px solid var(--border)', borderRadius:8, background:'var(--bg-surface)', color:'var(--text)', padding:'9px 10px', fontSize:12, minWidth:0 };

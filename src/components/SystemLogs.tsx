@@ -101,7 +101,7 @@ export default function SystemLogs({ auditLogs = [] }: { auditLogs?: any[] }) {
             <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '148px 64px 110px minmax(140px, 1fr)', gap: 10, padding: '5px 0', borderBottom: '1px solid rgba(51,65,85,.35)', minWidth: 680 }}>
               <span style={{ color: '#64748b' }}>{clock(item.timestamp)} WIB</span>
               <strong style={{ color: LEVEL_COLOR[item.level] }}>{item.level}</strong>
-              <span style={{ color: '#a78bfa' }}>[{item.source}]</span>
+              <span style={{ color: 'var(--accent)' }}>[{item.source}]</span>
               <span><b style={{ color: '#f8fafc' }}>{item.event}</b> — {item.message}{item.meta ? <span style={{ color: '#64748b' }}> {JSON.stringify(item.meta)}</span> : null}</span>
             </div>
           ))}

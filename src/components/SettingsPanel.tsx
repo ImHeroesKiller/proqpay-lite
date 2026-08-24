@@ -120,7 +120,7 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
             border: 'none',
             borderRadius: '12px',
             background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
-            color: '#fff',
+            color: 'var(--accent-contrast)',
             fontWeight: 700,
             cursor: 'pointer',
           }}
