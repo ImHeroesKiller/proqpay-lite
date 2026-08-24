@@ -20,12 +20,14 @@ const STAGE_INDEX = {
   CONTROLLER_REVIEW: 3, DATA_APPROVED: 3, PAYROLL_FINALIZED: 3,
   PAYMENT_INSTRUCTION_READY: 4, PAYMENT_APPROVAL_PENDING: 4, APPROVED_FOR_PAYMENT: 4,
   DISBURSEMENT_PROCESSING: 4, PROOF_UPLOADED: 4,
-  RECONCILIATION: 5, PAYMENT_EXCEPTION: 5, COMPLETED: 5,
+  RECONCILIATION: 5, PAYMENT_EXCEPTION: 4, COMPLETED: 5,
 };
 
 export function payrollStageIndex(state, piStatus, recStatus) {
-  if (recStatus && /MATCH|COMPLETE/i.test(String(recStatus))) return 5;
-  if (piStatus && /PAID|COMPLETED|RECONCILED/i.test(String(piStatus))) return 5;
+  const reconciliationStatus = String(recStatus || '').trim().toUpperCase();
+  const paymentStatus = String(piStatus || '').trim().toUpperCase();
+  if (['MATCHED', 'COMPLETED', 'RECONCILED'].includes(reconciliationStatus)) return 5;
+  if (['PAID', 'COMPLETED', 'RECONCILED'].includes(paymentStatus)) return 5;
   return STAGE_INDEX[String(state || '').toUpperCase()] || 1;
 }
 
