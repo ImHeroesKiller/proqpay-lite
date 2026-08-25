@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { handleD1OperatingModel } from '../functions/api/operating-model-d1.js';
 import { onRequest as paymentProof } from '../functions/api/payment-proof.js';
+import { createSession } from '../functions/api/_account-auth.js';
 import { D1Mock } from './helpers/d1-mock.mjs';
 
 const origin = 'https://proqpay.test';
@@ -84,6 +85,14 @@ test('D1 processes 396 recipients through PI approval, proof, and reconciliation
   const approved = await handleD1OperatingModel({ request: post({ action: 'APPROVE_PAYMENT', paymentInstructionId: pi.id, actionHash: pi.content_hash, confirmation: 'KONFIRMASI PAYMENT' }), env }, approver);
   assert.equal(approved.status, 200, await approved.clone().text());
 
+  DB.sqlite.prepare(`INSERT INTO app_users
+    (id,org_id,name,email,role,status,password_hash,password_salt,password_iterations,must_change_password,payment_approver,created_by)
+    VALUES(?,?,?,?,?,'ACTIVE','test-hash','test-salt',100000,0,0,'seed')`).run(
+    maker.id, 'ORG-OTSINDO', 'Payment Processor', maker.email, maker.role
+  );
+  const session = await createSession(DB, maker.id, env);
+  env.AUTH_MODE = 'session';
+
   const form = new FormData();
   form.set('paymentInstructionId', pi.id);
   form.set('bank', 'BCA');
@@ -92,7 +101,7 @@ test('D1 processes 396 recipients through PI approval, proof, and reconciliation
   form.set('amount', String(pi.expected_total));
   form.set('file', new File([new Uint8Array([0x25,0x50,0x44,0x46,0x2d,0x31,0x2e,0x34])], 'proof.pdf', { type: 'application/pdf' }));
   const proofResponse = await paymentProof({ request: new Request(`${origin}/api/payment-proof`, {
-    method: 'POST', headers: { Origin: origin, 'Sec-Fetch-Site': 'same-origin' }, body: form,
+    method: 'POST', headers: { Origin: origin, 'Sec-Fetch-Site': 'same-origin', Cookie: `proqpay_session=${session.token}` }, body: form,
   }), env });
   assert.equal(proofResponse.status, 201, await proofResponse.clone().text());
   assert.equal(env.FILES.objects.size, 1);
