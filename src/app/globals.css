@@ -239,9 +239,14 @@ a:hover { text-decoration: underline; }
   flex: 0 0 218px;
   flex-direction: column;
   gap: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 18px 12px;
   border-right: 1px solid var(--border);
   background: var(--bg-surface);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 .sidebar-brand { position: relative; display: flex; min-height: 42px; align-items: center; margin: 0 4px 20px; }
 .sidebar-brand-logo { display: block; width: 176px; max-width: 100%; height: auto; border-radius: 3px; object-fit: contain; }
