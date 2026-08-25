@@ -46,7 +46,7 @@ export default function Home() {
   useEffect(() => {
     const controller = new AbortController();
     setMounted(true);
-    writeSystemLog('INFO', 'APP', 'APPLICATION_STARTED', 'ProQPay Lite dashboard dimuat');
+    writeSystemLog('INFO', 'APP', 'APPLICATION_STARTED', 'ProQPay dashboard dimuat');
     const data = loadDatabase();
     const st = loadSettings();
     const requestedView = new URLSearchParams(window.location.search).get('view') as AppView | null;

@@ -1,8 +1,8 @@
 export type AppRole =
-  | 'SUPER_ADMIN'
-  | 'PAYROLL_PROCESSOR'
-  | 'PAYROLL_CONTROLLER'
-  | 'CLIENT_USER';
+  | "SUPER_ADMIN"
+  | "PAYROLL_PROCESSOR"
+  | "PAYROLL_CONTROLLER"
+  | "CLIENT_USER";
 
 export type AppUser = {
   id: string;
@@ -18,14 +18,14 @@ export type AppSettings = {
   serviceFeePerEmp: number;
   bpjsFeePerEmp: number;
   adminFee: number;
-  currency: 'IDR';
-  locale: 'id-ID';
-  theme: 'light' | 'soft' | 'dark' | 'contrast';
-  accentColor: 'brand' | 'indigo' | 'blue' | 'teal';
-  density: 'comfortable' | 'compact';
-  sidebarMode: 'expanded' | 'compact';
+  currency: "IDR";
+  locale: "id-ID";
+  theme: "light" | "soft" | "dark" | "contrast";
+  accentColor: "brand" | "indigo" | "blue" | "teal";
+  density: "comfortable" | "compact";
+  sidebarMode: "expanded" | "compact";
   enableAnimations: boolean;
-  defaultView: 'dashboard' | 'operations' | 'employees' | 'clients' | 'reports';
+  defaultView: "dashboard" | "operations" | "employees" | "clients" | "reports";
   dashboardPageSize: number;
   employeePageSize: number;
   autoRefreshMinutes: number;
@@ -47,23 +47,23 @@ export type AppSettings = {
   notifyPayrollApproval: boolean;
 };
 
-const KEY = 'proqpay_settings_v3';
-const BRAND_ACCENT_MIGRATION_KEY = 'proqpay_brand_accent_2026_08';
+const KEY = "proqpay_settings_v3";
+const BRAND_ACCENT_MIGRATION_KEY = "proqpay_brand_accent_2026_08";
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  orgName: 'ProQPay Lite',
+  orgName: "ProQPay",
   defaultPeriod: new Date().toISOString().slice(0, 7),
   serviceFeePerEmp: 1_500_000,
   bpjsFeePerEmp: 300_000,
   adminFee: 2_000_000,
-  currency: 'IDR',
-  locale: 'id-ID',
-  theme: 'light',
-  accentColor: 'brand',
-  density: 'comfortable',
-  sidebarMode: 'expanded',
+  currency: "IDR",
+  locale: "id-ID",
+  theme: "light",
+  accentColor: "brand",
+  density: "comfortable",
+  sidebarMode: "expanded",
   enableAnimations: true,
-  defaultView: 'dashboard',
+  defaultView: "dashboard",
   dashboardPageSize: 5,
   employeePageSize: 15,
   autoRefreshMinutes: 0,
@@ -86,15 +86,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 export function loadSettings(): AppSettings {
-  if (typeof window === 'undefined') return DEFAULT_SETTINGS;
+  if (typeof window === "undefined") return DEFAULT_SETTINGS;
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const stored = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } as AppSettings;
     if (!localStorage.getItem(BRAND_ACCENT_MIGRATION_KEY)) {
-      const migrated = { ...stored, accentColor: 'brand' as const };
+      const migrated = { ...stored, accentColor: "brand" as const };
       localStorage.setItem(KEY, JSON.stringify(migrated));
-      localStorage.setItem(BRAND_ACCENT_MIGRATION_KEY, '1');
+      localStorage.setItem(BRAND_ACCENT_MIGRATION_KEY, "1");
       return migrated;
     }
     return stored;
@@ -104,14 +104,14 @@ export function loadSettings(): AppSettings {
 }
 
 export function saveSettings(s: AppSettings) {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
   localStorage.setItem(KEY, JSON.stringify(s));
-  localStorage.setItem(BRAND_ACCENT_MIGRATION_KEY, '1');
-  window.dispatchEvent(new CustomEvent('proqpay-settings'));
+  localStorage.setItem(BRAND_ACCENT_MIGRATION_KEY, "1");
+  window.dispatchEvent(new CustomEvent("proqpay-settings"));
 }
 
 export function onSettingsChange(cb: () => void) {
   const h = () => cb();
-  window.addEventListener('proqpay-settings', h);
-  return () => window.removeEventListener('proqpay-settings', h);
+  window.addEventListener("proqpay-settings", h);
+  return () => window.removeEventListener("proqpay-settings", h);
 }

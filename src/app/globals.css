@@ -90,6 +90,8 @@
 .account-card-identity strong { font-size: 11.5px; }
 .account-card-identity span { overflow: hidden; color: var(--text3); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
 .account-avatar { display: grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; border-radius: 11px; color: var(--accent-contrast); background: var(--accent); font-size: 10px; font-weight: 800; }
+.account-avatar-photo{object-fit:cover;border:1px solid var(--border);background:var(--bg-subtle)}
+.account-photo-field{grid-column:span 2}.account-profile-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.account-profile-fields label{display:grid;min-width:0;gap:5px}.account-profile-fields label>span{color:var(--text3);font-size:8.5px;font-weight:750}.account-profile-fields input{width:100%;min-width:0;height:36px;padding:0 9px;border:1px solid var(--border);border-radius:8px;background:var(--bg-surface);font:10.5px inherit}
 .account-card-fields { display: grid; grid-template-columns: minmax(180px,1.35fr) minmax(145px,1fr) minmax(110px,.7fr) minmax(100px,.65fr); gap: 10px; align-items: end; }
 .account-card-fields > label { display: grid; gap: 5px; min-width: 0; }
 .account-card-fields > label > span:first-child { color: var(--text3); font-size: 8.5px; font-weight: 750; letter-spacing: .03em; }
@@ -137,12 +139,15 @@
 @media (max-width: 900px) {
   .account-create-grid { grid-template-columns: 1fr; }
   .account-card-fields { grid-template-columns: 1fr 1fr; }
+  .account-profile-fields { grid-template-columns: 1fr 1fr; }
   .account-role-summary { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 560px) {
   .account-role-summary { grid-template-columns: 1fr; }
   .account-card-fields { grid-template-columns: 1fr; }
+  .account-profile-fields { grid-template-columns: 1fr; }
+  .account-photo-field { grid-column:auto; }
   .account-create-actions { align-items: stretch; flex-direction: column; }
   .account-create-actions .btn { width: 100%; }
   .account-credential { grid-template-columns: 1fr; }
@@ -272,6 +277,7 @@ a:hover { text-decoration: underline; }
 .page-heading h1 { margin: 3px 0 5px; font-size: clamp(24px, 3vw, 30px); font-weight: 760; letter-spacing: -.035em; }
 .page-heading p { max-width: 680px; color: var(--text2); font-size: 13px; line-height: 1.5; }
 .page-eyebrow, .panel-eyebrow { display: block; color: var(--accent); font-size: 9.5px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+.portal-workspace{display:grid;gap:16px}.portal-workspace .page-heading{margin-bottom:0}.portal-toolbar{display:flex;align-items:center;gap:8px;overflow-x:auto;padding:10px;border:1px solid var(--border);border-radius:13px;background:rgba(255,255,255,.7);box-shadow:var(--shadow-xs)}.portal-toolbar .btn{flex:0 0 auto}.portal-scope-toolbar{overflow:visible;flex-wrap:wrap}.portal-scope-toolbar label{display:flex;align-items:center;gap:8px;color:var(--text2);font-size:10px;font-weight:700}.portal-scope-toolbar select{height:36px;padding:0 9px;border:1px solid var(--border);border-radius:9px;background:var(--bg-surface);font:10px inherit}
 .panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .panel-heading h3 { margin: 4px 0 0; font-size: 15px; letter-spacing: -.015em; }
 .panel-subheading { display: flex; justify-content: space-between; margin-bottom: 12px; color: var(--text2); font-size: 10px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
@@ -462,6 +468,7 @@ a:hover { text-decoration: underline; }
 .settings-section-heading h3 { margin: 0; font-size: 16px; }
 .settings-section-heading p { margin-top: 3px; color: var(--text3); font-size: 9.5px; }
 .settings-section { margin-bottom: 14px; padding: 17px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-surface); }
+.settings-section{box-shadow:var(--shadow-xs)}.settings-content>.settings-section:last-child{margin-bottom:0}.settings-section .account-management{margin-top:2px}.settings-header{background:linear-gradient(135deg,var(--bg-surface),var(--bg-subtle))}
 .settings-section > div:first-child { margin-bottom: 15px; }
 .settings-section h4 { margin: 0; font-size: 12.5px; }
 .settings-section > div:first-child > p { margin-top: 4px; color: var(--text3); font-size: 9.5px; line-height: 1.45; }

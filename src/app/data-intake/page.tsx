@@ -289,11 +289,6 @@ export default function DataIntakePage() {
                 snapshot Pay Run dalam satu alur yang terkontrol.
               </p>
             </div>
-            <div className="data-intake-heading-actions">
-              <Link className="btn" href="/?view=operations">
-                ← Pay Runs
-              </Link>
-            </div>
           </header>
           <ol
             className="intake-stepper"

@@ -17,7 +17,7 @@ const MAX_MESSAGE_CHARS = 4000;
 const DEFAULT_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 const DEFAULT_FALLBACK_MODEL = '@cf/meta/llama-3.1-8b-instruct-fast';
 
-const SYSTEM_PROMPT = `Kamu adalah IDA, asisten payroll ProQPay Lite.
+const SYSTEM_PROMPT = `Kamu adalah IDA, asisten payroll ProQPay.
 
 GAYA (sangat penting):
 - Bahasa Indonesia kasual, ramah, natural seperti chat orang

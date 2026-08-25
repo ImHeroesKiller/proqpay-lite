@@ -28,7 +28,7 @@ test('accent tokens drive hover and pipeline colors without forced purple', () =
 test('button hover is token driven and dark theme is selectable', () => {
   const settings = readFileSync('src/lib/app-settings.ts', 'utf8');
   const modal = readFileSync('src/components/SettingsModal.tsx', 'utf8');
-  assert.match(settings, /theme: 'light' \| 'soft' \| 'dark' \| 'contrast'/);
+  assert.match(settings, /theme: ["']light["'] \| ["']soft["'] \| ["']dark["'] \| ["']contrast["']/);
   assert.match(modal, /option value="dark">Professional dark/);
   assert.doesNotMatch(css, /\.btn:hover\s*\{[^}]*background:\s*#fff/);
   assert.match(css, /\.btn-primary:hover[^{]*\{[^}]*color:var\(--accent-contrast\)/);

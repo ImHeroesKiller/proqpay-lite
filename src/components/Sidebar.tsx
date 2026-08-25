@@ -133,14 +133,14 @@ export default function Sidebar({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             className="sidebar-brand-logo"
-            src="/assets/proqpay-logo.jpg"
-            alt="ProQPay Lite"
+            src="/assets/proqpay-logo.png"
+            alt="ProQPay"
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             className="sidebar-brand-icon"
             src="/assets/proqpay-192.png"
-            alt="ProQPay Lite"
+            alt="ProQPay"
           />
           <button
             type="button"
@@ -151,13 +151,23 @@ export default function Sidebar({
             ✕
           </button>
         </div>
-        <NavGroup label="Payroll">
+        <NavGroup label="Overview">
           <NavBtn
             active={view === "dashboard"}
             icon={<IconDashboard />}
             title="Dashboard"
             onClick={() => go("dashboard")}
           />
+        </NavGroup>
+        <NavGroup label="Workflow">
+          {allowed.has("clients") ? (
+            <NavBtn
+              active={view === "clients"}
+              icon={<IconBuilding />}
+              title="Clients & Projects"
+              onClick={() => go("clients")}
+            />
+          ) : null}
           {canIntake ? (
             <a
               className={`sidebar-nav-button${activePath === "data-intake" ? " sidebar-nav-active" : ""}`}
@@ -169,14 +179,6 @@ export default function Sidebar({
               <span>Data Intake</span>
             </a>
           ) : null}
-          {allowed.has("operations") ? (
-            <NavBtn
-              active={view === "operations" && activePath !== "data-intake"}
-              icon={<IconWallet />}
-              title={role === "CLIENT_USER" ? "Payroll Status" : "Pay Runs"}
-              onClick={() => go("operations")}
-            />
-          ) : null}
           {allowed.has("exceptions") ? (
             <NavBtn
               active={view === "exceptions"}
@@ -185,11 +187,57 @@ export default function Sidebar({
               onClick={() => go("exceptions")}
             />
           ) : null}
+          {allowed.has("operations") ? (
+            <NavBtn
+              active={view === "operations" && activePath !== "data-intake"}
+              icon={<IconWallet />}
+              title={role === "CLIENT_USER" ? "Payroll Status" : "Pay Runs"}
+              onClick={() => go("operations")}
+            />
+          ) : null}
+          {allowed.has("payments") ? (
+            <NavBtn
+              active={view === "payments"}
+              icon={<IconFile />}
+              title={
+                role === "CLIENT_USER"
+                  ? "Payment Status"
+                  : "Payment Instructions"
+              }
+              onClick={() => go("payments")}
+            />
+          ) : null}
+          {allowed.has("billing") ? (
+            <NavBtn
+              active={view === "billing"}
+              icon={<IconWallet />}
+              title={role === "CLIENT_USER" ? "Invoices" : "Billing & AR"}
+              onClick={() => go("billing")}
+            />
+          ) : null}
+        </NavGroup>
+        <NavGroup label="People & Insight">
+          {allowed.has("reports") ? (
+            <NavBtn
+              active={view === "reports"}
+              icon={<IconChart />}
+              title="Reports"
+              onClick={() => go("reports")}
+            />
+          ) : null}
+          {allowed.has("employees") ? (
+            <NavBtn
+              active={view === "employees"}
+              icon={<IconUsers />}
+              title="Employees"
+              onClick={() => go("employees")}
+            />
+          ) : null}
         </NavGroup>
         {allowed.has("ewa") ||
         allowed.has("portalAudit") ||
         allowed.has("portalSettings") ? (
-          <NavGroup label="Employee portal">
+          <NavGroup label="Employee Portal">
             {allowed.has("ewa") ? (
               <NavBtn
                 active={view === "ewa"}
@@ -216,54 +264,6 @@ export default function Sidebar({
             ) : null}
           </NavGroup>
         ) : null}
-        <NavGroup label="Payment & Finance">
-          {allowed.has("payments") ? (
-            <NavBtn
-              active={view === "payments"}
-              icon={<IconFile />}
-              title={
-                role === "CLIENT_USER"
-                  ? "Payment Status"
-                  : "Payment Instructions"
-              }
-              onClick={() => go("payments")}
-            />
-          ) : null}
-          {allowed.has("billing") ? (
-            <NavBtn
-              active={view === "billing"}
-              icon={<IconWallet />}
-              title={role === "CLIENT_USER" ? "Invoices" : "Billing & AR"}
-              onClick={() => go("billing")}
-            />
-          ) : null}
-          {allowed.has("reports") ? (
-            <NavBtn
-              active={view === "reports"}
-              icon={<IconChart />}
-              title="Reports"
-              onClick={() => go("reports")}
-            />
-          ) : null}
-        </NavGroup>
-        <NavGroup label="Master Data">
-          {allowed.has("clients") ? (
-            <NavBtn
-              active={view === "clients"}
-              icon={<IconBuilding />}
-              title="Clients & Projects"
-              onClick={() => go("clients")}
-            />
-          ) : null}
-          {allowed.has("employees") ? (
-            <NavBtn
-              active={view === "employees"}
-              icon={<IconUsers />}
-              title="Employees"
-              onClick={() => go("employees")}
-            />
-          ) : null}
-        </NavGroup>
         {role === "SUPER_ADMIN" ? (
           <NavGroup label="Administration">
             {allowed.has("integrations") ? (
@@ -308,7 +308,7 @@ export default function Sidebar({
             <i />
             Production · Connected
           </span>
-          <small>Lite · {syncLabel(lastSyncAt)}</small>
+          <small>ProQPay · {syncLabel(lastSyncAt)}</small>
           <button
             type="button"
             onClick={() => {
