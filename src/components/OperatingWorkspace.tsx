@@ -95,9 +95,10 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   const visibleInstructions = useMemo(() => (data.paymentInstructions || []).filter((row) => {
     const periodMatches = periodFilter === 'ALL' || row.payroll_period === periodFilter || row.payment_period === periodFilter;
     const clientMatches = clientFilter === 'ALL' || row.client_id === clientFilter;
+    const statusMatches = statusFilter === 'ALL' || row.status === statusFilter;
     const queryMatches = !query.trim() || [row.document_no,row.client_name,row.project_name,row.status].join(' ').toLowerCase().includes(query.trim().toLowerCase());
-    return periodMatches && clientMatches && queryMatches;
-  }), [data.paymentInstructions, periodFilter, clientFilter, query]);
+    return periodMatches && clientMatches && statusMatches && queryMatches;
+  }), [data.paymentInstructions, periodFilter, clientFilter, statusFilter, query]);
   const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
   const visibleExceptions = useMemo(() => (data.exceptions || []).filter((row) => visibleSubmissionIds.has(row.submission_id)), [data.exceptions, visibleSubmissionIds]);
   const visibleProofs = useMemo(() => (data.paymentProofs || []).filter((row) => visibleInstructionIds.has(row.payment_instruction_id)), [data.paymentProofs, visibleInstructionIds]);
@@ -112,6 +113,9 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   const approvedPayments = visibleInstructions.filter((row) => ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(row.status)).length;
   const matchedPayments = visibleReconciliations.filter((row) => row.status === 'MATCHED').length;
   const profile = profiles[mode];
+  const statusOptions = mode === 'payments'
+    ? [...new Set((data.paymentInstructions || []).map((row) => row.status))].sort()
+    : [...new Set(submissions.map((row) => row.state))].sort();
 
   return (
     <section>
@@ -127,7 +131,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       {!['billing','integrations'].includes(mode) ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((period) => <option key={period} value={period}>{period}</option>)}</select></label>
         <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        <label><span>Status pay run</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">Semua status</option>{[...new Set(submissions.map((row) => row.state))].sort().map((state) => <option key={state} value={state}>{String(state).replaceAll('_', ' ')}</option>)}</select></label>
+        <label><span>{mode === 'payments' ? 'Status PI' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">Semua status</option>{statusOptions.map((state) => <option key={state} value={state}>{String(state).replaceAll('_', ' ')}</option>)}</select></label>
         <label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>
       </div> : null}
 
@@ -405,7 +409,7 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
         ? <a className="btn btn-primary" href={`?view=operations&submissionId=${encodeURIComponent(r.submission_id)}`}>Perbaiki Pay Run</a>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
       else action = <button style={actionButton} onClick={() => void openDetail(r.id)}>Detail PI</button>;
-      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
+      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.status === 'REVISION_REQUIRED' && r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
     })} />
     {detailLoading ? <div className="card" style={{padding:18}}>Memuat snapshot Payment Instruction…</div> : null}
     {detailError ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Detail PI gagal</strong><span>{detailError}</span></div> : null}

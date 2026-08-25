@@ -15,6 +15,12 @@ test('Controller role fallback keeps approve action visible', () => {
   assert.match(ui, /Preview & Approve/);
 });
 
+test('Payment Control filters PI status and hides stale rejection reasons', () => {
+  assert.match(ui, /mode === 'payments' \? 'Status PI' : 'Status pay run'/);
+  assert.match(ui, /statusMatches = statusFilter === 'ALL' \|\| row\.status === statusFilter/);
+  assert.match(ui, /r\.status === 'REVISION_REQUIRED' && r\.rejection_reason/);
+});
+
 test('Controller can approve or return CONTROLLER_REVIEW pay run', () => {
   assert.match(ui, /PAYROLL_CONTROLLER[\s\S]*?CONTROLLER_REVIEW[\s\S]*?DATA_APPROVED/);
   assert.match(ui, /CONTROLLER_REVIEW:'Setujui Data Payroll'/);
