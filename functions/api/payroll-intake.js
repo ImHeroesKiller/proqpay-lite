@@ -51,6 +51,20 @@ function changedFields(before, after) {
     return String(before[field] ?? '') !== String(after[field] ?? '');
   });
 }
+async function validateIntakeContext(db, orgId, context) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(context.period || ''))) return { error:'Periode payroll tidak valid' };
+  const project = await d1First(db, `SELECT p.id,p.client_id FROM projects p JOIN clients c ON c.id=p.client_id
+    WHERE p.id=? AND p.client_id=? AND p.org_id=? AND p.status='ACTIVE' AND c.status='ACTIVE' LIMIT 1`,
+  [context.projectId,context.clientId,orgId]);
+  if (!project) return { error:'Client atau project tidak aktif/tidak konsisten' };
+  const periodStart=`${context.period}-01`; const periodEnd=monthEnd(context.period);
+  const plan = await d1First(db, `SELECT id,tier FROM client_service_plans WHERE id=? AND client_id=?
+    AND (project_id IS NULL OR project_id=?) AND status='ACTIVE' AND effective_from<=?
+    AND (effective_until IS NULL OR effective_until>=?) LIMIT 1`,
+  [context.servicePlanId,context.clientId,context.projectId,periodEnd,periodStart]);
+  if (!plan) return { error:'Service tier tidak aktif untuk client, project, dan periode yang dipilih' };
+  return { context:{...context,tier:plan.tier,paymentPeriod:context.period,paymentDate:`${context.period}-25`} };
+}
 async function resolveSubmission(db, orgId, context, actor) {
   const existing = await d1First(db, `SELECT * FROM payroll_submissions WHERE org_id=? AND client_id=? AND COALESCE(project_id,'')=COALESCE(?,'')
     AND period=? AND run_type='REGULAR' AND state<>'CANCELLED' ORDER BY created_at DESC LIMIT 1`,
@@ -103,6 +117,9 @@ async function previewUpload(request, env, actor) {
     if (!clients.includes(String(context.clientId))) return { status:403,data:{error:'Client scope denied'} };
     if (projects.length && !projects.includes(String(context.projectId))) return { status:403,data:{error:'Project scope denied'} };
   }
+  const verified=await validateIntakeContext(env.DB,orgId,context);
+  if (verified.error) return {status:422,data:{error:verified.error}};
+  context=verified.context;
   const base=validateImportRows(rows);
   if (!base.ok) return { status:422,data:{error:'Import validation failed',issues:base.issues} };
   const control=validatePayrollControlRows(base.rows);
@@ -174,21 +191,25 @@ async function applyEmployee(db, orgId, submission, batchId, rowRecord, actor) {
   return employeeId;
 }
 async function confirmIntake(body, env, actor) {
+  if (body?.action!=='CONFIRM') return {status:422,data:{error:'action CONFIRM wajib untuk menyelesaikan intake'}};
   const batchId=String(body.batchId||''); if (!batchId) return {status:422,data:{error:'batchId wajib diisi'}};
   const batch=await d1First(env.DB,'SELECT * FROM payroll_upload_batches WHERE id=? LIMIT 1',[batchId]);
   if (!batch) return {status:404,data:{error:'Payroll intake tidak ditemukan'}};
-  if (batch.status === 'IMPORTED') return {status:200,data:{ok:true,idempotentReplay:true,batchId,submissionId:batch.submission_id}};
-  if (!['REVIEW_REQUIRED','READY_TO_CONFIRM','APPLYING'].includes(batch.status)) return {status:409,data:{error:`Payroll intake berstatus ${batch.status} tidak dapat dikonfirmasi`}};
   const submission=await d1First(env.DB,'SELECT * FROM payroll_submissions WHERE id=? LIMIT 1',[batch.submission_id]);
-  if (!submission || submission.state!=='DRAFT' || submission.period_status==='CLOSED') return {status:409,data:{error:'Pay Run tidak lagi dapat menerima intake'}};
+  if (!submission) return {status:404,data:{error:'Pay Run untuk intake tidak ditemukan'}};
   if (actor.role==='CLIENT_USER') {
     const clients=clientIdsFor(actor,env)||[]; const projects=projectIdsFor(actor)||[];
     if (!clients.includes(String(submission.client_id)) || (projects.length && !projects.includes(String(submission.project_id||'')))) return {status:403,data:{error:'Scope denied'}};
   }
+  if (batch.status === 'IMPORTED') return {status:200,data:{ok:true,idempotentReplay:true,batchId,submissionId:batch.submission_id}};
+  if (!['REVIEW_REQUIRED','READY_TO_CONFIRM','APPLYING'].includes(batch.status)) return {status:409,data:{error:`Payroll intake berstatus ${batch.status} tidak dapat dikonfirmasi`}};
+  if (submission.state!=='DRAFT' || submission.period_status==='CLOSED') return {status:409,data:{error:'Pay Run tidak lagi dapat menerima intake'}};
   let summary={}; try{summary=JSON.parse(batch.validation_summary||'{}');}catch{}
   const missing=Array.isArray(summary.missing)?summary.missing:[]; const resolutions=body.missingResolutions||{};
   const unresolved=missing.filter((item)=>!['NO_PAY_THIS_PERIOD','RESIGNED','TRANSFERRED','OTHER'].includes(String(resolutions[item.employeeId]?.resolution||resolutions[item.employeeId]||'')));
   if (unresolved.length) return {status:422,data:{error:'Semua karyawan yang hilang dari periode ini harus dikonfirmasi',code:'MISSING_EMPLOYEE_RESOLUTION_REQUIRED',missing:unresolved}};
+  const missingNotes=missing.filter((item)=>['TRANSFERRED','OTHER'].includes(String(resolutions[item.employeeId]?.resolution||''))&&!clean(resolutions[item.employeeId]?.note));
+  if (missingNotes.length) return {status:422,data:{error:'Catatan wajib untuk karyawan yang dimutasi atau menggunakan alasan lainnya',code:'MISSING_EMPLOYEE_NOTE_REQUIRED',missing:missingNotes}};
   await d1Run(env.DB,"UPDATE payroll_upload_batches SET status='APPLYING' WHERE id=?",[batchId]);
   for (const item of missing) {
     const value=resolutions[item.employeeId]; const resolution=String(value?.resolution||value); const note=clean(value?.note);

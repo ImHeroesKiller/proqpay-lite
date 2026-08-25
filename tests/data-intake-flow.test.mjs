@@ -26,7 +26,7 @@ test('missing employees require an explicit period resolution and no-pay does no
   assert.match(api,/MISSING_EMPLOYEE_RESOLUTION_REQUIRED/);
   assert.match(api,/NO_PAY_THIS_PERIOD/);
   assert.match(api,/RESIGNED/);
-  assert.match(ui,/Tidak menerima gaji periode ini/);
+  assert.match(ui,/Tidak menerima gaji/);
   assert.match(ui,/Resign \/ terminated/);
 });
 
@@ -40,4 +40,11 @@ test('confirmed intake creates immutable-period payroll snapshot separately from
 test('Data Intake is visible from Payroll navigation for operational roles',()=>{
   assert.match(sidebar,/href="\/data-intake"/);
   assert.match(sidebar,/SUPER_ADMIN','PAYROLL_PROCESSOR','CLIENT_USER/);
+});
+
+test('backend revalidates intake scope and confirmation contract',()=>{
+  assert.match(api,/validateIntakeContext/);
+  assert.match(api,/Service tier tidak aktif/);
+  assert.match(api,/action CONFIRM wajib/);
+  assert.match(api,/MISSING_EMPLOYEE_NOTE_REQUIRED/);
 });
