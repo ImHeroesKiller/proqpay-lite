@@ -25,6 +25,9 @@ test('previously migrated canonical D1 is accepted for a safe resume', () => {
     'd1_migrations', 'organizations', 'clients', 'employees', 'employee_bank_accounts',
     'payroll_submissions', 'payment_instructions', 'payment_instruction_lines',
     'payment_approvals', 'payment_proofs', 'reconciliations', 'app_users', 'app_sessions',
+    'invoice_sequences', 'unapplied_cash', 'ar_payment_idempotency',
+    'payroll_bank_snapshots', 'payroll_upload_batches', 'payroll_upload_rows',
+    'employee_master_history', 'payroll_intake_missing_resolutions',
   ];
   assert.match(validate(canonical), /D1_CUTOVER_STATE=resumable/);
 });

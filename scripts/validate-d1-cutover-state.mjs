@@ -25,7 +25,10 @@ if (applicationTables.length === 0) {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const migration = fs.readdirSync(path.join(root,'migrations')).filter((name)=>name.endsWith('.sql')).sort()
   .map((name)=>fs.readFileSync(path.join(root,'migrations',name),'utf8')).join('\n');
-const canonicalTables = new Set([...migration.matchAll(/CREATE\s+TABLE\s+([A-Za-z0-9_]+)/gi)].map((match) => match[1]));
+const canonicalTables = new Set(
+  [...migration.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_]+)/gi)]
+    .map((match) => match[1])
+);
 const unexpected = applicationTables.filter((name) => !canonicalTables.has(name));
 if (unexpected.length) {
   throw new Error(`Tabel non-canonical terdeteksi: ${unexpected.join(', ')}`);
