@@ -13,5 +13,5 @@ export default defineConfig([
       'prefer-const': 'warn',
     },
   },
-  globalIgnores(['.next/**', 'out/**']),
+  globalIgnores(['.next/**', 'out/**', '.wrangler/**']),
 ]);

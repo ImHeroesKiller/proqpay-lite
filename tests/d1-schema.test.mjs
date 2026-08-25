@@ -93,3 +93,11 @@ test('runtime and deployment examples exclude Gemini configuration', () => {
   assert.doesNotMatch(source, /GEMINI_API_KEY|GEMINI_MODEL|generativelanguage\.googleapis/i);
   assert.match(source, /WORKERS_AI_FALLBACK_MODEL/);
 });
+
+test('local Wrangler configuration does not contain plaintext credentials', () => {
+  const path = new URL('../wrangler.toml', import.meta.url);
+  if (!fs.existsSync(path)) return;
+  const source = fs.readFileSync(path, 'utf8');
+  assert.doesNotMatch(source, /postgres(?:ql)?:\/\/[^\s"']+:[^\s"']+@/i);
+  assert.doesNotMatch(source, /(?:GEMINI|OPENAI|TAVILY|API)_?(?:KEY|TOKEN|WORKER)\s*=/i);
+});

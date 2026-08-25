@@ -39,6 +39,7 @@ export default function Home() {
   const [actor, setActor] = useState<Actor | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [initError, setInitError] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -74,7 +75,10 @@ export default function Home() {
           });
       })
       .catch((error) => {
-        if (error?.name !== 'AbortError') writeSystemLog('WARN', 'SECURITY', 'USER_CONTEXT_FAILED', 'Gagal memuat role pengguna');
+        if (error?.name !== 'AbortError') {
+          setInitError(error instanceof Error ? error.message : 'Layanan aplikasi tidak dapat dijangkau');
+          writeSystemLog('WARN', 'SECURITY', 'USER_CONTEXT_FAILED', 'Gagal memuat role pengguna');
+        }
       })
       .finally(() => setAuthChecked(true));
     if (data?.meta?.currentPeriod) setPeriod(data.meta.currentPeriod);
@@ -130,6 +134,19 @@ export default function Home() {
   }
 
   if (mounted && authChecked && authRequired) return <LoginScreen />;
+
+  if (mounted && authChecked && initError) {
+    return (
+      <main className="app-init-error">
+        <section className="card" role="alert">
+          <span>KONEKSI APLIKASI</span>
+          <h1>ProQPay belum dapat dimuat</h1>
+          <p>{initError}. Pastikan Cloudflare Pages Functions dan database lokal aktif, lalu coba kembali.</p>
+          <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>Coba lagi</button>
+        </section>
+      </main>
+    );
+  }
 
   if (!mounted || !db || !settings || !authChecked || !actor) {
     return (

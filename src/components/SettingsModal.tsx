@@ -31,6 +31,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const [purging, setPurging] = useState(false);
   const [purgeStatus, setPurgeStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const contentRef = useRef<HTMLElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -44,9 +45,15 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
 
   useEffect(() => {
     if (!open) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = window.requestAnimationFrame(() => modalRef.current?.focus());
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', onKey);
+      previousFocus?.focus();
+    };
   }, [open, onClose]);
 
   if (!open || !settings) return null;
@@ -127,7 +134,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
 
   return (
     <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="settings-modal" role="dialog" aria-modal="true" aria-label="Pengaturan aplikasi">
+      <div ref={modalRef} className="settings-modal" role="dialog" aria-modal="true" aria-label="Pengaturan aplikasi" tabIndex={-1}>
         <header className="settings-header">
           <div><span>PREFERENSI WORKSPACE</span><h2>Pengaturan</h2><p>Sesuaikan ProQPay untuk alur kerja tim Anda.</p></div>
           <button type="button" onClick={onClose} aria-label="Tutup pengaturan">✕</button>

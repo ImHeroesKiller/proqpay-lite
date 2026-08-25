@@ -26,6 +26,9 @@ yarn-error.log*
 # env files
 .env*.local
 wrangler.jsonc
+# Downloaded Pages configuration can contain production secrets.
+wrangler.toml
+/.wrangler/
 
 # typescript
 *.tsbuildinfo
