@@ -107,8 +107,6 @@ export default function EmployeeDirectory({ employees, actor, pageSize = 15, ini
         <span className="role-access-chip">Akses: {actor?.role?.replaceAll('_', ' ') || 'CLIENT USER'}</span>
       </div>
 
-      <PortalCredentialsPanel actor={actor} />
-
       <div className="employee-summary-grid">
         <div><span>Total karyawan</span><strong>{summary.total}</strong><small>record dalam scope Anda</small></div>
         <div><span>Status aktif</span><strong>{summary.active}</strong><small>aktif/tetap/kontrak</small></div>
@@ -163,93 +161,6 @@ export default function EmployeeDirectory({ employees, actor, pageSize = 15, ini
   );
 }
 
-function downloadPortalCsv(rows: Array<{ employeeId: string; employeeCode: string; name: string; projectCode: string; password: string }>) {
-  const header = 'employee_id,employee_code,name,project,password';
-  const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-  const body = rows.map((row) => [row.employeeId, row.employeeCode, row.name, row.projectCode, row.password].map(escape).join(',')).join('\n');
-  const blob = new Blob([`${header}\n${body}`], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `proqpay-ess-passwords-${new Date().toISOString().slice(0, 10)}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-function PortalCredentialsPanel({ actor }: { actor: { role: string } | null }) {
-  const canIssue = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR'].includes(actor?.role || '');
-  const [summary, setSummary] = useState<{ total: number; issued: number; pending: number; formula: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [issued, setIssued] = useState<Array<{ employeeId: string; employeeCode: string; name: string; projectCode: string; password: string }>>([]);
-
-  useEffect(() => {
-    if (!canIssue) return;
-    fetch('/api/employee-credentials', { headers: { Accept: 'application/json' } })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data?.ok) setSummary({ total: data.total, issued: data.issued, pending: data.pending, formula: data.formula });
-      })
-      .catch(() => {});
-  }, [canIssue]);
-
-  if (!canIssue) return null;
-
-  async function issueAll() {
-    if (busy) return;
-    if (!window.confirm('Password default = kode project + tanggal join (YYYYMMDD). Ditampilkan sekali. Lanjutkan?')) return;
-    setBusy(true); setError(''); setIssued([]);
-    try {
-      const collected: typeof issued = [];
-      let remaining = 1;
-      while (remaining > 0) {
-        const response = await fetch('/api/employee-credentials', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'ISSUE' }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-        collected.push(...(data.issued || []));
-        remaining = Number(data.remaining || 0);
-        setSummary({
-          total: data.total, issued: data.issuedCount, pending: remaining, formula: '{PROJECT_SLUG}{JOIN_YYYYMMDD}',
-        });
-        if (!data.processed) break;
-      }
-      setIssued(collected);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Gagal menerbitkan password portal');
-    } finally { setBusy(false); }
-  }
-
-  return (
-    <div className="portal-credentials-card card">
-      <div>
-        <strong>Password portal ESS</strong>
-        <span>Rumus {summary?.formula || '{PROJECT_SLUG}{JOIN_YYYYMMDD}'} · wajib diganti saat login pertama. Plaintext tidak disimpan.</span>
-      </div>
-      <div className="portal-credentials-meta">
-        <span>Karyawan {summary?.total ?? '—'}</span>
-        <span>Sudah {summary?.issued ?? '—'}</span>
-        <span>Belum {summary?.pending ?? '—'}</span>
-      </div>
-      <button type="button" className="btn btn-primary" disabled={busy || (summary?.pending === 0)} onClick={() => void issueAll()}>
-        {busy ? 'Menerbitkan…' : 'Terbitkan password portal'}
-      </button>
-      {error ? <p className="portal-credentials-error">{error}</p> : null}
-      {issued.length ? (
-        <div className="portal-credentials-issued">
-          <div>
-            <strong>{issued.length} password — hanya batch ini</strong>
-            <button type="button" className="btn" onClick={() => downloadPortalCsv(issued)}>Unduh CSV</button>
-          </div>
-          <pre>{issued.slice(0, 8).map((row) => `${row.employeeCode}\t${row.password}`).join('\n')}{issued.length > 8 ? `\n… ${issued.length - 8} lainnya di CSV` : ''}</pre>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function masked(value: unknown, enabled: boolean) {
   const raw = text(value);
   if (!enabled || raw.length < 5) return raw;
@@ -259,12 +170,9 @@ function masked(value: unknown, enabled: boolean) {
 function EmployeeDetail({ employee, actor, maskSensitiveData, onClose, onSaved }: { employee: any; actor: { role: string } | null; maskSensitiveData: boolean; onClose: () => void; onSaved: () => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [resetting, setResetting] = useState(false);
   const [message, setMessage] = useState('');
-  const [portalPassword, setPortalPassword] = useState('');
   const [form, setForm] = useState({ nik: text(employee.nik), email: text(employee.email), bankName: text(employee.bankName), accountNo: text(employee.accountNo), bpjsKesehatanNo: text(employee.bpjsKesehatanNo), jamsostekNo: text(employee.jamsostekNo) });
   const canEdit = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'CLIENT_USER'].includes(actor?.role || '');
-  const canResetPortal = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR'].includes(actor?.role || '');
   async function save() {
     setSaving(true); setMessage('');
     try {
@@ -277,21 +185,6 @@ function EmployeeDetail({ employee, actor, maskSensitiveData, onClose, onSaved }
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Gagal menyimpan'); }
     finally { setSaving(false); }
   }
-  async function resetPortalPassword() {
-    if (!canResetPortal || resetting) return;
-    if (!window.confirm(`Terbitkan ulang password portal untuk ${employee.name}? Password lama tidak berlaku. Ditampilkan sekali.`)) return;
-    setResetting(true); setMessage(''); setPortalPassword('');
-    try {
-      const response = await fetch('/api/employee-credentials', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'RESET', employeeId: employee.id }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || result.message || `HTTP ${response.status}`);
-      setPortalPassword(String(result.employee?.password || ''));
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Gagal mereset password portal'); }
-    finally { setResetting(false); }
-  }
   const groups = [
     { title: 'Pekerjaan', fields: [['Kode karyawan', employee.employeeCode || employee.id], ['NRK', employee.id], ['Klien', employee.company], ['Project', employee.project], ['Posisi', employee.position], ['Status', employee.status], ['Tipe kerja', employee.employmentType]] },
     { title: 'Kontrak', fields: [['Tanggal bergabung', dateLabel(employee.joinDate)], ['Mulai kontrak', dateLabel(employee.contractStart)], ['Akhir kontrak', dateLabel(employee.contractEnd)], ['Tanggal resign', dateLabel(employee.resignDate)], ['Alasan resign', employee.resignReason]] },
@@ -302,16 +195,14 @@ function EmployeeDetail({ employee, actor, maskSensitiveData, onClose, onSaved }
     <div className="employee-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <aside className="employee-drawer" role="dialog" aria-modal="true" aria-label={`Detail ${employee.name}`}>
         <div className="employee-drawer-header"><div className="employee-avatar-lg">{initials(employee.name)}</div><div><span>PROFIL KARYAWAN</span><h2>{employee.name}</h2><p>{employee.position || 'Posisi belum diisi'} · {employee.company || '-'}</p></div><button type="button" onClick={onClose} aria-label="Tutup detail">✕</button></div>
-        {canEdit || canResetPortal ? <div style={{display:'flex',justifyContent:'flex-end',gap:8,padding:'0 20px 10px'}}>
-          {canResetPortal ? <button className="btn" type="button" disabled={resetting} onClick={() => void resetPortalPassword()}>{resetting ? 'Menerbitkan…' : 'Reset password portal'}</button> : null}
+        {canEdit ? <div style={{display:'flex',justifyContent:'flex-end',gap:8,padding:'0 20px 10px'}}>
           {canEdit ? <button className="btn" type="button" onClick={() => setEditing(!editing)}>{editing ? 'Batal edit' : 'Edit data kurang'}</button> : null}
         </div> : null}
-        {portalPassword ? <div className="account-credential" style={{margin:'0 20px 12px'}} role="status"><div><strong>Password portal — hanya sekali</strong><span>{employee.employeeCode || employee.id}</span></div><code>{portalPassword}</code><button type="button" className="btn" onClick={() => void navigator.clipboard.writeText(portalPassword)}>Salin</button></div> : null}
         {editing ? <div className="card" style={{margin:'0 20px 14px',padding:14,display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
           {Object.entries({nik:'NIK (16 digit)',email:'Email',bankName:'Nama bank',accountNo:'Nomor rekening',bpjsKesehatanNo:'BPJS Kesehatan',jamsostekNo:'BPJS Ketenagakerjaan'}).map(([key,label]) => <label key={key} style={{fontSize:11,color:'var(--text3)'}}>{label}<input style={{width:'100%',marginTop:4}} value={(form as any)[key]} onChange={(event) => setForm({...form,[key]:event.target.value})} /></label>)}
-          {message ? <p style={{gridColumn:'1/-1',color:'var(--red)',margin:0}}>{message}</p> : null}
           <button className="btn btn-primary" style={{gridColumn:'1/-1'}} type="button" disabled={saving} onClick={() => void save()}>{saving ? 'Menyimpan…' : 'Simpan perubahan'}</button>
         </div> : null}
+        {message ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Data belum tersimpan</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div> : null}
         <div className="employee-drawer-pay"><span>Gaji pokok</span><strong>{formatIDR(employee.salaryGross || 0)}</strong><em className={`status-pill status-${statusTone(employee.status)}`}>{employee.status || 'Belum diisi'}</em></div>
         <div className="employee-detail-groups">{groups.map((group) => <section key={group.title}><h3>{group.title}</h3><dl>{group.fields.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{text(value) || '-'}</dd></div>)}</dl></section>)}</div>
       </aside>

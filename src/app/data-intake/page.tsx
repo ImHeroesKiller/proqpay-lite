@@ -263,7 +263,6 @@ export default function DataIntakePage() {
         activePath="data-intake"
         onView={navigate}
         onOpenIda={() => navigate("dashboard")}
-        onOpenHelp={() => navigate("dashboard")}
         role={actor?.role}
         mobileOpen={mobileNavOpen}
         onMobileClose={() => setMobileNavOpen(false)}
@@ -699,13 +698,6 @@ export default function DataIntakePage() {
               )}
             </section>
           ) : null}
-          <footer className="intake-footer">
-            <span>Login: {actor?.email || "Memuat…"}</span>
-            <span>
-              File sumber disimpan private di R2 · Data canonical dan history
-              tersimpan di D1
-            </span>
-          </footer>
         </div>
       </main>
     </div>

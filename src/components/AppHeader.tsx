@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChangePasswordModal } from "@/components/AuthViews";
@@ -13,6 +14,10 @@ type HeaderActor = {
   role: string;
   authMode?: string;
   clientIds?: string[] | null;
+  avatarUrl?: string;
+  jobTitle?: string;
+  department?: string;
+  phone?: string;
 };
 type Props = {
   period: string;
@@ -207,7 +212,7 @@ export default function AppHeader({
           </div>
         </div>
         <div className="header-actions" ref={shellRef}>
-          <label className="header-period">
+          {view !== "dashboard" ? <label className="header-period">
             <span>Period</span>
             <select
               aria-label="Global payroll period"
@@ -220,7 +225,7 @@ export default function AppHeader({
                 </option>
               ))}
             </select>
-          </label>
+          </label> : null}
           <div className="header-search">
             <button
               type="button"
@@ -319,7 +324,7 @@ export default function AppHeader({
                 setAlertsOpen(false);
               }}
             >
-              <i>{user.name.slice(0, 1).toUpperCase()}</i>
+              <i>{user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : user.name.slice(0, 1).toUpperCase()}</i>
               <span>
                 <strong>{user.name}</strong>
                 <small>{actor.role.replaceAll("_", " ")}</small>
@@ -374,9 +379,13 @@ export default function AppHeader({
             aria-label="User profile"
           >
             <span>USER PROFILE</span>
+            <div className="profile-avatar">{user.avatarUrl ? <img src={user.avatarUrl} alt={`Foto ${user.name}`} /> : user.name.slice(0, 1).toUpperCase()}</div>
             <h3>{user.name}</h3>
             <p>{user.email}</p>
-            <p>{actor.role.replaceAll("_", " ")}</p>
+            <p>{actor.jobTitle || actor.role.replaceAll("_", " ")}</p>
+            {actor.department ? <p>Department: {actor.department}</p> : null}
+            {actor.phone ? <p>Phone: {actor.phone}</p> : null}
+            <p>Role: {actor.role.replaceAll("_", " ")} · {clientCount} client scope</p>
             <button
               type="button"
               className="btn btn-primary"

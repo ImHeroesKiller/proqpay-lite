@@ -25,7 +25,7 @@ const PortalAudit = dynamic(() => import('@/components/PortalAudit'), { loading:
 const IdaFab = dynamic(() => import('@/components/IdaFab'));
 const HelpModal = dynamic(() => import('@/components/HelpModal'));
 
-type Actor = { id: string; name?: string; email: string; role: string; permissions: string[]; mustChangePassword?: boolean; clientIds?: string[] | null; projectIds?: string[] | null; authMode?: string };
+type Actor = { id: string; name?: string; email: string; role: string; permissions: string[]; mustChangePassword?: boolean; clientIds?: string[] | null; projectIds?: string[] | null; authMode?: string; avatarUrl?: string; jobTitle?: string; department?: string; phone?: string };
 
 export default function Home() {
   const [db, setDb] = useState<any>(null);
@@ -165,14 +165,12 @@ export default function Home() {
         view={view}
         onView={navigate}
         onOpenIda={() => { setIdaMounted(true); setIdaOpenSignal((n) => n + 1); }}
-        onOpenHelp={() => setHelpOpen(true)}
         role={actor?.role}
         compact={settings.sidebarMode === 'compact'}
         mobileOpen={mobileNavOpen}
         onMobileClose={() => setMobileNavOpen(false)}
         settingsOpen={settingsOpen}
         onSettingsOpen={setSettingsOpen}
-        lastSyncAt={db.meta?.lastCloudflareSyncAt}
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
@@ -181,7 +179,7 @@ export default function Home() {
         <main style={{ flex: 1, overflowY: 'auto', padding: pad }}>
           <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
             {view === 'dashboard' && (
-              <><RoleDashboard actor={actor} onNavigate={navigate} /><PayrollControlTower actor={actor} period={period} onNavigate={navigate} /></>
+              <><RoleDashboard actor={actor} onNavigate={navigate} /><PayrollControlTower actor={actor} period="ALL" onNavigate={navigate} /></>
             )}
 
             {view === 'employees' && (

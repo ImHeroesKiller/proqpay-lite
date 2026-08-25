@@ -260,11 +260,10 @@ a:hover { text-decoration: underline; }
 .sidebar-nav-active::before { position: absolute; left: -12px; width: 3px; height: 20px; border-radius: 0 4px 4px 0; background: var(--accent); content: ''; }
 .sidebar-spacer { flex: 1; }
 .sidebar-ida { display: flex; min-height: 40px; align-items: center; justify-content: center; gap: 8px; border: 1px solid #1d315c; border-radius: 10px; color: #fff; background: #0b1c40; font: 700 11px inherit; cursor: pointer; }.sidebar-ida svg{width:16px;height:16px}.sidebar-ida:hover{background:#10295d}
-.sidebar-system-meta { display: grid; gap: 4px; margin-top: 8px; padding: 10px 8px 2px; border-top: 1px solid var(--border-soft); color: var(--text3); font-size: 8.5px; }.sidebar-system-meta span{display:flex;align-items:center;gap:5px;color:var(--text2);font-weight:650}.sidebar-system-meta i{width:6px;height:6px;border-radius:99px;background:#10b981;box-shadow:0 0 0 3px #d1fae5}.sidebar-system-meta button{justify-self:start;padding:0;border:0;color:var(--accent);background:transparent;font:700 8.5px inherit;cursor:pointer}
 .sidebar-mobile-close,.sidebar-backdrop{display:none}
 .app-sidebar-compact { width: 68px; flex-basis: 68px; align-items: center; padding-inline: 10px; }
 .app-sidebar-compact .sidebar-brand { margin-inline: 0; }
-.app-sidebar-compact .sidebar-brand-logo, .app-sidebar-compact .sidebar-label, .app-sidebar-compact .sidebar-nav-button > span, .app-sidebar-compact .sidebar-ida span, .app-sidebar-compact .sidebar-system-meta { display: none; }
+.app-sidebar-compact .sidebar-brand-logo, .app-sidebar-compact .sidebar-label, .app-sidebar-compact .sidebar-nav-button > span, .app-sidebar-compact .sidebar-ida span { display: none; }
 .app-sidebar-compact .sidebar-brand-icon { display: block; }
 .app-sidebar-compact .sidebar-nav-button { width: 44px; justify-content: center; padding: 0; }
 .app-sidebar-compact .sidebar-nav-active::before { left: -12px; }
@@ -1292,3 +1291,4 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   .pay-run-upload-preview .btn { grid-column: 1 / -1; }
   .pay-run-flow-guide { padding-bottom: 8px; }
 }
+.profile-avatar{display:grid;width:64px;height:64px;margin-top:14px;overflow:hidden;place-items:center;border-radius:18px;color:#fff;background:var(--accent);font-size:24px;font-weight:800}.profile-avatar img,.header-account>button>i img{width:100%;height:100%;object-fit:cover}

@@ -133,7 +133,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
         <div><strong>2. Project</strong><span>Unit pekerjaan di bawah klien; tidak dibatasi regional.</span></div>
         <div><strong>3. User Account</strong><span>CLIENT_USER dipasangkan ke klien dan, bila perlu, project tertentu.</span></div>
       </div>
-      {message ? <div className="directory-message" role="status">{message}</div> : null}
+      {message ? <div className={`app-notice-bubble ${/gagal|error|tidak|wajib|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|wajib|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div> : null}
       {loading ? <div className="card directory-empty">Memuat master data…</div> : (
         <div className="directory-grid">
           <div className="card directory-section">

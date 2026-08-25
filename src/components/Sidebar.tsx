@@ -82,14 +82,12 @@ type Props = {
   view: AppView;
   onView: (view: AppView) => void;
   onOpenIda: () => void;
-  onOpenHelp: () => void;
   role?: string;
   compact?: boolean;
   mobileOpen?: boolean;
   onMobileClose: () => void;
   settingsOpen: boolean;
   onSettingsOpen: (open: boolean) => void;
-  lastSyncAt?: number;
   activePath?: "data-intake";
 };
 
@@ -97,14 +95,12 @@ export default function Sidebar({
   view,
   onView,
   onOpenIda,
-  onOpenHelp,
   role,
   compact = false,
   mobileOpen = false,
   onMobileClose,
   settingsOpen,
   onSettingsOpen,
-  lastSyncAt,
   activePath,
 }: Props) {
   const allowed = new Set(allowedViewsForRole(role));
@@ -303,22 +299,6 @@ export default function Sidebar({
           <IconMessage />
           <span>Ask IDA</span>
         </button>
-        <div className="sidebar-system-meta">
-          <span>
-            <i />
-            Production · Connected
-          </span>
-          <small>ProQPay · {syncLabel(lastSyncAt)}</small>
-          <button
-            type="button"
-            onClick={() => {
-              onOpenHelp();
-              onMobileClose();
-            }}
-          >
-            Support
-          </button>
-        </div>
       </aside>
       <SettingsModal
         open={settingsOpen}
@@ -365,9 +345,4 @@ function NavBtn({
       <span>{title}</span>
     </button>
   );
-}
-function syncLabel(value?: number) {
-  if (!value) return "Belum sinkron";
-  const minutes = Math.max(0, Math.round((Date.now() - value) / 60000));
-  return minutes < 1 ? "Sync baru saja" : `Sync ${minutes}m lalu`;
 }

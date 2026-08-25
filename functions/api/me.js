@@ -5,6 +5,7 @@ import {
   permissionsFor,
   secureJson,
 } from './_security.js';
+import { d1First, hasD1 } from './_d1.js';
 
 const METHODS = 'GET, OPTIONS';
 
@@ -23,6 +24,14 @@ export async function onRequest({ request, env }) {
   if (authorization.response) return authorization.response;
 
   const actor = authorization.actor;
+  let profile = {};
+  if (hasD1(env)) {
+    try {
+      profile = (await d1First(env.DB, 'SELECT avatar_url, job_title, department, phone FROM app_user_profiles WHERE user_id=? LIMIT 1', [actor.id])) || {};
+    } catch {
+      profile = {};
+    }
+  }
   const effectiveAuthMode = actor.authSource || String(env.AUTH_MODE || 'origin').toLowerCase();
   return secureJson(
     {
@@ -37,6 +46,10 @@ export async function onRequest({ request, env }) {
         mustChangePassword: Boolean(actor.mustChangePassword),
         clientIds: actor.role === 'CLIENT_USER' ? (actor.clientIds || []) : null,
         projectIds: actor.role === 'CLIENT_USER' ? (actor.projectIds || []) : null,
+        avatarUrl: profile.avatar_url || '',
+        jobTitle: profile.job_title || '',
+        department: profile.department || '',
+        phone: profile.phone || '',
       },
     },
     200,

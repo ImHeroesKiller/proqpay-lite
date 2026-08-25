@@ -14,6 +14,9 @@ type EwaRow = {
   repayment: number;
   status: string;
   created_at: string;
+  estimated_net_salary?: number;
+  payroll_net_amount?: number;
+  salary_source_period?: string;
 };
 
 const IDR = new Intl.NumberFormat("id-ID", {
@@ -28,6 +31,7 @@ export default function EwaInbox() {
   const [status, setStatus] = useState("SUBMITTED");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
+  const [actorRole, setActorRole] = useState("");
 
   const load = useCallback(async () => {
     const response = await fetch(
@@ -37,6 +41,7 @@ export default function EwaInbox() {
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     setRows(data.requests || []);
     setPending(Number(data.pending || 0));
+    setActorRole(String(data.actorRole || ""));
   }, [status]);
 
   useEffect(() => {
@@ -101,9 +106,7 @@ export default function EwaInbox() {
         ))}
       </div>
       {message ? (
-        <p className="app-notice-bubble app-notice-error" role="status">
-          {message}
-        </p>
+        <div className="app-notice-bubble app-notice-error" role="alert"><strong>Perlu perhatian</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage("")}>✕</button></div>
       ) : null}
       <div className="card" style={{ overflowX: "auto" }}>
         <table
@@ -117,6 +120,9 @@ export default function EwaInbox() {
               <th align="right">Cair</th>
               <th align="right">Fee</th>
               <th align="right">Potong gaji</th>
+              <th align="right">Estimasi gaji</th>
+              <th align="right">Payroll periode</th>
+              <th align="right">Setelah advance</th>
               <th align="left">Status</th>
               <th />
             </tr>
@@ -124,7 +130,7 @@ export default function EwaInbox() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ padding: 18, color: "var(--text3)" }}>
+                <td colSpan={10} style={{ padding: 18, color: "var(--text3)" }}>
                   Tidak ada pengajuan.
                 </td>
               </tr>
@@ -141,9 +147,12 @@ export default function EwaInbox() {
                   <td align="right">{IDR.format(row.amount || 0)}</td>
                   <td align="right">{IDR.format(row.fee || 0)}</td>
                   <td align="right">{IDR.format(row.repayment || 0)}</td>
+                  <td align="right">{IDR.format(row.estimated_net_salary || 0)}<div style={{fontSize:10,color:"var(--text3)"}}>{row.salary_source_period || "master compensation"}</div></td>
+                  <td align="right">{IDR.format(row.payroll_net_amount || 0)}<div style={{fontSize:10,color:"var(--text3)"}}>{row.period}</div></td>
+                  <td align="right"><strong>{IDR.format(Math.max(0, (row.payroll_net_amount || row.estimated_net_salary || 0) - (row.repayment || 0)))}</strong></td>
                   <td>{row.status}</td>
                   <td>
-                    {row.status === "SUBMITTED" ? (
+                    {row.status === "SUBMITTED" && ["SUPER_ADMIN", "PAYROLL_CONTROLLER"].includes(actorRole) ? (
                       <span style={{ display: "flex", gap: 6 }}>
                         <button
                           type="button"
@@ -162,7 +171,7 @@ export default function EwaInbox() {
                           Tolak
                         </button>
                       </span>
-                    ) : row.status === "APPROVED" ? (
+                    ) : row.status === "APPROVED" && ["SUPER_ADMIN", "PAYROLL_PROCESSOR"].includes(actorRole) ? (
                       <button
                         type="button"
                         className="btn"

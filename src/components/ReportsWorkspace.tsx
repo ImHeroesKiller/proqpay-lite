@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import { listOperatingResource } from '@/lib/operating-model-api';
 import PanelPagination from '@/components/PanelPagination';
-import PayrollSourceUpload from '@/components/PayrollSourceUpload';
 
 type PaymentReport = {
   id:string; client_name?:string; project_name?:string; payroll_period?:string; payment_period?:string;
@@ -93,7 +92,6 @@ export default function ReportsWorkspace() {
   }
 
   return <section>
-    <PayrollSourceUpload />
     <div className="reports-heading"><div><h2>Payroll & Payment Reports</h2><p>Audit trail dari raw source, canonical payroll snapshot, payslip final, pembayaran dan rekonsiliasi.</p></div><button className="btn btn-primary" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div>
     <div className="report-filter" style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>{(Object.keys(LABELS) as ReportType[]).map((item)=><button key={item} type="button" className={`btn ${type===item?'btn-primary':''}`} onClick={()=>setType(item)}>{LABELS[item]}</button>)}</div>
 
@@ -102,7 +100,7 @@ export default function ReportsWorkspace() {
       : <div className="report-summary-grid"><Summary label={LABELS[type]} value={String(filteredPayroll.length)} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /><Summary label="Source linked" value={String(filteredPayroll.filter((row)=>row.source_batch_id || row.file_sha256).length)} /><Summary label="Rows displayed" value={String(activeRows.length)} /></div>}
 
     <div className="card report-filter"><input value={query} placeholder="Cari employee, klien, project, batch, submission…" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }}><option value="ALL">Semua periode</option>{periods.map((item:any) => <option key={item} value={item}>{item}</option>)}</select><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">Semua status</option>{statusOptions.map((item:any) => <option key={item}>{item}</option>)}</select></div>
-    {error ? <div className="directory-message">{error}</div> : null}
+    {error ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Report gagal dimuat</strong><span>{error}</span><button type="button" aria-label="Tutup pesan" onClick={() => setError('')}>✕</button></div> : null}
     {loading ? <div className="card directory-empty">Memuat laporan…</div> : !activeRows.length ? <div className="card directory-empty">Belum ada data pada filter ini.</div> : <>
       {type === 'payments' ? <PaymentTable rows={visible as PaymentReport[]} /> : <GenericTable rows={visible as Record<string,unknown>[]} type={type} />}
       <PanelPagination page={Math.min(page,pageCount)} pageCount={pageCount} total={activeRows.length} label="baris" onPage={setPage} />

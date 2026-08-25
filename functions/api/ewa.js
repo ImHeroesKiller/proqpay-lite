@@ -3,6 +3,8 @@ import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson }
 
 const METHODS = 'GET, POST, OPTIONS';
 const OPS = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER']);
+const DECIDERS = new Set(['SUPER_ADMIN', 'PAYROLL_CONTROLLER']);
+const DISBURSERS = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
 
 function orgId(env, actor) {
   return String(env.DEFAULT_ORG_ID || actor?.orgId || 'ORG-OTSINDO');
@@ -32,10 +34,17 @@ export async function onRequest({ request, env }) {
       const status = new URL(request.url).searchParams.get('status') || '';
       const rows = await d1All(
         env.DB,
-        `SELECT r.*, e.name AS employee_name, e.employee_code, c.name AS client_name
+        `SELECT r.*, e.name AS employee_name, e.employee_code, c.name AS client_name,
+           COALESCE(NULLIF(ec.imported_net, 0), NULLIF(ec.basic_salary, 0), 0) AS estimated_net_salary,
+           ec.payroll_source_period AS salary_source_period,
+           COALESCE((SELECT l.net_amount FROM payroll_run_lines l
+             JOIN payroll_submissions s ON s.id=l.submission_id
+             WHERE l.employee_id=r.employee_id AND s.period=r.period
+             ORDER BY s.created_at DESC LIMIT 1), 0) AS payroll_net_amount
          FROM ewa_requests r
          JOIN employees e ON e.id=r.employee_id
          LEFT JOIN clients c ON c.id=r.client_id
+         LEFT JOIN employee_compensation ec ON ec.employee_id=r.employee_id
          WHERE r.org_id=?
            AND (?='' OR r.status=?)
          ORDER BY r.created_at DESC
@@ -43,12 +52,18 @@ export async function onRequest({ request, env }) {
         [organizationId, status, status],
       );
       const pending = rows.filter((row) => row.status === 'SUBMITTED').length;
-      return respond({ ok: true, pending, requests: rows });
+      return respond({ ok: true, pending, actorRole: actor.role, requests: rows });
     }
 
     let body;
     try { body = await request.json(); } catch { return respond({ error: 'Invalid JSON' }, 400); }
     const action = String(body.action || '').toUpperCase();
+    if (['APPROVE', 'REJECT'].includes(action) && !DECIDERS.has(actor.role)) {
+      return respond({ error: 'Hanya Payroll Controller yang dapat menyetujui atau menolak pengajuan' }, 403);
+    }
+    if (action === 'DISBURSE' && !DISBURSERS.has(actor.role)) {
+      return respond({ error: 'Hanya Payroll Processor yang dapat menandai pencairan' }, 403);
+    }
     const requestId = String(body.id || body.requestId || '').trim();
     if (!requestId) return respond({ error: 'id wajib' }, 422);
     const current = await d1First(env.DB, 'SELECT * FROM ewa_requests WHERE id=? AND org_id=? LIMIT 1', [requestId, organizationId]);
