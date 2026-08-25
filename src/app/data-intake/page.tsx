@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { parseIapWorkbook } from '@/lib/excel-iap';
 import { formatIDR } from '@/lib/format';
 
@@ -85,7 +86,7 @@ export default function DataIntakePage() {
     <div style={{maxWidth:1120,margin:'0 auto',display:'grid',gap:16}}>
       <header style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',flexWrap:'wrap'}}>
         <div><span style={{fontSize:11,fontWeight:800,letterSpacing:'.12em',color:'var(--accent)'}}>PAYROLL DATA INTAKE</span><h1 style={{fontSize:26,margin:'5px 0'}}>Data Intake Payroll</h1><p style={{margin:0,color:'var(--text3)',fontSize:13}}>Satu file per client, project, dan periode. Backend memperbarui master terbaru, menyimpan history, lalu membentuk Pay Run snapshot.</p></div>
-        <a className="btn" href="/?view=operations">← Pay Runs</a>
+        <Link className="btn" href="/?view=operations">← Pay Runs</Link>
       </header>
 
       {message?<div className={`app-notice-bubble ${/gagal|error|tidak|wajib/i.test(message)?'app-notice-error':'app-notice-info'}`}><strong>{/gagal|error|tidak|wajib/i.test(message)?'Perlu perhatian':'Informasi'}</strong><span>{message}</span></div>:null}
@@ -116,7 +117,7 @@ export default function DataIntakePage() {
         {(preview.changes||[]).length?<details open><summary><strong>Perubahan master terdeteksi ({preview.changes.length})</strong></summary><div style={{display:'grid',gap:7,marginTop:10}}>{preview.changes.slice(0,30).map((x:any)=><div key={`${x.employeeId}-${x.row}`} style={{padding:'9px 11px',border:'1px solid var(--border-soft)',borderRadius:9}}><strong>{x.nrk} · {x.name}</strong><small style={{display:'block',color:'var(--text3)',marginTop:3}}>{x.changedFields.join(', ')}</small></div>)}</div></details>:null}
         {(preview.newEmployees||[]).length?<details><summary><strong>Employee baru ({preview.newEmployees.length})</strong></summary><div style={{marginTop:8,color:'var(--text2)',fontSize:13}}>{preview.newEmployees.map((x:any)=>`${x.nrk} · ${x.name}`).join(', ')}</div></details>:null}
         {(preview.missing||[]).length?<div style={{display:'grid',gap:10}}><strong>Karyawan tidak terdapat pada payroll {form.period}</strong><span style={{fontSize:12,color:'var(--text3)'}}>Konfirmasi alasannya. Tidak menerima gaji periode ini tidak mengubah status master.</span>{preview.missing.map((item:any)=><div key={item.employeeId} style={{display:'grid',gridTemplateColumns:'minmax(180px,1fr) 220px minmax(180px,1fr)',gap:8,alignItems:'center'}}><div><strong>{item.nrk}</strong><small style={{display:'block',color:'var(--text3)'}}>{item.name}</small></div><select value={resolutions[item.employeeId]?.resolution||'NO_PAY_THIS_PERIOD'} onChange={e=>setResolutions({...resolutions,[item.employeeId]:{...(resolutions[item.employeeId]||{}),resolution:e.target.value as MissingResolution['resolution']}})}><option value="NO_PAY_THIS_PERIOD">Tidak menerima gaji periode ini</option><option value="RESIGNED">Resign / terminated</option><option value="TRANSFERRED">Mutasi project</option><option value="OTHER">Lainnya</option></select><input placeholder="Catatan opsional" value={resolutions[item.employeeId]?.note||''} onChange={e=>setResolutions({...resolutions,[item.employeeId]:{...(resolutions[item.employeeId]||{resolution:'NO_PAY_THIS_PERIOD'}),note:e.target.value}})}/></div>)}</div>:null}
-        {!preview.confirmed?<button className="btn btn-primary" disabled={busy} onClick={()=>void confirm()}>{busy?'Menyimpan master & snapshot…':'Konfirmasi Intake & Buat Pay Run'}</button>:<div className="app-notice-bubble app-notice-info"><strong>Intake selesai</strong><span>Master terbaru sudah diperbarui dengan history dan snapshot payroll periode ini sudah tersedia.</span><a className="btn btn-primary" href="/?view=operations">Buka Pay Run</a></div>}
+        {!preview.confirmed?<button className="btn btn-primary" disabled={busy} onClick={()=>void confirm()}>{busy?'Menyimpan master & snapshot…':'Konfirmasi Intake & Buat Pay Run'}</button>:<div className="app-notice-bubble app-notice-info"><strong>Intake selesai</strong><span>Master terbaru sudah diperbarui dengan history dan snapshot payroll periode ini sudah tersedia.</span><Link className="btn btn-primary" href="/?view=operations">Buka Pay Run</Link></div>}
       </section>:null}
 
       <footer style={{fontSize:11,color:'var(--text3)'}}>Login: {actor?.email||'-'} · Template contract: PROQPAY_PAYROLL_V1 · Satu upload sumber per periode.</footer>

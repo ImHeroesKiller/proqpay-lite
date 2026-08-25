@@ -151,8 +151,8 @@ async function previewUpload(request, env, actor) {
 }
 async function applyEmployee(db, orgId, submission, batchId, rowRecord, actor) {
   const row=JSON.parse(rowRecord.normalized_payload); const code=employeeCode(row); const after=incomingMaster(row);
-  let employee=await d1First(db,'SELECT * FROM employees WHERE org_id=? AND UPPER(COALESCE(employee_code,id))=UPPER(?) LIMIT 1',[orgId,code]);
-  const existingHistory=employee ? await d1First(db,'SELECT id FROM employee_master_history WHERE employee_id=? AND source_batch_id=? AND action IN (\'CREATED\',\'UPDATED\') LIMIT 1',[employee.id,batchId]) : null;
+  const employee=await d1First(db,'SELECT * FROM employees WHERE org_id=? AND UPPER(COALESCE(employee_code,id))=UPPER(?) LIMIT 1',[orgId,code]);
+  const existingHistory=employee ? await d1First(db,`SELECT id FROM employee_master_history WHERE employee_id=? AND source_batch_id=? AND action IN ('CREATED','UPDATED','MISSING_RESOLUTION') LIMIT 1`,[employee.id,batchId]) : null;
   if (existingHistory) return employee.id;
   const before=employee ? currentMaster((await loadCurrentEmployees(db,orgId,submission.client_id,submission.project_id)).find((item)=>item.id===employee.id)) : null;
   const fields=changedFields(before,after);
