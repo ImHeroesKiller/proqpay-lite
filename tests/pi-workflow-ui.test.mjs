@@ -9,6 +9,8 @@ test('Processor sees submit and rejected PI recovery actions', () => {
   assert.match(ui, /REVISION_REQUIRED[\s\S]*?Perbaiki data PI/);
   assert.match(ui, /Unduh template koreksi/);
   assert.match(ui, /APPLY_BANK_CORRECTIONS/);
+  assert.match(ui, /Alasan reject:/);
+  assert.match(ui, /Revisi \$\{r\.revision_no\}/);
   assert.match(ui, /rejection_reason/);
 });
 
@@ -17,10 +19,10 @@ test('Controller role fallback keeps approve action visible', () => {
   assert.match(ui, /Preview & Approve/);
 });
 
-test('Payment Control filters PI status and hides stale rejection reasons', () => {
+test('Payment Control filters PI status and preserves rejected PI reasons', () => {
   assert.match(ui, /mode === 'payments' \? 'Status PI' : 'Status pay run'/);
   assert.match(ui, /statusMatches = statusFilter === 'ALL' \|\| row\.status === statusFilter/);
-  assert.match(ui, /r\.status === 'REVISION_REQUIRED' && r\.rejection_reason/);
+  assert.match(ui, /r\.rejection_reason\?<small/);
 });
 
 test('Controller can approve or return CONTROLLER_REVIEW pay run', () => {

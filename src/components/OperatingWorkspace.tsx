@@ -487,7 +487,7 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
         ? <button className="btn btn-primary" onClick={() => void openDetail(r.id)}>Perbaiki data PI</button>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
       else action = <button style={actionButton} onClick={() => void openDetail(r.id)}>Detail PI</button>;
-      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.status === 'REVISION_REQUIRED' && r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
+      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}{Number(r.revision_count||0)>1?` · Revisi ${r.revision_no}`:''}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Alasan reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
     })} />
     {detailLoading ? <div className="card" style={{padding:18}}>Memuat snapshot Payment Instruction…</div> : null}
     {detailError ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Detail PI gagal</strong><span>{detailError}</span></div> : null}

@@ -108,6 +108,9 @@ const SUBMISSION_SELECT = `SELECT s.*, c.name AS client_name, p.name AS project_
 
 const PI_SELECT = `SELECT pi.*, s.period AS payroll_period, COALESCE(s.payment_period,s.period) AS payment_period,
   COALESCE(s.arrears_periods,'[]') AS arrears_periods, c.name AS client_name, p.name AS project_name,
+  (SELECT COUNT(*) FROM payment_instructions pir WHERE pir.submission_id=pi.submission_id
+    AND (pir.created_at<pi.created_at OR (pir.created_at=pi.created_at AND pir.id<=pi.id))) AS revision_no,
+  (SELECT COUNT(*) FROM payment_instructions pit WHERE pit.submission_id=pi.submission_id) AS revision_count,
   (SELECT al.detail FROM audit_logs al WHERE al.entity='payment_instruction' AND al.entity_id=pi.id
     AND al.action='PAYMENT_INSTRUCTION_REJECTED' ORDER BY al.timestamp DESC LIMIT 1) AS rejection_reason,
   (SELECT al.username FROM audit_logs al WHERE al.entity='payment_instruction' AND al.entity_id=pi.id
@@ -707,19 +710,12 @@ async function executeAction(database, body, actor, env, organizationId) {
       employeeId: row.id, beneficiaryName: row.name, bankName: row.bank_name,
       accountNumber: row.account_no, amount: Number(row.amount),
     })));
-    if (existing?.content_hash === contentHash) {
-      await d1Batch(database, [
-        { statement:`UPDATE payment_instructions SET status='PAYMENT_INSTRUCTION_READY',creator_user_id=?,updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[actor.id,existing.id] },
-        { statement:`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },
-        auditOperation(organizationId, actor, 'PAYMENT_INSTRUCTION_REVIEWED_UNCHANGED',
-          'Processor mengonfirmasi snapshot PI tetap benar setelah meninjau alasan reject', 'payment_instruction', existing.id),
-      ]);
-      return { data:{ ok:true,paymentInstruction:await d1First(database,'SELECT * FROM payment_instructions WHERE id=?',[existing.id]),reviewedUnchanged:true } };
-    }
+    // A rejected PI is immutable history. Even with an unchanged content hash,
+    // resubmission creates a distinct revision instead of resurrecting the old row.
     const revision = await d1First(database, 'SELECT COUNT(*) AS count FROM payment_instructions WHERE submission_id=? AND org_id=?', [submission.id, organizationId]);
     const revisionNo = Number(revision?.count || 0) + 1;
     const idempotencyKey = `${`PI-${submission.id}-${paymentPeriod}`.slice(0, 105)}${revisionNo > 1 ? `-R${revisionNo}` : ''}`;
-    const documentNo = `PI/${paymentPeriod.replace('-','')}/${contentHash.slice(0,10).toUpperCase()}`;
+    const documentNo = `PI/${paymentPeriod.replace('-','')}/${contentHash.slice(0,10).toUpperCase()}${revisionNo > 1 ? `/R${revisionNo}` : ''}`;
     await d1Batch(database, [
       ...(existing ? [{ statement:`UPDATE payment_instructions SET status='REJECTED',updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[existing.id] }] : []),
       { statement: `INSERT INTO payment_instructions
