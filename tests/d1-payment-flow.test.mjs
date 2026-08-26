@@ -225,8 +225,9 @@ test('Processor resubmits an unchanged rejected PI as a distinct immutable revis
   assert.equal(DB.sqlite.prepare('SELECT status FROM payment_instructions WHERE id=?').get(first.id).status,'REJECTED');
 
   const revisedId=reviewedPayload.paymentInstruction.id;
-  const resubmitted = await handleD1OperatingModel({ request:post({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:revisedId,confirmation:'SUBMIT PI'}),env },recoveryMaker);
-  assert.equal(resubmitted.status,200,await resubmitted.clone().text());
+  const opened = await handleD1OperatingModel({ request:post({action:'OPEN_PAYMENT_REVIEW',paymentInstructionId:revisedId,confirmation:'MULAI REVIEW PI'}),env },controller);
+  assert.equal(opened.status,200,await opened.clone().text());
+  assert.equal((await opened.json()).paymentInstruction.status,'PAYMENT_APPROVAL_PENDING');
   const recoveryMakerCannotApprove = await handleD1OperatingModel({ request:post({action:'APPROVE_PAYMENT',paymentInstructionId:revisedId,actionHash:first.content_hash,confirmation:'KONFIRMASI PAYMENT'}),env },recoveryMaker);
   assert.equal(recoveryMakerCannotApprove.status,403);
   const approved = await handleD1OperatingModel({ request:post({action:'APPROVE_PAYMENT',paymentInstructionId:revisedId,actionHash:first.content_hash,confirmation:'KONFIRMASI PAYMENT'}),env },controller);

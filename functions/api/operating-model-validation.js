@@ -114,6 +114,9 @@ export function validateOperatingAction(input) {
   } else if (action === 'SUBMIT_PAYMENT_INSTRUCTION') {
     if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
     if (input.confirmation !== 'SUBMIT PI') errors.push('Konfirmasi wajib: SUBMIT PI');
+  } else if (action === 'OPEN_PAYMENT_REVIEW') {
+    if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
+    if (input.confirmation !== 'MULAI REVIEW PI') errors.push('Konfirmasi wajib: MULAI REVIEW PI');
   } else if (action === 'CREATE_EXCEPTION') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (!['CRITICAL', 'WARNING', 'INFO'].includes(input.severity)) errors.push('severity tidak valid');

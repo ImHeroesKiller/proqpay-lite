@@ -715,7 +715,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     const revision = await d1First(database, 'SELECT COUNT(*) AS count FROM payment_instructions WHERE submission_id=? AND org_id=?', [submission.id, organizationId]);
     const revisionNo = Number(revision?.count || 0) + 1;
     const idempotencyKey = `${`PI-${submission.id}-${paymentPeriod}`.slice(0, 105)}${revisionNo > 1 ? `-R${revisionNo}` : ''}`;
-    const documentNo = `PI/${paymentPeriod.replace('-','')}/${contentHash.slice(0,10).toUpperCase()}${revisionNo > 1 ? `/R${revisionNo}` : ''}`;
+    const documentNo = `PI/${paymentPeriod.replace('-','')}/${contentHash.slice(0,10).toUpperCase()}${revisionNo > 1 ? `/R${revisionNo - 1}` : ''}`;
     await d1Batch(database, [
       ...(existing ? [{ statement:`UPDATE payment_instructions SET status='REJECTED',updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[existing.id] }] : []),
       { statement: `INSERT INTO payment_instructions
@@ -746,6 +746,20 @@ async function executeAction(database, body, actor, env, organizationId) {
       { statement:`UPDATE payment_instructions SET status='PAYMENT_APPROVAL_PENDING',creator_user_id=?,updated_at=${NOW} WHERE id=?`, bindings:[actor.id,payment.id] },
       { statement:`UPDATE payroll_submissions SET state='PAYMENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=?`, bindings:[payment.submission_id] },
       auditOperation(organizationId, actor, 'PAYMENT_INSTRUCTION_SUBMITTED', 'PI dikirim ke Controller untuk approval', 'payment_instruction', payment.id),
+    ]);
+    return { data:{ ok:true,paymentInstruction:await d1First(database,'SELECT * FROM payment_instructions WHERE id=?',[payment.id]) } };
+  }
+
+  if (body.action === 'OPEN_PAYMENT_REVIEW') {
+    if (!CONTROLLER_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Controller yang dapat membuka review PI' } };
+    const payment = await d1First(database, `SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
+    if (!payment) return { status:404, data:{ error:'Payment instruction tidak ditemukan' } };
+    if (payment.status !== 'PAYMENT_INSTRUCTION_READY') return { status:409, data:{ error:'PI tidak berada pada status siap review' } };
+    if (String(payment.creator_user_id) === String(actor.id)) return { status:409, data:{ error:'Maker PI tidak boleh membuka review atas PI buatannya sendiri' } };
+    await d1Batch(database, [
+      { statement:`UPDATE payment_instructions SET status='PAYMENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=? AND status='PAYMENT_INSTRUCTION_READY'`, bindings:[payment.id] },
+      { statement:`UPDATE payroll_submissions SET state='PAYMENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=?`, bindings:[payment.submission_id] },
+      auditOperation(organizationId, actor, 'PAYMENT_REVIEW_OPENED', 'Controller membuka PI revisi untuk review maker-checker', 'payment_instruction', payment.id),
     ]);
     return { data:{ ok:true,paymentInstruction:await d1First(database,'SELECT * FROM payment_instructions WHERE id=?',[payment.id]) } };
   }

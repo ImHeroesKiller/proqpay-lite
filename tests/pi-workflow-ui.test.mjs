@@ -10,7 +10,9 @@ test('Processor sees submit and rejected PI recovery actions', () => {
   assert.match(ui, /Unduh template koreksi/);
   assert.match(ui, /APPLY_BANK_CORRECTIONS/);
   assert.match(ui, /Alasan reject:/);
-  assert.match(ui, /Revisi \$\{r\.revision_no\}/);
+  assert.match(ui, /Revisi \$\{Number\(r\.revision_no\)-1\}/);
+  assert.match(ui, /OPEN_PAYMENT_REVIEW/);
+  assert.match(ui, /Mulai review/);
   assert.match(ui, /rejection_reason/);
 });
 
