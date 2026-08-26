@@ -52,6 +52,19 @@ test('content hash blocks changed beneficiary account or amount after preview', 
   assert.notEqual(await instructionContentHash(metadata,source.map((line,index) => index ? line : {...line,accountNumber:'999999999999'})),approvedHash);
 });
 
+test('official PI PDF accepts canonical D1 snake-case rows used by the export route', () => {
+  const pdf = generateInstructionPdf(
+    { id:'PI-D1', document_no:'PI/202608/D1', client_name:'PT TEST', payroll_period:'2026-08', payment_period:'2026-08', expected_total:5_000_000, status:'PAYMENT_APPROVAL_PENDING', content_hash:'abc123' },
+    [{ employee_id:'EMP-1', beneficiary_name:'BUDI SANTOSO', bank_code:'BCA', bank_name:'Bank Central Asia', account_last4:'4321', masked_account:'********4321', amount:5_000_000 }],
+    [],
+  );
+  const content = new TextDecoder().decode(pdf);
+  assert.match(content, /^%PDF-1\.4/);
+  assert.match(content, /BUDI SANTOSO/);
+  assert.match(content, /\*\*\*\*4321/);
+  assert.match(content, /%%EOF$/);
+});
+
 test('account encryption fails closed with weak keys and invalid account data', async () => {
   await assert.rejects(() => encryptAccountNumber('1234567890','weak'),/32 characters/);
   await assert.rejects(() => encryptAccountNumber('rekening-invalid',secret),/Invalid beneficiary/);

@@ -103,7 +103,12 @@ function pdfEscape(value) {
 
 export function generateInstructionPdf(instruction, lines, approvals = []) {
   const pageLines = 42;
-  const detail = lines.map((line, index) => `${String(index + 1).padStart(4)}  ${line.beneficiaryName.slice(0,28).padEnd(28)}  ${line.bankCode.padEnd(8)}  ****${line.accountLast4}  ${Number(line.amount).toLocaleString('id-ID')}`);
+  const detail = lines.map((line, index) => {
+    const beneficiary = clean(line.beneficiaryName ?? line.beneficiary_name ?? '-', 140);
+    const bankCode = clean(line.bankCode ?? line.bank_code ?? line.bankName ?? line.bank_name ?? '-', 30);
+    const last4 = clean(line.accountLast4 ?? line.account_last4 ?? line.masked_account ?? '----', 40).replace(/\D/g, '').slice(-4).padStart(4, '*');
+    return `${String(index + 1).padStart(4)}  ${beneficiary.slice(0,28).padEnd(28)}  ${bankCode.slice(0,8).padEnd(8)}  ****${last4}  ${Number(line.amount || 0).toLocaleString('id-ID')}`;
+  });
   const header = [
     'PROQPAY LITE - PAYMENT INSTRUCTION',
     `Document No : ${instruction.document_no || instruction.id}`,
