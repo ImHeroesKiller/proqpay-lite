@@ -61,7 +61,10 @@ test('official PI PDF accepts canonical D1 snake-case rows used by the export ro
   const content = new TextDecoder().decode(pdf);
   assert.match(content, /^%PDF-1\.4/);
   assert.match(content, /BUDI SANTOSO/);
-  assert.match(content, /\*\*\*\*4321/);
+  assert.match(content, /\*\*\*\* 4321/);
+  assert.match(content, /CLIENT CONFIRMATION COPY/);
+  assert.match(content, /ProQPay/);
+  assert.match(content, /DOCUMENT CONTROL/);
   assert.match(content, /%%EOF$/);
 });
 

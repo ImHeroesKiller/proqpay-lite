@@ -206,6 +206,7 @@ async function readResource(database, params, actor, env, organizationId) {
     if (!paymentInstructionId) return { status: 422, data: { error: 'paymentInstructionId wajib diisi' } };
     const instruction = await d1First(database, `SELECT pi.*, s.period AS payroll_period,
       COALESCE(s.payment_period,s.period) AS payment_period, c.name AS client_name, p.name AS project_name,
+      COALESCE(c.billing_email,c.contact_email,(SELECT au.email FROM app_users au JOIN user_client_scopes ucs ON ucs.user_id=au.id WHERE ucs.client_id=pi.client_id AND au.role='CLIENT_USER' AND au.status='ACTIVE' ORDER BY au.created_at LIMIT 1)) AS client_email,
       maker.email AS creator_email,
       (SELECT al.detail FROM audit_logs al WHERE al.entity='payment_instruction' AND al.entity_id=pi.id
         AND al.action='PAYMENT_INSTRUCTION_REJECTED' ORDER BY al.timestamp DESC LIMIT 1) AS rejection_reason,

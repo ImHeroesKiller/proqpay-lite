@@ -358,6 +358,7 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
   const [detail, setDetail] = useState<any | null>(null);
   const [detailError, setDetailError] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
+  const [sendingPi, setSendingPi] = useState(false);
   const [approvalConfirmed, setApprovalConfirmed] = useState(false);
   const [detailQuery, setDetailQuery] = useState('');
   const [detailBank, setDetailBank] = useState('ALL');
@@ -393,6 +394,39 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
     catch (error) { setDetailError(error instanceof Error ? error.message : 'Detail PI gagal dimuat'); }
     finally { setDetailLoading(false); }
   }
+  async function sendPiToClient() {
+    if (!detail?.paymentInstruction || sendingPi) return;
+    setSendingPi(true);
+    setDetailError('');
+    try {
+      const instruction = detail.paymentInstruction;
+      const url = `/api/payment-instruction-export?id=${encodeURIComponent(instruction.id)}&format=PDF`;
+      const response = await fetch(url, { credentials:'same-origin', cache:'no-store' });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || `PDF gagal dibuat (HTTP ${response.status})`);
+      }
+      const blob = await response.blob();
+      const filename = `${String(instruction.document_no || instruction.id).replace(/[^A-Za-z0-9._-]+/g,'-')}.pdf`;
+      const file = new File([blob], filename, { type:'application/pdf' });
+      const recipient = String(instruction.client_email || '');
+      const subject = `Konfirmasi Payment Instruction ${instruction.document_no || instruction.id} - ${instruction.client_name || 'ProQPay'}`;
+      const body = `Yth. Tim ${instruction.client_name || 'Klien'},\n\nTerlampir Payment Instruction periode ${instruction.payment_period || instruction.payroll_period || '-'} untuk dikonfirmasi sebelum proses approval internal.\n\nMohon konfirmasi jumlah penerima dan control total pada dokumen.\n\nTerima kasih,\nTim ProQPay`;
+      if (navigator.share && navigator.canShare?.({ files:[file] })) {
+        await navigator.share({ title:subject, text:body, files:[file] });
+      } else {
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl; anchor.download = filename; anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+        window.location.href = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(`${body}\n\nPDF ${filename} sudah diunduh. Mohon lampirkan file tersebut sebelum mengirim email.`)}`;
+      }
+    } catch (error) {
+      if ((error as Error)?.name !== 'AbortError') setDetailError(error instanceof Error ? error.message : 'Gagal menyiapkan email PI');
+    } finally {
+      setSendingPi(false);
+    }
+  }
   if (!instructions.length) return <Empty title="Belum ada payment instruction" detail="Payment instruction akan tersedia setelah payroll selesai divalidasi dan disetujui." />;
   return <div style={{ display:'grid', gap:16 }}>
     <CardTable headers={['Instruction / Periode','Nilai','Status','Dibuat','Aksi']} rows={instructions.map((r) => {
@@ -419,6 +453,7 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
         <div className="pi-detail-header-actions"><Badge text={detail.paymentInstruction.status} /><button type="button" aria-label="Tutup detail Payment Instruction" onClick={()=>setDetail(null)}>✕</button></div>
       </header>
       <div className="pi-detail-body">
+        {detailError ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Email PI belum siap</strong><span>{detailError}</span><button type="button" aria-label="Tutup pesan" onClick={()=>setDetailError('')}>✕</button></div> : null}
         <section className="pi-detail-summary" aria-label="Ringkasan Payment Instruction">
           <div><span>Periode payroll</span><strong>{detail.paymentInstruction.payroll_period || '-'}</strong></div>
           <div><span>Periode bayar</span><strong>{detail.paymentInstruction.payment_period || detail.paymentInstruction.payroll_period || '-'}</strong></div>
@@ -446,7 +481,7 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
         <section className="pi-approval-section"><div className="pi-section-heading"><div><span>GOVERNANCE</span><h4>Approval trail</h4></div><small>{detail.approvals?.length || 0} aktivitas</small></div>{detail.approvals?.length ? <div className="pi-approval-list">{detail.approvals.map((approval:any)=><div key={approval.id}><i>✓</i><div><strong>{String(approval.status || '').replaceAll('_',' ')}</strong><span>{approval.approver_email || approval.approver_user_id || 'System'} · {date(approval.created_at)}</span></div></div>)}</div> : <p className="directory-hint">Belum ada approval yang tercatat.</p>}</section>
       </div>
       <footer className="pi-detail-footer">
-        <div className="pi-export-actions"><a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">Unduh PDF resmi</a>{['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? ['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>) : null}</div>
+        <div className="pi-export-actions"><a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">Unduh PDF resmi</a>{detail.paymentInstruction.status==='PAYMENT_APPROVAL_PENDING'?<button type="button" className="btn btn-primary" disabled={sendingPi} onClick={()=>void sendPiToClient()}>{sendingPi?'Menyiapkan email…':'Kirim ke klien'}</button>:null}{['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? ['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>) : null}</div>
         {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Saya sudah memeriksa penerima, rekening, nominal, control total, dan content hash.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject PI</button><button className="btn btn-primary" disabled={!approvalConfirmed || !detail.control.balanced || !detail.paymentInstruction.content_hash} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>setDetail(null))}>Approve PI</button></div> : null}
       </footer>
     </div></div>, document.body) : null}
