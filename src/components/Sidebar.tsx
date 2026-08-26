@@ -303,6 +303,7 @@ export default function Sidebar({
       <SettingsModal
         open={settingsOpen}
         onClose={() => onSettingsOpen(false)}
+        role={role}
       />
     </>
   );

@@ -7,7 +7,6 @@ import {
   saveSettings,
   type AppSettings,
 } from "@/lib/app-settings";
-import { saveDatabase, seedDatabase } from "@/lib/database";
 import { emitDbChange } from "@/lib/events";
 import { writeSystemLog } from "@/lib/system-log";
 import AccountManagement from "@/components/AccountManagement";
@@ -21,7 +20,6 @@ type Tab =
   | "users"
   | "data";
 const RESET_CONFIRMATION = "HAPUS SEMUA DATA";
-const PURGE_PAYROLL_CONFIRMATION = "HAPUS PAYMENT LEGACY DAN PAYROLL DUMMY";
 const TABS: Array<{
   id: Tab;
   label: string;
@@ -75,9 +73,11 @@ const TABS: Array<{
 export default function SettingsModal({
   open,
   onClose,
+  role,
 }: {
   open: boolean;
   onClose: () => void;
+  role?: string;
 }) {
   const [tab, setTab] = useState<Tab>("general");
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -90,12 +90,6 @@ export default function SettingsModal({
     type: "success" | "error";
     message: string;
   } | null>(null);
-  const [purgeConfirmation, setPurgeConfirmation] = useState("");
-  const [purging, setPurging] = useState(false);
-  const [purgeStatus, setPurgeStatus] = useState<{
-    type: "success" | "error";
-    message: string;
-  } | null>(null);
   const contentRef = useRef<HTMLElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -105,8 +99,6 @@ export default function SettingsModal({
     setSaveState("idle");
     setResetConfirmation("");
     setResetStatus(null);
-    setPurgeConfirmation("");
-    setPurgeStatus(null);
   }, [open]);
 
   useEffect(() => {
@@ -173,7 +165,6 @@ export default function SettingsModal({
         throw new Error(
           data.error || data.message || `HTTP ${response.status}`,
         );
-      saveDatabase(seedDatabase());
       emitDbChange();
       setResetConfirmation("");
       setResetStatus({
@@ -187,6 +178,7 @@ export default function SettingsModal({
         "Reset data operasional selesai",
         { deleted: data.deleted },
       );
+      window.setTimeout(() => window.location.reload(), 900);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Reset gagal";
       setResetStatus({
@@ -196,52 +188,6 @@ export default function SettingsModal({
       writeSystemLog("ERROR", "SECURITY", "SETTINGS_RESET_REJECTED", message);
     } finally {
       setResetting(false);
-    }
-  }
-
-  async function purgeDummyPayroll() {
-    if (purgeConfirmation !== PURGE_PAYROLL_CONFIRMATION || purging) return;
-    setPurging(true);
-    setPurgeStatus(null);
-    try {
-      const response = await fetch("/api/purge-dummy-payroll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmation: PURGE_PAYROLL_CONFIRMATION }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok)
-        throw new Error(
-          data.error || data.message || `HTTP ${response.status}`,
-        );
-      setPurgeConfirmation("");
-      setPurgeStatus({
-        type: "success",
-        message: `Pembersihan selesai: ${data.deleted?.payment_instructions || 0} PI, ${data.deleted?.payroll_submissions || 0} submission, dan ${data.deleted?.payrolls || 0} payroll dihapus.`,
-      });
-      emitDbChange();
-      writeSystemLog(
-        "SUCCESS",
-        "SECURITY",
-        "DUMMY_PAYROLL_PURGED",
-        "Payment legacy dan payroll dummy dihapus",
-        { deleted: data.deleted, proofCleanup: data.proofCleanup },
-      );
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Pembersihan gagal";
-      setPurgeStatus({
-        type: "error",
-        message: `Pembersihan gagal: ${message}.`,
-      });
-      writeSystemLog(
-        "ERROR",
-        "SECURITY",
-        "DUMMY_PAYROLL_PURGE_REJECTED",
-        message,
-      );
-    } finally {
-      setPurging(false);
     }
   }
 
@@ -273,7 +219,7 @@ export default function SettingsModal({
 
         <div className="settings-layout">
           <nav className="settings-nav" aria-label="Kategori pengaturan">
-            {TABS.map((item) => (
+            {TABS.filter((item) => item.id !== "data" || role === "SUPER_ADMIN").map((item) => (
               <button
                 type="button"
                 key={item.id}
@@ -685,7 +631,7 @@ export default function SettingsModal({
               </SettingsSection>
             ) : null}
 
-            {tab === "data" ? (
+            {tab === "data" && role === "SUPER_ADMIN" ? (
               <>
                 <SettingsSection
                   title="Privasi tampilan"
@@ -702,52 +648,13 @@ export default function SettingsModal({
                 </SettingsSection>
                 <section className="settings-danger-zone">
                   <span>DANGER ZONE</span>
-                  <h4>Hapus payment legacy & payroll dummy</h4>
+                  <h4>Hapus semua data</h4>
                   <p>
-                    Menghapus PI, bank file metadata, approval, proof,
-                    reconciliation, invoice, submission, exception, dan payroll.
-                    Master karyawan, rekening, klien, project, user, dan
-                    konfigurasi dipertahankan.
-                  </p>
-                  <Field label={`Ketik “${PURGE_PAYROLL_CONFIRMATION}”`}>
-                    <input
-                      value={purgeConfirmation}
-                      onChange={(event) => {
-                        setPurgeConfirmation(event.target.value);
-                        setPurgeStatus(null);
-                      }}
-                      placeholder={PURGE_PAYROLL_CONFIRMATION}
-                      disabled={purging}
-                    />
-                  </Field>
-                  <button
-                    type="button"
-                    disabled={
-                      purgeConfirmation !== PURGE_PAYROLL_CONFIRMATION ||
-                      purging
-                    }
-                    onClick={() => void purgeDummyPayroll()}
-                  >
-                    {purging
-                      ? "Membersihkan…"
-                      : "Hapus payment & payroll dummy"}
-                  </button>
-                  {purgeStatus ? (
-                    <div
-                      className={`settings-status ${purgeStatus.type}`}
-                      role="status"
-                    >
-                      {purgeStatus.message}
-                    </div>
-                  ) : null}
-                </section>
-                <section className="settings-danger-zone">
-                  <span>DANGER ZONE</span>
-                  <h4>Reset data operasional</h4>
-                  <p>
-                    Menghapus klien, project, karyawan, payroll, pembayaran,
-                    invoice, dan audit operasional. Knowledge dan memory IDA
-                    dipertahankan.
+                    Menghapus seluruh data bisnis di database dan file terkait:
+                    klien, project, karyawan, payroll, pembayaran, invoice,
+                    portal, user non-admin, histori, serta memory IDA. Struktur
+                    database, organisasi, akun Super Admin aktif, dan audit reset
+                    tetap dipertahankan agar aplikasi tidak terkunci.
                   </p>
                   <Field label={`Ketik “${RESET_CONFIRMATION}”`}>
                     <input
@@ -767,7 +674,7 @@ export default function SettingsModal({
                     }
                     onClick={() => void resetOperationalData()}
                   >
-                    {resetting ? "Menghapus…" : "Reset semua data operasional"}
+                    {resetting ? "Menghapus…" : "Hapus semua data"}
                   </button>
                   {resetStatus ? (
                     <div
