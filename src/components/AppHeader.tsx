@@ -378,21 +378,12 @@ export default function AppHeader({
             aria-modal="true"
             aria-label="User profile"
           >
-            <span>USER PROFILE</span>
-            <div className="profile-avatar">{user.avatarUrl ? <img src={user.avatarUrl} alt={`Foto ${user.name}`} /> : user.name.slice(0, 1).toUpperCase()}</div>
-            <h3>{user.name}</h3>
-            <p>{user.email}</p>
-            <p>{actor.jobTitle || actor.role.replaceAll("_", " ")}</p>
-            {actor.department ? <p>Department: {actor.department}</p> : null}
-            {actor.phone ? <p>Phone: {actor.phone}</p> : null}
-            <p>Role: {actor.role.replaceAll("_", " ")} · {clientCount} client scope</p>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setProfileOpen(false)}
-            >
-              Close
-            </button>
+            <div className="profile-card-cover"><span>USER PROFILE</span><button type="button" aria-label="Tutup profile" onClick={() => setProfileOpen(false)}>✕</button></div>
+            <div className="profile-card-body">
+              <div className="profile-avatar">{user.avatarUrl ? <img src={user.avatarUrl} alt={`Foto ${user.name}`} /> : user.name.slice(0, 1).toUpperCase()}</div>
+              <div className="profile-identity"><h3>{user.name}</h3><p>{actor.jobTitle || actor.role.replaceAll("_", " ")}</p><span>{actor.role.replaceAll("_", " ")}</span></div>
+              <dl className="profile-details"><div><dt>Email</dt><dd>{user.email}</dd></div><div><dt>Department</dt><dd>{actor.department || "Belum diisi"}</dd></div><div><dt>Phone</dt><dd>{actor.phone || "Belum diisi"}</dd></div><div><dt>Client scope</dt><dd>{clientCount} client</dd></div></dl>
+            </div>
           </div>
         </div>
       ) : null}

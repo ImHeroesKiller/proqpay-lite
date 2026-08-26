@@ -53,6 +53,12 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [selectedClientId, setSelectedClientId] = useState('ALL');
+  const [clientPage, setClientPage] = useState(1);
+  const [projectPage, setProjectPage] = useState(1);
+  const pageSize = 8;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,6 +124,20 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const visibleClients: Client[] = [...clients, ...existingClients.filter((client) => !clientNames.has(client.name.toLocaleLowerCase('id-ID'))).map((client) => ({ ...client, code: client.code || client.id }))];
   const projectNames = new Set(projects.map((project) => project.name.toLocaleLowerCase('id-ID')));
   const visibleProjects: Project[] = [...projects, ...existingProjects.filter((project) => !projectNames.has(project.name.toLocaleLowerCase('id-ID'))).map((project) => ({ ...project, code: project.id, client_id: '', client_name: project.company }))];
+  const normalizedQuery = query.trim().toLocaleLowerCase('id-ID');
+  const filteredClients = visibleClients.filter((client) => {
+    if (statusFilter !== 'ALL' && (client.status || 'ACTIVE') !== statusFilter) return false;
+    return !normalizedQuery || [client.name, client.code, client.industry, client.contact_name].some((value) => String(value || '').toLocaleLowerCase('id-ID').includes(normalizedQuery));
+  });
+  const filteredProjects = visibleProjects.filter((project) => {
+    if (selectedClientId !== 'ALL' && project.client_id !== selectedClientId) return false;
+    if (statusFilter !== 'ALL' && (project.status || 'ACTIVE') !== statusFilter) return false;
+    return !normalizedQuery || [project.name, project.code, project.client_name, project.service_type].some((value) => String(value || '').toLocaleLowerCase('id-ID').includes(normalizedQuery));
+  });
+  const clientPages = Math.max(1, Math.ceil(filteredClients.length / pageSize));
+  const projectPages = Math.max(1, Math.ceil(filteredProjects.length / pageSize));
+  const pagedClients = filteredClients.slice((Math.min(clientPage, clientPages) - 1) * pageSize, Math.min(clientPage, clientPages) * pageSize);
+  const pagedProjects = filteredProjects.slice((Math.min(projectPage, projectPages) - 1) * pageSize, Math.min(projectPage, projectPages) * pageSize);
 
   return (
     <section>
@@ -125,33 +145,39 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
         <div><h2>Klien & Project</h2><p>Identitas, relasi akun, dan konteks layanan dalam satu master data.</p></div>
         <div>
           {canCreateClient ? <button type="button" className="btn" onClick={() => { setEditingId(''); setForm(EMPTY_FORM); setMode('client'); }}>+ Tambah Klien</button> : null}
-          {canCreateProject ? <button type="button" className="btn btn-primary" onClick={() => { setEditingId(''); setForm(EMPTY_FORM); setMode('project'); }}>+ Tambah Project</button> : null}
+          {canCreateProject ? <button type="button" className="btn btn-primary" onClick={() => { setEditingId(''); setForm({ ...EMPTY_FORM, clientId: selectedClientId === 'ALL' ? '' : selectedClientId }); setMode('project'); }}>+ Tambah Project</button> : null}
         </div>
       </div>
-      <div className="account-role-summary" style={{ marginBottom: 16 }}>
-        <div><strong>1. Klien</strong><span>Entitas induk untuk tier layanan, akun, dan project.</span></div>
-        <div><strong>2. Project</strong><span>Unit pekerjaan di bawah klien; tidak dibatasi regional.</span></div>
-        <div><strong>3. User Account</strong><span>CLIENT_USER dipasangkan ke klien dan, bila perlu, project tertentu.</span></div>
+      <div className="directory-kpi-grid">
+        <div><span>Total klien</span><strong>{visibleClients.length}</strong></div><div><span>Total project</span><strong>{visibleProjects.length}</strong></div><div><span>Klien aktif</span><strong>{visibleClients.filter((row) => (row.status || 'ACTIVE') === 'ACTIVE').length}</strong></div><div><span>Total karyawan</span><strong>{visibleClients.reduce((sum, row) => sum + Number(row.employee_count || 0), 0)}</strong></div>
+      </div>
+      <div className="directory-toolbar card">
+        <label className="directory-search"><span>⌕</span><input value={query} onChange={(event) => { setQuery(event.target.value); setClientPage(1); setProjectPage(1); }} placeholder="Cari klien, kode, project, layanan…" aria-label="Cari klien dan project" /></label>
+        <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setClientPage(1); setProjectPage(1); }} aria-label="Filter status"><option value="ALL">Semua status</option><option value="ACTIVE">Aktif</option><option value="INACTIVE">Nonaktif</option><option value="ON_HOLD">Ditunda</option><option value="COMPLETED">Selesai</option></select>
+        <select value={selectedClientId} onChange={(event) => { setSelectedClientId(event.target.value); setProjectPage(1); }} aria-label="Filter project berdasarkan klien"><option value="ALL">Semua klien</option>{visibleClients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select>
+        <button type="button" className="btn" onClick={() => { setQuery(''); setStatusFilter('ALL'); setSelectedClientId('ALL'); setClientPage(1); setProjectPage(1); }}>Reset</button>
       </div>
       {message ? <div className={`app-notice-bubble ${/gagal|error|tidak|wajib|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|wajib|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div> : null}
       {loading ? <div className="card directory-empty">Memuat master data…</div> : (
         <div className="directory-grid">
           <div className="card directory-section">
-            <h3>Klien <span>{visibleClients.length}</span></h3>
-            {visibleClients.map((client) => <div className="directory-row" key={client.id}>
+            <h3>Klien <span>{filteredClients.length}</span></h3>
+            {pagedClients.map((client) => <div className={`directory-row directory-selectable${selectedClientId === client.id ? ' selected' : ''}`} key={client.id} onClick={() => { setSelectedClientId(client.id); setProjectPage(1); }}>
               <ClientIcon client={client} />
               <div className="directory-row-main"><b>{client.name}</b><small>{client.code} · {client.industry || 'Industri belum diisi'}</small><small>{client.contact_name ? `PIC ${client.contact_name}` : 'PIC belum diisi'}{client.website ? ` · ${client.website.replace(/^https?:\/\//, '')}` : ''}</small><small>{client.npwp?`NPWP ${client.npwp}`:'NPWP belum diisi'} · {client.tax_status==='PKP'?'PKP':'Non-PKP'}</small></div>
-              <div><span className="directory-badge">{client.status || 'ACTIVE'}</span><small>{client.employee_count || 0} karyawan · {client.project_count || 0} project</small><small>{client.assigned_user_count || 0} akun</small>{canCreateClient ? <button className="btn" style={{ marginTop: 6 }} onClick={() => editClient(client)}>Kelola</button> : null}</div>
+              <div><span className="directory-badge">{client.status || 'ACTIVE'}</span><small>{client.employee_count || 0} karyawan · {client.project_count || 0} project</small><small>{client.assigned_user_count || 0} akun</small>{canCreateClient ? <button className="btn" style={{ marginTop: 6 }} onClick={(event) => { event.stopPropagation(); editClient(client); }}>Kelola</button> : null}</div>
             </div>)}
-            {!visibleClients.length ? <p className="directory-empty">Belum ada klien.</p> : null}
+            {!filteredClients.length ? <p className="directory-empty">Klien tidak ditemukan.</p> : null}
+            <DirectoryPager page={Math.min(clientPage, clientPages)} pages={clientPages} onPage={setClientPage} />
           </div>
           <div className="card directory-section">
-            <h3>Project <span>{visibleProjects.length}</span></h3>
-            {visibleProjects.map((project) => <div className="directory-row" key={project.id}>
+            <h3>Project <span>{filteredProjects.length}</span></h3>
+            {pagedProjects.map((project) => <div className="directory-row" key={project.id}>
               <div className="directory-row-main"><b>{project.name}</b><small>{project.code} · {project.client_name || project.client_id}</small><small>{project.service_type || 'Layanan belum diisi'}{project.description ? ` · ${project.description}` : ''}</small><small>{project.tier?String(project.tier).replaceAll('_',' '):'Tier belum ditetapkan'}{project.tier_effective_from?` · efektif ${new Date(project.tier_effective_from).toLocaleDateString('id-ID')}`:''}</small></div>
               <div><span className="directory-badge">{project.status || 'ACTIVE'}</span><small>{project.start_date ? new Date(project.start_date).toLocaleDateString('id-ID') : 'Tanpa batas periode'} · {project.assigned_user_count || 0} akun</small>{canCreateProject ? <button className="btn" style={{ marginTop: 6 }} onClick={() => editProject(project)}>Kelola</button> : null}</div>
             </div>)}
-            {!visibleProjects.length ? <p className="directory-empty">Belum ada project.</p> : null}
+            {!filteredProjects.length ? <p className="directory-empty">Project tidak ditemukan.</p> : null}
+            <DirectoryPager page={Math.min(projectPage, projectPages)} pages={projectPages} onPage={setProjectPage} />
           </div>
         </div>
       )}
@@ -181,4 +207,9 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
       </div>, document.body) : null}
     </section>
   );
+}
+
+function DirectoryPager({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) {
+  if (pages <= 1) return null;
+  return <div className="directory-pager"><span>Halaman {page} dari {pages}</span><div><button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}>←</button><button type="button" disabled={page >= pages} onClick={() => onPage(page + 1)}>→</button></div></div>;
 }
