@@ -42,7 +42,7 @@ const VIEW_LABELS: Record<AppView, string> = {
   reports: "Reports",
   logs: "Audit Logs",
   ewa: "Advance Salary",
-  portalAudit: "Portal Audit",
+  portalAudit: "Audit & Portal Logs",
   portalSettings: "Portal Settings",
 };
 const SEARCH_ITEMS: Array<{ label: string; keywords: string; view: AppView }> =
@@ -88,9 +88,9 @@ const SEARCH_ITEMS: Array<{ label: string; keywords: string; view: AppView }> =
       view: "portalSettings",
     },
     {
-      label: "Portal Audit",
-      keywords: "login ess portal attempt ewa jejak",
-      view: "portalAudit",
+      label: "Audit & Portal Logs",
+      keywords: "audit system login ess portal attempt ewa jejak",
+      view: "logs",
     },
     { label: "Employees", keywords: "karyawan rekening", view: "employees" },
     { label: "Clients & Projects", keywords: "klien project", view: "clients" },

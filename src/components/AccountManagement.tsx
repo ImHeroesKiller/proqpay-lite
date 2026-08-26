@@ -64,6 +64,7 @@ export default function AccountManagement() {
     email: string;
     password: string;
   } | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState("");
   const [draft, setDraft] = useState({
     name: "",
     email: "",
@@ -100,6 +101,20 @@ export default function AccountManagement() {
     setUsers((current) =>
       current.map((user) => (user.id === id ? { ...user, ...values } : user)),
     );
+  }
+
+  async function uploadPhoto(target: "draft" | string, file?: File) {
+    if (!file || uploadingPhoto) return;
+    setUploadingPhoto(target); setError("");
+    try {
+      const body = new FormData(); body.append("file", file);
+      const response = await fetch("/api/portal-media", { method: "POST", body });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      if (target === "draft") setDraft((current) => ({ ...current, avatarUrl: data.url }));
+      else updateLocal(target, { avatarUrl: data.url });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Upload foto gagal"); }
+    finally { setUploadingPhoto(""); }
   }
 
   async function createAccount() {
@@ -281,16 +296,9 @@ export default function AccountManagement() {
               placeholder="+62 812…"
             />
           </label>
-          <label className="account-photo-field">
-            <span>URL foto profil (HTTPS)</span>
-            <input
-              type="url"
-              value={draft.avatarUrl}
-              onChange={(event) =>
-                setDraft({ ...draft, avatarUrl: event.target.value })
-              }
-              placeholder="https://…/foto.jpg"
-            />
+          <label className="account-photo-field portal-upload">
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={Boolean(uploadingPhoto)} onChange={(event) => void uploadPhoto("draft", event.target.files?.[0])} />
+            <span className="portal-upload-icon">↑</span><span><strong>{uploadingPhoto === "draft" ? "Mengunggah…" : "Upload foto profil"}</strong><small>JPG, PNG, WebP, atau GIF · maks. 5 MB</small></span><b>{draft.avatarUrl ? "Ganti" : "Pilih file"}</b>
           </label>
           {draft.role === "PAYROLL_CONTROLLER" ? (
             <label className="account-check">
@@ -499,16 +507,9 @@ export default function AccountManagement() {
                     }
                   />
                 </label>
-                <label>
-                  <span>URL foto HTTPS</span>
-                  <input
-                    type="url"
-                    value={user.avatarUrl || ""}
-                    onChange={(event) =>
-                      updateLocal(user.id, { avatarUrl: event.target.value })
-                    }
-                    placeholder="https://…"
-                  />
+                <label className="portal-upload">
+                  <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={Boolean(uploadingPhoto)} onChange={(event) => void uploadPhoto(user.id, event.target.files?.[0])} />
+                  <span className="portal-upload-icon">↑</span><span><strong>{uploadingPhoto === user.id ? "Mengunggah…" : "Upload foto"}</strong><small>File gambar · maks. 5 MB</small></span><b>{user.avatarUrl ? "Ganti" : "Pilih"}</b>
                 </label>
               </div>
               <div className="account-fields">

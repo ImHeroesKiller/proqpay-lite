@@ -21,7 +21,6 @@ const ReportsWorkspace = dynamic(() => import('@/components/ReportsWorkspace'), 
 const SystemLogs = dynamic(() => import('@/components/SystemLogs'), { loading: () => <ViewLoading /> });
 const EwaInbox = dynamic(() => import('@/components/EwaInbox'), { loading: () => <ViewLoading /> });
 const PortalSettings = dynamic(() => import('@/components/PortalSettings'), { loading: () => <ViewLoading /> });
-const PortalAudit = dynamic(() => import('@/components/PortalAudit'), { loading: () => <ViewLoading /> });
 const IdaFab = dynamic(() => import('@/components/IdaFab'));
 const HelpModal = dynamic(() => import('@/components/HelpModal'));
 
@@ -207,7 +206,7 @@ export default function Home() {
 
             {view === 'ewa' && <EwaInbox />}
             {view === 'portalSettings' && <PortalSettings />}
-            {view === 'portalAudit' && <PortalAudit />}
+            {view === 'portalAudit' && <SystemLogs auditLogs={db.auditLogs || []} initialTab="logins" />}
 
             {view === 'reports' && <ReportsWorkspace />}
           </div>

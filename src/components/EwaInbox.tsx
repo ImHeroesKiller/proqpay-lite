@@ -32,6 +32,8 @@ export default function EwaInbox() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
   const [actorRole, setActorRole] = useState("");
+  const totalRequested = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const totalRepayment = rows.reduce((sum, row) => sum + Number(row.repayment || 0), 0);
 
   const load = useCallback(async () => {
     const response = await fetch(
@@ -72,7 +74,7 @@ export default function EwaInbox() {
   }
 
   return (
-    <section className="portal-workspace">
+    <section className="portal-workspace ewa-workspace">
       <div className="page-heading">
         <div>
           <span className="page-eyebrow">Employee portal</span>
@@ -85,6 +87,13 @@ export default function EwaInbox() {
         </div>
         <span className="status-pill">{pending} menunggu</span>
       </div>
+      <div className="ewa-summary-grid">
+        <article><span>Menunggu keputusan</span><strong>{pending}</strong><small>Payroll Controller</small></article>
+        <article><span>Nilai pengajuan</span><strong>{IDR.format(totalRequested)}</strong><small>pada filter aktif</small></article>
+        <article><span>Potongan payroll</span><strong>{IDR.format(totalRepayment)}</strong><small>advance + fee</small></article>
+        <article><span>Tanggung jawab Anda</span><strong>{["SUPER_ADMIN","PAYROLL_CONTROLLER"].includes(actorRole) ? "Review" : "Pencairan"}</strong><small>maker–checker aktif</small></article>
+      </div>
+      <div className="ewa-flow" aria-label="Alur Advance Salary"><span className="done">1 · Pengajuan</span><i>→</i><span>2 · Controller review</span><i>→</i><span>3 · Processor cairkan</span><i>→</i><span>4 · Potong payroll</span></div>
       <div className="portal-toolbar">
         {[
           "SUBMITTED",
@@ -108,7 +117,7 @@ export default function EwaInbox() {
       {message ? (
         <div className="app-notice-bubble app-notice-error" role="alert"><strong>Perlu perhatian</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage("")}>✕</button></div>
       ) : null}
-      <div className="card" style={{ overflowX: "auto" }}>
+      <div className="card ewa-table-card" style={{ overflowX: "auto" }}>
         <table
           className="data-table"
           style={{ width: "100%", borderCollapse: "collapse" }}

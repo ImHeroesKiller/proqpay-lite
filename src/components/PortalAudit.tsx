@@ -25,11 +25,12 @@ type EventRow = {
   entity_id?: string;
 };
 
-export default function PortalAudit() {
+export default function PortalAudit({ embedded = false, mode }: { embedded?: boolean; mode?: "logins" | "events" }) {
   const [logins, setLogins] = useState<LoginRow[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [failed, setFailed] = useState(0);
-  const [tab, setTab] = useState<"logins" | "events">("logins");
+  const [tab, setTab] = useState<"logins" | "events">(mode || "logins");
+  const activeTab = mode || tab;
   const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
@@ -48,8 +49,8 @@ export default function PortalAudit() {
   }, [load]);
 
   return (
-    <section className="portal-workspace">
-      <div className="page-heading">
+    <section className="portal-workspace portal-audit-workspace">
+      {!embedded ? <div className="page-heading">
         <div>
           <span className="page-eyebrow">Employee portal</span>
           <h1>Portal Audit</h1>
@@ -59,8 +60,13 @@ export default function PortalAudit() {
           </p>
         </div>
         <span className="status-pill">{failed} login gagal</span>
+      </div> : null}
+      <div className="audit-summary-grid">
+        <article><span>Percobaan login</span><strong>{logins.length}</strong><small>200 aktivitas terbaru</small></article>
+        <article><span>Login gagal</span><strong>{failed}</strong><small>perlu ditinjau</small></article>
+        <article><span>Aktivitas portal</span><strong>{events.length}</strong><small>EWA dan kredensial</small></article>
       </div>
-      <div className="portal-toolbar">
+      {!embedded ? <div className="portal-toolbar">
         <button
           type="button"
           className={`btn${tab === "logins" ? " btn-primary" : ""}`}
@@ -75,14 +81,14 @@ export default function PortalAudit() {
         >
           Advance & kredensial
         </button>
-      </div>
+      </div> : null}
       {message ? (
         <p className="app-notice-bubble app-notice-error" role="status">
           {message}
         </p>
       ) : null}
       <div className="card" style={{ overflowX: "auto" }}>
-        {tab === "logins" ? (
+        {activeTab === "logins" ? (
           <table
             className="data-table"
             style={{ width: "100%", borderCollapse: "collapse" }}

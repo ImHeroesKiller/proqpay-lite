@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 
@@ -107,6 +108,22 @@ export default function PortalSettings() {
   const [message, setMessage] = useState("");
   const [ok, setOk] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState<number | null>(null);
+
+  async function uploadMedia(index: number, file?: File) {
+    if (!file || uploading !== null) return;
+    setUploading(index); setMessage(""); setOk("");
+    try {
+      const body = new FormData(); body.append("file", file);
+      const response = await fetch("/api/portal-media", { method: "POST", body });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      patchAd(setAds, ads, index, { imageUrl: data.url });
+      setOk(`${data.name} berhasil diunggah. Simpan pengaturan untuk menerbitkannya.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Upload gagal");
+    } finally { setUploading(null); }
+  }
 
   const apply = useCallback((data: Record<string, unknown>) => {
     setClients((data.clients as Client[]) || []);
@@ -231,7 +248,7 @@ export default function PortalSettings() {
   const tenureUnit = (policy.minTenureDays || 0) > 0 ? "days" : "months";
 
   return (
-    <section className="portal-workspace">
+    <section className="portal-workspace portal-settings-workspace">
       <div className="page-heading">
         <div>
           <span className="page-eyebrow">Employee portal</span>
@@ -295,14 +312,10 @@ export default function PortalSettings() {
       </div>
 
       {message ? (
-        <p className="app-notice-bubble app-notice-error" role="status">
-          {message}
-        </p>
+        <div className="app-notice-bubble app-notice-error" role="alert"><strong>Perlu perhatian</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage("")}>✕</button></div>
       ) : null}
       {ok ? (
-        <p className="app-notice-bubble" role="status">
-          {ok}
-        </p>
+        <div className="app-notice-bubble app-notice-info" role="status"><strong>Berhasil</strong><span>{ok}</span><button type="button" aria-label="Tutup pesan" onClick={() => setOk("")}>✕</button></div>
       ) : null}
 
       {tab === "rules" ? (
@@ -650,16 +663,12 @@ export default function PortalSettings() {
                     }
                   />
                 </label>
-                <label style={field}>
-                  Gambar (https, opsional)
-                  <input
-                    value={ad.imageUrl}
-                    onChange={(event) =>
-                      patchAd(setAds, ads, index, {
-                        imageUrl: event.target.value,
-                      })
-                    }
-                  />
+                <label className="portal-upload" style={{ gridColumn: "1 / -1" }}>
+                  <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={uploading !== null} onChange={(event) => void uploadMedia(index, event.target.files?.[0])} />
+                  <span className="portal-upload-icon">↑</span>
+                  <span><strong>{uploading === index ? "Mengunggah…" : "Upload gambar banner"}</strong><small>JPG, PNG, WebP, atau GIF · maksimal 5 MB</small></span>
+                  <b>{ad.imageUrl ? "Ganti gambar" : "Pilih file"}</b>
+                  {ad.imageUrl ? <img src={ad.imageUrl} alt={`Preview banner ${index + 1}`} /> : null}
                 </label>
                 <label style={field}>
                   Pixel tayang (opsional)

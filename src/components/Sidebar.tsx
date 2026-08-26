@@ -56,6 +56,7 @@ const ROLE_VIEWS: Record<string, AppView[]> = {
     "employees",
     "clients",
     "reports",
+    "logs",
     "ewa",
     "portalAudit",
     "portalSettings",
@@ -67,6 +68,7 @@ const ROLE_VIEWS: Record<string, AppView[]> = {
     "payments",
     "billing",
     "reports",
+    "logs",
     "ewa",
     "portalAudit",
     "portalSettings",
@@ -232,6 +234,7 @@ export default function Sidebar({
         </NavGroup>
         {allowed.has("ewa") ||
         allowed.has("portalAudit") ||
+        allowed.has("logs") ||
         allowed.has("portalSettings") ? (
           <NavGroup label="Employee Portal">
             {allowed.has("ewa") ? (
@@ -250,13 +253,8 @@ export default function Sidebar({
                 onClick={() => go("portalSettings")}
               />
             ) : null}
-            {allowed.has("portalAudit") ? (
-              <NavBtn
-                active={view === "portalAudit"}
-                icon={<IconTerminal />}
-                title="Portal Audit"
-                onClick={() => go("portalAudit")}
-              />
+            {allowed.has("logs") ? (
+              <NavBtn active={view === "logs" || view === "portalAudit"} icon={<IconTerminal />} title="Audit & Portal Logs" onClick={() => go("logs")} />
             ) : null}
           </NavGroup>
         ) : null}
@@ -270,12 +268,6 @@ export default function Sidebar({
                 onClick={() => go("integrations")}
               />
             ) : null}
-            <NavBtn
-              active={view === "logs"}
-              icon={<IconTerminal />}
-              title="Audit Logs"
-              onClick={() => go("logs")}
-            />
             <NavBtn
               active={settingsOpen}
               icon={<IconSettings />}

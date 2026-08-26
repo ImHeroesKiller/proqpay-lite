@@ -65,6 +65,7 @@ function clip(value, max) {
 export function sanitizeHttpUrl(value) {
   const raw = String(value || '').trim().slice(0, 500);
   if (!raw) return '';
+  if (raw.startsWith('/api/portal-media?key=portal-media%2F')) return raw;
   if (/^\s*(javascript|data|vbscript|file):/i.test(raw)) return '';
   try {
     const url = new URL(raw);

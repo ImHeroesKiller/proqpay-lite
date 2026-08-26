@@ -8,6 +8,7 @@ import {
   type SystemLogEntry,
   type SystemLogLevel,
 } from '@/lib/system-log';
+import PortalAudit from '@/components/PortalAudit';
 
 const LEVEL_COLOR: Record<SystemLogLevel, string> = {
   INFO: '#60a5fa',
@@ -29,10 +30,11 @@ function clock(value: number) {
   }).format(value);
 }
 
-export default function SystemLogs({ auditLogs = [] }: { auditLogs?: any[] }) {
+export default function SystemLogs({ auditLogs = [], initialTab = 'system' }: { auditLogs?: any[]; initialTab?: 'system' | 'logins' | 'events' }) {
   const [logs, setLogs] = useState<SystemLogEntry[]>([]);
   const [level, setLevel] = useState<'ALL' | SystemLogLevel>('ALL');
   const [search, setSearch] = useState('');
+  const [tab, setTab] = useState<'system' | 'logins' | 'events'>(initialTab);
 
   useEffect(() => {
     const refresh = () => setLogs(loadSystemLogs());
@@ -64,18 +66,25 @@ export default function SystemLogs({ auditLogs = [] }: { auditLogs?: any[] }) {
   }, [merged, level, search]);
 
   return (
-    <section>
+    <section className="audit-hub">
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ fontSize: 22, fontWeight: 720, margin: 0 }}>System Logs</h2>
+          <span className="page-eyebrow">Governance & security</span>
+          <h2 style={{ fontSize: 22, fontWeight: 720, margin: 0 }}>Audit & Portal Logs</h2>
           <p style={{ color: 'var(--text3)', fontSize: 13, margin: '4px 0 0' }}>
-            Event teknis dan aktivitas bisnis aplikasi
+            Jejak sistem, aktivitas bisnis, login ESS, dan Advance Salary dalam satu pusat audit.
           </p>
         </div>
-        <button type="button" className="btn" onClick={clearSystemLogs}>Bersihkan log lokal</button>
+        {tab === 'system' ? <button type="button" className="btn" onClick={clearSystemLogs}>Bersihkan log lokal</button> : null}
       </div>
 
-      <div className="card" style={{ marginTop: 16, overflow: 'hidden', background: '#08111f', borderColor: '#1e293b' }}>
+      <div className="portal-toolbar audit-tabs">
+        <button type="button" className={`btn${tab === 'system' ? ' btn-primary' : ''}`} onClick={() => setTab('system')}>System & bisnis</button>
+        <button type="button" className={`btn${tab === 'logins' ? ' btn-primary' : ''}`} onClick={() => setTab('logins')}>Login ESS</button>
+        <button type="button" className={`btn${tab === 'events' ? ' btn-primary' : ''}`} onClick={() => setTab('events')}>Advance & portal</button>
+      </div>
+
+      {tab !== 'system' ? <PortalAudit embedded mode={tab} /> : <div className="card" style={{ marginTop: 16, overflow: 'hidden', background: '#08111f', borderColor: '#1e293b' }}>
         <div style={{ display: 'flex', gap: 8, padding: 12, borderBottom: '1px solid #1e293b', flexWrap: 'wrap' }}>
           <input
             aria-label="Cari log"
@@ -109,7 +118,7 @@ export default function SystemLogs({ auditLogs = [] }: { auditLogs?: any[] }) {
         <div style={{ padding: '8px 14px', borderTop: '1px solid #1e293b', color: '#64748b', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11 }}>
           $ {filtered.length} event ditampilkan · maksimum 500 log teknis lokal
         </div>
-      </div>
+      </div>}
     </section>
   );
 }
