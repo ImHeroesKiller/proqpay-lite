@@ -167,6 +167,34 @@ test('rejected PI returns to Processor and creates a new immutable revision', as
   assert.equal(rejected.rejection_reason, 'Nominal penerima pertama harus diperbaiki');
 });
 
+test('Processor applies an audited bank correction and generates a new PI revision', async () => {
+  const DB = new D1Mock(); seed396(DB);
+  DB.sqlite.prepare(`INSERT INTO payroll_run_lines(id,submission_id,employee_id,employee_code,employee_name,bank_name,account_last4,gross_amount,deduction_amount,net_amount,source)
+    SELECT 'LINE-001','SUB-UAT',e.id,e.employee_code,e.name,'BCA','0001',4000001,0,4000001,'UPLOAD_FINAL' FROM employees e WHERE e.id='EMP-001'`).run();
+  const env={DB,DEFAULT_ORG_ID:'ORG-OTSINDO',PI_ENCRYPTION_KEY:'uat-native-cloudflare-key-32-bytes-minimum'};
+  const maker={id:'USR-MAKER',email:'maker@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:['payment:prepare']};
+  const controller={id:'USR-CONTROLLER',email:'controller@proqpay.test',role:'PAYROLL_CONTROLLER',permissions:['payment:approve']};
+  const first=(await (await handleD1OperatingModel({request:post({action:'GENERATE_PAYMENT_INSTRUCTION',submissionId:'SUB-UAT'}),env},maker)).json()).paymentInstruction;
+  await handleD1OperatingModel({request:post({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:first.id,confirmation:'SUBMIT PI'}),env},maker);
+  await handleD1OperatingModel({request:post({action:'REJECT_PAYMENT',paymentInstructionId:first.id,reason:'Nomor rekening penerima pertama tidak sesuai'}),env},controller);
+  const correction=await handleD1OperatingModel({request:post({action:'APPLY_BANK_CORRECTIONS',submissionId:'SUB-UAT',paymentInstructionId:first.id,
+    confirmation:'TERAPKAN KOREKSI REKENING',corrections:[{employeeId:'EMP-001',bankName:'MANDIRI',accountNo:'998877665544'}]}),env},maker);
+  assert.equal(correction.status,200,await correction.clone().text());
+  const correctedLine=DB.sqlite.prepare(`SELECT bank_name,account_last4 FROM payroll_run_lines WHERE id='LINE-001'`).get();
+  assert.equal(correctedLine.bank_name,'MANDIRI');
+  assert.equal(correctedLine.account_last4,'5544');
+  assert.equal(DB.sqlite.prepare(`SELECT account_no FROM employee_bank_accounts WHERE employee_id='EMP-001' AND is_primary=1`).get().account_no,'998877665544');
+  assert.equal(DB.sqlite.prepare(`SELECT state FROM payroll_submissions WHERE id='SUB-UAT'`).get().state,'PAYMENT_INSTRUCTION_READY');
+  const revisedResponse=await handleD1OperatingModel({request:post({action:'GENERATE_PAYMENT_INSTRUCTION',submissionId:'SUB-UAT'}),env},maker);
+  assert.equal(revisedResponse.status,201,await revisedResponse.clone().text());
+  const revised=(await revisedResponse.json()).paymentInstruction;
+  assert.notEqual(revised.id,first.id);
+  assert.equal(DB.sqlite.prepare(`SELECT account_last4 FROM payment_instruction_lines WHERE payment_instruction_id=?`).get(revised.id).account_last4,'5544');
+  const audit=DB.sqlite.prepare(`SELECT detail FROM audit_logs WHERE action='PI_BANK_CORRECTIONS_APPLIED'`).get();
+  assert.ok(audit.detail.includes('5544'));
+  assert.ok(!audit.detail.includes('998877665544'));
+});
+
 test('Processor can review and resubmit an unchanged rejected PI without redundant edits', async () => {
   const DB = new D1Mock();
   seed396(DB);

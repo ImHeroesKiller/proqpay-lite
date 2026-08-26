@@ -363,6 +363,10 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
   const [detailQuery, setDetailQuery] = useState('');
   const [detailBank, setDetailBank] = useState('ALL');
   const [detailPage, setDetailPage] = useState(1);
+  const [corrections, setCorrections] = useState<Array<{employeeId:string;beneficiaryName:string;bankName:string;accountNo:string}>>([]);
+  const [correctionFile, setCorrectionFile] = useState('');
+  const [correctionError, setCorrectionError] = useState('');
+  const [applyingCorrections, setApplyingCorrections] = useState(false);
   const detailLines = useMemo(() => detail?.lines || [], [detail]);
   const bankSummaries = useMemo(() => {
     const summaries = new Map<string, { count:number; total:number }>();
@@ -389,10 +393,50 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
     return () => document.removeEventListener('keydown', close);
   }, [detail]);
   async function openDetail(id:string) {
-    setDetailLoading(true); setDetailError(''); setApprovalConfirmed(false); setDetailQuery(''); setDetailBank('ALL'); setDetailPage(1);
+    setDetailLoading(true); setDetailError(''); setApprovalConfirmed(false); setDetailQuery(''); setDetailBank('ALL'); setDetailPage(1); setCorrections([]); setCorrectionFile(''); setCorrectionError('');
     try { setDetail(await getPaymentInstructionDetail(id)); }
     catch (error) { setDetailError(error instanceof Error ? error.message : 'Detail PI gagal dimuat'); }
     finally { setDetailLoading(false); }
+  }
+  function downloadCorrectionTemplate() {
+    if (!detailLines.length) return;
+    const escapeCsv = (value:unknown) => `"${String(value ?? '').replaceAll('"','""')}"`;
+    const rows = [['employee_id','beneficiary_name','bank_name','account_no'], ...detailLines.map((line:any) => [line.employee_id,line.beneficiary_name,line.bank_name || line.bank_code || '',''])];
+    const blob = new Blob([`\uFEFF${rows.map((row) => row.map(escapeCsv).join(',')).join('\r\n')}`], { type:'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
+    anchor.href=url; anchor.download=`Koreksi-Rekening-${detail.paymentInstruction.document_no || detail.paymentInstruction.id}.csv`; anchor.click();
+    window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  async function readCorrectionFile(file:File) {
+    setCorrectionError(''); setCorrections([]); setCorrectionFile(file.name);
+    try {
+      if (!/\.csv$/i.test(file.name)) throw new Error('Gunakan template CSV yang diunduh dari halaman ini.');
+      if (file.size > 2*1024*1024) throw new Error('Ukuran file maksimal 2 MB.');
+      const lines=(await file.text()).replace(/^\uFEFF/,'').split(/\r?\n/).filter(Boolean);
+      const parse=(line:string)=>{const cells:string[]=[];let value='',quoted=false;for(let i=0;i<line.length;i+=1){const char=line[i];if(char==='"'&&quoted&&line[i+1]==='"'){value+='"';i+=1;}else if(char==='"'){quoted=!quoted;}else if(char===','&&!quoted){cells.push(value.trim());value='';}else value+=char;}cells.push(value.trim());return cells;};
+      const header=parse(lines.shift()||'').map((value)=>value.toLowerCase());
+      const indexes=['employee_id','beneficiary_name','bank_name','account_no'].map((key)=>header.indexOf(key));
+      if (indexes.some((index)=>index<0)) throw new Error('Kolom template berubah. Unduh template terbaru lalu isi kembali.');
+      const allowed=new Map<string,string>(detailLines.map((line:any):[string,string]=>[String(line.employee_id),String(line.beneficiary_name||'')]));
+      const rows=lines.map(parse).filter((cells)=>indexes.some((index)=>cells[index])).filter((cells)=>cells[indexes[3]]).map((cells)=>({employeeId:cells[indexes[0]],beneficiaryName:cells[indexes[1]],bankName:cells[indexes[2]],accountNo:cells[indexes[3]].replace(/[\s.-]/g,'')}));
+      if (!rows.length) throw new Error('Tidak ada rekening koreksi. Isi hanya baris yang perlu diperbaiki.');
+      if (rows.length>500) throw new Error('Maksimal 500 koreksi dalam satu file.');
+      const duplicate=rows.find((row,index)=>rows.findIndex((candidate)=>candidate.employeeId===row.employeeId)!==index);
+      if (duplicate) throw new Error(`ID karyawan duplikat: ${duplicate.employeeId}`);
+      const invalid=rows.find((row)=>!allowed.has(row.employeeId)||!row.bankName||!/^\d{6,34}$/.test(row.accountNo));
+      if (invalid) throw new Error(`Data ${invalid.employeeId || 'tanpa ID'} tidak valid atau tidak termasuk PI ini.`);
+      setCorrections(rows.map((row)=>({...row,beneficiaryName:allowed.get(row.employeeId)||row.beneficiaryName})));
+    } catch (error) { setCorrectionFile(''); setCorrectionError(error instanceof Error?error.message:'File koreksi gagal dibaca'); }
+  }
+  async function applyBankCorrections() {
+    if (!detail?.paymentInstruction || !corrections.length || applyingCorrections) return;
+    setApplyingCorrections(true); setCorrectionError('');
+    try {
+      await executeOperatingAction({action:'APPLY_BANK_CORRECTIONS',submissionId:detail.paymentInstruction.submission_id,paymentInstructionId:detail.paymentInstruction.id,confirmation:'TERAPKAN KOREKSI REKENING',corrections:corrections.map(({employeeId,bankName,accountNo})=>({employeeId,bankName,accountNo}))});
+      await executeOperatingAction({action:'GENERATE_PAYMENT_INSTRUCTION',submissionId:detail.paymentInstruction.submission_id});
+      setDetail(null); await act({},'Rekening diperbarui dan revisi PI baru berhasil dibuat');
+    } catch (error) { setCorrectionError(error instanceof Error?error.message:'Koreksi rekening gagal diterapkan'); }
+    finally { setApplyingCorrections(false); }
   }
   async function sendPiToClient() {
     if (!detail?.paymentInstruction || sendingPi) return;
@@ -440,7 +484,7 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
       else if (canReview && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
       else if (canReview && r.status === 'PROOF_UPLOADED') action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
       else if (r.status === 'REVISION_REQUIRED') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
-        ? <a className="btn btn-primary" href={`?view=operations&submissionId=${encodeURIComponent(r.submission_id)}`}>Perbaiki Pay Run</a>
+        ? <button className="btn btn-primary" onClick={() => void openDetail(r.id)}>Perbaiki data PI</button>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
       else action = <button style={actionButton} onClick={() => void openDetail(r.id)}>Detail PI</button>;
       return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.status === 'REVISION_REQUIRED' && r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
@@ -465,6 +509,14 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
           <div><strong>{detail.paymentInstruction.content_hash ? '✓ Snapshot terverifikasi' : '⚠ Snapshot legacy'}</strong><span>{detail.paymentInstruction.content_hash ? `SHA-256 · ${detail.paymentInstruction.content_hash}` : 'Content hash tidak tersedia; regenerasi PI diperlukan untuk approval.'}</span></div>
         </section>
         {detail.paymentInstruction.rejection_reason ? <section className={`app-notice-bubble ${detail.paymentInstruction.status==='REVISION_REQUIRED'?'app-notice-error':'app-notice-info'}`} role="status"><strong>{detail.paymentInstruction.status==='REVISION_REQUIRED'?'PI dikembalikan untuk revisi':'Riwayat reject sebelumnya'}</strong><span>{detail.paymentInstruction.rejection_reason} · {detail.paymentInstruction.rejected_by || 'Payroll Controller'}</span></section> : null}
+        {detail.paymentInstruction.status==='REVISION_REQUIRED' && ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) ? <section className="pi-bank-section pi-correction-workspace" aria-label="Workspace koreksi rekening">
+          <div className="pi-section-heading"><div><span>CORRECTION WORKSPACE</span><h4>Perbaikan rekening penerima</h4></div><small>PI lama tetap tersimpan sebagai arsip immutable</small></div>
+          <p className="directory-hint">Unduh template, isi bank dan nomor rekening hanya pada penerima yang salah, lalu unggah kembali. Sistem memvalidasi master karyawan, snapshot Pay Run, dan membuat revisi PI baru.</p>
+          <div className="pi-export-actions"><button type="button" className="btn" onClick={downloadCorrectionTemplate}>Unduh template koreksi</button><label className="btn btn-primary" style={{cursor:'pointer'}}>Upload data perbaikan<input type="file" accept=".csv,text/csv" hidden onChange={(event)=>{const file=event.target.files?.[0];if(file)void readCorrectionFile(file);event.target.value='';}} /></label><a className="btn" href="?view=employees">Buka master karyawan</a></div>
+          {correctionError?<div className="app-notice-bubble app-notice-error" role="alert"><strong>Data koreksi belum dapat digunakan</strong><span>{correctionError}</span><button type="button" aria-label="Tutup pesan" onClick={()=>setCorrectionError('')}>✕</button></div>:null}
+          {corrections.length?<div className="pay-run-upload-preview"><span>{correctionFile}</span><strong>{corrections.length} rekening akan diperbarui</strong><span>Nomor rekening hanya ditampilkan 4 digit terakhir</span><button type="button" className="btn btn-primary" disabled={applyingCorrections} onClick={()=>void applyBankCorrections()}>{applyingCorrections?'Memvalidasi & membuat revisi…':'Terapkan & buat revisi PI'}</button></div>:null}
+          {corrections.length?<div className="pi-recipient-table-wrap"><table className="pi-recipient-table"><thead><tr><th>Karyawan</th><th>Bank baru</th><th>Rekening baru</th></tr></thead><tbody>{corrections.map((row)=><tr key={row.employeeId}><td><strong>{row.beneficiaryName}</strong><small>{row.employeeId}</small></td><td>{row.bankName}</td><td><span className="pi-account-mask">•••• {row.accountNo.slice(-4)}</span></td></tr>)}</tbody></table></div>:null}
+        </section>:null}
         <section className="pi-bank-section" aria-label="Breakdown bank">
           <div className="pi-section-heading"><div><span>DISTRIBUSI PEMBAYARAN</span><h4>Ringkasan per bank</h4></div><small>{bankSummaries.length} bank · {detailLines.length.toLocaleString('id-ID')} transaksi</small></div>
           <div className="pi-bank-grid">{bankSummaries.map(([bank,summary])=><button type="button" key={bank} className={detailBank===bank?'active':''} onClick={()=>setDetailBank(detailBank===bank?'ALL':bank)}><span>{bank}</span><strong>{formatIDR(summary.total)}</strong><small>{summary.count.toLocaleString('id-ID')} penerima</small></button>)}</div>

@@ -31,6 +31,10 @@ test('submission transition registry rejects skipped workflow states', () => {
   assert.equal(resolveTierTransition('TIER_1_PAYMENT_PROCESSING', 'DATA_APPROVED', 'PAYROLL_FINALIZED'), 'PAYMENT_INSTRUCTION_READY');
   assert.equal(resolveTierTransition('TIER_2_MANAGED_PAYROLL', 'DATA_APPROVED', 'PAYROLL_FINALIZED'), 'PAYROLL_FINALIZED');
   assert.equal(validateOperatingAction({ action: 'GENERATE_PAYMENT_INSTRUCTION', submissionId: 'SUB-1' }).ok, true);
+  assert.equal(validateOperatingAction({ action:'APPLY_BANK_CORRECTIONS', submissionId:'SUB-1', paymentInstructionId:'PI-1',
+    confirmation:'TERAPKAN KOREKSI REKENING', corrections:[{ employeeId:'EMP-1', bankName:'BCA', accountNo:'1234567890' }] }).ok, true);
+  assert.equal(validateOperatingAction({ action:'APPLY_BANK_CORRECTIONS', submissionId:'SUB-1', paymentInstructionId:'PI-1',
+    confirmation:'TERAPKAN KOREKSI REKENING', corrections:[{ employeeId:'EMP-1', bankName:'BCA', accountNo:'abc' }] }).ok, false);
 });
 
 test('legacy payment instruction payload remains identifiable for explicit API retirement response', () => {

@@ -6,7 +6,9 @@ const ui = readFileSync('src/components/OperatingWorkspace.tsx', 'utf8');
 
 test('Processor sees submit and rejected PI recovery actions', () => {
   assert.match(ui, /PAYMENT_INSTRUCTION_READY[\s\S]*?Submit PI/);
-  assert.match(ui, /REVISION_REQUIRED[\s\S]*?Perbaiki Pay Run/);
+  assert.match(ui, /REVISION_REQUIRED[\s\S]*?Perbaiki data PI/);
+  assert.match(ui, /Unduh template koreksi/);
+  assert.match(ui, /APPLY_BANK_CORRECTIONS/);
   assert.match(ui, /rejection_reason/);
 });
 

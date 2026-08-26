@@ -148,6 +148,20 @@ export function validateOperatingAction(input) {
   } else if (action === 'REJECT_PAYMENT') {
     if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
     if (String(input.reason || '').trim().length < 10 || String(input.reason || '').length > 1000) errors.push('reason wajib 10-1000 karakter');
+  } else if (action === 'APPLY_BANK_CORRECTIONS') {
+    if (!validId(input.submissionId) || !validId(input.paymentInstructionId)) errors.push('submissionId/paymentInstructionId tidak valid');
+    if (input.confirmation !== 'TERAPKAN KOREKSI REKENING') errors.push('Konfirmasi wajib: TERAPKAN KOREKSI REKENING');
+    if (!Array.isArray(input.corrections) || !input.corrections.length || input.corrections.length > 500) {
+      errors.push('corrections wajib 1-500 item');
+    }
+    const employees = new Set();
+    for (const row of input.corrections || []) {
+      if (!row || !validId(row.employeeId)) errors.push('employeeId koreksi tidak valid');
+      if (employees.has(row?.employeeId)) errors.push(`employeeId duplikat: ${row.employeeId}`);
+      employees.add(row?.employeeId);
+      if (!String(row?.bankName || '').trim() || String(row?.bankName || '').trim().length > 100) errors.push('bankName koreksi wajib 1-100 karakter');
+      if (!/^\d{6,34}$/.test(String(row?.accountNo || '').replace(/[\s.-]/g, ''))) errors.push('accountNo koreksi wajib 6-34 digit');
+    }
   } else if (action === 'UPLOAD_PAYMENT_PROOF') {
     if (!validId(input.paymentInstructionId)) errors.push('paymentInstructionId tidak valid');
     if (!String(input.bank || '').trim()) errors.push('bank wajib diisi');

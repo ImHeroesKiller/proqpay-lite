@@ -845,6 +845,40 @@ async function executeAction(database, body, actor, env, organizationId) {
     return { data:{ ok:true,status:'REVISION_REQUIRED' } };
   }
 
+  if (body.action === 'APPLY_BANK_CORRECTIONS') {
+    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat memperbaiki rekening PI' } };
+    const submission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
+    const payment = await d1First(database, 'SELECT * FROM payment_instructions WHERE id=? AND submission_id=? AND org_id=? LIMIT 1', [body.paymentInstructionId, body.submissionId, organizationId]);
+    if (!submission || !payment) return { status:404, data:{ error:'Submission atau Payment Instruction tidak ditemukan' } };
+    if (!assertClientScope(actor, env, submission.client_id) || !assertProjectScope(actor, submission.project_id)) return { status:403, data:{ error:'Scope denied' } };
+    if (submission.state !== 'REVISION_REQUIRED' || payment.status !== 'REVISION_REQUIRED') {
+      return { status:409, data:{ error:'Koreksi rekening hanya tersedia untuk PI yang dikembalikan Controller' } };
+    }
+    const corrections = body.corrections.map((row) => ({ employeeId:String(row.employeeId), bankName:String(row.bankName).trim(), accountNo:String(row.accountNo).replace(/[\s.-]/g, '') }));
+    const placeholders = corrections.map(() => '?').join(',');
+    const eligible = await d1All(database, `SELECT employee_id FROM payroll_run_lines WHERE submission_id=? AND included=1 AND employee_id IN (${placeholders})`, [submission.id, ...corrections.map((row) => row.employeeId)]);
+    const eligibleIds = new Set(eligible.map((row) => String(row.employee_id)));
+    const unknown = corrections.filter((row) => !eligibleIds.has(row.employeeId));
+    if (unknown.length) return { status:409, data:{ error:`${unknown.length} karyawan tidak termasuk snapshot Pay Run aktif` } };
+    const operations = [];
+    for (const row of corrections) {
+      const bankId = `BNK-${row.employeeId}`;
+      operations.push(
+        { statement:'UPDATE employee_bank_accounts SET is_primary=0 WHERE employee_id=? AND id<>?', bindings:[row.employeeId, bankId] },
+        { statement:`INSERT INTO employee_bank_accounts(id,employee_id,bank_name,account_no,is_primary) VALUES(?,?,?,?,1)
+          ON CONFLICT(id) DO UPDATE SET bank_name=excluded.bank_name,account_no=excluded.account_no,is_primary=1`, bindings:[bankId,row.employeeId,row.bankName,row.accountNo] },
+        { statement:`UPDATE payroll_run_lines SET bank_name=?,account_last4=?,updated_at=${NOW} WHERE submission_id=? AND employee_id=?`, bindings:[row.bankName,row.accountNo.slice(-4),submission.id,row.employeeId] },
+      );
+    }
+    const auditDetail = JSON.stringify({ count:corrections.length, employees:corrections.map((row) => ({ employeeId:row.employeeId, accountLast4:row.accountNo.slice(-4) })) });
+    operations.push(
+      { statement:`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },
+      auditOperation(organizationId, actor, 'PI_BANK_CORRECTIONS_APPLIED', auditDetail, 'payment_instruction', payment.id),
+    );
+    await d1Batch(database, operations);
+    return { data:{ ok:true, corrected:corrections.length, submissionState:'PAYMENT_INSTRUCTION_READY' } };
+  }
+
   if (body.action === 'UPLOAD_PAYMENT_PROOF') return { status: 409, data: { error: 'Use /api/payment-proof multipart upload so evidence is stored in R2' } };
 
   if (body.action === 'RECONCILE_PAYMENT') {
