@@ -14,7 +14,8 @@ import {
 type Props = {
   paymentInstructionId: string;
   canExecuteGateway: boolean;
-  onManualProof: () => void;
+  onManualProof?: () => void;
+  onChanged?: () => void | Promise<void>;
 };
 
 type Runtime = {
@@ -27,7 +28,7 @@ type Runtime = {
 const activeTransaction = (value: PaymentGatewayTransaction | null) => value && ['CREATED','PENDING','PROCESSING'].includes(value.status);
 const activeHosted = (value: HostedPaymentSession | null) => value && ['CREATED','READY','OPENED','RETURNED'].includes(value.status);
 
-export default function PaymentGatewayExecutionActions({ paymentInstructionId, canExecuteGateway, onManualProof }: Props) {
+export default function PaymentGatewayExecutionActions({ paymentInstructionId, canExecuteGateway, onManualProof, onChanged }: Props) {
   const [runtime, setRuntime] = useState<Runtime>({ seamless:null, hosted:null, transaction:null, session:null });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
@@ -56,11 +57,16 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
 
   useEffect(() => { void load(); }, [load]);
 
+  async function changed() {
+    await load();
+    await onChanged?.();
+  }
+
   async function seamless() {
     setBusy('seamless'); setError('');
     try {
       await executeSeamlessPayment(paymentInstructionId, 'BANK_TRANSFER');
-      await load();
+      await changed();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Eksekusi seamless gagal');
     } finally {
@@ -91,12 +97,12 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
       {canExecuteGateway && seamlessReady && !transactionActive && !hostedActive ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void seamless()}>{busy === 'seamless' ? 'Memproses…' : 'Seamless'}</button> : null}
       {canExecuteGateway && hostedReady && !transactionActive && !hostedActive ? <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void hosted()}>{busy === 'hosted' ? 'Membuka…' : 'Hosted'}</button> : null}
       {canExecuteGateway && hostedCanContinue ? <button className="btn btn-primary" type="button" onClick={() => window.location.assign(String(runtime.session?.checkout_url))}>Lanjut Hosted</button> : null}
-      <button className="btn" type="button" onClick={onManualProof}>Catat Bukti</button>
+      {onManualProof ? <button className="btn" type="button" onClick={onManualProof}>Catat Bukti</button> : null}
       <button className="btn" type="button" disabled={loading} onClick={() => void load()} aria-label="Refresh status gateway">↻</button>
     </div>
     {transactionActive ? <small style={{ color:'var(--text3)' }}>Gateway {runtime.transaction?.provider} · {runtime.transaction?.status}</small> : null}
     {hostedActive ? <small style={{ color:'var(--text3)' }}>Hosted {runtime.session?.status} · berlaku sampai {runtime.session?.expires_at ? new Date(runtime.session.expires_at).toLocaleTimeString('id-ID') : '-'}</small> : null}
-    {!loading && !seamlessReady && !hostedReady ? <small style={{ color:'var(--text3)' }}>Gateway belum ready. Manual proof tetap tersedia. <a href="?view=integrations">Cek Integrations</a></small> : null}
+    {!loading && !seamlessReady && !hostedReady ? <small style={{ color:'var(--text3)' }}>Gateway belum ready. <a href="?view=integrations">Cek Integrations</a></small> : null}
     {!canExecuteGateway && (seamlessReady || hostedReady) ? <small style={{ color:'var(--text3)' }}>Eksekusi gateway dilakukan Payroll Processor setelah approval.</small> : null}
     {error ? <small style={{ color:'#b91c1c' }}>{error}</small> : null}
   </div>;
