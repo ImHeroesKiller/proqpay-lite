@@ -25,6 +25,15 @@ function auditOperation(transaction, action, detail) {
   };
 }
 
+function hostedStatusOperation(transactionId, status) {
+  return {
+    statement: `UPDATE hosted_payment_sessions SET status=?,
+      completed_at=CASE WHEN ?='COMPLETED' THEN ${NOW} ELSE completed_at END,updated_at=${NOW}
+      WHERE payment_gateway_transaction_id=? AND status NOT IN ('COMPLETED','CANCELLED','FAILED','EXPIRED')`,
+    bindings: [status, status, transactionId],
+  };
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -64,6 +73,7 @@ export async function onRequest(context) {
       await d1Batch(env.DB, [
         { statement: `UPDATE payment_gateway_transactions SET status='FAILED',provider_status=?,error_code='WEBHOOK_CONTROL_MISMATCH',
             error_message='Webhook amount/currency does not match immutable PI',updated_at=${NOW} WHERE id=?`, bindings: [event.providerStatus, transaction.id] },
+        hostedStatusOperation(transaction.id, 'FAILED'),
         { statement: `UPDATE payment_gateway_events SET status='FAILED',processed_at=${NOW} WHERE id=?`, bindings: [eventId] },
         { statement: `UPDATE payment_instructions SET status='PAYMENT_EXCEPTION',updated_at=${NOW} WHERE id=?`, bindings: [transaction.payment_instruction_id] },
         { statement: `UPDATE payroll_submissions SET state='PAYMENT_EXCEPTION',updated_at=${NOW} WHERE id=?`, bindings: [transaction.submission_id] },
@@ -77,6 +87,7 @@ export async function onRequest(context) {
       await d1Batch(env.DB, [
         { statement: `UPDATE payment_gateway_transactions SET status='SUCCEEDED',provider_status=?,paid_at=${NOW},updated_at=${NOW},
             error_code=NULL,error_message=NULL WHERE id=?`, bindings: [event.providerStatus, transaction.id] },
+        hostedStatusOperation(transaction.id, 'COMPLETED'),
         { statement: `INSERT INTO reconciliations
             (id,payment_instruction_id,expected_total,instruction_total,proof_total,difference,status,reviewed_by)
             VALUES (?,?,?,?,?,?,'MATCHED',?)
@@ -99,6 +110,7 @@ export async function onRequest(context) {
       await d1Batch(env.DB, [
         { statement: `UPDATE payment_gateway_transactions SET status=?,provider_status=?,error_code='PROVIDER_TERMINAL_STATUS',
             error_message=?,updated_at=${NOW} WHERE id=?`, bindings: [event.status, event.providerStatus, `Provider status: ${event.providerStatus}`, transaction.id] },
+        hostedStatusOperation(transaction.id, event.status),
         { statement: `UPDATE payment_instructions SET status='PAYMENT_EXCEPTION',updated_at=${NOW} WHERE id=?`, bindings: [transaction.payment_instruction_id] },
         { statement: `UPDATE payroll_submissions SET state='PAYMENT_EXCEPTION',updated_at=${NOW} WHERE id=?`, bindings: [transaction.submission_id] },
         { statement: `UPDATE payment_gateway_events SET status='PROCESSED',processed_at=${NOW} WHERE id=?`, bindings: [eventId] },
@@ -109,6 +121,7 @@ export async function onRequest(context) {
 
     await d1Batch(env.DB, [
       { statement: `UPDATE payment_gateway_transactions SET status=?,provider_status=?,updated_at=${NOW} WHERE id=?`, bindings: [event.status, event.providerStatus, transaction.id] },
+      hostedStatusOperation(transaction.id, 'OPENED'),
       { statement: `UPDATE payment_instructions SET status='DISBURSEMENT_PROCESSING',updated_at=${NOW} WHERE id=?`, bindings: [transaction.payment_instruction_id] },
       { statement: `UPDATE payroll_submissions SET state='DISBURSEMENT_PROCESSING',updated_at=${NOW} WHERE id=?`, bindings: [transaction.submission_id] },
       { statement: `UPDATE payment_gateway_events SET status='PROCESSED',processed_at=${NOW} WHERE id=?`, bindings: [eventId] },
