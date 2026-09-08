@@ -4,6 +4,7 @@ import { sha256Hex } from './payment-instruction-core.js';
 import { PaymentGatewayConfigurationError, parseGatewayWebhook } from './payment-gateway-core.js';
 
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+const TERMINAL_FAILURES = new Set(['FAILED','EXPIRED','CANCELLED']);
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -28,10 +29,55 @@ function auditOperation(transaction, action, detail) {
 function hostedStatusOperation(transactionId, status) {
   return {
     statement: `UPDATE hosted_payment_sessions SET status=?,
-      completed_at=CASE WHEN ?='COMPLETED' THEN ${NOW} ELSE completed_at END,updated_at=${NOW}
+      completed_at=CASE WHEN ?='COMPLETED' THEN ${NOW} ELSE completed_at END,
+      checkout_url=CASE WHEN ? IN ('COMPLETED','FAILED','EXPIRED','CANCELLED') THEN NULL ELSE checkout_url END,
+      updated_at=${NOW}
       WHERE payment_gateway_transaction_id=? AND status NOT IN ('COMPLETED','CANCELLED','FAILED','EXPIRED')`,
-    bindings: [status, status, transactionId],
+    bindings: [status, status, status, transactionId],
   };
+}
+
+async function markEwaRepaidSafe(database, submissionId) {
+  try { await markEwaRepaid(database, submissionId); }
+  catch (error) {
+    if (!/no such table|no such column/i.test(String(error?.message || error))) throw error;
+  }
+}
+
+async function registerWebhookEvent(database, transaction, event, payloadHash) {
+  let eventId = `PGE-${crypto.randomUUID()}`;
+  try {
+    await d1Batch(database, [{
+      statement: `INSERT INTO payment_gateway_events
+        (id,payment_gateway_transaction_id,provider,provider_event_id,event_type,signature_valid,payload_hash,payload_json,status)
+        VALUES (?,?,?,?,?,1,?,?,'RECEIVED')`,
+      bindings: [eventId, transaction.id, event.provider, event.eventId, event.eventType, payloadHash, JSON.stringify(event.safePayload)],
+    }]);
+    return { eventId, resumed:false };
+  } catch (error) {
+    if (!/UNIQUE constraint failed/i.test(String(error?.message || error))) throw error;
+    const existing = await d1First(database, `SELECT id,payment_gateway_transaction_id,payload_hash,status
+      FROM payment_gateway_events WHERE provider=? AND provider_event_id=? LIMIT 1`, [event.provider,event.eventId]);
+    if (!existing) throw error;
+    if (existing.payment_gateway_transaction_id !== transaction.id || existing.payload_hash !== payloadHash) {
+      return { response:json({ error:'Webhook replay payload mismatch',code:'PAYMENT_GATEWAY_EVENT_REPLAY_MISMATCH' },409) };
+    }
+    if (['PROCESSED','IGNORED'].includes(existing.status)) {
+      return { response:json({ ok:true,duplicate:true,status:existing.status }) };
+    }
+    eventId = existing.id;
+    await d1Batch(database,[{
+      statement:`UPDATE payment_gateway_events SET status='RECEIVED',processed_at=NULL WHERE id=?`,bindings:[eventId],
+    }]);
+    return { eventId, resumed:true };
+  }
+}
+
+async function ignoreEvent(database, eventId, reason) {
+  await d1Batch(database,[{
+    statement:`UPDATE payment_gateway_events SET status='IGNORED',processed_at=${NOW},payload_json=json_set(payload_json,'$.proqpayIgnoreReason',?) WHERE id=?`,
+    bindings:[reason,eventId],
+  }]);
 }
 
 export async function onRequest(context) {
@@ -52,17 +98,27 @@ export async function onRequest(context) {
     if (!transaction) return json({ error: 'Gateway transaction not found' }, 404);
 
     const payloadHash = await sha256Hex(rawBody);
-    const eventId = `PGE-${crypto.randomUUID()}`;
-    try {
-      await d1Batch(env.DB, [{
-        statement: `INSERT INTO payment_gateway_events
-          (id,payment_gateway_transaction_id,provider,provider_event_id,event_type,signature_valid,payload_hash,payload_json,status)
-          VALUES (?,?,?,?,?,1,?,?,'RECEIVED')`,
-        bindings: [eventId, transaction.id, event.provider, event.eventId, event.eventType, payloadHash, JSON.stringify(event.safePayload)],
-      }]);
-    } catch (error) {
-      if (/UNIQUE constraint failed/i.test(String(error?.message || error))) return json({ ok: true, duplicate: true });
-      throw error;
+    const registration = await registerWebhookEvent(env.DB, transaction, event, payloadHash);
+    if (registration.response) return registration.response;
+    const eventId = registration.eventId;
+
+    // Success is monotonic. Once money movement is confirmed, a late FAILED/CANCELLED/PENDING
+    // callback must never regress PI, payroll, reconciliation, or EWA state.
+    if (transaction.status === 'SUCCEEDED') {
+      if (event.status === 'SUCCEEDED') {
+        await markEwaRepaidSafe(env.DB, transaction.submission_id);
+        await d1Batch(env.DB,[{ statement:`UPDATE payment_gateway_events SET status='PROCESSED',processed_at=${NOW} WHERE id=?`,bindings:[eventId] }]);
+        return json({ ok:true,status:'COMPLETED',replayedSuccess:true });
+      }
+      await ignoreEvent(env.DB,eventId,`transaction already SUCCEEDED; late ${event.status} ignored`);
+      return json({ ok:true,status:'COMPLETED',ignored:true });
+    }
+
+    // Do not revive a provider terminal failure with an older pending/processing callback.
+    // A later signed SUCCEEDED event is still allowed to recover the transaction.
+    if (TERMINAL_FAILURES.has(transaction.status) && event.status !== 'SUCCEEDED') {
+      await ignoreEvent(env.DB,eventId,`transaction already ${transaction.status}; late ${event.status} ignored`);
+      return json({ ok:true,status:'PAYMENT_EXCEPTION',ignored:true });
     }
 
     const amountMatches = Number(event.amount) === Number(transaction.amount)
@@ -84,8 +140,10 @@ export async function onRequest(context) {
 
     if (event.status === 'SUCCEEDED') {
       const difference = Number(event.amount) - Number(transaction.expected_total);
+      // Keep the event RECEIVED until EWA repayment is also committed. If an auxiliary
+      // step fails, the provider can safely replay the exact same event and resume.
       await d1Batch(env.DB, [
-        { statement: `UPDATE payment_gateway_transactions SET status='SUCCEEDED',provider_status=?,paid_at=${NOW},updated_at=${NOW},
+        { statement: `UPDATE payment_gateway_transactions SET status='SUCCEEDED',provider_status=?,paid_at=COALESCE(paid_at,${NOW}),updated_at=${NOW},
             error_code=NULL,error_message=NULL WHERE id=?`, bindings: [event.providerStatus, transaction.id] },
         hostedStatusOperation(transaction.id, 'COMPLETED'),
         { statement: `INSERT INTO reconciliations
@@ -98,15 +156,14 @@ export async function onRequest(context) {
             transaction.instruction_total, event.amount, difference, `gateway:${event.provider.toLowerCase()}`] },
         { statement: `UPDATE payment_instructions SET status='COMPLETED',updated_at=${NOW} WHERE id=?`, bindings: [transaction.payment_instruction_id] },
         { statement: `UPDATE payroll_submissions SET state='COMPLETED',updated_at=${NOW} WHERE id=?`, bindings: [transaction.submission_id] },
-        { statement: `UPDATE payment_gateway_events SET status='PROCESSED',processed_at=${NOW} WHERE id=?`, bindings: [eventId] },
         auditOperation(transaction, 'GATEWAY_PAYMENT_COMPLETED', `${event.provider} · ${transaction.provider_transaction_id} · MATCHED`),
       ]);
-      try { await markEwaRepaid(env.DB, transaction.submission_id); }
-      catch (error) { if (!/no such table|no such column/i.test(String(error?.message || error))) throw error; }
+      await markEwaRepaidSafe(env.DB, transaction.submission_id);
+      await d1Batch(env.DB,[{ statement:`UPDATE payment_gateway_events SET status='PROCESSED',processed_at=${NOW} WHERE id=?`,bindings:[eventId] }]);
       return json({ ok: true, status: 'COMPLETED' });
     }
 
-    if (['FAILED', 'EXPIRED', 'CANCELLED'].includes(event.status)) {
+    if (TERMINAL_FAILURES.has(event.status)) {
       await d1Batch(env.DB, [
         { statement: `UPDATE payment_gateway_transactions SET status=?,provider_status=?,error_code='PROVIDER_TERMINAL_STATUS',
             error_message=?,updated_at=${NOW} WHERE id=?`, bindings: [event.status, event.providerStatus, `Provider status: ${event.providerStatus}`, transaction.id] },
