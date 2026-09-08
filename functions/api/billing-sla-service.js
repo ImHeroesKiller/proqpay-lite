@@ -1,6 +1,6 @@
 import { d1All, d1Batch, d1First } from './_d1.js';
 import {
-  addBusinessDaysUtc, calendarYearsNeeded, normalizeRequiredTriggers, resolveSlaTrigger,
+  addBusinessDaysUtc, normalizeRequiredTriggers, resolveSlaTrigger,
 } from './billing-sla-core.js';
 
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
@@ -29,33 +29,69 @@ async function policyForInvoice(database, invoice, organizationId) {
   return selectBillingSlaPolicy(database, organizationId, invoice.client_id, invoice.project_id, invoice.issued_at || new Date().toISOString());
 }
 
-async function slaFacts(database, invoice) {
+async function matchedPaymentDate(database, paymentInstructionId) {
   const reconciliation = await d1First(database, `SELECT created_at FROM reconciliations
-    WHERE payment_instruction_id=? AND status='MATCHED' LIMIT 1`, [invoice.payment_instruction_id]);
-  const evidence = await d1All(database, `SELECT trigger_type,occurred_on FROM billing_sla_evidence
-    WHERE invoice_id=? AND status='VERIFIED' ORDER BY datetime(verified_at) DESC, datetime(created_at) DESC`, [invoice.id]);
+    WHERE payment_instruction_id=? AND status='MATCHED' LIMIT 1`, [paymentInstructionId]);
+  if (!reconciliation) return null;
+
+  const [proof, gateway] = await Promise.all([
+    d1First(database, `SELECT MAX(date(transaction_date)) AS paid_on FROM payment_proofs
+      WHERE payment_instruction_id=?`, [paymentInstructionId]),
+    d1First(database, `SELECT MAX(date(paid_at)) AS paid_on FROM payment_gateway_transactions
+      WHERE payment_instruction_id=? AND status='SUCCEEDED' AND paid_at IS NOT NULL`, [paymentInstructionId]),
+  ]);
+  const actualDates = [proof?.paid_on, gateway?.paid_on].filter(Boolean).map(String).sort();
+  if (actualDates.length) return actualDates.at(-1);
+
+  // Legacy matched reconciliations may predate canonical proof/gateway timestamps.
+  // Keep them usable, but only after MATCHED proves the payment was reconciled.
+  return String(reconciliation.created_at || '').slice(0, 10) || null;
+}
+
+async function slaFacts(database, invoice) {
+  const evidence = await d1All(database, `SELECT trigger_type,MAX(occurred_on) AS occurred_on
+    FROM billing_sla_evidence WHERE invoice_id=? AND status='VERIFIED'
+    GROUP BY trigger_type`, [invoice.id]);
   const facts = {
-    PAYROLL_PAID: reconciliation?.created_at || null,
+    PAYROLL_PAID: await matchedPaymentDate(database, invoice.payment_instruction_id),
     INVOICE_ISSUED: invoice.issued_at || null,
   };
-  for (const row of evidence) {
-    if (!facts[row.trigger_type]) facts[row.trigger_type] = row.occurred_on;
-  }
+  for (const row of evidence) facts[row.trigger_type] = row.occurred_on;
   return facts;
 }
 
-async function officialCalendar(database, triggerDate, termsBusinessDays) {
-  const years = calendarYearsNeeded(triggerDate, termsBusinessDays);
-  if (!years.length) return { complete: false, missingYears: [], holidays: new Set() };
-  const placeholders = years.map(() => '?').join(',');
-  const versions = await d1All(database, `SELECT year,status FROM business_calendar_years
-    WHERE country_code='ID' AND year IN (${placeholders})`, years);
-  const official = new Set(versions.filter((row) => row.status === 'OFFICIAL').map((row) => Number(row.year)));
-  const missingYears = years.filter((year) => !official.has(year));
-  if (missingYears.length) return { complete: false, missingYears, holidays: new Set() };
-  const days = await d1All(database, `SELECT calendar_date FROM business_calendar_days
-    WHERE country_code='ID' AND calendar_year IN (${placeholders}) AND is_business_day=0`, years);
-  return { complete: true, missingYears: [], holidays: new Set(days.map((row) => String(row.calendar_date))) };
+async function officialDueDate(database, triggerDate, termsBusinessDays) {
+  const start = String(triggerDate || '').slice(0, 10);
+  const date = new Date(`${start}T00:00:00.000Z`);
+  const terms = Number(termsBusinessDays);
+  if (Number.isNaN(date.getTime()) || !Number.isSafeInteger(terms) || terms < 1 || terms > 365) {
+    return { complete: false, invalid: true, missingYears: [] };
+  }
+
+  const calendars = new Map();
+  async function loadYear(year) {
+    if (calendars.has(year)) return calendars.get(year);
+    const version = await d1First(database, `SELECT status FROM business_calendar_years
+      WHERE country_code='ID' AND year=? LIMIT 1`, [year]);
+    if (version?.status !== 'OFFICIAL') return null;
+    const rows = await d1All(database, `SELECT calendar_date FROM business_calendar_days
+      WHERE country_code='ID' AND calendar_year=? AND is_business_day=0`, [year]);
+    const holidays = new Set(rows.map((row) => String(row.calendar_date)));
+    calendars.set(year, holidays);
+    return holidays;
+  }
+
+  let remaining = terms;
+  while (remaining > 0) {
+    date.setUTCDate(date.getUTCDate() + 1);
+    const year = date.getUTCFullYear();
+    const holidays = await loadYear(year);
+    if (!holidays) return { complete: false, missingYears: [year] };
+    const weekday = date.getUTCDay();
+    const key = date.toISOString().slice(0, 10);
+    if (weekday !== 0 && weekday !== 6 && !holidays.has(key)) remaining -= 1;
+  }
+  return { complete: true, dueDate: date.toISOString().slice(0, 10), missingYears: [] };
 }
 
 export async function evaluateInvoiceSla(database, organizationId, invoice) {
@@ -70,16 +106,19 @@ export async function evaluateInvoiceSla(database, organizationId, invoice) {
   if (!trigger.ready) {
     return { configured: true, ready: false, policy, requiredTriggers, missing: trigger.missing, basis: trigger.basis };
   }
-  let holidays = new Set();
+
+  let dueDate;
   if (policy.calendar_mode === 'ID_OFFICIAL') {
-    const calendar = await officialCalendar(database, trigger.triggerDate, Number(policy.terms_business_days));
+    const calendar = await officialDueDate(database, trigger.triggerDate, Number(policy.terms_business_days));
     if (!calendar.complete) {
       return { configured: true, ready: false, policy, requiredTriggers, basis: trigger.basis,
-        triggerDate: trigger.triggerDate, calendarIncomplete: true, missingYears: calendar.missingYears };
+        triggerDate: trigger.triggerDate, calendarIncomplete: true, missingYears: calendar.missingYears,
+        invalidCalendarInput: Boolean(calendar.invalid) };
     }
-    holidays = calendar.holidays;
+    dueDate = calendar.dueDate;
+  } else {
+    dueDate = addBusinessDaysUtc(trigger.triggerDate, Number(policy.terms_business_days)).toISOString().slice(0, 10);
   }
-  const dueDate = addBusinessDaysUtc(trigger.triggerDate, Number(policy.terms_business_days), holidays).toISOString().slice(0, 10);
   return { configured: true, ready: true, policy, requiredTriggers, basis: trigger.basis,
     triggerDate: trigger.triggerDate, dueDate };
 }
