@@ -87,7 +87,17 @@ export async function onRequest(context) {
       return secureJson({ ok:true,session:existing,hosted:readiness,idempotentReplay:true },200,request,env,METHODS);
     }
     if (existing) {
-      await d1Batch(database,[{ statement:`UPDATE hosted_payment_sessions SET status='EXPIRED',updated_at=${NOW} WHERE id=?`,bindings:[existing.id] }]);
+      await d1Batch(database,[
+        { statement:`UPDATE hosted_payment_sessions SET status='EXPIRED',updated_at=${NOW} WHERE id=?`,bindings:[existing.id] },
+        { statement:`UPDATE payment_gateway_transactions SET status='EXPIRED',provider_status='LOCAL_SESSION_EXPIRED',updated_at=${NOW}
+            WHERE id=? AND status IN ('CREATED','PENDING','PROCESSING')`,bindings:[existing.payment_gateway_transaction_id] },
+      ]);
+    }
+
+    const activeTransaction = await d1First(database, `SELECT id,payment_method,status FROM payment_gateway_transactions
+      WHERE payment_instruction_id=? AND status IN ('CREATED','PENDING','PROCESSING') ORDER BY created_at DESC LIMIT 1`,[payment.id]);
+    if (activeTransaction) {
+      return secureJson({ error:'Payment Instruction sudah memiliki transaksi gateway aktif',code:'PAYMENT_GATEWAY_TRANSACTION_ACTIVE',transactionId:activeTransaction.id },409,request,env,METHODS);
     }
 
     const state = generateHostedState();
@@ -99,37 +109,60 @@ export async function onRequest(context) {
     const idempotencyKey = `${gatewayIdempotencyKey(payment)}-HOSTED`;
     const requestHash = await hostedStateHash(`${payment.content_hash}:${returnPath}:${expiresAt}`);
 
-    const provider = await createHostedCheckout(env, {
-      sessionId,
-      paymentInstructionId:payment.id,
-      documentNo:payment.document_no,
-      amount:Number(payment.expected_total),
-      currency:payment.currency || 'IDR',
-      idempotencyKey,
-      state,
-      returnUrl:`${new URL(request.url).origin}/api/payment-gateway-hosted-return?sessionId=${encodeURIComponent(sessionId)}&state=${encodeURIComponent(state)}`,
-      expiresAt,
-    });
+    try {
+      await d1Batch(database,[
+        { statement:`INSERT INTO payment_gateway_transactions
+            (id,org_id,client_id,payment_instruction_id,provider,status,amount,currency,payment_method,idempotency_key,request_hash,created_by)
+            VALUES (?,?,?,?,?,'CREATED',?,?,'HOSTED',?,?,?)`,
+          bindings:[transactionId,organizationId,payment.client_id,payment.id,readiness.provider,Number(payment.expected_total),
+            payment.currency || 'IDR',idempotencyKey,requestHash,authorization.actor.email] },
+        { statement:`INSERT INTO hosted_payment_sessions
+            (id,org_id,client_id,payment_instruction_id,payment_gateway_transaction_id,provider,status,return_path,state_hash,expires_at,created_by)
+            VALUES (?,?,?,?,?,?,'CREATED',?,?,?,?,?)`,
+          bindings:[sessionId,organizationId,payment.client_id,payment.id,transactionId,readiness.provider,returnPath,stateHash,expiresAt,authorization.actor.email] },
+      ]);
+    } catch (error) {
+      if (/UNIQUE constraint failed|idx_one_active_gateway_transaction|idx_one_live_hosted_session_per_pi/i.test(String(error?.message || error))) {
+        existing = await d1First(database, `SELECT * FROM hosted_payment_sessions WHERE payment_instruction_id=?
+          AND status IN ('CREATED','READY','OPENED','RETURNED') ORDER BY created_at DESC LIMIT 1`,[payment.id]);
+        if (existing) return secureJson({ ok:true,session:existing,hosted:readiness,idempotentReplay:true },200,request,env,METHODS);
+      }
+      throw error;
+    }
 
-    await d1Batch(database,[
-      { statement:`INSERT INTO payment_gateway_transactions
-          (id,org_id,client_id,payment_instruction_id,provider,provider_transaction_id,provider_reference,status,amount,currency,payment_method,idempotency_key,request_hash,created_by)
-          VALUES (?,?,?,?,?,?,?,'PENDING',?,?,'HOSTED',?,?,?)`,
-        bindings:[transactionId,organizationId,payment.client_id,payment.id,readiness.provider,provider.providerSessionId,
-          payment.id,Number(payment.expected_total),payment.currency || 'IDR',idempotencyKey,requestHash,authorization.actor.email] },
-      { statement:`INSERT INTO hosted_payment_sessions
-          (id,org_id,client_id,payment_instruction_id,payment_gateway_transaction_id,provider,provider_session_id,status,checkout_url,return_path,state_hash,expires_at,created_by)
-          VALUES (?,?,?,?,?,?,?,'READY',?,?,?,?,?)`,
-        bindings:[sessionId,organizationId,payment.client_id,payment.id,transactionId,readiness.provider,provider.providerSessionId,
-          provider.checkoutUrl,returnPath,stateHash,expiresAt,authorization.actor.email] },
-      { statement:`UPDATE payment_instructions SET status='DISBURSEMENT_PROCESSING',updated_at=${NOW}
-          WHERE id=? AND status='APPROVED_FOR_PAYMENT'`,bindings:[payment.id] },
-      { statement:`UPDATE payroll_submissions SET state='DISBURSEMENT_PROCESSING',updated_at=${NOW}
-          WHERE id=? AND state='APPROVED_FOR_PAYMENT'`,bindings:[payment.submission_id] },
-      { statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id)
-          VALUES(?,?,?,?,?,?,?,?)`,bindings:[`AUD-${crypto.randomUUID()}`,organizationId,authorization.actor.email,authorization.actor.role,
-          'HOSTED_PAYMENT_SESSION_CREATED',`${readiness.provider} · ${sessionId} · expires ${expiresAt}`,'payment_instruction',payment.id] },
-    ]);
+    try {
+      const provider = await createHostedCheckout(env, {
+        sessionId,
+        paymentInstructionId:payment.id,
+        documentNo:payment.document_no,
+        amount:Number(payment.expected_total),
+        currency:payment.currency || 'IDR',
+        idempotencyKey,
+        state,
+        returnUrl:`${new URL(request.url).origin}/api/payment-gateway-hosted-return?sessionId=${encodeURIComponent(sessionId)}&state=${encodeURIComponent(state)}`,
+        expiresAt,
+      });
+
+      await d1Batch(database,[
+        { statement:`UPDATE payment_gateway_transactions SET provider_transaction_id=?,provider_reference=?,status='PENDING',provider_status=?,updated_at=${NOW}
+            WHERE id=? AND status='CREATED'`,bindings:[provider.providerSessionId,payment.id,provider.status || 'READY',transactionId] },
+        { statement:`UPDATE hosted_payment_sessions SET provider_session_id=?,status='READY',checkout_url=?,updated_at=${NOW}
+            WHERE id=? AND status='CREATED'`,bindings:[provider.providerSessionId,provider.checkoutUrl,sessionId] },
+        { statement:`UPDATE payment_instructions SET status='DISBURSEMENT_PROCESSING',updated_at=${NOW}
+            WHERE id=? AND status='APPROVED_FOR_PAYMENT'`,bindings:[payment.id] },
+        { statement:`UPDATE payroll_submissions SET state='DISBURSEMENT_PROCESSING',updated_at=${NOW}
+            WHERE id=? AND state='APPROVED_FOR_PAYMENT'`,bindings:[payment.submission_id] },
+        { statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id)
+            VALUES(?,?,?,?,?,?,?,?)`,bindings:[`AUD-${crypto.randomUUID()}`,organizationId,authorization.actor.email,authorization.actor.role,
+            'HOSTED_PAYMENT_SESSION_CREATED',`${readiness.provider} · ${sessionId} · expires ${expiresAt}`,'payment_instruction',payment.id] },
+      ]);
+    } catch (error) {
+      await d1Batch(database,[
+        { statement:`UPDATE payment_gateway_transactions SET status='FAILED',error_code='HOSTED_SESSION_CREATE_FAILED',error_message=?,updated_at=${NOW} WHERE id=?`,bindings:[String(error?.message || error).slice(0,500),transactionId] },
+        { statement:`UPDATE hosted_payment_sessions SET status='FAILED',error_code='HOSTED_SESSION_CREATE_FAILED',error_message=?,updated_at=${NOW} WHERE id=?`,bindings:[String(error?.message || error).slice(0,500),sessionId] },
+      ]);
+      return secureJson({ error:'Provider gagal membuat Hosted Payment session',code:'HOSTED_PAYMENT_CREATE_FAILED',sessionId },502,request,env,METHODS);
+    }
 
     const session = await d1First(database, `SELECT id,payment_instruction_id,payment_gateway_transaction_id,provider,provider_session_id,
       status,checkout_url,return_path,expires_at,created_at FROM hosted_payment_sessions WHERE id=?`,[sessionId]);
