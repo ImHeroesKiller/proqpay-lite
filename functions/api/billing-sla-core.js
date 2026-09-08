@@ -45,7 +45,8 @@ export function normalizeSlaDate(value) {
 }
 
 export function isValidSlaDate(value) {
-  return normalizeSlaDate(value) !== null;
+  const raw = String(value || '');
+  return raw.length === 10 && normalizeSlaDate(raw) === raw;
 }
 
 export function resolveSlaTrigger(requiredTriggers, facts = {}) {
