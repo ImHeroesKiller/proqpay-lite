@@ -35,12 +35,17 @@ export function validateSlaPolicyInput({ termsBusinessDays, requiredTriggers, ca
   return { ok: errors.length === 0, errors, termsBusinessDays: terms, requiredTriggers: triggers, calendarMode: mode };
 }
 
-function normalizeDate(value) {
+export function normalizeSlaDate(value) {
   if (!value) return null;
   const raw = String(value).slice(0, 10);
   if (!DATE.test(raw)) return null;
   const parsed = new Date(`${raw}T00:00:00.000Z`);
-  return Number.isNaN(parsed.getTime()) ? null : raw;
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10) === raw ? raw : null;
+}
+
+export function isValidSlaDate(value) {
+  return normalizeSlaDate(value) !== null;
 }
 
 export function resolveSlaTrigger(requiredTriggers, facts = {}) {
@@ -49,7 +54,7 @@ export function resolveSlaTrigger(requiredTriggers, facts = {}) {
   const basis = {};
   const missing = [];
   for (const trigger of required) {
-    const date = normalizeDate(facts[trigger]);
+    const date = normalizeSlaDate(facts[trigger]);
     if (!date) missing.push(trigger);
     else basis[trigger] = date;
   }
@@ -59,7 +64,7 @@ export function resolveSlaTrigger(requiredTriggers, facts = {}) {
 }
 
 export function addBusinessDaysUtc(start, days, nonBusinessDates = new Set()) {
-  const raw = normalizeDate(start instanceof Date ? start.toISOString().slice(0, 10) : start);
+  const raw = normalizeSlaDate(start instanceof Date ? start.toISOString().slice(0, 10) : start);
   if (!raw) throw new Error('Invalid business-day start date');
   const terms = Number(days);
   if (!Number.isSafeInteger(terms) || terms < 0 || terms > 365) throw new Error('Invalid business-day count');
@@ -75,7 +80,7 @@ export function addBusinessDaysUtc(start, days, nonBusinessDates = new Set()) {
 }
 
 export function calendarYearsNeeded(start, termsBusinessDays) {
-  const raw = normalizeDate(start);
+  const raw = normalizeSlaDate(start);
   if (!raw) return [];
   const terms = Number(termsBusinessDays);
   if (!Number.isSafeInteger(terms) || terms < 1 || terms > 365) return [];
