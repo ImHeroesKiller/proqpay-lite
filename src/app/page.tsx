@@ -22,6 +22,8 @@ const SystemLogs = dynamic(() => import('@/components/SystemLogs'), { loading: (
 const EwaInbox = dynamic(() => import('@/components/EwaInbox'), { loading: () => <ViewLoading /> });
 const PortalSettings = dynamic(() => import('@/components/PortalSettings'), { loading: () => <ViewLoading /> });
 const PortalAudit = dynamic(() => import('@/components/PortalAudit'), { loading: () => <ViewLoading /> });
+const PaymentGatewayIntegrationPanel = dynamic(() => import('@/components/PaymentGatewayIntegrationPanel'), { loading: () => <ViewLoading /> });
+const PaymentGatewayPaymentPanel = dynamic(() => import('@/components/PaymentGatewayPaymentPanel'), { loading: () => <ViewLoading /> });
 const IdaFab = dynamic(() => import('@/components/IdaFab'));
 const HelpModal = dynamic(() => import('@/components/HelpModal'));
 
@@ -158,6 +160,8 @@ export default function Home() {
 
   const pad = settings.density === 'compact' ? '18px 16px' : '28px 24px';
   const periods = [...new Set([period,...(db.payrolls || []).map((item:any)=>item.period).filter(Boolean)])].sort((a:string,b:string)=>b.localeCompare(a));
+  const gatewayCanView = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
+  const gatewayCanExecute = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(actor.role);
 
   return (
     <div className={`app-shell theme-${settings.theme} accent-${settings.accentColor} density-${settings.density}${settings.enableAnimations ? '' : ' animations-off'}`} style={{ display: 'flex', minHeight: '100vh' }}>
@@ -203,9 +207,9 @@ export default function Home() {
 
             {view === 'exceptions' && <OperatingWorkspace mode="actions" />}
 
-            {view === 'payments' && <OperatingWorkspace mode="payments" />}
+            {view === 'payments' && <><OperatingWorkspace mode="payments" />{gatewayCanView ? <PaymentGatewayPaymentPanel role={actor.role} /> : null}</>}
             {view === 'billing' && <OperatingWorkspace mode="billing" />}
-            {view === 'integrations' && <OperatingWorkspace mode="integrations" />}
+            {view === 'integrations' && <><OperatingWorkspace mode="integrations" /><div style={{ marginTop:16 }}><PaymentGatewayIntegrationPanel canManage={gatewayCanExecute} canView={gatewayCanView} /></div></>}
 
             {view === 'ewa' && <EwaInbox />}
             {view === 'portalSettings' && <PortalSettings />}
