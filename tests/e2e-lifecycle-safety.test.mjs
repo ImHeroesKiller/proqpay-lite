@@ -49,9 +49,11 @@ test('invoice creation is tied to completed PI and sequence is historical-safe',
   assert.match(sequenceSeed, /invoice_sequences/);
 });
 
-test('invoice issue and AR payment are retry-safe and preserve overpayment', () => {
-  assert.match(billing, /invoice\.status==='ISSUED'/);
-  assert.match(billing, /idempotentReplay:true/);
+test('invoice issue and AR payment are retry-safe, SLA-aware, and preserve overpayment', () => {
+  assert.match(billing, /invoice\.status!=='ISSUED'/);
+  assert.match(billing, /materializeInvoiceSla/);
+  assert.match(billing, /materializeLegacyAr/);
+  assert.match(billing, /idempotentReplay/);
   assert.match(billing, /unapplied_cash/);
   assert.match(billing, /PARTIALLY_PAID/);
   assert.match(billing, /status:'PAID'/);
