@@ -5,8 +5,12 @@ import { handleD1OperatingModel } from './operating-model-d1.js';
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'CLIENT_USER'];
 const SNAPSHOT_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
+const CONTROLLER_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_CONTROLLER']);
 const RECONCILIABLE_STATUSES = new Set(['PROOF_UPLOADED', 'RECONCILIATION', 'PAYMENT_EXCEPTION']);
 const APPROVED_OR_LATER_STATUSES = new Set(['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED']);
+const PAYMENT_RUNTIME_STATES = new Set(['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED']);
+const VALIDATION_MUTABLE_STATES = new Set(['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','CLIENT_RESUBMITTED','REVISION_REQUIRED','EXCEPTION_FOUND']);
+const COPYABLE_PREVIOUS_STATES = new Set(['PAYROLL_FINALIZED','PAYMENT_INSTRUCTION_READY','PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED']);
 const encoder = new TextEncoder();
 
 async function sha256Hex(value) {
@@ -103,6 +107,56 @@ async function healCompletedPayment(env, payment) {
   }
 }
 
+async function guardBusinessProcessActions(body, actor, env) {
+  if (!body) return null;
+  const organizationId = String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');
+
+  if (body.action === 'TRANSITION_SUBMISSION') {
+    const submissionId = String(body.submissionId || '').trim();
+    if (!submissionId) return null;
+    const submission = await d1First(env.DB, `SELECT id,state FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [submissionId, organizationId]);
+    if (!submission) return null;
+    const from = String(submission.state || '').toUpperCase();
+    const target = String(body.toState || '').toUpperCase();
+    if (from === 'CONTROLLER_REVIEW' && actor.role === 'PAYROLL_PROCESSOR') {
+      return { status: 403, data: { error: 'Payroll Processor tidak dapat mengambil checkpoint approval Controller', code: 'CONTROLLER_REVIEW_SOD' } };
+    }
+    if (PAYMENT_RUNTIME_STATES.has(from) || PAYMENT_RUNTIME_STATES.has(target)) {
+      return { status: 409, data: { error: 'Tahap payment harus dijalankan melalui action PI/payment khusus, bukan generic status transition', code: 'SPECIALIZED_PAYMENT_ACTION_REQUIRED' } };
+    }
+  }
+
+  if (body.action === 'CREATE_VALIDATION_BATCH') {
+    if (!SNAPSHOT_ROLES.has(actor.role)) {
+      return { status: 403, data: { error: 'Hanya Payroll Processor yang dapat menulis hasil validasi', code: 'VALIDATION_ROLE_REQUIRED' } };
+    }
+    const submissionId = String(body.submissionId || '').trim();
+    if (!submissionId) return null;
+    const submission = await d1First(env.DB, `SELECT id,state,input_status,period_status FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [submissionId, organizationId]);
+    if (!submission) return null;
+    if (submission.period_status === 'CLOSED' || !VALIDATION_MUTABLE_STATES.has(String(submission.state || '').toUpperCase())) {
+      return { status: 409, data: { error: `Pay Run berstatus ${submission.state || 'UNKNOWN'} sudah melewati fase validasi`, code: 'VALIDATION_PHASE_LOCKED' } };
+    }
+    if (submission.input_status !== 'READY') {
+      return { status: 409, data: { error: 'Input payroll harus difinalisasi sebelum hasil validasi dapat disimpan', code: 'PAYROLL_INPUT_NOT_FINAL' } };
+    }
+  }
+
+  if (body.action === 'UPDATE_SUBMISSION_PERIODS' && !SNAPSHOT_ROLES.has(actor.role)) {
+    return { status: 403, data: { error: 'Hanya Payroll Processor yang dapat mengubah periode pembayaran', code: 'PAYMENT_PERIOD_ROLE_REQUIRED' } };
+  }
+
+  if (body.action === 'CREATE_PAY_RUN' && String(body.sourceMode || '').toUpperCase() === 'COPY_PREVIOUS') {
+    const previous = await d1First(env.DB, `SELECT id,state,input_status,period FROM payroll_submissions WHERE org_id=? AND client_id=?
+      AND project_id=? AND run_type='REGULAR' AND period<? AND state<>'CANCELLED' ORDER BY period DESC,created_at DESC LIMIT 1`,
+      [organizationId, body.clientId, body.projectId, body.period]);
+    if (previous && (previous.input_status !== 'READY' || !COPYABLE_PREVIOUS_STATES.has(String(previous.state || '').toUpperCase()))) {
+      return { status: 409, data: { error: `Pay Run ${previous.period} belum final/stabil dan tidak boleh menjadi sumber COPY_PREVIOUS`, code: 'PREVIOUS_PAY_RUN_NOT_FINAL' } };
+    }
+  }
+  return null;
+}
+
 async function guardSensitivePaymentActions(body, env) {
   if (!body) return null;
   if (body.action === 'APPROVE_PAYMENT') {
@@ -175,12 +229,15 @@ async function validateSnapshotCapture(body, actor, env) {
 }
 
 async function completeControllerApprovalToPI(context, actor, body) {
-  if (context.request.method !== 'POST' || actor.role !== 'PAYROLL_CONTROLLER' || body?.action !== 'TRANSITION_SUBMISSION') return null;
+  if (context.request.method !== 'POST' || !CONTROLLER_ROLES.has(actor.role) || body?.action !== 'TRANSITION_SUBMISSION') return null;
   const target = String(body.toState || '').toUpperCase();
   if (!['DATA_APPROVED','PAYMENT_INSTRUCTION_READY'].includes(target)) return null;
 
   const submissionId = String(body.submissionId || '').trim();
   if (!submissionId) return null;
+  const submission = await d1First(context.env.DB, `SELECT state FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`,
+    [submissionId, String(context.env.DEFAULT_ORG_ID || 'ORG-OTSINDO')]);
+  if (!submission || String(submission.state || '').toUpperCase() !== 'CONTROLLER_REVIEW') return null;
   const atomicBody = {
     action: 'APPROVE_PAYROLL_AND_GENERATE_PI',
     submissionId,
@@ -204,6 +261,8 @@ export async function onRequest(context) {
   const body = await readPostBody(request);
   const controllerAutoPI = await completeControllerApprovalToPI(context, authorization.actor, body);
   if (controllerAutoPI) return controllerAutoPI;
+  const businessGuard = await guardBusinessProcessActions(body, authorization.actor, env);
+  if (businessGuard) return secureJson(businessGuard.data, businessGuard.status, request, env, METHODS);
   const guarded = await guardSensitivePaymentActions(body, env);
   if (guarded) return secureJson(guarded.data, guarded.status, request, env, METHODS);
   const snapshotGuard = await validateSnapshotCapture(body, authorization.actor, env);
