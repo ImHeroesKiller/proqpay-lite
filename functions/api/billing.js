@@ -53,7 +53,7 @@ async function materializeLegacyAr(database, organizationId, invoice) {
   const due = addBusinessDaysUtc(base, Number(invoice.payment_terms_days || 30));
   const dueDate = due.toISOString().slice(0,10), arId = `AR-${crypto.randomUUID()}`;
   await d1Batch(database,[
-    {statement:`UPDATE invoices SET sla_status='LEGACY',due_date=?,updated_at=${NOW} WHERE id=? AND org_id=?`,bindings:[dueDate,invoice.id,organizationId]},
+    {statement:`UPDATE invoices SET due_date=?,updated_at=${NOW} WHERE id=? AND org_id=?`,bindings:[dueDate,invoice.id,organizationId]},
     {statement:`INSERT INTO ar_monitor(id,org_id,client_id,project_id,company,invoice_id,amount,paid_amount,balance,status,due_date,days_overdue,type,notes,updated_at)
       VALUES(?,?,?,?,?,?,?,0,?,'OUTSTANDING',?,0,'INVOICE','Billing package diterbitkan · legacy TOP weekdays-only',${NOW})`,
       bindings:[arId,organizationId,invoice.client_id,invoice.project_id,invoice.company,invoice.id,invoice.total_amount,invoice.total_amount,dueDate]},
