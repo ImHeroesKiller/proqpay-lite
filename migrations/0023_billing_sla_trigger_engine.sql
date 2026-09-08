@@ -57,6 +57,7 @@ CREATE TABLE business_calendar_years (
 
 CREATE TABLE business_calendar_days (
   country_code TEXT NOT NULL,
+  calendar_year INTEGER NOT NULL CHECK (calendar_year BETWEEN 2000 AND 2100),
   calendar_date TEXT NOT NULL,
   name TEXT NOT NULL,
   day_type TEXT NOT NULL CHECK (day_type IN ('NATIONAL_HOLIDAY','COMPANY_HOLIDAY','COLLECTIVE_LEAVE')),
@@ -64,7 +65,7 @@ CREATE TABLE business_calendar_days (
   source_reference TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (country_code, calendar_date),
-  FOREIGN KEY (country_code, substr(calendar_date,1,4)) REFERENCES business_calendar_years(country_code, year)
+  FOREIGN KEY (country_code, calendar_year) REFERENCES business_calendar_years(country_code, year)
 );
 
 ALTER TABLE invoices ADD COLUMN sla_policy_id TEXT REFERENCES billing_sla_policies(id);
@@ -85,21 +86,21 @@ VALUES ('ID',2026,'OFFICIAL','SKB 1497/2025; 2/2025; 5/2025')
 ON CONFLICT(country_code,year) DO UPDATE SET
   status=excluded.status,source_reference=excluded.source_reference,updated_at=datetime('now');
 
-INSERT OR REPLACE INTO business_calendar_days(country_code,calendar_date,name,day_type,is_business_day,source_reference) VALUES
-('ID','2026-01-01','Tahun Baru 2026 Masehi','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-01-16','Isra Mikraj Nabi Muhammad saw.','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-02-17','Tahun Baru Imlek 2577 Kongzili','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-03-19','Hari Suci Nyepi Tahun Baru Saka 1948','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-03-21','Idulfitri 1447 H Hari Pertama','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-03-22','Idulfitri 1447 H Hari Kedua','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-04-03','Wafat Yesus Kristus','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-04-05','Kebangkitan Yesus Kristus','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-05-01','Hari Buruh Internasional','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-05-14','Kenaikan Yesus Kristus','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-05-27','Iduladha 1447 H','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-05-31','Hari Raya Waisak 2570 BE','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-06-01','Hari Lahir Pancasila','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-06-16','1 Muharam Tahun Baru Islam 1448 H','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-08-17','Proklamasi Kemerdekaan Republik Indonesia','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-08-25','Maulid Nabi Muhammad saw.','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
-('ID','2026-12-25','Kelahiran Yesus Kristus','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025');
+INSERT OR REPLACE INTO business_calendar_days(country_code,calendar_year,calendar_date,name,day_type,is_business_day,source_reference) VALUES
+('ID',2026,'2026-01-01','Tahun Baru 2026 Masehi','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-01-16','Isra Mikraj Nabi Muhammad saw.','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-02-17','Tahun Baru Imlek 2577 Kongzili','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-03-19','Hari Suci Nyepi Tahun Baru Saka 1948','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-03-21','Idulfitri 1447 H Hari Pertama','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-03-22','Idulfitri 1447 H Hari Kedua','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-04-03','Wafat Yesus Kristus','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-04-05','Kebangkitan Yesus Kristus','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-05-01','Hari Buruh Internasional','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-05-14','Kenaikan Yesus Kristus','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-05-27','Iduladha 1447 H','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-05-31','Hari Raya Waisak 2570 BE','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-06-01','Hari Lahir Pancasila','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-06-16','1 Muharam Tahun Baru Islam 1448 H','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-08-17','Proklamasi Kemerdekaan Republik Indonesia','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-08-25','Maulid Nabi Muhammad saw.','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
+('ID',2026,'2026-12-25','Kelahiran Yesus Kristus','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025');
