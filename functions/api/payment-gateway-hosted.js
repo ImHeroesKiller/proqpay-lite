@@ -106,7 +106,7 @@ export async function onRequest(context) {
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
     const sessionId = `HPS-${crypto.randomUUID()}`;
     const transactionId = `PGT-${crypto.randomUUID()}`;
-    const idempotencyKey = `${gatewayIdempotencyKey(payment)}-HOSTED`;
+    const idempotencyKey = `${gatewayIdempotencyKey(payment)}-HOSTED-${sessionId.slice(-12)}`;
     const requestHash = await hostedStateHash(`${payment.content_hash}:${returnPath}:${expiresAt}`);
 
     try {
@@ -118,7 +118,7 @@ export async function onRequest(context) {
             payment.currency || 'IDR',idempotencyKey,requestHash,authorization.actor.email] },
         { statement:`INSERT INTO hosted_payment_sessions
             (id,org_id,client_id,payment_instruction_id,payment_gateway_transaction_id,provider,status,return_path,state_hash,expires_at,created_by)
-            VALUES (?,?,?,?,?,?,'CREATED',?,?,?,?,?)`,
+            VALUES (?,?,?,?,?,?,'CREATED',?,?,?,?)`,
           bindings:[sessionId,organizationId,payment.client_id,payment.id,transactionId,readiness.provider,returnPath,stateHash,expiresAt,authorization.actor.email] },
       ]);
     } catch (error) {
