@@ -1,5 +1,6 @@
 import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
+import { billingSlaSchemaAvailable, materializeInvoiceSla } from './billing-sla-service.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER'];
@@ -43,6 +44,21 @@ async function nextInvoiceSequence(database, organizationId, period) {
     ON CONFLICT(org_id,period) DO UPDATE SET next_number=invoice_sequences.next_number+1,updated_at=${NOW}
     RETURNING next_number-1 AS number`, [organizationId, period]);
   return Number(row?.number || 1);
+}
+
+async function materializeLegacyAr(database, organizationId, invoice) {
+  const existing = await d1First(database,'SELECT * FROM ar_monitor WHERE invoice_id=? AND org_id=? LIMIT 1',[invoice.id,organizationId]);
+  if (existing) return { ar: existing, idempotentReplay: true };
+  const base = invoice.issued_at || new Date().toISOString();
+  const due = addBusinessDaysUtc(base, Number(invoice.payment_terms_days || 30));
+  const dueDate = due.toISOString().slice(0,10), arId = `AR-${crypto.randomUUID()}`;
+  await d1Batch(database,[
+    {statement:`UPDATE invoices SET due_date=?,updated_at=${NOW} WHERE id=? AND org_id=?`,bindings:[dueDate,invoice.id,organizationId]},
+    {statement:`INSERT INTO ar_monitor(id,org_id,client_id,project_id,company,invoice_id,amount,paid_amount,balance,status,due_date,days_overdue,type,notes,updated_at)
+      VALUES(?,?,?,?,?,?,?,0,?,'OUTSTANDING',?,0,'INVOICE','Billing package diterbitkan · legacy TOP weekdays-only',${NOW})`,
+      bindings:[arId,organizationId,invoice.client_id,invoice.project_id,invoice.company,invoice.id,invoice.total_amount,invoice.total_amount,dueDate]},
+  ]);
+  return { ar: await d1First(database,'SELECT * FROM ar_monitor WHERE id=?',[arId]), dueDate };
 }
 
 export async function onRequest({request,env}) {
@@ -170,28 +186,25 @@ export async function onRequest({request,env}) {
     }
     if (body.action==='ISSUE_INVOICE') {
       if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat menerbitkan invoice'},403);
-      const invoice=await d1First(database,`SELECT i.*,c.payment_terms_days,c.tax_status FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.id=? AND i.org_id=? LIMIT 1`,[body.invoiceId,organizationId]);
+      let invoice=await d1First(database,`SELECT i.*,c.payment_terms_days,c.tax_status FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.id=? AND i.org_id=? LIMIT 1`,[body.invoiceId,organizationId]);
       if (!invoice) return respond({error:'Invoice tidak ditemukan'},404);
-      if (invoice.status==='ISSUED') {
-        const ar=await d1First(database,'SELECT id FROM ar_monitor WHERE invoice_id=? AND org_id=? LIMIT 1',[invoice.id,organizationId]);
-        return respond({ok:true,invoiceId:invoice.id,arId:ar?.id||null,idempotentReplay:true});
+      if (invoice.status!=='ISSUED') {
+        if (invoice.status!=='APPROVED') return respond({error:'Invoice belum disetujui'},409);
+        if (invoice.tax_status==='PKP'&&invoice.tax_invoice_status!=='APPROVED') return respond({error:'Faktur pajak Coretax belum disetujui'},409);
+        await d1Batch(database,[{statement:`UPDATE invoices SET status='ISSUED',issued_at=${NOW},sent_at=${NOW},due_date=NULL,updated_at=${NOW}
+          WHERE id=? AND org_id=? AND status='APPROVED'`,bindings:[invoice.id,organizationId]}]);
+        invoice=await d1First(database,`SELECT i.*,c.payment_terms_days,c.tax_status FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.id=? AND i.org_id=? LIMIT 1`,[body.invoiceId,organizationId]);
       }
-      if (invoice.status!=='APPROVED') return respond({error:'Invoice belum disetujui'},409);
-      if (invoice.tax_status==='PKP'&&invoice.tax_invoice_status!=='APPROVED') return respond({error:'Faktur pajak Coretax belum disetujui'},409);
-      const due=addBusinessDaysUtc(new Date(),Number(invoice.payment_terms_days||30));const dueDate=due.toISOString().slice(0,10),arId=`AR-${crypto.randomUUID()}`;
-      try {
-        await d1Batch(database,[
-          {statement:`UPDATE invoices SET status='ISSUED',issued_at=${NOW},sent_at=${NOW},due_date=?,updated_at=${NOW} WHERE id=? AND status='APPROVED'`,bindings:[dueDate,invoice.id]},
-          {statement:`INSERT INTO ar_monitor(id,org_id,client_id,project_id,company,invoice_id,amount,paid_amount,balance,status,due_date,days_overdue,type,notes,updated_at) VALUES(?,?,?,?,?,?,?,0,?,'OUTSTANDING',?,0,'INVOICE','Billing package diterbitkan',${NOW})`,bindings:[arId,organizationId,invoice.client_id,invoice.project_id,invoice.company,invoice.id,invoice.total_amount,invoice.total_amount,dueDate]},
-        ]);
-        return respond({ok:true,invoiceId:invoice.id,arId});
-      } catch (issueError) {
-        if (/ar_monitor\.invoice_id|idx_ar_one_invoice|UNIQUE constraint/i.test(String(issueError?.message||issueError))) {
-          const ar=await d1First(database,'SELECT id FROM ar_monitor WHERE invoice_id=? AND org_id=? LIMIT 1',[invoice.id,organizationId]);
-          if (ar) return respond({ok:true,invoiceId:invoice.id,arId:ar.id,idempotentReplay:true});
+      if (await billingSlaSchemaAvailable(database)) {
+        const sla=await materializeInvoiceSla(database,organizationId,invoice.id);
+        if (!sla.legacy) {
+          if (sla.status>=400) return respond({error:sla.error,code:sla.code},sla.status);
+          return respond({ok:true,invoiceId:invoice.id,arId:sla.ar?.id||null,slaPending:Boolean(sla.pending),slaStatus:sla.slaStatus||sla.invoice?.sla_status||null,
+            missingTriggers:sla.evaluation?.missing||[],missingCalendarYears:sla.evaluation?.missingYears||[],idempotentReplay:Boolean(sla.idempotentReplay)});
         }
-        throw issueError;
       }
+      const legacy=await materializeLegacyAr(database,organizationId,invoice);
+      return respond({ok:true,invoiceId:invoice.id,arId:legacy.ar?.id||null,idempotentReplay:Boolean(legacy.idempotentReplay),legacySla:true});
     }
     if (body.action==='RECORD_AR_PAYMENT') {
       if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat mencatat pembayaran AR'},403);
