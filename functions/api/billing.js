@@ -12,6 +12,19 @@ function integer(value,min=0,max=Number.MAX_SAFE_INTEGER) { const n=Number(value
 function processor(role) { return ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role); }
 function controller(role) { return ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role); }
 function parseJson(value) { try { return JSON.parse(value||'[]'); } catch { return []; } }
+
+export function addBusinessDaysUtc(start, days) {
+  const date = new Date(start);
+  if (Number.isNaN(date.getTime())) throw new Error('Invalid business-day start date');
+  let remaining = Math.max(0, Math.trunc(Number(days) || 0));
+  while (remaining > 0) {
+    date.setUTCDate(date.getUTCDate() + 1);
+    const weekday = date.getUTCDay();
+    if (weekday !== 0 && weekday !== 6) remaining -= 1;
+  }
+  return date;
+}
+
 function validate(body) {
   if (!body||typeof body!=='object'||Array.isArray(body)) return 'JSON object required';
   if (!body.action) return 'action wajib diisi';
@@ -165,7 +178,7 @@ export async function onRequest({request,env}) {
       }
       if (invoice.status!=='APPROVED') return respond({error:'Invoice belum disetujui'},409);
       if (invoice.tax_status==='PKP'&&invoice.tax_invoice_status!=='APPROVED') return respond({error:'Faktur pajak Coretax belum disetujui'},409);
-      const due=new Date();due.setUTCDate(due.getUTCDate()+Number(invoice.payment_terms_days||30));const dueDate=due.toISOString().slice(0,10),arId=`AR-${crypto.randomUUID()}`;
+      const due=addBusinessDaysUtc(new Date(),Number(invoice.payment_terms_days||30));const dueDate=due.toISOString().slice(0,10),arId=`AR-${crypto.randomUUID()}`;
       try {
         await d1Batch(database,[
           {statement:`UPDATE invoices SET status='ISSUED',issued_at=${NOW},sent_at=${NOW},due_date=?,updated_at=${NOW} WHERE id=? AND status='APPROVED'`,bindings:[dueDate,invoice.id]},
@@ -210,9 +223,9 @@ export async function onRequest({request,env}) {
         {statement:`UPDATE ar_monitor SET
           paid_amount=MIN(amount,COALESCE((SELECT SUM(ap.amount) FROM ar_payments ap WHERE ap.ar_id=ar_monitor.id),0)),
           balance=MAX(0,amount-COALESCE((SELECT SUM(ap.amount) FROM ar_payments ap WHERE ap.ar_id=ar_monitor.id),0)),
-          status=CASE WHEN amount-COALESCE((SELECT SUM(ap.amount) FROM ar_payments ap WHERE ap.ar_id=ar_monitor.id),0)<=0 THEN 'PAID' ELSE 'PARTIAL_PAID' END,
+          status=CASE WHEN amount-COALESCE((SELECT SUM(ap.amount) FROM ar_payments ap WHERE ap.ar_id=ar_monitor.id),0)<=0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
           updated_at=${NOW} WHERE id=?`,bindings:[ar.id]},
-        {statement:`UPDATE invoices SET status=CASE WHEN (SELECT balance FROM ar_monitor WHERE id=?)=0 THEN 'PAID' ELSE 'PARTIAL_PAID' END,
+        {statement:`UPDATE invoices SET status=CASE WHEN (SELECT balance FROM ar_monitor WHERE id=?)=0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
           paid_at=CASE WHEN (SELECT balance FROM ar_monitor WHERE id=?)=0 THEN ? ELSE NULL END,updated_at=${NOW} WHERE id=?`,
           bindings:[ar.id,ar.id,paymentDate,ar.invoice_id]},
       ];

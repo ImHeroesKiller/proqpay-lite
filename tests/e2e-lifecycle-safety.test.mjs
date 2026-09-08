@@ -53,6 +53,6 @@ test('invoice issue and AR payment are retry-safe and preserve overpayment', () 
   assert.match(billing, /invoice\.status==='ISSUED'/);
   assert.match(billing, /idempotentReplay:true/);
   assert.match(billing, /unapplied_cash/);
-  assert.match(billing, /PARTIAL_PAID/);
+  assert.match(billing, /PARTIALLY_PAID/);
   assert.match(billing, /status:'PAID'/);
 });

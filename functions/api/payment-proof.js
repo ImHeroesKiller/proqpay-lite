@@ -9,6 +9,7 @@ import {
 const METHODS = 'GET, POST, OPTIONS';
 const READ_ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER'];
 const WRITE_ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
+const MANUAL_PROOF_STATUSES = new Set(['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION']);
 
 function orgId(env) {
   return String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');
@@ -46,6 +47,18 @@ function validDate(value) {
 function sameProofPayload(existing, amount, transactionDate) {
   return Number(existing?.amount) === amount
     && String(existing?.transaction_date || '').slice(0, 10) === transactionDate;
+}
+
+async function blockingGatewayTransaction(database, paymentInstructionId) {
+  try {
+    return await d1First(database, `SELECT id,provider,status,provider_reference,created_at
+      FROM payment_gateway_transactions WHERE payment_instruction_id=?
+      AND status IN ('CREATED','PENDING','PROCESSING','SUCCEEDED')
+      ORDER BY CASE WHEN status='SUCCEEDED' THEN 0 ELSE 1 END,created_at DESC LIMIT 1`, [paymentInstructionId]);
+  } catch (error) {
+    if (/no such table/i.test(String(error?.message || error))) return null;
+    throw error;
+  }
 }
 
 export async function onRequest({ request, env }) {
@@ -108,8 +121,15 @@ export async function onRequest({ request, env }) {
     const payment = await d1First(database, 'SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1', [paymentInstructionId, organizationId]);
     if (!payment) return respond({ error: 'Payment instruction tidak ditemukan' }, 404);
     if (!canAccessClient(authorization.actor, env, payment.client_id)) return respond({ error: 'Akun tidak memiliki akses ke data klien ini' }, 403);
-    if (!['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(payment.status)) {
+    if (!MANUAL_PROOF_STATUSES.has(String(payment.status || '').toUpperCase())) {
       return respond({ error: 'Payment instruction belum disetujui atau belum siap menerima bukti pembayaran' }, 409);
+    }
+    const gateway = await blockingGatewayTransaction(database, paymentInstructionId);
+    if (gateway?.status === 'SUCCEEDED') {
+      return respond({ error: 'Payment gateway sudah menyatakan transaksi berhasil. Rekonsiliasi harus mengikuti webhook provider, bukan bukti manual.', code: 'PAYMENT_GATEWAY_SETTLED' }, 409);
+    }
+    if (gateway) {
+      return respond({ error: `Transaksi gateway ${gateway.provider} masih ${gateway.status}. Selesaikan atau tunggu hasil gateway sebelum memakai fallback manual.`, code: 'PAYMENT_GATEWAY_ACTIVE' }, 409);
     }
     const existing = await d1First(database, `SELECT * FROM payment_proofs
       WHERE payment_instruction_id=? AND UPPER(bank)=? AND UPPER(reference)=? LIMIT 1`, [paymentInstructionId, bank, reference]);
