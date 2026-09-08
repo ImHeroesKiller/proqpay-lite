@@ -13,6 +13,7 @@ import {
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER'];
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+const LIVE_HOSTED_STATUSES = new Set(['CREATED','READY','OPENED','RETURNED']);
 
 function orgId(env) { return String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO'); }
 
@@ -43,6 +44,28 @@ async function readBody(request) {
   return request.json();
 }
 
+function hostedExpired(session) {
+  return Boolean(session && LIVE_HOSTED_STATUSES.has(String(session.status || ''))
+    && new Date(session.expires_at).getTime() <= Date.now());
+}
+
+async function expireHostedSession(database, session) {
+  if (!hostedExpired(session)) return session;
+  await d1Batch(database,[
+    { statement:`UPDATE hosted_payment_sessions SET status='EXPIRED',checkout_url=NULL,updated_at=${NOW}
+        WHERE id=? AND status IN ('CREATED','READY','OPENED','RETURNED')`,bindings:[session.id] },
+    { statement:`UPDATE payment_gateway_transactions SET status='EXPIRED',provider_status='LOCAL_SESSION_EXPIRED',updated_at=${NOW}
+        WHERE id=? AND status IN ('CREATED','PENDING','PROCESSING')`,bindings:[session.payment_gateway_transaction_id] },
+  ]);
+  return { ...session, status:'EXPIRED', checkout_url:null, updated_at:new Date().toISOString() };
+}
+
+function safeSessionForActor(session, actor) {
+  if (!session) return null;
+  if (actor.permissions?.includes('payment:prepare')) return session;
+  return { ...session, checkout_url:null };
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
@@ -61,11 +84,12 @@ export async function onRequest(context) {
     if (request.method === 'GET') {
       const paymentInstructionId = new URL(request.url).searchParams.get('paymentInstructionId');
       if (!paymentInstructionId) return secureJson({ ok:true,hosted:readiness },200,request,env,METHODS);
-      const session = await d1First(database, `SELECT id,payment_instruction_id,payment_gateway_transaction_id,provider,provider_session_id,
+      let session = await d1First(database, `SELECT id,payment_instruction_id,payment_gateway_transaction_id,provider,provider_session_id,
         status,checkout_url,return_path,expires_at,returned_at,completed_at,created_at,updated_at
         FROM hosted_payment_sessions WHERE org_id=? AND payment_instruction_id=? ORDER BY created_at DESC LIMIT 1`,
         [organizationId,paymentInstructionId]);
-      return secureJson({ ok:true,hosted:readiness,session },200,request,env,METHODS);
+      session = await expireHostedSession(database, session);
+      return secureJson({ ok:true,hosted:readiness,session:safeSessionForActor(session, authorization.actor) },200,request,env,METHODS);
     }
 
     if (!authorization.actor.permissions?.includes('payment:prepare')) {
@@ -83,15 +107,9 @@ export async function onRequest(context) {
 
     let existing = await d1First(database, `SELECT * FROM hosted_payment_sessions WHERE payment_instruction_id=?
       AND status IN ('CREATED','READY','OPENED','RETURNED') ORDER BY created_at DESC LIMIT 1`, [payment.id]);
-    if (existing && new Date(existing.expires_at).getTime() > Date.now()) {
+    existing = await expireHostedSession(database, existing);
+    if (existing && LIVE_HOSTED_STATUSES.has(String(existing.status || ''))) {
       return secureJson({ ok:true,session:existing,hosted:readiness,idempotentReplay:true },200,request,env,METHODS);
-    }
-    if (existing) {
-      await d1Batch(database,[
-        { statement:`UPDATE hosted_payment_sessions SET status='EXPIRED',updated_at=${NOW} WHERE id=?`,bindings:[existing.id] },
-        { statement:`UPDATE payment_gateway_transactions SET status='EXPIRED',provider_status='LOCAL_SESSION_EXPIRED',updated_at=${NOW}
-            WHERE id=? AND status IN ('CREATED','PENDING','PROCESSING')`,bindings:[existing.payment_gateway_transaction_id] },
-      ]);
     }
 
     const activeTransaction = await d1First(database, `SELECT id,payment_method,status FROM payment_gateway_transactions
@@ -125,7 +143,10 @@ export async function onRequest(context) {
       if (/UNIQUE constraint failed|idx_one_active_gateway_transaction|idx_one_live_hosted_session_per_pi/i.test(String(error?.message || error))) {
         existing = await d1First(database, `SELECT * FROM hosted_payment_sessions WHERE payment_instruction_id=?
           AND status IN ('CREATED','READY','OPENED','RETURNED') ORDER BY created_at DESC LIMIT 1`,[payment.id]);
-        if (existing) return secureJson({ ok:true,session:existing,hosted:readiness,idempotentReplay:true },200,request,env,METHODS);
+        existing = await expireHostedSession(database, existing);
+        if (existing && LIVE_HOSTED_STATUSES.has(String(existing.status || ''))) {
+          return secureJson({ ok:true,session:existing,hosted:readiness,idempotentReplay:true },200,request,env,METHODS);
+        }
       }
       throw error;
     }
@@ -159,7 +180,7 @@ export async function onRequest(context) {
     } catch (error) {
       await d1Batch(database,[
         { statement:`UPDATE payment_gateway_transactions SET status='FAILED',error_code='HOSTED_SESSION_CREATE_FAILED',error_message=?,updated_at=${NOW} WHERE id=?`,bindings:[String(error?.message || error).slice(0,500),transactionId] },
-        { statement:`UPDATE hosted_payment_sessions SET status='FAILED',error_code='HOSTED_SESSION_CREATE_FAILED',error_message=?,updated_at=${NOW} WHERE id=?`,bindings:[String(error?.message || error).slice(0,500),sessionId] },
+        { statement:`UPDATE hosted_payment_sessions SET status='FAILED',checkout_url=NULL,error_code='HOSTED_SESSION_CREATE_FAILED',error_message=?,updated_at=${NOW} WHERE id=?`,bindings:[String(error?.message || error).slice(0,500),sessionId] },
       ]);
       return secureJson({ error:'Provider gagal membuat Hosted Payment session',code:'HOSTED_PAYMENT_CREATE_FAILED',sessionId },502,request,env,METHODS);
     }
