@@ -8,7 +8,7 @@ CREATE TABLE billing_sla_policies (
   client_id TEXT NOT NULL REFERENCES clients(id),
   project_id TEXT REFERENCES projects(id),
   terms_business_days INTEGER NOT NULL CHECK (terms_business_days BETWEEN 1 AND 365),
-  required_triggers TEXT NOT NULL CHECK (json_valid(required_triggers)),
+  required_triggers TEXT NOT NULL CHECK (json_valid(required_triggers) AND json_type(required_triggers)='array'),
   calendar_mode TEXT NOT NULL DEFAULT 'WEEKDAYS_ONLY'
     CHECK (calendar_mode IN ('WEEKDAYS_ONLY','ID_OFFICIAL')),
   status TEXT NOT NULL DEFAULT 'ACTIVE'
@@ -22,6 +22,15 @@ CREATE TABLE billing_sla_policies (
 
 CREATE INDEX idx_billing_sla_policy_scope
   ON billing_sla_policies(org_id, client_id, project_id, status, effective_from DESC);
+
+-- One effective policy per scope. Separate indexes are required because SQLite
+-- treats NULLs as distinct inside ordinary UNIQUE indexes.
+CREATE UNIQUE INDEX idx_one_active_client_sla_policy
+  ON billing_sla_policies(org_id, client_id)
+  WHERE status='ACTIVE' AND project_id IS NULL;
+CREATE UNIQUE INDEX idx_one_active_project_sla_policy
+  ON billing_sla_policies(org_id, client_id, project_id)
+  WHERE status='ACTIVE' AND project_id IS NOT NULL;
 
 CREATE TABLE billing_sla_evidence (
   id TEXT PRIMARY KEY,
@@ -50,6 +59,8 @@ CREATE TABLE business_calendar_years (
   country_code TEXT NOT NULL,
   year INTEGER NOT NULL CHECK (year BETWEEN 2000 AND 2100),
   status TEXT NOT NULL CHECK (status IN ('OFFICIAL','PROVISIONAL')),
+  expected_national_holiday_count INTEGER
+    CHECK (expected_national_holiday_count IS NULL OR expected_national_holiday_count BETWEEN 1 AND 366),
   source_reference TEXT,
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (country_code, year)
@@ -81,10 +92,11 @@ CREATE INDEX idx_invoices_sla_pending
 -- No. 1497/2025, No. 2/2025, No. 5/2025. Cuti bersama is intentionally not
 -- auto-excluded for private-company SLA because its private-sector adoption is
 -- determined by each company's policy.
-INSERT INTO business_calendar_years(country_code,year,status,source_reference)
-VALUES ('ID',2026,'OFFICIAL','SKB 1497/2025; 2/2025; 5/2025')
+INSERT INTO business_calendar_years(country_code,year,status,expected_national_holiday_count,source_reference)
+VALUES ('ID',2026,'OFFICIAL',17,'SKB 1497/2025; 2/2025; 5/2025')
 ON CONFLICT(country_code,year) DO UPDATE SET
-  status=excluded.status,source_reference=excluded.source_reference,updated_at=datetime('now');
+  status=excluded.status,expected_national_holiday_count=excluded.expected_national_holiday_count,
+  source_reference=excluded.source_reference,updated_at=datetime('now');
 
 INSERT OR REPLACE INTO business_calendar_days(country_code,calendar_year,calendar_date,name,day_type,is_business_day,source_reference) VALUES
 ('ID',2026,'2026-01-01','Tahun Baru 2026 Masehi','NATIONAL_HOLIDAY',0,'SKB 1497/2025; 2/2025; 5/2025'),
