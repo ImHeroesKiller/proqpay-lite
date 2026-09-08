@@ -46,6 +46,8 @@ test('calendar coverage is fail-closed when a long SLA can cross into another ye
   assert.deepEqual(calendarYearsNeeded('2026-11-20', 60), [2026, 2027]);
   assert.match(service, /calendarIncomplete/);
   assert.match(service, /missingYears/);
+  assert.match(service, /while \(remaining > 0\)/);
+  assert.match(service, /version\?\.status !== 'OFFICIAL'/);
 });
 
 test('migration is D1-safe, seeds 17 official 2026 holidays, and does not auto-apply collective leave', () => {
@@ -69,6 +71,22 @@ test('migration is D1-safe, seeds 17 official 2026 holidays, and does not auto-a
   assert.ok(invoiceColumns.includes('sla_policy_id'));
   assert.ok(invoiceColumns.includes('sla_status'));
   db.close();
+});
+
+test('PAYROLL_PAID uses actual payment provenance after matched reconciliation', () => {
+  assert.match(service, /status='MATCHED'/);
+  assert.match(service, /MAX\(date\(transaction_date\)\) AS paid_on/);
+  assert.match(service, /payment_gateway_transactions/);
+  assert.match(service, /status='SUCCEEDED'/);
+  assert.match(service, /MAX\(occurred_on\) AS occurred_on/);
+});
+
+test('legacy invoice issue path remains safe before migration 0023 is installed', () => {
+  const block = billing.match(/async function materializeLegacyAr[\s\S]*?export async function onRequest/)?.[0] || '';
+  assert.ok(block);
+  assert.doesNotMatch(block, /sla_status/);
+  assert.match(block, /UPDATE invoices SET due_date=/);
+  assert.match(billing, /billingSlaSchemaAvailable/);
 });
 
 test('manual evidence is maker-checker and cannot directly mutate financial due dates', () => {
