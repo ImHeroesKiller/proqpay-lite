@@ -1,14 +1,17 @@
 import { d1All, d1Batch, d1First } from './_d1.js';
 import {
-  addBusinessDaysUtc, normalizeRequiredTriggers, resolveSlaTrigger,
+  addBusinessDaysUtc, normalizeRequiredTriggers, normalizeSlaDate, resolveSlaTrigger,
 } from './billing-sla-core.js';
 
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
 export async function billingSlaSchemaAvailable(database) {
-  const row = await d1First(database, `SELECT COUNT(*) AS count FROM sqlite_master
+  const tables = await d1First(database, `SELECT COUNT(*) AS count FROM sqlite_master
     WHERE type='table' AND name IN ('billing_sla_policies','billing_sla_evidence','business_calendar_years','business_calendar_days')`);
-  return Number(row?.count || 0) === 4;
+  if (Number(tables?.count || 0) !== 4) return false;
+  const columns = await d1All(database, `SELECT name FROM pragma_table_info('invoices')
+    WHERE name IN ('sla_policy_id','sla_status','sla_triggered_at','sla_trigger_basis')`);
+  return new Set(columns.map((row) => String(row.name))).size === 4;
 }
 
 export async function selectBillingSlaPolicy(database, organizationId, clientId, projectId, at = new Date().toISOString()) {
@@ -43,8 +46,6 @@ async function matchedPaymentDate(database, paymentInstructionId) {
   const actualDates = [proof?.paid_on, gateway?.paid_on].filter(Boolean).map(String).sort();
   if (actualDates.length) return actualDates.at(-1);
 
-  // Legacy matched reconciliations may predate canonical proof/gateway timestamps.
-  // Keep them usable, but only after MATCHED proves the payment was reconciled.
   return String(reconciliation.created_at || '').slice(0, 10) || null;
 }
 
@@ -61,8 +62,8 @@ async function slaFacts(database, invoice) {
 }
 
 async function officialDueDate(database, triggerDate, termsBusinessDays) {
-  const start = String(triggerDate || '').slice(0, 10);
-  const date = new Date(`${start}T00:00:00.000Z`);
+  const start = normalizeSlaDate(triggerDate);
+  const date = start ? new Date(`${start}T00:00:00.000Z`) : new Date(NaN);
   const terms = Number(termsBusinessDays);
   if (Number.isNaN(date.getTime()) || !Number.isSafeInteger(terms) || terms < 1 || terms > 365) {
     return { complete: false, invalid: true, missingYears: [] };
@@ -71,12 +72,14 @@ async function officialDueDate(database, triggerDate, termsBusinessDays) {
   const calendars = new Map();
   async function loadYear(year) {
     if (calendars.has(year)) return calendars.get(year);
-    const version = await d1First(database, `SELECT status FROM business_calendar_years
+    const version = await d1First(database, `SELECT status,expected_national_holiday_count FROM business_calendar_years
       WHERE country_code='ID' AND year=? LIMIT 1`, [year]);
-    if (version?.status !== 'OFFICIAL') return null;
-    const rows = await d1All(database, `SELECT calendar_date FROM business_calendar_days
-      WHERE country_code='ID' AND calendar_year=? AND is_business_day=0`, [year]);
-    const holidays = new Set(rows.map((row) => String(row.calendar_date)));
+    if (version?.status !== 'OFFICIAL' || !Number.isSafeInteger(Number(version.expected_national_holiday_count))) return null;
+    const rows = await d1All(database, `SELECT calendar_date,day_type,is_business_day FROM business_calendar_days
+      WHERE country_code='ID' AND calendar_year=?`, [year]);
+    const nationalHolidayCount = rows.filter((row) => row.day_type === 'NATIONAL_HOLIDAY').length;
+    if (nationalHolidayCount !== Number(version.expected_national_holiday_count)) return null;
+    const holidays = new Set(rows.filter((row) => Number(row.is_business_day) === 0).map((row) => String(row.calendar_date)));
     calendars.set(year, holidays);
     return holidays;
   }
@@ -157,7 +160,20 @@ export async function materializeInvoiceSla(database, organizationId, invoiceId)
       invoice.total_amount, invoice.total_amount, evaluation.dueDate] });
   else operations.push({ statement: `UPDATE ar_monitor SET due_date=?,updated_at=${NOW} WHERE id=? AND org_id=?`,
     bindings: [evaluation.dueDate, existingAr.id, organizationId] });
-  await d1Batch(database, operations);
+  try {
+    await d1Batch(database, operations);
+  } catch (error) {
+    if (!existingAr && /ar_monitor\.invoice_id|UNIQUE constraint failed: ar_monitor\.invoice_id/i.test(String(error?.message || error))) {
+      const [concurrentInvoice, concurrentAr] = await Promise.all([
+        d1First(database, 'SELECT * FROM invoices WHERE id=? AND org_id=? LIMIT 1', [invoice.id, organizationId]),
+        d1First(database, 'SELECT * FROM ar_monitor WHERE invoice_id=? AND org_id=? LIMIT 1', [invoice.id, organizationId]),
+      ]);
+      if (concurrentAr && concurrentInvoice?.sla_status === 'ACTIVE' && concurrentInvoice?.due_date) {
+        return { status: 200, ok: true, invoice: concurrentInvoice, ar: concurrentAr, evaluation, idempotentReplay: true };
+      }
+    }
+    throw error;
+  }
   const [updatedInvoice, ar] = await Promise.all([
     d1First(database, 'SELECT * FROM invoices WHERE id=?', [invoice.id]),
     d1First(database, 'SELECT * FROM ar_monitor WHERE invoice_id=? AND org_id=? LIMIT 1', [invoice.id, organizationId]),
