@@ -26,7 +26,9 @@ type Runtime = {
 };
 
 const activeTransaction = (value: PaymentGatewayTransaction | null) => value && ['CREATED','PENDING','PROCESSING'].includes(value.status);
-const activeHosted = (value: HostedPaymentSession | null) => value && ['CREATED','READY','OPENED','RETURNED'].includes(value.status);
+const activeHosted = (value: HostedPaymentSession | null) => Boolean(value
+  && ['CREATED','READY','OPENED','RETURNED'].includes(value.status)
+  && new Date(value.expires_at).getTime() > Date.now());
 
 export default function PaymentGatewayExecutionActions({ paymentInstructionId, canExecuteGateway, onManualProof, onChanged }: Props) {
   const [runtime, setRuntime] = useState<Runtime>({ seamless:null, hosted:null, transaction:null, session:null });
@@ -38,10 +40,10 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     setLoading(true);
     setError('');
     try {
-      const [seamless, hosted] = await Promise.all([
-        getPaymentGatewayStatus(paymentInstructionId),
-        getHostedPaymentStatus(paymentInstructionId),
-      ]);
+      // Hosted status is loaded first because that endpoint also closes locally expired
+      // Hosted sessions and their active transaction before the generic gateway status is read.
+      const hosted = await getHostedPaymentStatus(paymentInstructionId);
+      const seamless = await getPaymentGatewayStatus(paymentInstructionId);
       setRuntime({
         seamless: seamless.gateway,
         hosted: hosted.hosted,
@@ -102,6 +104,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     </div>
     {transactionActive ? <small style={{ color:'var(--text3)' }}>Gateway {runtime.transaction?.provider} · {runtime.transaction?.status}</small> : null}
     {hostedActive ? <small style={{ color:'var(--text3)' }}>Hosted {runtime.session?.status} · berlaku sampai {runtime.session?.expires_at ? new Date(runtime.session.expires_at).toLocaleTimeString('id-ID') : '-'}</small> : null}
+    {!loading && runtime.session?.status === 'EXPIRED' ? <small style={{ color:'var(--text3)' }}>Hosted session sebelumnya sudah expired. Payment dapat dicoba kembali.</small> : null}
     {!loading && !seamlessReady && !hostedReady ? <small style={{ color:'var(--text3)' }}>Gateway belum ready. <a href="?view=integrations">Cek Integrations</a></small> : null}
     {!canExecuteGateway && (seamlessReady || hostedReady) ? <small style={{ color:'var(--text3)' }}>Eksekusi gateway dilakukan Payroll Processor setelah approval.</small> : null}
     {error ? <small style={{ color:'#b91c1c' }}>{error}</small> : null}
