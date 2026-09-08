@@ -20,12 +20,17 @@ export async function onRequest(context) {
   const state = String(params.get('state') || '').trim();
   if (!sessionId || !state) return redirect(origin,'/',{payment:'invalid_return'});
 
-  const session = await d1First(env.DB,`SELECT id,payment_instruction_id,status,return_path,state_hash,expires_at
+  const session = await d1First(env.DB,`SELECT id,payment_instruction_id,payment_gateway_transaction_id,status,return_path,state_hash,expires_at
     FROM hosted_payment_sessions WHERE id=? LIMIT 1`,[sessionId]);
   if (!session) return redirect(origin,'/',{payment:'session_not_found'});
   if (!await validateHostedReturn({state,expectedStateHash:session.state_hash})) return redirect(origin,'/',{payment:'invalid_state'});
   if (new Date(session.expires_at).getTime() <= Date.now()) {
-    await d1Batch(env.DB,[{statement:`UPDATE hosted_payment_sessions SET status='EXPIRED',updated_at=${NOW} WHERE id=? AND status<>'COMPLETED'`,bindings:[session.id]}]);
+    await d1Batch(env.DB,[
+      {statement:`UPDATE hosted_payment_sessions SET status='EXPIRED',checkout_url=NULL,updated_at=${NOW}
+        WHERE id=? AND status NOT IN ('COMPLETED','CANCELLED','FAILED','EXPIRED')`,bindings:[session.id]},
+      {statement:`UPDATE payment_gateway_transactions SET status='EXPIRED',provider_status='LOCAL_SESSION_EXPIRED',updated_at=${NOW}
+        WHERE id=? AND status IN ('CREATED','PENDING','PROCESSING')`,bindings:[session.payment_gateway_transaction_id]},
+    ]);
     return redirect(origin,session.return_path,{payment:'expired',paymentInstructionId:session.payment_instruction_id});
   }
 
