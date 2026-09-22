@@ -126,7 +126,7 @@ test('Phase 5 decision validation and next-action contracts are explicit',async(
     action:'CLIENT_APPROVE_PAYROLL',submissionId:'SUB-P5',reviewConfirmed:true,confirmation:'approve',
   }).ok,false);
   assert.equal(validateOperatingAction({
-    action:'CLIENT_REQUEST_PAYROLL_REVISION',submissionId:'SUB-P5',reason:'terlalu pendek',confirmation:'MINTA REVISI PAYROLL',
+    action:'CLIENT_REQUEST_PAYROLL_REVISION',submissionId:'SUB-P5',reason:'koreksi',confirmation:'MINTA REVISI PAYROLL',
   }).ok,false);
 
   assert.equal(derivePayrollNextAction({role:'PAYROLL_CONTROLLER',state:'CONTROLLER_REVIEW'}).workflowCommand,'CLIENT_APPROVAL_PENDING');
