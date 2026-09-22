@@ -365,7 +365,8 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
     setRunDetail(null);setRunDetailLoading(true);
     void getPayRunDetail(row.id).then(setRunDetail).finally(()=>setRunDetailLoading(false));
   }
-  const table = <CardTable headers={simplified?['Klien / Periode','Stage','Net / THP','Next action']:['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={rows.map((r) => {
+  const simpleHeaders=role==='CLIENT_USER'?['Payroll','Stage','Net / THP','Payment','Next']:['Klien / Periode','Stage','Net / THP','Next action'];
+  const table = <CardTable headers={simplified?simpleHeaders:['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={rows.map((r) => {
     const nextAction=nextActionFor(r);
     const business=derivePayrollBusinessStage({
       state:r.state,
@@ -379,11 +380,18 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
     const actionCell=nextAction.view==='operations'||nextAction.view==='exceptions'
       ? <button key="action" style={actionButton} onClick={() => openReview(r)}>{label}</button>
       : <a key="action" className="btn" href={`?view=${targetView}`}>{label}</a>;
-    return simplified ? [
+    const instruction=instructionBySubmission.get(r.id);
+    return simplified ? role==='CLIENT_USER' ? [
+      <div key="id"><strong>{r.project_name || r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small></div>,
+      <div key="stage"><span className="stage-pill">{business.label}</span><small style={small}>{business.description}</small></div>,
+      <div key="summary"><strong>{formatIDR(Number(r.total_net || 0))}</strong><small style={small}>{Number(r.employee_count || 0)} karyawan</small></div>,
+      <div key="payment"><strong>{instruction?paymentBusinessLabel(instruction.status):'Belum masuk pembayaran'}</strong><small style={small}>{instruction?.status==='COMPLETED'?'Pembayaran selesai':'Pantau dari stage payroll'}</small></div>,
+      <div key="next">{actionCell}<small style={small}>{nextAction.actionable?'Perlu tindakan':'Pantau status'}</small></div>,
+    ] : [
       <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id}</small></div>,
-      <div key="stage"><span className="stage-pill">{business.label}</span><small style={small}>{role==='CLIENT_USER'?business.description:String(business.status).replaceAll('_',' ')}</small></div>,
+      <div key="stage"><span className="stage-pill">{business.label}</span><small style={small}>{String(business.status).replaceAll('_',' ')}</small></div>,
       <div key="summary"><strong>{formatIDR(Number(r.total_net || 0))}</strong><small style={small}>{Number(r.employee_count || 0)} karyawan{Number(r.blocking_count||0)?` · ${r.blocking_count} blocker`:''}</small></div>,
-      <div key="next">{actionCell}<small style={small}>{role==='CLIENT_USER'?(nextAction.actionable?'Perlu tindakan':'Pantau status'):(nextAction.actionable?'Action required':'Monitor only')}</small></div>,
+      <div key="next">{actionCell}<small style={small}>{nextAction.actionable?'Action required':'Monitor only'}</small></div>,
     ] : [
       <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id} · {String(r.run_type||'REGULAR').replaceAll('_',' ')}</small></div>,
       String(r.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' '),
