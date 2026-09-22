@@ -53,6 +53,12 @@ test('Processor finalization stops at Controller review before PI creation',asyn
   assert.equal(finalized.payload.submission.state,'CONTROLLER_REVIEW');
   assert.equal(DB.sqlite.prepare('SELECT COUNT(*) count FROM payment_instructions WHERE submission_id=?').get(id).count,0);
 
+  const sameReviewerAdmin={id:'USR-SA',email:processor.email,role:'SUPER_ADMIN',permissions:['payment:prepare','payment:approve']};
+  const sod=await direct(DB,sameReviewerAdmin,{action:'APPROVE_PAYROLL_AND_GENERATE_PI',submissionId:id,reviewConfirmed:true,reviewNote:'Attempted self approval'});
+  assert.equal(sod.response.status,409);
+  assert.equal(sod.payload.code,'PAYROLL_REVIEW_SOD');
+  assert.equal(DB.sqlite.prepare('SELECT COUNT(*) count FROM payment_instructions WHERE submission_id=?').get(id).count,0);
+
   const approved=await direct(DB,controller,{action:'APPROVE_PAYROLL_AND_GENERATE_PI',submissionId:id,reviewConfirmed:true,reviewNote:'Controller verified payroll and beneficiary controls'});
   assert.equal(approved.response.status,201,JSON.stringify(approved.payload));
   assert.equal(approved.payload.paymentInstruction.status,'PAYMENT_INSTRUCTION_READY');
