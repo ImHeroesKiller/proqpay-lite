@@ -12,6 +12,7 @@ const STATES = new Set([
   'DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND',
   'CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','VALIDATED','STANDARDIZED',
   'CONTROLLER_REVIEW','REVISION_REQUIRED','DATA_APPROVED','PAYROLL_FINALIZED',
+  'CLIENT_APPROVAL_PENDING','CLIENT_APPROVED','CLIENT_REVISION_REQUESTED',
   'PAYMENT_INSTRUCTION_READY','PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT',
   'DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION',
   'PAYMENT_EXCEPTION','COMPLETED','REJECTED','CANCELLED',
@@ -27,10 +28,13 @@ const TRANSITIONS = Object.freeze({
   CLIENT_RESUBMITTED: ['AI_VALIDATING'],
   VALIDATED: ['STANDARDIZED'],
   STANDARDIZED: ['CONTROLLER_REVIEW'],
-  CONTROLLER_REVIEW: ['REVISION_REQUIRED', 'DATA_APPROVED'],
+  CONTROLLER_REVIEW: ['REVISION_REQUIRED', 'CLIENT_APPROVAL_PENDING'],
   REVISION_REQUIRED: ['AI_VALIDATING'],
-  DATA_APPROVED: ['PAYROLL_FINALIZED', 'PAYMENT_INSTRUCTION_READY'],
-  PAYROLL_FINALIZED: ['PAYMENT_INSTRUCTION_READY'],
+  DATA_APPROVED: ['CLIENT_APPROVAL_PENDING'],
+  PAYROLL_FINALIZED: ['CLIENT_APPROVAL_PENDING'],
+  CLIENT_APPROVAL_PENDING: ['CLIENT_APPROVED', 'CLIENT_REVISION_REQUESTED'],
+  CLIENT_APPROVED: ['PAYMENT_INSTRUCTION_READY'],
+  CLIENT_REVISION_REQUESTED: ['AI_VALIDATING'],
   PAYMENT_INSTRUCTION_READY: ['PAYMENT_APPROVAL_PENDING'],
   PAYMENT_APPROVAL_PENDING: ['APPROVED_FOR_PAYMENT'],
   APPROVED_FOR_PAYMENT: ['DISBURSEMENT_PROCESSING'],
@@ -96,6 +100,15 @@ export function validateOperatingAction(input) {
     if (!STATES.has(input.toState)) errors.push('toState tidak valid');
     if (input.reviewConfirmed !== undefined && input.reviewConfirmed !== true) errors.push('reviewConfirmed tidak valid');
     if (input.reviewNote && String(input.reviewNote).trim().length > 1000) errors.push('reviewNote terlalu panjang');
+  } else if (action === 'CLIENT_APPROVE_PAYROLL') {
+    if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+    if (input.reviewConfirmed !== true) errors.push('reviewConfirmed wajib dikonfirmasi');
+    if (input.confirmation !== 'SETUJUI PAYROLL') errors.push('Konfirmasi wajib: SETUJUI PAYROLL');
+    if (input.reviewNote && String(input.reviewNote).trim().length > 1000) errors.push('reviewNote terlalu panjang');
+  } else if (action === 'CLIENT_REQUEST_PAYROLL_REVISION') {
+    if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
+    if (input.confirmation !== 'MINTA REVISI PAYROLL') errors.push('Konfirmasi wajib: MINTA REVISI PAYROLL');
+    if (String(input.reason || '').trim().length < 10 || String(input.reason || '').length > 1000) errors.push('reason wajib 10-1000 karakter');
   } else if (action === 'ADVANCE_PAY_RUN') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (!['VALIDATE','FINALIZE_PAYROLL'].includes(input.command)) errors.push('command tidak valid');
