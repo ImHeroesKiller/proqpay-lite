@@ -32,7 +32,7 @@ test('Client Home exposes business-facing priorities without adding approval mut
   assert.match(home,/Documents/);
   assert.match(home,/CLIENT_APPROVAL_PENDING|category==='APPROVAL'/);
   assert.doesNotMatch(home,/executeOperatingAction/);
-  assert.doesNotMatch(home,/APPROVE_PAYROLL['"]\s*[,)]/);
+  assert.doesNotMatch(home,/executeOperatingAction|TRANSITION_SUBMISSION|ADVANCE_PAY_RUN/);
 });
 
 test('client Payroll combines status corrections and payment status with business stages', async()=>{
@@ -43,7 +43,8 @@ test('client Payroll combines status corrections and payment status with busines
   assert.match(source,/clientCorrections=openExceptions\.filter/);
   assert.match(source,/Perbaikan Payroll/);
   assert.match(source,/paymentBusinessLabel\(instruction\.status\)/);
-  assert.match(source,/role==='CLIENT_USER'\?business\.description/);
+  assert.match(source,/role==='CLIENT_USER'\?\['Payroll','Stage','Net \/ THP','Payment','Next'\]/);
+  assert.match(source,/<small style=\{small\}>\{business\.description\}<\/small>/);
   assert.match(source,/role!=='CLIENT_USER'\?<div className="pay-run-lifecycle"/);
 });
 
