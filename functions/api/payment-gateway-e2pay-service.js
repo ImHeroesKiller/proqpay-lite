@@ -219,7 +219,7 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
   const limit = e2paySyncBeneficiaryLimit(env);
   const allItems = await ensureItems(database, transactionId, payment, beneficiaries);
   const unresolved = allItems.filter((item) => ['PENDING','PROCESSING','UNKNOWN'].includes(item.status));
-  if (!retryFailed && unresolved.length) {
+  if (unresolved.length) {
     const outcome = parentOutcome(allItems);
     const remaining = allItems.filter((item) => item.status === 'CREATED'
       || (item.status === 'INQUIRY_READY' && Number(item.attempt_count || 0) === 0)).length;
