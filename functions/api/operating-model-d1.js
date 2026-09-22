@@ -1131,7 +1131,7 @@ async function executeAction(database, body, actor, env, organizationId) {
 
   if (body.action === 'RECONCILE_PAYMENT') {
     if (!PROCESSOR_ROLES.has(actor.role) && !CONTROLLER_ROLES.has(actor.role)) return { status: 403, data: { error: 'Role tidak dapat melakukan rekonsiliasi' } };
-    const payment = await d1First(database, `SELECT pi.id,pi.submission_id,pi.expected_total,
+    const payment = await d1First(database, `SELECT pi.id,pi.submission_id,pi.status,pi.expected_total,
       COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total,
       COALESCE((SELECT SUM(amount) FROM payment_proofs WHERE payment_instruction_id=pi.id),0) AS manual_proof_total,
       COALESCE((SELECT amount FROM payment_gateway_transactions
