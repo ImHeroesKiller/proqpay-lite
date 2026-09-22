@@ -131,7 +131,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
 
   return <div style={{ display:'grid', gap:6, minWidth:190 }}>
     <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-      {canExecuteGateway && seamlessReady && (!transactionActive || (isE2Pay && e2payReady > 0)) && !hostedActive ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void seamless()}>{busy === 'seamless' ? 'Memproses…' : isE2Pay ? (transactionActive ? 'Lanjut E2Pay' : 'Bayar via E2Pay') : 'Seamless'}</button> : null}
+      {canExecuteGateway && seamlessReady && ((!transactionActive && (!isE2Pay || e2payFailed === 0)) || (isE2Pay && e2payReady > 0)) && !hostedActive ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void seamless()}>{busy === 'seamless' ? 'Memproses…' : isE2Pay ? (transactionActive ? 'Lanjut E2Pay' : 'Bayar via E2Pay') : 'Seamless'}</button> : null}
       {canExecuteGateway && isE2Pay && transactionActive && e2payUnresolved > 0 ? <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void reconcileE2Pay()}>{busy === 'reconcile' ? 'Sinkron…' : 'Sync E2Pay'}</button> : null}
       {canExecuteGateway && isE2Pay && e2payRetryable > 0 && e2payUnresolved === 0 && e2payReady === 0 ? <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void retryFailedE2Pay()}>{busy === 'retry-failed' ? 'Retry…' : `Retry ${e2payRetryable} Gagal`}</button> : null}
       {canExecuteGateway && hostedReady && !transactionActive && !hostedActive ? <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void hosted()}>{busy === 'hosted' ? 'Membuka…' : 'Hosted'}</button> : null}
