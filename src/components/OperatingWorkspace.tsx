@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { executeOperatingAction, getPayRunDetail, getPaymentInstructionDetail, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
+import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 
 type WorkspaceMode = 'payruns' | 'actions' | 'payments' | 'billing';
 type Actor = { email: string; role: string; permissions?: string[]; clientIds?: string[]; projectIds?: string[] };
@@ -255,16 +256,19 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
   ])} />;
   if (!selected) return table;
   const next = nextFor(selected);
-  const flowStates=['Data Readiness','Payroll Processing','PI Preparation','Approval & Payment','Reconciliation & Billing'];
-  const currentFlowIndex=['DRAFT'].includes(selected.state)?0
-      : ['SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED','VALIDATED','STANDARDIZED','CONTROLLER_REVIEW'].includes(selected.state)?1
-      : ['DATA_APPROVED','PAYROLL_FINALIZED','PAYMENT_INSTRUCTION_READY'].includes(selected.state)?2:['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED'].includes(selected.state)?3:4;
+  const flowStates=PAYROLL_BUSINESS_STAGE_ORDER.map((stage)=>BUSINESS_STAGE_META[stage].label);
+  const businessStage=derivePayrollBusinessStage({
+    state:selected.state,
+    blockingCount:selected.blocking_count,
+    exceptionCount:selected.exception_count,
+  });
+  const currentFlowIndex=businessStage.index-1;
   const reviewCheckpoint = next === 'ADVANCE_FINALIZE' || (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && selected.state === 'CONTROLLER_REVIEW');
   const arrears = [...new Set(arrearsText.split(/[,;\s]+/).map((item) => item.trim()).filter(Boolean))];
   return <>{table}{createPortal(<div className="directory-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
     <div className="directory-modal payroll-review-modal" role="dialog" aria-modal="true" aria-label="Review payroll submission">
       <div className="directory-modal-title"><div><span>PAYROLL REVIEW</span><h3>{selected.client_name || selected.client_id}</h3></div><button type="button" onClick={() => setSelected(null)}>✕</button></div>
-      <div className="payroll-review-meta"><div><span>Payroll</span><strong>{selected.period}</strong></div><div><span>Project</span><strong>{selected.project_name || '-'}</strong></div><div><span>Tier</span><strong>{String(selected.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' ')}</strong></div><div><span>Status</span><strong>{selected.state}</strong></div></div>
+      <div className="payroll-review-meta"><div><span>Payroll</span><strong>{selected.period}</strong></div><div><span>Project</span><strong>{selected.project_name || '-'}</strong></div><div><span>Tier</span><strong>{String(selected.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' ')}</strong></div><div><span>Stage</span><strong>{businessStage.label}</strong><small>{String(selected.state||'').replaceAll('_',' ')}</small></div></div>
       <div className="pay-run-lifecycle"><span className={selected.input_status==='READY'?'ready':''}>Input {selected.input_status||'LEGACY'}</span><span>{String(selected.run_type||'REGULAR').replaceAll('_',' ')}</span><span>{String(selected.source_mode||'UPLOAD_FINAL').replaceAll('_',' ')}</span><span className={selected.period_status==='CLOSED'?'closed':''}>Periode {selected.period_status||'OPEN'}</span></div>
       <div className="pay-run-flow-guide" aria-label="Tahapan Pay Run menuju Payment Instruction">{flowStates.map((state,index)=><div key={state} className={index<currentFlowIndex?'done':index===currentFlowIndex?'current':''}><i>{index<currentFlowIndex?'✓':index+1}</i><span>{state}</span></div>)}</div>
       <div className={`pay-run-next-action ${selected.input_status==='PENDING'?'pending':''}`}><strong>{selected.input_status==='PENDING'?'Input belum siap disubmit':next?`Aksi berikutnya: ${actionName(selected.state)}`:'Tidak ada aksi workflow untuk role ini'}</strong><span>{selected.input_status==='PENDING'?(selected.source_mode==='UPLOAD_FINAL'?'Upload file payroll final di bawah, periksa control total, lalu finalisasi input.':selected.source_mode==='MASTER_CURRENT'?'Hitung ulang dari master bila ada perubahan, periksa penerima, lalu finalisasi input.':'Lengkapi nominal dan rekening penerima sebelum finalisasi input.'):'Setelah aksi berhasil, status Pay Run berubah dan tetap dapat dipantau dari tabel Pay Runs.'}</span></div>

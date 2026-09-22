@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AppView } from './Sidebar';
 import { formatIDR, formatIDRShort } from '@/lib/format';
 import { invalidateOperatingCache, listOperatingDashboard } from '@/lib/operating-model-api';
+import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { IconAlertTriangle, IconCheckCircle, IconClock, IconLayers, IconRefresh, IconShieldCheck, IconWallet } from './Icons';
 
 type Actor = { email:string; role:string; permissions:string[]; clientIds?:string[]|null };
@@ -12,43 +13,15 @@ type Tone = 'danger'|'warning'|'info'|'success';
 type PortfolioSummary = { clients:number;projects:number;employees:number;activeEmployees:number;primaryAccounts:number;bankCoveragePercent:number };
 type DashboardData = { submissions?:any[];exceptions?:any[];paymentInstructions?:any[];paymentProofs?:any[];reconciliations?:any[];portfolioSummary?:Partial<PortfolioSummary> };
 
-const DONE_STATES = new Set(['COMPLETED','MATCHED','CLOSED']);
-const PIPELINE:Array<{label:string;description:string;states:string[];view:AppView}> = [
-  {
-    label:'Data Readiness',
-    description:'Master & AI validation',
-    states:['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','VALIDATED','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED'],
-    view:'operations',
-  },
-  {
-    label:'Payroll Processing',
-    description:'Calculate & finalize',
-    states:['STANDARDIZED','CALCULATED','PROCESSOR_REVIEW','PAYROLL_FINALIZED','REVISION_REQUIRED','CONTROLLER_REVIEW','DATA_APPROVED'],
-    view:'operations',
-  },
-  {
-    label:'PI Preparation',
-    description:'Generate & submit PI',
-    states:['PAYMENT_INSTRUCTION_READY','PAYMENT_APPROVAL_PENDING'],
-    view:'payments',
-  },
-  {
-    label:'Approval & Payment',
-    description:'Approve & transfer',
-    states:['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','PAYMENT_CONFIRMED'],
-    view:'payments',
-  },
-  {
-    label:'Reconciliation & Billing',
-    description:'Match, invoice & close',
-    states:['RECONCILIATION','MATCHED','COMPLETED','CLOSED'],
-    view:'billing',
-  },
-];
+const PIPELINE = PAYROLL_BUSINESS_STAGE_ORDER.map((stage) => ({
+  stage,
+  label:BUSINESS_STAGE_META[stage].label,
+  description:BUSINESS_STAGE_META[stage].description,
+  view:BUSINESS_STAGE_META[stage].view as AppView,
+}));
 
 function dateLabel(value:string) { return value ? new Date(value).toLocaleDateString('id-ID',{day:'2-digit',month:'short'}) : '-'; }
 function statusLabel(value:string) { return String(value||'-').replaceAll('_',' '); }
-function stageFor(state:string) { return PIPELINE.find((stage)=>stage.states.includes(state))?.label || 'Payroll Processing'; }
 function daysFromNow(value:string) { return Math.ceil((new Date(value).getTime()-Date.now())/86_400_000); }
 
 export default function PayrollControlTower({actor,period,onNavigate}:Props) {
@@ -93,7 +66,14 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
     const instruction=instructionBySubmission.get(row.id);
     const reconciliation=instruction?reconciliationByInstruction.get(instruction.id):null;
     const operationalState=reconciliation?.status==='MATCHED'?'COMPLETED':instruction?.status||row.state;
-    return {...row,state:operationalState,submission_state:row.state,payment_instruction_id:instruction?.id};
+    const business=derivePayrollBusinessStage({
+      state:row.state,
+      paymentInstructionStatus:instruction?.status,
+      reconciliationStatus:reconciliation?.status,
+      blockingCount:row.blocking_count,
+      exceptionCount:row.exception_count,
+    });
+    return {...row,state:operationalState,submission_state:row.state,payment_instruction_id:instruction?.id,business};
   }),[submissions,instructionBySubmission,reconciliationByInstruction]);
   const clients=useMemo(()=>{
     const map=new Map<string,string>(); operationalSubmissions.forEach((row)=>map.set(String(row.client_id),String(row.client_name||row.client_id)));
@@ -115,18 +95,18 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const visibleExceptions=useMemo(()=>exceptions.filter((row)=>visibleIds.has(row.submission_id)&&!['RESOLVED','ACCEPTED'].includes(row.status)),[exceptions,visibleIds]);
 
   const totalNet=visible.reduce((sum,row)=>sum+Number(row.total_net||0),0);
-  const activeRuns=visible.filter((row)=>!DONE_STATES.has(row.state)).length;
+  const activeRuns=visible.filter((row)=>!row.business.isTerminal).length;
   const blockers=visible.reduce((sum,row)=>sum+Number(row.blocking_count||0),0);
-  const awaitingApproval=visible.filter((row)=>['PAYMENT_APPROVAL_PENDING','PAYMENT_INSTRUCTION_READY'].includes(row.state)).length;
+  const awaitingApproval=visible.filter((row)=>row.state==='PAYMENT_APPROVAL_PENDING').length;
   const matched=visibleReconciliations.filter((row)=>row.status==='MATCHED').length;
   const unmatched=visibleReconciliations.filter((row)=>row.status!=='MATCHED').length;
 
   const actions=useMemo(()=>{
     const list:Array<{id:string;tone:Tone;title:string;detail:string;client:string;amount:number;action:string;view:AppView}> = [];
     visible.forEach((row)=>{
-      if(Number(row.blocking_count||0)>0) list.push({id:`block-${row.id}`,tone:'danger',title:`${row.blocking_count} blocker payroll`,detail:`${stageFor(row.state)} · ${statusLabel(row.state)}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:'Review exception',view:'operations'});
-      else if(['PAYMENT_APPROVAL_PENDING','PAYMENT_INSTRUCTION_READY'].includes(row.state)) list.push({id:`approve-${row.id}`,tone:'warning',title:'PI menunggu approval',detail:`${stageFor(row.state)} · Payroll ${row.period}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:actor.role==='PAYROLL_CONTROLLER'?'Review PI':'Lihat status',view:'payments'});
-      else if(!DONE_STATES.has(row.state)) list.push({id:`work-${row.id}`,tone:'info',title:'Workflow perlu dilanjutkan',detail:`${stageFor(row.state)} · ${statusLabel(row.state)}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:'Buka pay run',view:'operations'});
+      if(Number(row.blocking_count||0)>0) list.push({id:`block-${row.id}`,tone:'danger',title:`${row.blocking_count} blocker payroll`,detail:`${row.business.label} · ${statusLabel(row.state)}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:'Review exception',view:'operations'});
+      else if(row.state==='PAYMENT_APPROVAL_PENDING') list.push({id:`approve-${row.id}`,tone:'warning',title:'PI menunggu approval',detail:`${row.business.label} · Payroll ${row.period}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:actor.role==='PAYROLL_CONTROLLER'?'Review PI':'Lihat status',view:'payments'});
+      else if(!row.business.isTerminal) list.push({id:`work-${row.id}`,tone:row.business.status==='FOR_APPROVAL'?'warning':'info',title:row.business.reason,detail:`${row.business.label} · ${statusLabel(row.state)}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:row.business.label==='Pay'?'Buka payment':'Buka pay run',view:row.business.view as AppView});
     });
     visibleReconciliations.filter((row)=>row.status!=='MATCHED').forEach((row)=>list.unshift({id:`rec-${row.id}`,tone:'danger',title:'Rekonsiliasi belum match',detail:`Selisih ${formatIDR(Number(row.difference||0))}`,client:'Payment control',amount:Number(row.difference||0),action:'Reconcile',view:'payments'}));
     return list.sort((a,b)=>({danger:0,warning:1,info:2,success:3}[a.tone]-{danger:0,warning:1,info:2,success:3}[b.tone]));
@@ -136,7 +116,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
     const raw=row.payment_date||row.due_date||row.cutoff_date||row.payment_due_date;
     return {...row,deadline:raw,days:raw?daysFromNow(raw):null};
   }).filter((row)=>row.deadline).sort((a,b)=>new Date(a.deadline).getTime()-new Date(b.deadline).getTime()).slice(0,6),[visible]);
-  const pipeline=PIPELINE.map((stage)=>({...stage,rows:visible.filter((row)=>stage.states.includes(row.state))}));
+  const pipeline=PIPELINE.map((stage)=>({...stage,rows:visible.filter((row)=>row.business.stage===stage.stage)}));
   const pipelineTotal=Math.max(1,visible.length);
   const pageCount=Math.max(1,Math.ceil(visible.length/10));
   const pageRows=visible.slice((page-1)*10,page*10);
@@ -173,7 +153,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
           <div className="action-list">{actions.length?actions.slice(0,8).map((item)=><button type="button" key={item.id} onClick={()=>onNavigate(item.view)}><i className={`action-tone ${item.tone}`} /><span><strong>{item.client}</strong><small>{item.title} · {item.detail}</small></span><b>{item.amount?formatIDRShort(item.amount):'-'}</b><em>{item.action} →</em></button>):<Empty text="Tidak ada pekerjaan kritis pada filter ini." />}</div>
         </section>
         <section className="card deadline-panel"><PanelTitle eyebrow="NEXT 30 DAYS" title="Deadline & SLA" meta={`${deadlines.length} agenda`} />
-          <div className="deadline-list">{deadlines.length?deadlines.map((item)=><button type="button" key={item.id} onClick={()=>onNavigate('operations')}><time>{dateLabel(item.deadline)}</time><span><strong>{item.client_name||item.client_id}</strong><small>{stageFor(item.state)} · {statusLabel(item.state)}</small></span><b className={item.days!==null&&item.days<0?'overdue':''}>{item.days===null?'-':item.days<0?`${Math.abs(item.days)}h terlambat`:item.days===0?'Hari ini':`${item.days} hari`}</b></button>):<Empty text="Belum ada deadline operasional." />}</div>
+          <div className="deadline-list">{deadlines.length?deadlines.map((item)=><button type="button" key={item.id} onClick={()=>onNavigate('operations')}><time>{dateLabel(item.deadline)}</time><span><strong>{item.client_name||item.client_id}</strong><small>{item.business.label} · {statusLabel(item.state)}</small></span><b className={item.days!==null&&item.days<0?'overdue':''}>{item.days===null?'-':item.days<0?`${Math.abs(item.days)}h terlambat`:item.days===0?'Hari ini':`${item.days} hari`}</b></button>):<Empty text="Belum ada deadline operasional." />}</div>
         </section>
       </div>
       <section className="card pipeline-panel">
@@ -193,7 +173,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
         })}</div>
       </section>
       <section className="card portfolio-panel"><PanelTitle eyebrow="PORTFOLIO MONITORING" title="Pay Run Portfolio" meta={`${visible.length} record`} />
-        <div className="portfolio-table-wrap"><table className="portfolio-table"><thead><tr><th>Klien / Project</th><th>Periode</th><th>Tier</th><th>Penerima</th><th>Net / THP</th><th>Blocker</th><th>Current stage</th><th>Next action</th></tr></thead><tbody>{pageRows.map((row)=><tr key={row.id}><td><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||row.id}</small></td><td>{row.period}<small>Bayar {row.payment_period||row.period}</small></td><td>{statusLabel(row.service_tier).replace('TIER 1 ','T1 · ').replace('TIER 2 ','T2 · ').replace('TIER 3 ','T3 · ')}</td><td>{Number(row.employee_count||0).toLocaleString('id-ID')}</td><td><strong>{formatIDR(Number(row.total_net||0))}</strong></td><td><span className={Number(row.blocking_count||0)?'table-blocker':'table-clear'}>{Number(row.blocking_count||0)}</span></td><td><span className="stage-pill">{stageFor(row.state)}</span><small>{statusLabel(row.state)}</small></td><td><button type="button" onClick={()=>onNavigate('operations')}>Review →</button></td></tr>)}</tbody></table>{!pageRows.length?<Empty text="Tidak ada pay run sesuai filter." />:null}</div>
+        <div className="portfolio-table-wrap"><table className="portfolio-table"><thead><tr><th>Klien / Project</th><th>Periode</th><th>Tier</th><th>Penerima</th><th>Net / THP</th><th>Blocker</th><th>Current stage</th><th>Next action</th></tr></thead><tbody>{pageRows.map((row)=><tr key={row.id}><td><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||row.id}</small></td><td>{row.period}<small>Bayar {row.payment_period||row.period}</small></td><td>{statusLabel(row.service_tier).replace('TIER 1 ','T1 · ').replace('TIER 2 ','T2 · ').replace('TIER 3 ','T3 · ')}</td><td>{Number(row.employee_count||0).toLocaleString('id-ID')}</td><td><strong>{formatIDR(Number(row.total_net||0))}</strong></td><td><span className={Number(row.blocking_count||0)?'table-blocker':'table-clear'}>{Number(row.blocking_count||0)}</span></td><td><span className="stage-pill">{row.business.label}</span><small>{statusLabel(row.state)}</small></td><td><button type="button" onClick={()=>onNavigate(row.business.view as AppView)}>{row.business.label==='Pay'?'Payment':row.business.label==='Close'?'Close':'Review'} →</button></td></tr>)}</tbody></table>{!pageRows.length?<Empty text="Tidak ada pay run sesuai filter." />:null}</div>
         <div className="control-pagination"><span>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div><button className="btn" disabled={page<=1} onClick={()=>setPage((value)=>value-1)}>←</button><button className="btn" disabled={page>=pageCount} onClick={()=>setPage((value)=>value+1)}>→</button></div></div>
       </section>
       <div className="control-bottom-grid"><section className="card payment-control"><PanelTitle eyebrow="PAYMENT INTEGRITY" title="Payment Control" meta={`${visibleInstructions.length} PI`} /><div className="payment-control-grid"><div><span>PI value</span><strong>{formatIDRShort(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</strong></div><div><span>Matched</span><strong>{matched}</strong></div><div><span>Proof tercatat</span><strong>{visibleProofs.length}</strong></div><div><span>Legacy hash</span><strong>{visibleInstructions.filter((row)=>!row.content_hash).length}</strong></div></div><button type="button" className="btn" onClick={()=>onNavigate('payments')}>Buka payment control</button></section>
@@ -205,4 +185,4 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
 function Kpi({label,value,note,tone,icon,featured=false,onClick}:{label:string;value:string;note:string;tone:string;icon:React.ReactNode;featured?:boolean;onClick:()=>void}) { return <button type="button" className={`control-kpi ${tone}${featured?' featured':''}`} onClick={onClick}><span className="control-kpi-icon" aria-hidden="true">{icon}</span><span className="control-kpi-label">{label}</span><strong>{value}</strong><small>{note}</small><i aria-hidden="true">↗</i></button>; }
 function PanelTitle({eyebrow,title,meta}:{eyebrow:string;title:string;meta:string}) { return <div className="control-panel-title"><div><span>{eyebrow}</span><h2>{title}</h2></div><small>{meta}</small></div>; }
 function Empty({text}:{text:string}) { return <div className="control-empty">{text}</div>; }
-function roleFocus(role:string) { return role==='PAYROLL_PROCESSOR'?'Prioritas Anda: Data Readiness, payroll processing, generate PI, dan submit PI untuk approval.':role==='PAYROLL_CONTROLLER'?'Prioritas Anda: review/approve PI, upload bukti transfer, rekonsiliasi, dan billing.':role==='CLIENT_USER'?'Prioritas Anda: memantau progress payroll, PI, bukti transfer, invoice, dan histori penyelesaian.':'Pantau seluruh klien, SLA, risiko, payment integrity, dan kesehatan sistem.'; }
+function roleFocus(role:string) { return role==='PAYROLL_PROCESSOR'?'Prioritas Anda: Prepare dan Review payroll, lalu siapkan proses Pay setelah approval.':role==='PAYROLL_CONTROLLER'?'Prioritas Anda: Approve payroll/payment dan memastikan Close melalui rekonsiliasi serta billing.':role==='CLIENT_USER'?'Prioritas Anda: pantau payroll, tindak lanjuti Action Required, dan lihat hasil proses.':'Pantau Prepare → Review → Approve → Pay → Close untuk seluruh klien.'; }
