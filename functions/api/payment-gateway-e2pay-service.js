@@ -50,8 +50,11 @@ async function loadItems(database, transactionId) {
 }
 
 async function ensureItems(database, transactionId, payment, beneficiaries) {
+  const existing = await loadItems(database, transactionId);
+  const existingLines = new Set(existing.map((item) => item.payment_instruction_line_id));
   const operations = [];
   for (const beneficiary of beneficiaries) {
+    if (existingLines.has(beneficiary.id)) continue;
     const clientRef = await e2payClientRef(payment, beneficiary);
     operations.push({
       statement: 'INSERT OR IGNORE INTO payment_gateway_items ' +
@@ -214,7 +217,7 @@ export function selectE2PayExecutionChunk(items = [], limit = 25, retryFailed = 
 
 export async function executeE2PayBatch({ database, env, transactionId, payment, beneficiaries, retryFailed = false }) {
   const limit = e2paySyncBeneficiaryLimit(env);
-  let allItems = await ensureItems(database, transactionId, payment, beneficiaries);
+  const allItems = await ensureItems(database, transactionId, payment, beneficiaries);
   const chunkItems = selectE2PayExecutionChunk(allItems, limit, retryFailed);
   if (!chunkItems.length) {
     const outcome = parentOutcome(allItems);
@@ -255,8 +258,11 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     return { ok:false, statusCode:409, code:'E2PAY_PREFLIGHT_FAILED', error:'Preflight beneficiary E2Pay belum lolos', merchantBalance, summary, items };
   }
 
+  // Only funds for beneficiaries that have not yet been sent may be reserved here.
+  // UNKNOWN/PENDING/PROCESSING may already have moved money at the provider and
+  // must never be counted as a fresh disbursement requirement.
   const remainingRequired = items
-    .filter((item) => item.status !== 'SUCCEEDED')
+    .filter((item) => ['CREATED','INQUIRY_READY'].includes(item.status))
     .reduce((sum, item) => sum + number(item.amount) + number(item.fee_amount), 0);
   if (merchantBalance < remainingRequired) {
     await updateParent(database, transactionId, {
