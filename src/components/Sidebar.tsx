@@ -160,7 +160,7 @@ export default function Sidebar({
           />
         </NavGroup>
         <NavGroup label={simplifiedInternal ? "Work" : "Workflow"}>
-          {allowed.has("clients") ? (
+          {allowed.has("clients") && !simplifiedInternal ? (
             <NavBtn
               active={view === "clients"}
               icon={<IconBuilding />}
@@ -219,6 +219,14 @@ export default function Sidebar({
           ) : null}
         </NavGroup>
         <NavGroup label={simplifiedInternal ? "Reference & Reports" : "People & Insight"}>
+          {allowed.has("clients") && simplifiedInternal ? (
+            <NavBtn
+              active={view === "clients"}
+              icon={<IconBuilding />}
+              title="Clients & Projects"
+              onClick={() => go("clients")}
+            />
+          ) : null}
           {allowed.has("reports") ? (
             <NavBtn
               active={view === "reports"}
