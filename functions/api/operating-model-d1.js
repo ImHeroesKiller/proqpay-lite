@@ -130,8 +130,14 @@ async function readResource(database, params, actor, env, organizationId) {
   const resource = params.get('resource') || 'submissions';
   const clientId = params.get('clientId');
   const projectIds = actor.role === 'CLIENT_USER' && Array.isArray(actor.projectIds) ? actor.projectIds.map(String) : [];
-  if (actor.role === 'CLIENT_USER' && (!clientId || !assertClientScope(actor, env, clientId))) {
-    return { status: 403, data: { error: 'Client scope required' } };
+  const selfScopingDetail = resource === 'pay-run-detail' || resource === 'payment-instruction-detail';
+  if (actor.role === 'CLIENT_USER') {
+    if (clientId && !assertClientScope(actor, env, clientId)) {
+      return { status: 403, data: { error: 'Client scope denied' } };
+    }
+    if (!clientId && !selfScopingDetail) {
+      return { status: 403, data: { error: 'Client scope required' } };
+    }
   }
   const submissionScope = scopeWhere({ organizationId, clientId, projectIds });
 
