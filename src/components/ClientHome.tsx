@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { listOperatingDashboard } from '@/lib/operating-model-api';
+import { invalidateOperatingCache, listOperatingDashboard } from '@/lib/operating-model-api';
 import { derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
 import { formatIDR } from '@/lib/format';
@@ -16,6 +16,7 @@ type Actor = {
 
 type Props = {
   actor:Actor;
+  period:string;
   onNavigate:(view:AppView)=>void;
 };
 
@@ -44,18 +45,18 @@ function paymentLabel(status:string) {
   return labels[String(status||'')] || String(status||'-').replaceAll('_',' ');
 }
 
-export default function ClientHome({actor,onNavigate}:Props) {
+export default function ClientHome({actor,period,onNavigate}:Props) {
   const [data,setData] = useState<Record<string,any[]>>({});
   const [invoices,setInvoices] = useState<any[]>([]);
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState('');
 
   const load = useCallback(async()=>{
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setData({}); setInvoices([]);
     try {
       const clientIds = actor.clientIds || [];
       const [dashboards,billingResponse] = await Promise.all([
-        Promise.all(clientIds.map((clientId)=>listOperatingDashboard(clientId))),
+        Promise.all(clientIds.map((clientId)=>listOperatingDashboard(clientId,period))),
         fetch('/api/billing',{credentials:'same-origin',cache:'no-store'}),
       ]);
       const merged:Record<string,any[]> = {};
@@ -71,13 +72,17 @@ export default function ClientHome({actor,onNavigate}:Props) {
     } finally {
       setLoading(false);
     }
-  },[actor.clientIds]);
+  },[actor.clientIds,period]);
 
   useEffect(()=>{void load();},[load]);
 
   const submissions = useMemo(()=>data.submissions||[],[data.submissions]);
   const instructions = useMemo(()=>data.paymentInstructions||[],[data.paymentInstructions]);
-  const instructionBySubmission = useMemo(()=>new Map(instructions.map((row:any)=>[row.submission_id,row])),[instructions]);
+  const instructionBySubmission = useMemo(()=>{
+    const map=new Map<string,any>();
+    instructions.forEach((row:any)=>{if(!map.has(String(row.submission_id))) map.set(String(row.submission_id),row);});
+    return map;
+  },[instructions]);
   const rows = useMemo(()=>submissions.map((row:any)=>{
     const instruction:any = instructionBySubmission.get(row.id);
     const context = {
@@ -106,16 +111,24 @@ export default function ClientHome({actor,onNavigate}:Props) {
 
   const needsAttention = rows.filter((row:any)=>row.nextAction.actionable && row.nextAction.category!=='APPROVAL');
   const forApproval = rows.filter((row:any)=>row.nextAction.actionable && row.nextAction.category==='APPROVAL');
-  const processingPayments = instructions.filter((row:any)=>!['COMPLETED','REJECTED'].includes(row.status));
+  const processingPayments = instructions.filter((row:any)=>!['COMPLETED','REJECTED','REVISION_REQUIRED'].includes(row.status));
   const completedPayments = instructions.filter((row:any)=>row.status==='COMPLETED');
-  const latest = [...rows].sort((a:any,b:any)=>String(b.period||'').localeCompare(String(a.period||''))).slice(0,8);
+  const visibleInvoices = invoices.filter((row:any)=>period==='ALL'||row.period===period);
+  const latest = [...rows].sort((a:any,b:any)=>{
+    const byPeriod=String(b.period||'').localeCompare(String(a.period||''));
+    if(byPeriod) return byPeriod;
+    const byUpdated=String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||''));
+    if(byUpdated) return byUpdated;
+    const rank=(value:string)=>value==='ADJUSTMENT'?3:value==='OFF_CYCLE'?2:1;
+    return rank(String(b.run_type||'REGULAR'))-rank(String(a.run_type||'REGULAR'));
+  }).slice(0,8);
 
   if (loading) return <div className="card control-loading">Menyiapkan Client Home…</div>;
 
   return <section style={{display:'grid',gap:16}}>
     <div className="control-tower-heading">
       <div><span>CLIENT HOME</span><h1>Payroll Workspace</h1><p>Pantau payroll, tindak lanjuti data yang perlu diperbaiki, dan akses dokumen dalam satu tempat.</p></div>
-      <button type="button" className="btn" onClick={()=>void load()}>Refresh</button>
+      <button type="button" className="btn" onClick={()=>{invalidateOperatingCache();void load();}}>Refresh</button>
     </div>
 
     {error ? <div className="app-notice-bubble app-notice-error"><strong>Data belum dapat dimuat</strong><span>{error}</span></div> : null}
@@ -124,7 +137,7 @@ export default function ClientHome({actor,onNavigate}:Props) {
       <button type="button" className="control-kpi red" onClick={()=>onNavigate('operations')}><span className="control-kpi-label">Needs Your Attention</span><strong>{needsAttention.length}</strong><small>Payroll yang perlu tindakan Anda</small><i>→</i></button>
       <button type="button" className="control-kpi amber" onClick={()=>onNavigate('operations')}><span className="control-kpi-label">For Approval</span><strong>{forApproval.length}</strong><small>Payroll yang siap direview</small><i>→</i></button>
       <button type="button" className="control-kpi blue" onClick={()=>onNavigate('operations')}><span className="control-kpi-label">Payment Status</span><strong>{processingPayments.length}</strong><small>{completedPayments.length} pembayaran selesai</small><i>→</i></button>
-      <button type="button" className="control-kpi green" onClick={()=>onNavigate('reports')}><span className="control-kpi-label">Documents</span><strong>{invoices.length}</strong><small>Invoice dan laporan tersedia</small><i>→</i></button>
+      <button type="button" className="control-kpi green" onClick={()=>onNavigate('reports')}><span className="control-kpi-label">Invoices</span><strong>{visibleInvoices.length}</strong><small>Invoice pada periode aktif</small><i>→</i></button>
     </div>
 
     <section className="card action-center">
