@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { handleD1OperatingModel } from '../functions/api/operating-model-d1.js';
 import { onRequest as operatingModel } from '../functions/api/operating-model.js';
+import { acquireExecutionLease, releaseExecutionLease } from '../functions/api/payment-gateway.js';
 import { createSession } from '../functions/api/_account-auth.js';
 import { D1Mock } from './helpers/d1-mock.mjs';
 
@@ -107,4 +108,28 @@ test('inactive HRIS source is fail-closed in API and absent from pay run wizard'
   const ui=await readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
   assert.doesNotMatch(ui,/<option value="HRIS">/);
   assert.match(ui,/\['PROOF_UPLOADED','RECONCILIATION'\]\.includes\(r\.status\)/);
+});
+
+
+test('gateway execution lease blocks concurrent financial attempts and can be released',async()=>{
+  const DB=new D1Mock(); seedPayroll(DB);
+  DB.sqlite.exec(`
+    INSERT INTO payroll_submissions
+      (id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,run_type,source_mode,input_status,state,created_by)
+      VALUES('SUB-LOCK','ORG-OTSINDO','CLI-CRIT','PRJ-CRIT','SP-CRIT','TIER_2_MANAGED_PAYROLL','2026-09','2026-09','REGULAR','MASTER_CURRENT','READY','APPROVED_FOR_PAYMENT','seed');
+    INSERT INTO payment_instructions
+      (id,org_id,client_id,submission_id,status,expected_total,creator_user_id,idempotency_key,document_no,content_hash,currency,recipient_count)
+      VALUES('PI-LOCK','ORG-OTSINDO','CLI-CRIT','SUB-LOCK','APPROVED_FOR_PAYMENT',5000000,'maker','PI-LOCK-key','PI/LOCK','${'d'.repeat(64)}','IDR',1);
+    INSERT INTO payment_gateway_transactions
+      (id,org_id,client_id,payment_instruction_id,provider,status,amount,currency,idempotency_key,request_hash,created_by)
+      VALUES('PGT-LOCK','ORG-OTSINDO','CLI-CRIT','PI-LOCK','E2PAY','CREATED',5000000,'IDR','PGT-LOCK-key','${'e'.repeat(64)}','processor');
+  `);
+  const first=await acquireExecutionLease(DB,'PGT-LOCK');
+  assert.ok(first);
+  const second=await acquireExecutionLease(DB,'PGT-LOCK');
+  assert.equal(second,null);
+  await releaseExecutionLease(DB,'PGT-LOCK',first);
+  const third=await acquireExecutionLease(DB,'PGT-LOCK');
+  assert.ok(third);
+  await releaseExecutionLease(DB,'PGT-LOCK',third);
 });
