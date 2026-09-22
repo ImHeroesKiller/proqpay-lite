@@ -125,6 +125,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       paymentInstructionStatus:instruction?.status,
       invoiceStatus:row.invoice_status,
       arStatus:row.ar_status,
+      reconciliationStatus:row.reconciliation_status,
+      periodStatus:row.period_status,
     });
     const nextAction=derivePayrollNextAction({
       role,
@@ -137,6 +139,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       paymentInstructionStatus:instruction?.status,
       invoiceStatus:row.invoice_status,
       arStatus:row.ar_status,
+      reconciliationStatus:row.reconciliation_status,
+      periodStatus:row.period_status,
       hasPaymentInstruction:Boolean(instruction),
       paymentInstructionId:instruction?.id,
     });
@@ -171,6 +175,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       paymentInstructionStatus:instruction?.status,
       invoiceStatus:row.invoice_status,
       arStatus:row.ar_status,
+      reconciliationStatus:row.reconciliation_status,
+      periodStatus:row.period_status,
     }).isTerminal;
   }).length;
   const openExceptions = visibleExceptions.filter((row) => !['RESOLVED','ACCEPTED','AUTO_NORMALIZED'].includes(row.status));
@@ -192,6 +198,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       paymentInstructionStatus:instruction?.status,
       invoiceStatus:row.invoice_status,
       arStatus:row.ar_status,
+      reconciliationStatus:row.reconciliation_status,
+      periodStatus:row.period_status,
       hasPaymentInstruction:Boolean(instruction),
       paymentInstructionId:instruction?.id,
     });
@@ -351,11 +359,14 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
       inputStatus:row.input_status,
       sourceMode:row.source_mode,
       periodStatus:row.period_status,
+      reconciliationStatus:row.reconciliation_status,
       blockingCount:row.blocking_count,
       exceptionCount:row.exception_count,
       paymentInstructionStatus:instruction?.status,
       invoiceStatus:row.invoice_status,
       arStatus:row.ar_status,
+      reconciliationStatus:row.reconciliation_status,
+      periodStatus:row.period_status,
       hasPaymentInstruction:Boolean(instruction),
       paymentInstructionId:instruction?.id,
     });
@@ -408,6 +419,10 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
   const flowStates=PAYROLL_BUSINESS_STAGE_ORDER.map((stage)=>BUSINESS_STAGE_META[stage].label);
   const businessStage=derivePayrollBusinessStage({
     state:selected.state,
+    periodStatus:selected.period_status,
+    reconciliationStatus:selected.reconciliation_status,
+    invoiceStatus:selected.invoice_status,
+    arStatus:selected.ar_status,
     blockingCount:selected.blocking_count,
     exceptionCount:selected.exception_count,
   });
@@ -434,7 +449,8 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
       <button type="button" className="btn" onClick={() => void act({ action:'UPDATE_SUBMISSION_PERIODS', submissionId:selected.id, paymentPeriod, arrearsPeriods:arrears }, 'Periode pembayaran dan rapel diperbarui')}>Simpan periode</button></>:null}
       {reviewCheckpoint ? <><label>Catatan review<textarea rows={3} maxLength={1000} value={reviewNote} placeholder="Catatan akhir sebelum diserahkan ke tahap berikutnya" onChange={(event) => setReviewNote(event.target.value)} /></label><label className="payroll-review-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />Saya sudah memeriksa periode, jumlah karyawan, nilai payroll, dan exception.</label></> : null}
       {clientApprovalPending ? <section className="client-approval-panel"><div><span>CLIENT SIGN-OFF</span><strong>Keputusan payroll periode {selected.period}</strong><small>Approval ini menyetujui hasil payroll, bukan Payment Instruction atau eksekusi pembayaran.</small></div><label>Catatan approval (opsional)<textarea rows={3} maxLength={1000} value={reviewNote} placeholder="Catatan untuk payroll team" onChange={(event)=>setReviewNote(event.target.value)} /></label><label className="payroll-review-confirm"><input type="checkbox" checked={confirmed} onChange={(event)=>setConfirmed(event.target.checked)} /><span>Saya sudah memeriksa jumlah karyawan, Gross, Potongan, Net/THP, dan perubahan periode ini.</span></label></section> : null}
-      <div className="directory-modal-actions"><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button>{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.state==='DRAFT'&&selected.period_status!=='CLOSED'?<button type="button" className="btn btn-danger" onClick={()=>{const confirmation=window.prompt(`Hapus Pay Run ${selected.client_name||selected.client_id} periode ${selected.period}?\nKetik HAPUS PAY RUN untuk melanjutkan.`);if(confirmation==='HAPUS PAY RUN')void act({action:'DELETE_PAY_RUN',submissionId:selected.id,confirmation},'Pay Run dan snapshot input berhasil dihapus').then(()=>setSelected(null));}}>Hapus Pay Run</button>:null}{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.source_mode==='MASTER_CURRENT'&&selected.period_status!=='CLOSED'&&['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED','CLIENT_REVISION_REQUESTED'].includes(selected.state)?<button type="button" className="btn" onClick={()=>void act({action:'REFRESH_PAY_RUN_FROM_MASTER',submissionId:selected.id},'Nominal Pay Run dihitung ulang dari master kompensasi').then(()=>setSelected(null))}>Hitung ulang dari master</button>:null}{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.input_status==='PENDING'?<button type="button" className="btn" onClick={()=>void act({action:'FINALIZE_PAY_RUN_INPUT',submissionId:selected.id,confirmation:'DATA PAYROLL FINAL'},'Input Pay Run berhasil difinalisasi').then(()=>setSelected(null))}>Finalisasi input</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status==='CLOSED'?<button type="button" className="btn" onClick={()=>{const reason=window.prompt('Alasan membuka kembali periode (minimal 10 karakter):');if(reason)void act({action:'REOPEN_PAY_RUN',submissionId:selected.id,reason,confirmation:'BUKA KEMBALI'},'Periode dibuka kembali untuk revisi').then(()=>setSelected(null));}}>Buka kembali</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status!=='CLOSED'&&['PAYROLL_FINALIZED','COMPLETED'].includes(selected.state)?<button type="button" className="btn" onClick={()=>{if(window.confirm('Tutup periode payroll ini? Snapshot tidak dapat diubah.'))void act({action:'CLOSE_PAY_RUN',submissionId:selected.id,confirmation:'TUTUP PERIODE'},'Periode payroll ditutup').then(()=>setSelected(null));}}>Tutup periode</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.state==='CONTROLLER_REVIEW'?<button type="button" className="btn" onClick={()=>{const reason=window.prompt('Alasan meminta revisi payroll (minimal 10 karakter):');if(reason&&reason.trim().length>=10)void act({action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:'REVISION_REQUIRED',reviewNote:reason.trim()},'Pay Run dikembalikan ke Processor untuk revisi').then(()=>setSelected(null));}}>Minta revisi</button>:null}{clientApprovalPending?<><button type="button" className="btn" onClick={()=>{const reason=window.prompt('Jelaskan revisi payroll yang diperlukan (minimal 10 karakter):');if(reason&&reason.trim().length>=10)void act({action:'CLIENT_REQUEST_PAYROLL_REVISION',submissionId:selected.id,reason:reason.trim(),confirmation:'MINTA REVISI PAYROLL'},'Permintaan revisi dikirim ke payroll team').then(()=>setSelected(null));}}>Minta revisi</button><button type="button" className="btn btn-primary" disabled={!confirmed} onClick={()=>void act({action:'CLIENT_APPROVE_PAYROLL',submissionId:selected.id,reviewConfirmed:true,reviewNote:reviewNote||undefined,confirmation:'SETUJUI PAYROLL'},'Payroll berhasil Anda setujui').then(()=>setSelected(null))}>Setujui Payroll</button></>:null}{next ? <button type="button" className="btn btn-primary" disabled={(reviewCheckpoint && !confirmed)||selected.input_status==='PENDING'} onClick={() => {const payload=next==='GENERATE_PAYMENT_INSTRUCTION'?{action:next,submissionId:selected.id}:next.startsWith('ADVANCE_')?{action:'ADVANCE_PAY_RUN',submissionId:selected.id,command:next==='ADVANCE_VALIDATE'?'VALIDATE':'FINALIZE_PAYROLL',reviewConfirmed:true,reviewNote:reviewNote||undefined}:{action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:next,reviewConfirmed:true,reviewNote:reviewNote||undefined};void act(payload,next==='GENERATE_PAYMENT_INSTRUCTION'?'Payment Instruction draft berhasil dibuat':`${nextAction.label} berhasil`).then(()=>setSelected(null));}}>{nextAction.label}</button> : null}</div>
+      {selected.state==='COMPLETED'&&selected.period_status!=='CLOSED'?<div className="payroll-review-alert"><strong>Close readiness</strong><span>{selected.payment_status==='COMPLETED'&&selected.reconciliation_status==='MATCHED'&&['ISSUED','PARTIALLY_PAID','PAID'].includes(selected.invoice_status)?'Siap ditutup: payment selesai, reconciliation matched, dan invoice sudah diterbitkan.':'Belum siap ditutup. Pastikan payment completed, reconciliation matched, lalu invoice diterbitkan.'}</span></div>:null}
+      <div className="directory-modal-actions"><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button>{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.state==='DRAFT'&&selected.period_status!=='CLOSED'?<button type="button" className="btn btn-danger" onClick={()=>{const confirmation=window.prompt(`Hapus Pay Run ${selected.client_name||selected.client_id} periode ${selected.period}?\nKetik HAPUS PAY RUN untuk melanjutkan.`);if(confirmation==='HAPUS PAY RUN')void act({action:'DELETE_PAY_RUN',submissionId:selected.id,confirmation},'Pay Run dan snapshot input berhasil dihapus').then(()=>setSelected(null));}}>Hapus Pay Run</button>:null}{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.source_mode==='MASTER_CURRENT'&&selected.period_status!=='CLOSED'&&['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED','CLIENT_REVISION_REQUESTED'].includes(selected.state)?<button type="button" className="btn" onClick={()=>void act({action:'REFRESH_PAY_RUN_FROM_MASTER',submissionId:selected.id},'Nominal Pay Run dihitung ulang dari master kompensasi').then(()=>setSelected(null))}>Hitung ulang dari master</button>:null}{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.input_status==='PENDING'?<button type="button" className="btn" onClick={()=>void act({action:'FINALIZE_PAY_RUN_INPUT',submissionId:selected.id,confirmation:'DATA PAYROLL FINAL'},'Input Pay Run berhasil difinalisasi').then(()=>setSelected(null))}>Finalisasi input</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status==='CLOSED'?<button type="button" className="btn" onClick={()=>{const reason=window.prompt('Alasan membuka kembali periode (minimal 10 karakter):');if(reason)void act({action:'REOPEN_PAY_RUN',submissionId:selected.id,reason,confirmation:'BUKA KEMBALI'},'Periode dibuka kembali untuk revisi').then(()=>setSelected(null));}}>Buka kembali</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status!=='CLOSED'&&selected.state==='COMPLETED'&&selected.payment_status==='COMPLETED'&&selected.reconciliation_status==='MATCHED'&&['ISSUED','PARTIALLY_PAID','PAID'].includes(selected.invoice_status)?<button type="button" className="btn btn-primary" onClick={()=>{if(window.confirm('Tutup periode payroll ini? Payroll dan payment snapshot akan tetap immutable. AR tetap dipantau terpisah.'))void act({action:'CLOSE_PAY_RUN',submissionId:selected.id,confirmation:'TUTUP PERIODE'},'Periode payroll ditutup').then(()=>setSelected(null));}}>Tutup periode</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.state==='CONTROLLER_REVIEW'?<button type="button" className="btn" onClick={()=>{const reason=window.prompt('Alasan meminta revisi payroll (minimal 10 karakter):');if(reason&&reason.trim().length>=10)void act({action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:'REVISION_REQUIRED',reviewNote:reason.trim()},'Pay Run dikembalikan ke Processor untuk revisi').then(()=>setSelected(null));}}>Minta revisi</button>:null}{clientApprovalPending?<><button type="button" className="btn" onClick={()=>{const reason=window.prompt('Jelaskan revisi payroll yang diperlukan (minimal 10 karakter):');if(reason&&reason.trim().length>=10)void act({action:'CLIENT_REQUEST_PAYROLL_REVISION',submissionId:selected.id,reason:reason.trim(),confirmation:'MINTA REVISI PAYROLL'},'Permintaan revisi dikirim ke payroll team').then(()=>setSelected(null));}}>Minta revisi</button><button type="button" className="btn btn-primary" disabled={!confirmed} onClick={()=>void act({action:'CLIENT_APPROVE_PAYROLL',submissionId:selected.id,reviewConfirmed:true,reviewNote:reviewNote||undefined,confirmation:'SETUJUI PAYROLL'},'Payroll berhasil Anda setujui').then(()=>setSelected(null))}>Setujui Payroll</button></>:null}{next ? <button type="button" className="btn btn-primary" disabled={(reviewCheckpoint && !confirmed)||selected.input_status==='PENDING'} onClick={() => {const payload=next==='GENERATE_PAYMENT_INSTRUCTION'?{action:next,submissionId:selected.id}:next.startsWith('ADVANCE_')?{action:'ADVANCE_PAY_RUN',submissionId:selected.id,command:next==='ADVANCE_VALIDATE'?'VALIDATE':'FINALIZE_PAYROLL',reviewConfirmed:true,reviewNote:reviewNote||undefined}:{action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:next,reviewConfirmed:true,reviewNote:reviewNote||undefined};void act(payload,next==='GENERATE_PAYMENT_INSTRUCTION'?'Payment Instruction draft berhasil dibuat':`${nextAction.label} berhasil`).then(()=>setSelected(null));}}>{nextAction.label}</button> : null}</div>
     </div>
   </div>, document.body)}</>;
 }
