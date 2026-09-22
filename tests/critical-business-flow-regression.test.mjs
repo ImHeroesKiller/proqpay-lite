@@ -153,6 +153,8 @@ test('VALIDATE detects corrupted payroll control totals instead of only changing
   assert.equal(exception.status,'OPEN');
 
   DB.sqlite.prepare('UPDATE payroll_run_lines SET deduction_amount=0,net_amount=5000000 WHERE submission_id=?').run(id);
+  const refinalized=await direct(DB,processor,{action:'FINALIZE_PAY_RUN_INPUT',submissionId:id,confirmation:'DATA PAYROLL FINAL'});
+  assert.equal(refinalized.response.status,200,JSON.stringify(refinalized.payload));
   const valid=await direct(DB,processor,{action:'ADVANCE_PAY_RUN',submissionId:id,command:'VALIDATE',reviewConfirmed:true});
   assert.equal(valid.response.status,200,JSON.stringify(valid.payload));
   assert.equal(valid.payload.submission.state,'VALIDATED');
