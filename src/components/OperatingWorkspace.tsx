@@ -6,7 +6,7 @@ import { executeOperatingAction, getPayRunDetail, getPaymentInstructionDetail, l
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 
-type WorkspaceMode = 'payruns' | 'actions' | 'payments' | 'billing' | 'integrations';
+type WorkspaceMode = 'payruns' | 'actions' | 'payments' | 'billing';
 type Actor = { email: string; role: string; permissions?: string[]; clientIds?: string[]; projectIds?: string[] };
 
 const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; description:string; search:string }> = {
@@ -14,7 +14,6 @@ const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; descriptio
   actions: { title:'Action Center', eyebrow:'EXCEPTION WORK QUEUE', description:'Selesaikan blocker dan temuan payroll berdasarkan prioritas dan status.', search:'Karyawan, temuan, klien…' },
   payments: { title:'Payment Control', eyebrow:'PAYMENT INTEGRITY', description:'Kontrol Payment Instruction, approval, proof, dan rekonsiliasi.', search:'Dokumen PI, klien, project…' },
   billing: { title:'Billing & AR', eyebrow:'FINANCE OPERATIONS', description:'Kelola invoice layanan, jatuh tempo, dan pelunasan piutang.', search:'Invoice, klien, periode…' },
-  integrations: { title:'Integrations', eyebrow:'CONNECTED SYSTEMS', description:'Pantau koneksi HRIS, attendance, accounting, dan bank.', search:'Koneksi, tipe, status…' },
 };
 
 const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') ? '#dc2626'
@@ -37,8 +36,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
     try {
       const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup']
         : mode === 'actions' ? ['submissions','exceptions']
-        : mode === 'payments' ? ['submissions','payment-instructions','payment-proofs','reconciliations']
-        : mode === 'integrations' ? ['integrations'] : [];
+        : mode === 'payments' ? ['submissions','payment-instructions','payment-proofs','reconciliations'] : [];
       const meResponse = await fetch('/api/me');
       const me = await meResponse.json();
       if (!meResponse.ok) throw new Error(me.error || `HTTP ${meResponse.status}`);
@@ -128,14 +126,14 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
         <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div></div>
       </div>
 
-      {!['billing','integrations'].includes(mode) ? <div className="operations-control-bar">
+      {mode !== 'billing' ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((period) => <option key={period} value={period}>{period}</option>)}</select></label>
         <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
         <label><span>{mode === 'payments' ? 'Status PI' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">Semua status</option>{statusOptions.map((state) => <option key={state} value={state}>{String(state).replaceAll('_', ' ')}</option>)}</select></label>
         <label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>
       </div> : null}
 
-      {!['billing','integrations'].includes(mode) ? <div className="operations-summary-grid">
+      {mode !== 'billing' ? <div className="operations-summary-grid">
         {mode === 'payruns' ? <>
           <div><span>Pay runs</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
           <div><span>Control total</span><strong>{formatIDR(totalNet)}</strong><small>Net/THP submission</small></div>
@@ -161,7 +159,6 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           {mode === 'actions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
           {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace actor={actor} />}
-          {mode === 'integrations' && <Integrations rows={data.integrations || []} canCreate={isProcessor} />}
         </>
       )}
       {createOpen ? <CreatePayRunWizard clients={data.clients||[]} projects={data.projects||[]} servicePlans={data.servicePlans||[]} submissions={submissions} onClose={()=>setCreateOpen(false)} onCreated={async()=>{setCreateOpen(false);await load();}} /> : null}
@@ -488,18 +485,6 @@ async function uploadProof(paymentInstructionId:string, proof:{bank:string;refer
   } finally {
     setUploading(false);
   }
-}
-
-function Integrations({ rows, canCreate }: { rows:any[]; canCreate:boolean }) {
-  return <div style={{ display:'grid', gap:14 }}>
-    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))', gap:12 }}>
-      {['HRIS','ATTENDANCE','ACCOUNTING','BANK'].map((type) => {
-        const connection = rows.find((row) => row.connector_type === type);
-        return <div key={type} className="card" style={{ padding:18 }}><strong>{type === 'ATTENDANCE' ? 'Attendance' : type}</strong><p style={{ ...small, margin:'8px 0 0' }}>{connection ? `Status: ${connection.status}` : 'Belum terhubung'}</p></div>;
-      })}
-    </div>
-    {!rows.length && <Empty title="Belum ada koneksi integrasi" detail={canCreate ? 'Koneksi dibuat setelah service plan Tier 3 aktif. Kredensial tidak pernah ditampilkan di UI.' : 'Hubungi Payroll Processor untuk mengaktifkan koneksi.'} />}
-  </div>;
 }
 
 function CardTable({ headers, rows }: { headers:string[]; rows:React.ReactNode[][] }) { return <div className="card" style={{ overflowX:'auto' }}><table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}><thead><tr>{headers.map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i) => <tr key={i} style={{ borderBottom:'1px solid var(--border-soft)' }}>{row.map((cell,j) => <td key={j} style={td}>{cell}</td>)}</tr>)}</tbody></table></div>; }

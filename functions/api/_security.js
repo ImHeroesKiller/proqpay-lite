@@ -47,7 +47,7 @@ export function corsHeaders(request, env, methods = 'GET, OPTIONS') {
   return {
     'Access-Control-Allow-Origin': responseOrigin,
     'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Headers': 'Content-Type, Cf-Access-Jwt-Assertion',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cf-Access-Jwt-Assertion, X-ProQPay-App-Id, X-ProQPay-App-Name',
     'Access-Control-Allow-Methods': methods,
     'Cache-Control': 'no-store',
     Vary: 'Origin',
