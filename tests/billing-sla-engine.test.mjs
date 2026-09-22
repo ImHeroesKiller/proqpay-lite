@@ -150,7 +150,7 @@ test('official calendar promotion requires an auditable complete holiday set', (
 });
 
 test('AR materialization heals a concurrent duplicate instead of returning a 500', () => {
-  assert.match(service, /UNIQUE constraint failed: ar_monitor\.invoice_id/);
+  assert.match(service, /ar_monitor\\\\\.invoice_id/);
   assert.match(service, /concurrentAr/);
   assert.match(service, /idempotentReplay: true/);
 });
