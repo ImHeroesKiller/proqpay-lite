@@ -49,6 +49,7 @@ export async function readGatewaySecureSettings(database, env, organizationId) {
     'SELECT * FROM gateway_secure_settings WHERE org_id=? LIMIT 1',
     [organizationId]);
   if (!row) return {
+    exists:false,
     provider:'UNCONFIGURED',
     environment:'UAT',
     credentials:{},
@@ -56,6 +57,7 @@ export async function readGatewaySecureSettings(database, env, organizationId) {
     updatedAt:null,
   };
   return {
+    exists:true,
     provider:String(row.provider || 'UNCONFIGURED').toUpperCase(),
     environment:String(row.environment || 'UAT').toUpperCase(),
     credentials:await decryptCredentials(env, row),
@@ -93,7 +95,7 @@ export async function gatewayRuntimeEnv(database, env, organizationId) {
     if (/no such table: gateway_secure_settings/i.test(String(error?.message || error))) return env;
     throw error;
   }
-  if (!stored || stored.provider === 'UNCONFIGURED') return env;
+  if (!stored?.exists) return env;
   const overrides = {
     PAYMENT_GATEWAY_PROVIDER:stored.provider,
     E2PAY_ENV:stored.environment,
