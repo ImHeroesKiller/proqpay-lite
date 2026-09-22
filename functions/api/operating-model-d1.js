@@ -631,7 +631,7 @@ async function executeAction(database, body, actor, env, organizationId) {
         return { status:409, data:{ error:`Pay Run berstatus ${submission.state} tidak dapat divalidasi ulang` } };
       }
       if (submission.input_status !== 'READY') return { status:409, data:{ error:'Finalisasi input payroll sebelum menjalankan validasi' } };
-      const deterministic = await validateCanonicalPayRunSnapshot(database, submission, actor, organizationId);
+      await validateCanonicalPayRunSnapshot(database, submission, actor, organizationId);
       const refreshedBlocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
         AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
       blockingCount = Number(refreshedBlocking?.count || 0);
