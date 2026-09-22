@@ -320,6 +320,70 @@ function auditOperation(organizationId, actor, action, detail, entity, entityId)
     VALUES (?,?,?,?,?,?,?,?)`, bindings: [`AUD-${crypto.randomUUID()}`, organizationId, actor.email, actor.role, action, detail, entity, entityId] };
 }
 
+async function validateCanonicalPayRunSnapshot(database, submission, actor, organizationId) {
+  const rows = await d1All(database, `SELECT l.employee_id,l.employee_name,l.gross_amount,l.deduction_amount,l.net_amount,
+      l.bank_name,l.account_last4,e.client_id AS employee_client_id,e.project_id AS employee_project_id,
+      eba.bank_name AS primary_bank_name,eba.account_no AS primary_account_no
+    FROM payroll_run_lines l
+    JOIN employees e ON e.id=l.employee_id
+    LEFT JOIN employee_bank_accounts eba ON eba.employee_id=l.employee_id AND eba.is_primary=1
+    WHERE l.submission_id=? AND l.included=1 ORDER BY l.employee_id`, [submission.id]);
+  const issues = [];
+  const add = (row, category, field, reason) => issues.push({
+    employeeId: row?.employee_id || null,
+    category,
+    field,
+    reason,
+  });
+  if (!rows.length) add(null, 'SYSTEM_EMPTY_PAY_RUN', 'recipients', 'Pay Run tidak memiliki penerima aktif.');
+
+  for (const row of rows) {
+    const gross = Number(row.gross_amount);
+    const deduction = Number(row.deduction_amount);
+    const net = Number(row.net_amount);
+    if (!Number.isSafeInteger(gross) || gross <= 0 || !Number.isSafeInteger(deduction) || deduction < 0
+      || !Number.isSafeInteger(net) || net <= 0 || gross - deduction !== net) {
+      add(row, 'SYSTEM_PAYROLL_CONTROL_MISMATCH', 'netAmount',
+        `Control payroll tidak balance untuk ${row.employee_name || row.employee_id}: Gross ${gross} - Potongan ${deduction} != THP ${net}.`);
+    }
+    if (String(row.employee_client_id) !== String(submission.client_id)
+      || String(row.employee_project_id || '') !== String(submission.project_id || '')) {
+      add(row, 'SYSTEM_EMPLOYEE_SCOPE_MISMATCH', 'projectId',
+        'Karyawan pada snapshot tidak lagi berada pada client/project Pay Run yang sama.');
+    }
+    const account = String(row.primary_account_no || '').replace(/\s+/g, '');
+    if (!row.primary_bank_name || !/^\d{6,34}$/.test(account)) {
+      add(row, 'SYSTEM_BANK_INVALID', 'accountNo',
+        'Rekening utama penerima tidak lengkap atau nomor rekening bukan 6-34 digit.');
+    } else if (row.account_last4 && account.slice(-4) !== String(row.account_last4)) {
+      add(row, 'SYSTEM_BANK_CHANGED', 'accountNo',
+        'Rekening utama berubah setelah snapshot Pay Run dibuat; refresh/upload ulang data sebelum melanjutkan.');
+    }
+  }
+
+  const previous = await d1All(database, `SELECT id FROM payroll_exceptions
+    WHERE submission_id=? AND category LIKE 'SYSTEM_%'
+      AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
+  const operations = previous.length ? [{
+    statement:`UPDATE payroll_exceptions SET status='AUTO_NORMALIZED',resolution_note='Superseded by deterministic re-validation',
+      resolved_at=${NOW},resolved_by=? WHERE submission_id=? AND category LIKE 'SYSTEM_%'
+      AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`,
+    bindings:[actor.email,submission.id],
+  }] : [];
+  for (const issue of issues) operations.push({
+    statement:`INSERT INTO payroll_exceptions
+      (id,submission_id,employee_id,field,category,severity,reason,owner,status)
+      VALUES (?,?,?,?,?,'CRITICAL',?,'PAYROLL_PROCESSOR','OPEN')`,
+    bindings:[`EXC-${crypto.randomUUID()}`,submission.id,issue.employeeId,issue.field,issue.category,issue.reason],
+  });
+  if (operations.length) await d1Batch(database, operations);
+  if (issues.length) {
+    await d1Batch(database, [auditOperation(organizationId, actor, 'PAY_RUN_DETERMINISTIC_VALIDATION_FAILED',
+      `${issues.length} critical control issue(s) detected`, 'payroll_submission', submission.id)]);
+  }
+  return { issues, recipients:rows.length };
+}
+
 function lineInsertOperations(paymentInstructionId, lines) {
   const operations = [];
   for (let offset = 0; offset < lines.length; offset += 8) {
@@ -556,7 +620,7 @@ async function executeAction(database, body, actor, env, organizationId) {
 
     const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
       AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
-    const blockingCount = Number(blocking?.count || 0);
+    let blockingCount = Number(blocking?.count || 0);
     let targetState;
     let reviewFields = '';
     const bindings = [];
@@ -567,6 +631,10 @@ async function executeAction(database, body, actor, env, organizationId) {
         return { status:409, data:{ error:`Pay Run berstatus ${submission.state} tidak dapat divalidasi ulang` } };
       }
       if (submission.input_status !== 'READY') return { status:409, data:{ error:'Finalisasi input payroll sebelum menjalankan validasi' } };
+      const deterministic = await validateCanonicalPayRunSnapshot(database, submission, actor, organizationId);
+      const refreshedBlocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
+        AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
+      blockingCount = Number(refreshedBlocking?.count || 0);
       targetState = blockingCount ? 'EXCEPTION_FOUND' : 'VALIDATED';
     } else if (body.command === 'FINALIZE_PAYROLL') {
       if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat memfinalisasi payroll' } };
