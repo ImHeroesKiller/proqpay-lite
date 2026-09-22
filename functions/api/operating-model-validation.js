@@ -186,7 +186,7 @@ export function canTransition(from, to) {
 
 export function resolveTierTransition(tier, from, requestedTo) {
   if (tier === 'TIER_1_PAYMENT_PROCESSING' && from === 'SUBMITTED' && requestedTo === 'INGESTING') return 'AI_VALIDATING';
-  if (tier === 'TIER_1_PAYMENT_PROCESSING' && from === 'DATA_APPROVED' && requestedTo === 'PAYROLL_FINALIZED') return 'PAYMENT_INSTRUCTION_READY';
+  if (tier === 'TIER_1_PAYMENT_PROCESSING' && from === 'DATA_APPROVED' && requestedTo === 'PAYROLL_FINALIZED') return 'CLIENT_APPROVAL_PENDING';
   return requestedTo;
 }
 
