@@ -448,6 +448,28 @@ function PayRunUpload({submission,onImported}:{submission:any;onImported:(total:
   return <section className="pay-run-upload"><div><strong>Upload payroll final klien</strong><span>Format Excel IAP (.xlsx/.xls), maksimal 5 MB. File mengganti snapshot DRAFT ini—tidak membuat Pay Run baru.</span></div><input ref={inputRef} type="file" accept=".xlsx,.xls" hidden onChange={(event)=>{const file=event.target.files?.[0];if(file)void choose(file);}}/><button type="button" className="btn" disabled={busy} onClick={()=>inputRef.current?.click()}>{busy?'Memproses…':rows.length?'Ganti file':'Pilih file payroll'}</button>{rows.length?<div className="pay-run-upload-preview"><span>{fileName}</span><strong>{rows.length} penerima</strong><span>Gross {formatIDR(totals.gross)}</span><span>Potongan {formatIDR(totals.deduction)}</span><span>THP {formatIDR(totals.net)}</span><button type="button" className="btn btn-primary" disabled={busy||totals.net<=0} onClick={()=>void upload()}>Gunakan sebagai input Pay Run</button></div>:null}{error?<p className="app-notice-error">{error}</p>:null}</section>;
 }
 
+function ClientApprovalPreview({detail,approvalPending}:{detail:any;approvalPending:boolean}) {
+  const [query,setQuery]=useState('');
+  const [page,setPage]=useState(1);
+  const size=12;
+  const allLines=(detail.lines||[]).filter((line:any)=>line.included!==0);
+  const rows=allLines.filter((line:any)=>!query.trim()||[line.employee_name,line.employee_code,line.employee_id].join(' ').toLowerCase().includes(query.trim().toLowerCase()));
+  const pages=Math.max(1,Math.ceil(rows.length/size));
+  const visible=rows.slice((page-1)*size,page*size);
+  const totals=allLines.reduce((sum:any,line:any)=>({
+    gross:sum.gross+Number(line.gross_amount||0),
+    deduction:sum.deduction+Number(line.deduction_amount||0),
+    net:sum.net+Number(line.net_amount||0),
+  }),{gross:0,deduction:0,net:0});
+  return <section className="client-payroll-preview">
+    <div className="control-panel-title"><div><span>{approvalPending?'APPROVAL PREVIEW':'PAYROLL DETAIL'}</span><h2>Rincian payroll</h2></div><small>{allLines.length.toLocaleString('id-ID')} karyawan</small></div>
+    <div className="payroll-review-totals"><div><span>Gross</span><strong>{formatIDR(totals.gross)}</strong></div><div><span>Potongan</span><strong>{formatIDR(totals.deduction)}</strong></div><div><span>Net/THP</span><strong>{formatIDR(totals.net)}</strong></div><div><span>Perubahan THP</span><strong>{formatIDR(Number(detail.variance?.amount||0))}</strong></div></div>
+    <div className="card" style={{padding:12,marginTop:12}}><input style={{...input,width:'100%'}} value={query} placeholder="Cari nama atau ID karyawan" onChange={(event)=>{setQuery(event.target.value);setPage(1);}} /></div>
+    <div className="card report-table-wrap"><table className="report-table"><thead><tr><th>Karyawan</th><th>Gross</th><th>Potongan</th><th>Net/THP</th><th>Perubahan</th></tr></thead><tbody>{visible.map((line:any)=><tr key={line.id}><td><strong>{line.employee_name||'-'}</strong><small>{line.employee_code||line.employee_id||'-'}</small></td><td>{formatIDR(Number(line.gross_amount||0))}</td><td>{formatIDR(Number(line.deduction_amount||0))}</td><td><strong>{formatIDR(Number(line.net_amount||0))}</strong></td><td>{line.variance_type==='NEW'?'Karyawan baru':line.variance_type==='CHANGED'?formatIDR(Number(line.net_amount||0)-Number(line.previous_net||0)):'Tidak berubah'}</td></tr>)}</tbody></table>{!visible.length?<div className="control-empty">Karyawan tidak ditemukan.</div>:null}</div>
+    <div className="control-pagination"><span>Halaman {Math.min(page,pages)} dari {pages} · hanya data payroll, tanpa informasi rekening</span><div><button className="btn" disabled={page<=1} onClick={()=>setPage((value)=>value-1)}>←</button><button className="btn" disabled={page>=pages} onClick={()=>setPage((value)=>value+1)}>→</button></div></div>
+  </section>;
+}
+
 function PayRunLineTable({detail,editable,onEdit}:{detail:any;editable:boolean;onEdit:(line:any,gross:number,deduction:number,included:boolean)=>Promise<void>}) {
   const allLines=detail.lines||[]; const detailsRef=useRef<HTMLDetailsElement>(null);
   const [query,setQuery]=useState(''); const [issueFilter,setIssueFilter]=useState('ALL'); const [page,setPage]=useState(1); const size=10;
