@@ -74,7 +74,7 @@ async function findTransaction(database, organizationId, paymentInstructionId) {
     WHERE org_id=? AND payment_instruction_id=? ORDER BY created_at DESC LIMIT 1`, [organizationId, paymentInstructionId]);
 }
 
-async function acquireExecutionLease(database, transactionId) {
+export async function acquireExecutionLease(database, transactionId) {
   const token = crypto.randomUUID();
   const locked = await d1First(database, `UPDATE payment_gateway_transactions
     SET execution_lock_token=?,execution_lock_until=datetime('now','+10 minutes'),updated_at=${NOW}
@@ -83,7 +83,7 @@ async function acquireExecutionLease(database, transactionId) {
   return locked ? token : null;
 }
 
-async function releaseExecutionLease(database, transactionId, token) {
+export async function releaseExecutionLease(database, transactionId, token) {
   if (!token) return;
   try {
     await d1Batch(database, [{ statement:`UPDATE payment_gateway_transactions
