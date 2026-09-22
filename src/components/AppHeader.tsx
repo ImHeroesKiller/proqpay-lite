@@ -140,39 +140,46 @@ export default function AppHeader({
       const scopes =
         actor.role === "CLIENT_USER" ? actor.clientIds || [] : [undefined];
       const results = await Promise.all(
-        scopes.map((clientId) => listOperatingDashboard(clientId)),
+        scopes.map((clientId) => listOperatingDashboard(clientId, period)),
       );
       let exceptions = 0,
         approvals = 0;
       results.forEach((result) => {
-        const openExceptions=(result.exceptions || []).filter(
-          (row:any)=>!["RESOLVED","ACCEPTED","AUTO_NORMALIZED"].includes(row.status),
-        );
+        const submissions=result.submissions || [];
+        const paymentInstructions=result.paymentInstructions || [];
+        const openCount=submissions.reduce((sum:number,row:any)=>sum+Number(row.open_exception_count||0),0);
+        const clientActionCount=submissions.reduce((sum:number,row:any)=>sum+Number(row.client_action_count||0),0);
+        const payrollApprovals=submissions.filter((row:any)=>row.state==="CONTROLLER_REVIEW").length;
+        const paymentApprovals=paymentInstructions.filter((row:any)=>row.status==="PAYMENT_APPROVAL_PENDING").length;
+        const invoiceApprovals=submissions.filter((row:any)=>row.invoice_status==="UNDER_REVIEW").length;
         if (actor.role === "PAYROLL_PROCESSOR") {
-          exceptions += openExceptions.filter((row:any)=>row.status !== "CLIENT_ACTION_REQUIRED").length;
+          exceptions += Math.max(0, openCount-clientActionCount);
         } else if (actor.role === "PAYROLL_CONTROLLER") {
-          approvals += (result.paymentInstructions || []).filter(
-            (row:any)=>row.status === "PAYMENT_APPROVAL_PENDING",
-          ).length;
+          approvals += payrollApprovals + paymentApprovals + invoiceApprovals;
         } else if (actor.role === "CLIENT_USER") {
-          exceptions += openExceptions.filter((row:any)=>row.status === "CLIENT_ACTION_REQUIRED").length;
-          approvals += (result.submissions || []).filter(
-            (row:any)=>row.state === "CLIENT_APPROVAL_PENDING",
-          ).length;
+          exceptions += clientActionCount;
+          approvals += submissions.filter((row:any)=>row.state==="CLIENT_APPROVAL_PENDING").length;
         } else {
-          exceptions += openExceptions.length;
-          approvals += (result.paymentInstructions || []).filter(
-            (row:any)=>row.status === "PAYMENT_APPROVAL_PENDING",
-          ).length;
+          exceptions += openCount;
+          approvals += payrollApprovals + paymentApprovals + invoiceApprovals;
         }
       });
       setAlerts({ exceptions, approvals });
     } catch {
       setAlerts({ exceptions: 0, approvals: 0 });
     }
-  }, [actor.clientIds, actor.role]);
+  }, [actor.clientIds, actor.role, period]);
   useEffect(() => {
     void refreshAlerts();
+    const refresh=()=>void refreshAlerts();
+    const timer=window.setInterval(refresh,60_000);
+    window.addEventListener('focus',refresh);
+    window.addEventListener('proqpay:operating-cache-invalidated',refresh);
+    return()=>{
+      window.clearInterval(timer);
+      window.removeEventListener('focus',refresh);
+      window.removeEventListener('proqpay:operating-cache-invalidated',refresh);
+    };
   }, [refreshAlerts]);
   useEffect(() => {
     const close = (event: MouseEvent) => {
