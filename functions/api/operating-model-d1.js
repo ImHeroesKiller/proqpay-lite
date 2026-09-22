@@ -561,7 +561,9 @@ async function executeAction(database, body, actor, env, organizationId) {
       if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat memfinalisasi payroll' } };
       if (!['VALIDATED','STANDARDIZED'].includes(submission.state)) return { status:409, data:{ error:'Pay Run harus selesai divalidasi sebelum difinalisasi' } };
       if (blockingCount) return { status:409, data:{ error:`${blockingCount} critical exception masih terbuka` } };
-      targetState = 'PAYMENT_INSTRUCTION_READY';
+      // Processor finalization must stop at Controller review. PI creation is a separate
+      // Controller checkpoint so payroll data cannot bypass maker-checker segregation.
+      targetState = 'CONTROLLER_REVIEW';
       reviewFields = `,processor_reviewed_at=${NOW},processor_reviewed_by=?,processor_review_note=?`;
       bindings.push(actor.email, String(body.reviewNote || '').slice(0,1000));
     } else {
