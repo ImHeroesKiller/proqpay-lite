@@ -69,10 +69,16 @@ function parseJsonFields(rows, fields) {
   });
 }
 
-function scopeWhere({ organizationId, clientId, projectIds = [], orgColumn = 's.org_id', clientColumn = 's.client_id', projectColumn = 's.project_id' }) {
+function scopeWhere({ organizationId, clientId, clientIds, projectIds = [], orgColumn = 's.org_id', clientColumn = 's.client_id', projectColumn = 's.project_id' }) {
   const clauses = [`${orgColumn}=?`];
   const bindings = [organizationId];
   if (clientId) { clauses.push(`${clientColumn}=?`); bindings.push(clientId); }
+  else if (Array.isArray(clientIds)) {
+    if (clientIds.length) {
+      clauses.push(`${clientColumn} IN (${clientIds.map(()=>'?').join(',')})`);
+      bindings.push(...clientIds);
+    } else clauses.push('1=0');
+  }
   if (projectIds.length) {
     clauses.push(`${projectColumn} IN (${projectIds.map(() => '?').join(',')})`);
     bindings.push(...projectIds);
@@ -146,16 +152,20 @@ async function readResource(database, params, actor, env, organizationId) {
   const clientId = params.get('clientId');
   const requestedPeriod = params.get('period');
   const projectIds = actor.role === 'CLIENT_USER' && Array.isArray(actor.projectIds) ? actor.projectIds.map(String) : [];
+  const dashboardAggregate = resource === 'dashboard' || resource === 'dashboard-periods';
+  const aggregateClientIds = actor.role === 'CLIENT_USER' && dashboardAggregate
+    ? [...(clientScope(actor,env) || new Set())]
+    : undefined;
   const selfScopingDetail = resource === 'pay-run-detail' || resource === 'payment-instruction-detail';
   if (actor.role === 'CLIENT_USER') {
     if (clientId && !assertClientScope(actor, env, clientId)) {
       return { status: 403, data: { error: 'Client scope denied' } };
     }
-    if (!clientId && !selfScopingDetail) {
+    if (!clientId && !selfScopingDetail && !dashboardAggregate) {
       return { status: 403, data: { error: 'Client scope required' } };
     }
   }
-  const submissionScope = scopeWhere({ organizationId, clientId, projectIds });
+  const submissionScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds });
 
   if (resource === 'dashboard-periods') {
     const rows = await d1All(database, `SELECT period FROM (
@@ -367,9 +377,9 @@ async function readResource(database, params, actor, env, organizationId) {
       [organizationId,...submissionIds]);
   }
 
-  const clientScope = scopeWhere({ organizationId, clientId, projectIds: [], orgColumn: 'c.org_id', clientColumn: 'c.id' });
-  const projectScope = scopeWhere({ organizationId, clientId, projectIds, orgColumn: 'p.org_id', clientColumn: 'p.client_id', projectColumn: 'p.id' });
-  const employeeScope = scopeWhere({ organizationId, clientId, projectIds, orgColumn: 'e.org_id', clientColumn: 'e.client_id', projectColumn: 'e.project_id' });
+  const clientScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds: [], orgColumn: 'c.org_id', clientColumn: 'c.id' });
+  const projectScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds, orgColumn: 'p.org_id', clientColumn: 'p.client_id', projectColumn: 'p.id' });
+  const employeeScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds, orgColumn: 'e.org_id', clientColumn: 'e.client_id', projectColumn: 'e.project_id' });
   const [clientCount, projectCount, employeeCount, bankCount] = await Promise.all([
     d1First(database, `SELECT COUNT(*) AS total FROM clients c WHERE ${clientScope.sql}`, clientScope.bindings),
     d1First(database, `SELECT COUNT(*) AS total FROM projects p WHERE ${projectScope.sql}`, projectScope.bindings),
