@@ -162,12 +162,33 @@ function processorAction(context, stage) {
   if (stage.stage === 'CLOSE') {
     const recStatus = normalize(context.reconciliationStatus ?? context.recStatus);
     const invoiceStatus = normalize(context.invoiceStatus);
-    if ((recStatus === 'MATCHED' || state === 'COMPLETED') && !invoiceStatus) {
-      return result('PREPARE_BILLING','Continue to Billing','Payment is reconciled. Prepare billing and continue period closing.','billing',{
-        actionable:true,tone:'info',priority:3,category:'CLOSE',owner:'PAYROLL_PROCESSOR',
+    const periodStatus = normalize(context.periodStatus);
+    if (periodStatus === 'CLOSED') {
+      return result('VIEW_CLOSED_CYCLE','View Closed Cycle','Payroll cycle is formally closed.','billing',{
+        actionable:false,tone:'success',priority:5,category:'MONITOR',owner:'PAYROLL_PROCESSOR',
       });
     }
-    return result('CONTINUE_CLOSE','Continue Closing','Complete billing, collection, and remaining closing activities.','billing',{
+    if ((recStatus === 'MATCHED' || state === 'COMPLETED') && !invoiceStatus) {
+      return result('PREPARE_BILLING','Prepare Invoice','Payment is reconciled. Generate the invoice before period close.','billing',{
+        actionable:true,tone:'info',priority:2,category:'CLOSE',owner:'PAYROLL_PROCESSOR',
+      });
+    }
+    if (invoiceStatus === 'DRAFT') {
+      return result('SUBMIT_INVOICE','Submit Invoice','Invoice draft is ready to be submitted for Controller review.','billing',{
+        actionable:true,tone:'warning',priority:2,category:'CLOSE',owner:'PAYROLL_PROCESSOR',
+      });
+    }
+    if (invoiceStatus === 'UNDER_REVIEW') {
+      return result('WAIT_INVOICE_APPROVAL','Waiting for Invoice Approval','Controller review is required before invoice issuance.','billing',{
+        actionable:false,tone:'info',priority:4,category:'WAIT',owner:'PAYROLL_CONTROLLER',
+      });
+    }
+    if (['APPROVED','ISSUED','PARTIALLY_PAID','PAID'].includes(invoiceStatus)) {
+      return result('WAIT_PERIOD_CLOSE','Waiting for Period Close','Billing is ready or issued. Controller must complete period close.','billing',{
+        actionable:false,tone:'info',priority:4,category:'WAIT',owner:'PAYROLL_CONTROLLER',
+      });
+    }
+    return result('CONTINUE_CLOSE','Continue Closing','Complete billing preparation before final period close.','billing',{
       actionable:true,tone:'info',priority:3,category:'CLOSE',owner:'PAYROLL_PROCESSOR',
     });
   }
@@ -249,10 +270,42 @@ function controllerAction(context, stage) {
   }
 
   if (stage.stage === 'CLOSE') {
-    return result(stage.isTerminal?'REVIEW_BILLING':'CONTINUE_CLOSE',stage.isTerminal?'Review Billing & Close':'Continue Closing',
-      stage.isTerminal?'Payroll payment is complete. Review billing and closing status.':'Complete reconciliation before final closing.','billing',{
-        actionable:true,tone:'info',priority:3,category:'CLOSE',owner:'PAYROLL_CONTROLLER',
+    const recStatus = normalize(context.reconciliationStatus ?? context.recStatus);
+    const invoiceStatus = normalize(context.invoiceStatus);
+    const periodStatus = normalize(context.periodStatus);
+    if (periodStatus === 'CLOSED') {
+      return result('VIEW_CLOSED_CYCLE','View Closed Cycle','Payroll cycle is formally closed.','billing',{
+        actionable:false,tone:'success',priority:5,category:'MONITOR',owner:'PAYROLL_CONTROLLER',
       });
+    }
+    if (!(recStatus === 'MATCHED' || state === 'COMPLETED')) {
+      return result('RECONCILE_PAYMENT','Complete Reconciliation','Payment must be matched before billing and period close.','payments',{
+        actionable:true,tone:'warning',priority:2,category:'RECONCILIATION',owner:'PAYROLL_CONTROLLER',
+      });
+    }
+    if (!invoiceStatus || invoiceStatus === 'DRAFT') {
+      return result('WAIT_BILLING_PREPARATION','Waiting for Billing Preparation','Processor must prepare and submit the invoice.','billing',{
+        actionable:false,tone:'info',priority:4,category:'WAIT',owner:'PAYROLL_PROCESSOR',
+      });
+    }
+    if (invoiceStatus === 'UNDER_REVIEW') {
+      return result('REVIEW_INVOICE','Review Invoice','Invoice is waiting for Controller approval.','billing',{
+        actionable:true,tone:'warning',priority:2,category:'CLOSE',owner:'PAYROLL_CONTROLLER',
+      });
+    }
+    if (invoiceStatus === 'APPROVED') {
+      return result('ISSUE_INVOICE','Issue Invoice','Approved invoice must be issued before closing the payroll period.','billing',{
+        actionable:true,tone:'warning',priority:2,category:'CLOSE',owner:'PAYROLL_CONTROLLER',
+      });
+    }
+    if (['ISSUED','PARTIALLY_PAID','PAID'].includes(invoiceStatus)) {
+      return result('CLOSE_PAY_RUN','Close Payroll Period','Payment is reconciled and invoice is issued. Formally close the payroll period.','billing',{
+        actionable:true,tone:'warning',priority:2,category:'CLOSE',workflowCommand:'CLOSE_PAY_RUN',owner:'PAYROLL_CONTROLLER',
+      });
+    }
+    return result('CONTINUE_CLOSE','Continue Closing','Complete billing and final period close.','billing',{
+      actionable:true,tone:'info',priority:3,category:'CLOSE',owner:'PAYROLL_CONTROLLER',
+    });
   }
 
   return MONITOR.payroll();
@@ -296,7 +349,8 @@ export function derivePayrollNextAction(context = {}) {
   else if (role === 'SUPER_ADMIN') {
     const state = normalize(context.state ?? context.submissionState);
     const controllerOwned = ['CONTROLLER_REVIEW','DATA_APPROVED','PAYROLL_FINALIZED','PAYMENT_APPROVAL_PENDING'].includes(state)
-      || normalize(context.paymentInstructionStatus ?? context.piStatus) === 'PAYMENT_APPROVAL_PENDING';
+      || normalize(context.paymentInstructionStatus ?? context.piStatus) === 'PAYMENT_APPROVAL_PENDING'
+      || (stage.stage === 'CLOSE' && ['UNDER_REVIEW','APPROVED','ISSUED','PARTIALLY_PAID','PAID'].includes(normalize(context.invoiceStatus)));
     action = controllerOwned ? controllerAction(context, stage) : processorAction(context, stage);
   } else if (CONTROLLER_ROLES.has(role)) action = controllerAction(context, stage);
   else if (PROCESSOR_ROLES.has(role)) action = processorAction(context, stage);

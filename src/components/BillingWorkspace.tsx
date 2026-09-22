@@ -3,20 +3,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatIDR } from "@/lib/format";
+import { executeOperatingAction, listOperatingResource } from "@/lib/operating-model-api";
 
 type Actor = { email: string; role: string };
-type Section = "invoice" | "tax" | "ar" | "setup";
+type Section = "invoice" | "tax" | "ar" | "close" | "setup";
 type BillingData = {
   clients: any[];
   billablePayments: any[];
   invoices: any[];
   arItems: any[];
+  submissions: any[];
 };
 
 const sections: Record<Section, string> = {
   invoice: "Invoice",
   tax: "Faktur Pajak",
   ar: "AR Monitoring",
+  close: "Cycle Close",
   setup: "Billing Setup",
 };
 
@@ -25,6 +28,7 @@ const initialData: BillingData = {
   billablePayments: [],
   invoices: [],
   arItems: [],
+  submissions: [],
 };
 
 export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
@@ -42,13 +46,14 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/billing", {
-        credentials: "same-origin",
-      });
+      const [response, operating] = await Promise.all([
+        fetch("/api/billing", { credentials: "same-origin" }),
+        listOperatingResource("submissions"),
+      ]);
       const body = await response.json();
       if (!response.ok)
         throw new Error(body.error || `HTTP ${response.status}`);
-      setData({ ...initialData, ...body });
+      setData({ ...initialData, ...body, submissions: operating.submissions || [] });
     } catch (error) {
       setNotice(
         error instanceof Error ? error.message : "Gagal memuat Billing & AR",
@@ -136,11 +141,19 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
 
   const totals = useMemo(() => {
     const open = data.arItems.filter((r) => Number(r.balance) > 0);
+    const closeReady = data.submissions.filter((r) =>
+      r.period_status !== "CLOSED" &&
+      r.state === "COMPLETED" &&
+      r.payment_status === "COMPLETED" &&
+      r.reconciliation_status === "MATCHED" &&
+      ["ISSUED", "PARTIALLY_PAID", "PAID"].includes(r.invoice_status),
+    ).length;
     return {
       billable: data.billablePayments.length,
       review: data.invoices.filter((r) =>
         ["DRAFT", "UNDER_REVIEW"].includes(r.status),
       ).length,
+      closeReady,
       outstanding: open.reduce((n, r) => n + Number(r.balance || 0), 0),
       overdue: open
         .filter((r) => Number(r.aging_days) > 0)
@@ -181,6 +194,22 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
       billingTaxRate: row.billing_tax_rate ?? 11,
     });
     setModal({ kind: "setup", row });
+  }
+
+  async function closePayRun(row: any) {
+    if (!window.confirm(`Tutup payroll ${row.period} untuk ${row.client_name || row.client_id}? AR tetap dipantau setelah period close.`)) return;
+    setNotice("Memproses…");
+    try {
+      await executeOperatingAction({
+        action: "CLOSE_PAY_RUN",
+        submissionId: row.id,
+        confirmation: "TUTUP PERIODE",
+      });
+      await load();
+      setNotice("Payroll period berhasil ditutup. AR tetap aktif sampai pelunasan.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Period close gagal");
+    }
   }
 
   async function followUp(row: any) {
@@ -270,6 +299,11 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
           note="Menunggu tindakan"
         />
         <Metric
+          label="Ready to close"
+          value={String(totals.closeReady)}
+          note="Reconcile + invoice complete"
+        />
+        <Metric
           label="Outstanding AR"
           value={formatIDR(totals.outstanding)}
           note="Saldo piutang"
@@ -335,6 +369,13 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
           canFollow={canControl || canPrepare}
           payment={openPayment}
           follow={followUp}
+        />
+      )}
+      {section === "close" && (
+        <CloseSection
+          rows={data.submissions}
+          canControl={canControl}
+          close={closePayRun}
         />
       )}
       {section === "setup" && (
@@ -416,6 +457,45 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
       )}
     </div>
   );
+}
+
+function CloseSection({ rows, canControl, close }: any) {
+  const closeRows = rows
+    .filter((r: any) => r.state === "COMPLETED" || r.period_status === "CLOSED")
+    .sort((a: any, b: any) => String(b.period || "").localeCompare(String(a.period || "")));
+  const readiness = (r: any) => {
+    if (r.period_status === "CLOSED") return { ready: false, label: "Closed", detail: "Period sudah ditutup." };
+    if (r.payment_status !== "COMPLETED") return { ready: false, label: "Payment", detail: "Payment belum completed." };
+    if (r.reconciliation_status !== "MATCHED") return { ready: false, label: "Reconcile", detail: "Reconciliation belum matched." };
+    if (!r.invoice_status) return { ready: false, label: "Invoice", detail: "Invoice belum dibuat." };
+    if (["DRAFT","UNDER_REVIEW","APPROVED"].includes(r.invoice_status)) return { ready: false, label: "Invoice", detail: `Invoice masih ${String(r.invoice_status).replaceAll("_"," ")}.` };
+    if (!["ISSUED","PARTIALLY_PAID","PAID"].includes(r.invoice_status)) return { ready: false, label: "Review", detail: "Status invoice belum memenuhi close readiness." };
+    return { ready: true, label: "Ready", detail: "Payment matched dan invoice sudah diterbitkan." };
+  };
+  return <Panel
+    title="Payroll Cycle Close"
+    detail="Close dilakukan setelah payment completed, reconciliation matched, dan invoice issued. Outstanding AR tetap dipantau terpisah."
+  >
+    {closeRows.length ? <Table
+      headers={["Klien / Project","Periode","Payment","Reconcile","Invoice","Period","Aksi"]}
+      rows={closeRows.map((r:any)=>{
+        const status=readiness(r);
+        return [
+          <div key="c"><strong>{r.client_name||r.client_id}</strong><small>{r.project_name||"-"}</small></div>,
+          r.period||"-",
+          <Badge key="p" text={r.payment_status||"PENDING"} />,
+          <Badge key="r" text={r.reconciliation_status||"PENDING"} />,
+          <Badge key="i" text={r.invoice_status||"NOT_CREATED"} />,
+          <Badge key="s" text={r.period_status||"OPEN"} />,
+          r.period_status==="CLOSED"
+            ? <small key="a">Closed by {r.closed_by||"-"}</small>
+            : status.ready && canControl
+              ? <button key="a" style={button} onClick={()=>close(r)}>Close period</button>
+              : <small key="a">{status.detail}</small>,
+        ];
+      })}
+    /> : <Empty text="Belum ada payroll pada tahap close." />}
+  </Panel>;
 }
 
 function InvoiceSection({

@@ -76,11 +76,19 @@ test('reconciled payroll remains active through Billing & Close until invoice/AR
   assert.equal(action.code,'PREPARE_BILLING');
   assert.equal(action.actionable,true);
 
-  stage=derivePayrollBusinessStage({state:'COMPLETED',reconciliationStatus:'MATCHED',invoiceStatus:'PAID',arStatus:'PAID'});
+  stage=derivePayrollBusinessStage({state:'COMPLETED',reconciliationStatus:'MATCHED',invoiceStatus:'PAID',arStatus:'PAID',periodStatus:'OPEN'});
+  assert.equal(stage.isTerminal,false);
+  assert.equal(stage.status,'PROCESSING');
+
+  action=derivePayrollNextAction({role:'PAYROLL_PROCESSOR',state:'COMPLETED',reconciliationStatus:'MATCHED',invoiceStatus:'PAID',arStatus:'PAID',periodStatus:'OPEN'});
+  assert.equal(action.code,'WAIT_PERIOD_CLOSE');
+  assert.equal(action.actionable,false);
+
+  stage=derivePayrollBusinessStage({state:'COMPLETED',reconciliationStatus:'MATCHED',invoiceStatus:'PAID',arStatus:'PAID',periodStatus:'CLOSED'});
   assert.equal(stage.isTerminal,true);
   assert.equal(stage.status,'COMPLETED');
 
-  action=derivePayrollNextAction({role:'PAYROLL_PROCESSOR',state:'COMPLETED',reconciliationStatus:'MATCHED',invoiceStatus:'PAID',arStatus:'PAID'});
+  action=derivePayrollNextAction({role:'PAYROLL_PROCESSOR',state:'COMPLETED',reconciliationStatus:'MATCHED',invoiceStatus:'PAID',arStatus:'PAID',periodStatus:'CLOSED'});
   assert.equal(action.code,'VIEW_CLOSED_CYCLE');
   assert.equal(action.actionable,false);
 });

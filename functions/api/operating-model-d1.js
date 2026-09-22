@@ -104,6 +104,17 @@ const SUBMISSION_SELECT = `SELECT s.*, c.name AS client_name, p.name AS project_
   (SELECT COUNT(*) FROM payroll_exceptions pe WHERE pe.submission_id=s.id) AS exception_count,
   (SELECT COUNT(*) FROM payroll_exceptions pe WHERE pe.submission_id=s.id AND pe.severity='CRITICAL'
     AND pe.status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')) AS blocking_count,
+  (SELECT pi_status.status FROM payment_instructions pi_status
+    WHERE pi_status.submission_id=s.id AND pi_status.org_id=s.org_id AND pi_status.status<>'REJECTED'
+    ORDER BY pi_status.updated_at DESC,pi_status.created_at DESC LIMIT 1) AS payment_status,
+  (SELECT r.status FROM reconciliations r
+    JOIN payment_instructions pi_rec ON pi_rec.id=r.payment_instruction_id
+    WHERE pi_rec.submission_id=s.id AND pi_rec.org_id=s.org_id
+    ORDER BY r.created_at DESC LIMIT 1) AS reconciliation_status,
+  (SELECT i.id FROM invoices i
+    JOIN payment_instructions pi_invoice_id ON pi_invoice_id.id=i.payment_instruction_id
+    WHERE pi_invoice_id.submission_id=s.id AND i.org_id=s.org_id
+    ORDER BY i.updated_at DESC LIMIT 1) AS invoice_id,
   (SELECT i.status FROM invoices i
     JOIN payment_instructions pi_invoice ON pi_invoice.id=i.payment_instruction_id
     WHERE pi_invoice.submission_id=s.id AND i.org_id=s.org_id
@@ -337,6 +348,36 @@ async function readResource(database, params, actor, env, organizationId) {
 function auditOperation(organizationId, actor, action, detail, entity, entityId) {
   return { statement: `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
     VALUES (?,?,?,?,?,?,?,?)`, bindings: [`AUD-${crypto.randomUUID()}`, organizationId, actor.email, actor.role, action, detail, entity, entityId] };
+}
+
+async function getCloseReadiness(database, organizationId, submission) {
+  const payment = await d1First(database, `SELECT * FROM payment_instructions
+    WHERE submission_id=? AND org_id=? AND status<>'REJECTED'
+    ORDER BY updated_at DESC,created_at DESC LIMIT 1`, [submission.id, organizationId]);
+  const reconciliation = payment ? await d1First(database,
+    'SELECT * FROM reconciliations WHERE payment_instruction_id=? ORDER BY created_at DESC LIMIT 1', [payment.id]) : null;
+  const invoice = payment ? await d1First(database,
+    'SELECT * FROM invoices WHERE payment_instruction_id=? AND org_id=? ORDER BY updated_at DESC LIMIT 1', [payment.id, organizationId]) : null;
+  const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
+    AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
+  const reasons = [];
+  if (submission.input_status !== 'READY') reasons.push('PAYROLL_INPUT_NOT_FINAL');
+  if (submission.state !== 'COMPLETED') reasons.push('PAYROLL_NOT_RECONCILED');
+  if (!payment || payment.status !== 'COMPLETED') reasons.push('PAYMENT_NOT_COMPLETED');
+  if (!reconciliation || reconciliation.status !== 'MATCHED') reasons.push('RECONCILIATION_NOT_MATCHED');
+  if (!invoice || !['ISSUED','PARTIALLY_PAID','PAID'].includes(String(invoice.status || ''))) reasons.push('INVOICE_NOT_ISSUED');
+  if (Number(blocking?.count || 0) > 0) reasons.push('CRITICAL_EXCEPTIONS_OPEN');
+  return {
+    ready: reasons.length === 0,
+    reasons,
+    paymentInstructionId: payment?.id || null,
+    paymentStatus: payment?.status || null,
+    reconciliationStatus: reconciliation?.status || null,
+    invoiceId: invoice?.id || null,
+    invoiceStatus: invoice?.status || null,
+    arCollectionStatus: invoice?.status === 'PAID' ? 'PAID' : invoice ? 'OPEN' : null,
+    blockingCount: Number(blocking?.count || 0),
+  };
 }
 
 async function validateCanonicalPayRunSnapshot(database, submission, actor, organizationId) {
@@ -701,12 +742,27 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'CLOSE_PAY_RUN') {
-    if (!CONTROLLER_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
+    if (!CONTROLLER_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Controller yang dapat menutup periode' } };
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
     if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
-    if (submission.input_status!=='READY' || !['PAYROLL_FINALIZED','COMPLETED'].includes(submission.state)) return { status:409, data:{ error:'Pay Run hanya dapat ditutup setelah input final dan payroll finalized' } };
-    const row = await d1First(database, `UPDATE payroll_submissions SET period_status='CLOSED',closed_at=${NOW},closed_by=?,updated_at=${NOW} WHERE id=? RETURNING *`, [actor.email,submission.id]);
-    return { data:{ ok:true,submission:row } };
+    const readiness = await getCloseReadiness(database, organizationId, submission);
+    if (submission.period_status === 'CLOSED') {
+      return { data:{ ok:true,submission,readiness:{...readiness,ready:true},idempotentReplay:true } };
+    }
+    if (!readiness.ready) return { status:409, data:{
+      error:'Pay Run belum memenuhi close readiness. Selesaikan payment, rekonsiliasi, dan penerbitan invoice terlebih dahulu.',
+      code:'CLOSE_READINESS_REQUIRED',
+      readiness,
+    } };
+    await d1Batch(database, [
+      { statement:`UPDATE payroll_submissions SET period_status='CLOSED',closed_at=${NOW},closed_by=?,updated_at=${NOW} WHERE id=? AND period_status='OPEN'`,
+        bindings:[actor.email,submission.id] },
+      auditOperation(organizationId,actor,'PAY_RUN_CLOSED',
+        `Payment ${readiness.paymentStatus} · reconciliation ${readiness.reconciliationStatus} · invoice ${readiness.invoiceStatus}`,
+        'payroll_submission',submission.id),
+    ]);
+    const row = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=?', [submission.id]);
+    return { data:{ ok:true,submission:row,readiness } };
   }
 
   if (body.action === 'REOPEN_PAY_RUN') {

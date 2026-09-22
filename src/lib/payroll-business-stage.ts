@@ -20,6 +20,7 @@ export type PayrollBusinessContext = {
   recStatus?: unknown;
   invoiceStatus?: unknown;
   arStatus?: unknown;
+  periodStatus?: unknown;
   blockingCount?: number | string | null;
   openExceptionCount?: number | string | null;
   exceptionCount?: number | string | null;
