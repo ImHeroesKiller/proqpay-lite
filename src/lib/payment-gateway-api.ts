@@ -2,6 +2,7 @@ export type PaymentGatewayReadiness = {
   configured: boolean;
   provider: string;
   reason?: string | null;
+  environment?: string | null;
 };
 
 export type PaymentGatewayTransaction = {
@@ -18,6 +19,30 @@ export type PaymentGatewayTransaction = {
   created_at: string;
   updated_at: string;
   paid_at?: string | null;
+};
+
+
+export type PaymentGatewayItem = {
+  id: string;
+  payment_instruction_line_id: string;
+  employee_id?: string | null;
+  provider: string;
+  client_ref: string;
+  bank_id?: string | null;
+  beneficiary_name: string;
+  provider_beneficiary_name?: string | null;
+  account_last4: string;
+  amount: number;
+  fee_amount: number;
+  journal_id?: string | null;
+  correlation_id?: string | null;
+  response_code?: string | null;
+  response_message?: string | null;
+  status: 'CREATED' | 'INQUIRY_READY' | 'PENDING' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN';
+  attempt_count: number;
+  last_checked_at?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
 };
 
 export type HostedPaymentSession = {
@@ -53,6 +78,7 @@ export async function getPaymentGatewayStatus(paymentInstructionId?: string) {
     ok: true;
     gateway: PaymentGatewayReadiness;
     transaction?: PaymentGatewayTransaction | null;
+    items?: PaymentGatewayItem[];
   }>;
 }
 
@@ -60,12 +86,36 @@ export async function executeSeamlessPayment(paymentInstructionId: string, payme
   return parseResponse(await fetch('/api/payment-gateway', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paymentInstructionId, paymentMethod }),
+    body: JSON.stringify({ paymentInstructionId, paymentMethod, action:'EXECUTE' }),
   })) as Promise<{
     ok: true;
     gateway: PaymentGatewayReadiness;
     transaction: PaymentGatewayTransaction;
     idempotentReplay?: boolean;
+  }>;
+}
+
+
+export async function reconcileE2PayPayment(paymentInstructionId: string) {
+  return parseResponse(await fetch('/api/payment-gateway', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paymentInstructionId, action:'RECONCILE' }),
+  })) as Promise<{
+    ok: boolean;
+    gateway: PaymentGatewayReadiness;
+    transaction: PaymentGatewayTransaction;
+    items?: PaymentGatewayItem[];
+    summary?: {
+      total: number;
+      succeeded: number;
+      processing: number;
+      failed: number;
+      ready: number;
+      amount: number;
+      fees: number;
+      requiredBalance: number;
+    };
   }>;
 }
 

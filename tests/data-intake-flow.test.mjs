@@ -28,6 +28,14 @@ test("latest confirmed employee data updates current master while preserving his
   assert.match(api, /action IN \('CREATED','UPDATED','MISSING_RESOLUTION'\)/);
 });
 
+test("employee lookup is client-scoped so identical employee codes cannot cross clients", () => {
+  assert.match(
+    api,
+    /SELECT \* FROM employees WHERE org_id=\? AND client_id=\? AND UPPER\(COALESCE\(employee_code,id\)\)=UPPER\(\?\) LIMIT 1/,
+  );
+  assert.match(api, /\[orgId, submission\.client_id, code\]/);
+});
+
 test("missing employees require an explicit period resolution and no-pay does not force resignation", () => {
   assert.match(api, /MISSING_EMPLOYEE_RESOLUTION_REQUIRED/);
   assert.match(api, /NO_PAY_THIS_PERIOD/);

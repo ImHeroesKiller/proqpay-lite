@@ -57,6 +57,7 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
   const origin = useMemo(() => typeof window === 'undefined' ? '' : window.location.origin, []);
   const webhookUrl = origin ? `${origin}/api/payment-gateway-webhook` : '/api/payment-gateway-webhook';
   const hostedReturnUrl = origin ? `${origin}/api/payment-gateway-hosted-return` : '/api/payment-gateway-hosted-return';
+  const isE2Pay = provider === 'E2PAY';
 
   async function copy(label: string, value: string) {
     try {
@@ -111,18 +112,28 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
       </div>
     </div>
 
-    <div style={{ display:'grid', gap:9 }}>
+    {isE2Pay ? <div style={{ display:'grid', gap:7 }}>
+      <strong style={{ fontSize:12 }}>E2Pay status strategy</strong>
+      <span style={{ color:'var(--text3)', fontSize:11.5 }}>
+        {runtime.seamless?.environment || 'UAT'} · status 96/unknown direkonsiliasi melalui Transaction History berdasarkan clientRef. Adapter ini tidak menganggap browser return atau webhook sebagai bukti pembayaran.
+      </span>
+    </div> : <div style={{ display:'grid', gap:9 }}>
       <strong style={{ fontSize:12 }}>Provider callback endpoints</strong>
       <div style={endpointStyle}><code style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:11 }}>{webhookUrl}</code><button className="btn" type="button" onClick={() => void copy('webhook', webhookUrl)}>{copied === 'webhook' ? 'Copied' : 'Copy webhook'}</button></div>
       <div style={endpointStyle}><code style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:11 }}>{hostedReturnUrl}</code><button className="btn" type="button" onClick={() => void copy('return', hostedReturnUrl)}>{copied === 'return' ? 'Copied' : 'Copy return'}</button></div>
-    </div>
+    </div>}
 
     <details style={{ borderTop:'1px solid var(--border-soft)', paddingTop:10 }}>
       <summary style={{ cursor:'pointer', fontSize:12, fontWeight:650 }}>Runtime configuration checklist</summary>
       <div style={{ display:'grid', gap:6, marginTop:10, color:'var(--text3)', fontSize:11.5 }}>
         <span><code>PAYMENT_GATEWAY_PROVIDER</code> — provider adapter aktif.</span>
-        <span><code>PAYMENT_GATEWAY_WEBHOOK_SECRET</code> — secret signature callback, Cloudflare Secret only.</span>
-        <span><code>PAYMENT_GATEWAY_HOSTED_ENABLED</code> — aktifkan Hosted setelah adapter provider lolos sandbox.</span>
+        {isE2Pay ? <>
+          <span><code>E2PAY_ENV</code> — UAT atau PRODUCTION; host dipilih server-side.</span>
+          <span><code>E2PAY_CLIENT_ID / E2PAY_CLIENT_SECRET</code> — Cloudflare Secret.</span>
+          <span><code>E2PAY_USERNAME / E2PAY_PASSWORD_MD5</code> — credential merchant server-side.</span>
+          <span><code>E2PAY_ACCOUNT_SRC / E2PAY_SOURCE_ID</code> — source account dan source ID dari E2Pay.</span>
+        </> : <span><code>PAYMENT_GATEWAY_WEBHOOK_SECRET</code> — secret signature callback, Cloudflare Secret only.</span>}
+        <span><code>PAYMENT_GATEWAY_HOSTED_ENABLED</code> — aktifkan Hosted hanya jika adapter hosted tersedia.</span>
         <span><code>PAYMENT_GATEWAY_HOSTED_TTL_SECONDS</code> — TTL Hosted session, default 900 detik.</span>
       </div>
     </details>

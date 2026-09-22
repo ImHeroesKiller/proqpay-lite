@@ -1,4 +1,5 @@
 import { sha256Hex } from './payment-instruction-core.js';
+import { e2payReadiness } from './payment-gateway-e2pay.js';
 
 const ACTIVE_STATUSES = new Set(['CREATED', 'PENDING', 'PROCESSING']);
 const TERMINAL_STATUSES = new Set(['SUCCEEDED', 'FAILED', 'EXPIRED', 'CANCELLED']);
@@ -39,6 +40,7 @@ export function gatewayReadiness(env = {}) {
     const enabled = String(env.PAYMENT_GATEWAY_ALLOW_MOCK || '').toLowerCase() === 'true';
     return { configured: enabled, provider, reason: enabled ? null : 'MOCK adapter dinonaktifkan. Set PAYMENT_GATEWAY_ALLOW_MOCK=true hanya untuk UAT.' };
   }
+  if (provider === 'E2PAY') return e2payReadiness(env);
   return { configured: false, provider, reason: `Adapter ${provider} belum tersedia. Tambahkan adapter sesuai spesifikasi resmi provider sebelum production.` };
 }
 
