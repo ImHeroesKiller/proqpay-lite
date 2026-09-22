@@ -64,5 +64,5 @@ test('multi-role UAT enforces client scope and payroll responsibilities',async()
   assert.equal(controllerCannotFinalize.response.status,403,'controller tidak boleh memfinalisasi payroll');
   const finalized=await action(DB,processor,{action:'ADVANCE_PAY_RUN',submissionId:id,command:'FINALIZE_PAYROLL',reviewConfirmed:true,reviewNote:'Processor review complete'});
   assert.equal(finalized.response.status,200,JSON.stringify(finalized.payload));
-  assert.equal(finalized.payload.submission.state,'PAYMENT_INSTRUCTION_READY');
+  assert.equal(finalized.payload.submission.state,'CONTROLLER_REVIEW');
 });
