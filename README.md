@@ -23,12 +23,18 @@ Built with **Next.js 16** · static export for **Cloudflare Pages** with Pages F
 ## Role experience
 
 - **Payroll Processor / Controller** memakai workspace internal berbasis business stage `Prepare → Review → Approve → Pay → Close`.
-- **Client User (Phase 4)** hanya melihat tiga area utama: **Home · Payroll · Documents**.
+- **Client User** hanya melihat tiga area utama: **Home · Payroll · Documents**.
   - Home: Needs Your Attention, For Approval, Payment Status, Documents.
-  - Payroll: data intake, koreksi data, status payroll, dan status pembayaran dengan bahasa bisnis.
+  - Payroll: data intake, koreksi data, status payroll, client payroll approval, dan status pembayaran dengan bahasa bisnis.
   - Documents: invoice, payment history, payroll register, dan payslip register sesuai scope akun.
 - Route client lama untuk Exceptions/Payment/Billing dinormalisasi ke Payroll atau Documents agar bookmark lama tetap aman.
-- **Batas Phase 4:** belum mengaktifkan mutasi approval payroll oleh Client User. Client payroll approval tetap scope Phase 5.
+- **Phase 5 — Client Payroll Approval:** workflow canonical menjadi `Processor Finalize → Controller Review → Client Approval Pending → Client Approved / Revision Requested → Processor Generate PI`.
+  - Client hanya dapat approve/reject payroll pada client/project scope miliknya sendiri.
+  - Client approval adalah sign-off hasil payroll, **bukan** approval Payment Instruction atau eksekusi pembayaran.
+  - Critical exception aktif memblokir client approval.
+  - Approval/revision memakai explicit confirmation, metadata reviewer, dan immutable audit trail.
+  - Permintaan revisi mengembalikan payroll ke Processor untuk koreksi, revalidasi, Controller review, dan client approval ulang.
+  - Maker-checker PI/payment, SoD Processor–Controller, bank snapshot, reconciliation, dan billing flow tetap dipertahankan.
 
 ## Local development
 
