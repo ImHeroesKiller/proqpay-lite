@@ -231,9 +231,9 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
     if (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && row.state === 'DATA_APPROVED') return 'PAYMENT_INSTRUCTION_READY';
     if (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && row.state === 'PAYROLL_FINALIZED') return 'PAYMENT_INSTRUCTION_READY';
     if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && row.state === 'PAYMENT_INSTRUCTION_READY') return 'GENERATE_PAYMENT_INSTRUCTION';
+    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && row.state === 'EXCEPTION_FOUND') return undefined;
     if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && validationStates.has(row.state)) return 'ADVANCE_VALIDATE';
     if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && ['VALIDATED','STANDARDIZED'].includes(row.state)) return 'ADVANCE_FINALIZE';
-    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && row.state === 'EXCEPTION_FOUND') return 'CLIENT_ACTION_REQUIRED';
     return undefined;
   }
   function openReview(row:any) {
@@ -273,6 +273,7 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
       {runDetail?<PayRunLineTable detail={runDetail} editable={['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.period_status!=='CLOSED'&&['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(selected.state)} onEdit={async(line,gross,deduction,included)=>{await act({action:'UPDATE_PAY_RUN_LINE',submissionId:selected.id,employeeId:line.employee_id,grossAmount:gross,deductionAmount:deduction,netAmount:gross-deduction,included},'Data bulanan karyawan diperbarui');setSelected(null);}}/>:null}
       {selected.source_mode==='UPLOAD_FINAL'&&selected.state==='DRAFT'&&selected.period_status!=='CLOSED'?<PayRunUpload submission={selected} onImported={async(total)=>{await act({},`File payroll final berhasil dimuat: ${total} penerima`);setSelected(null);}}/>:null}
       <div className="payroll-review-alert"><strong>{Number(selected.blocking_count || 0)} blocker · {Number(selected.exception_count || 0)} total temuan</strong><span>{Number(selected.blocking_count || 0) ? 'Temuan kritis harus diselesaikan sebelum approval.' : 'Tidak ada temuan kritis yang memblokir tahap berikutnya.'}</span></div>
+      {selected.state==='EXCEPTION_FOUND' && ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) ? <div className="directory-hint"><strong>Perbaikan wajib diproses per temuan.</strong> <a className="btn" href="?view=actions">Buka Exception Center</a></div> : null}
       <div className="directory-form-grid"><label>Periode payroll<input type="month" value={selected.period} readOnly /></label><label>Periode pembayaran<input type="month" value={paymentPeriod} readOnly={role==='CLIENT_USER'} onChange={(event) => setPaymentPeriod(event.target.value)} /></label></div>
       <label>Periode rapel (opsional)<input value={arrearsText} placeholder="Contoh: 2026-05, 2026-06" onChange={(event) => setArrearsText(event.target.value)} /></label>
       <p className="directory-hint">Periode payroll mengikuti sumber data. Periode pembayaran menentukan bulan pencairan; rapel mencatat periode tambahan yang dibayarkan bersamaan.</p>
