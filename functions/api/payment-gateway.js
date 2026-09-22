@@ -152,7 +152,7 @@ export async function onRequest(context) {
       return secureJson({ error: 'Beneficiary snapshot tidak sesuai control total', code: 'PAYMENT_BENEFICIARY_TOTAL_MISMATCH' }, 409, request, env, METHODS);
     }
 
-    const transactionId = transaction?.id || `PGT-${crypto.randomUUID()}`;
+    let transactionId = transaction?.id || `PGT-${crypto.randomUUID()}`;
     if (!transaction) {
       try {
         await d1Batch(database, [{
@@ -165,6 +165,7 @@ export async function onRequest(context) {
       } catch (error) {
         if (!/UNIQUE constraint failed|idx_one_active_gateway_transaction/i.test(String(error?.message || error))) throw error;
         transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE idempotency_key=? LIMIT 1', [idempotencyKey]);
+        if (transaction) transactionId = transaction.id;
         if (transaction && (readiness.provider !== 'E2PAY' || transaction.status === 'SUCCEEDED')) return secureJson({ ok: true, transaction, idempotentReplay: true, gateway: readiness }, 200, request, env, METHODS);
         if (!transaction) throw error;
       }
