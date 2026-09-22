@@ -6,6 +6,7 @@ import { executeOperatingAction, getPayRunDetail, getPaymentInstructionDetail, l
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
+import { derivePayrollNextAction } from '@/lib/payroll-next-action';
 
 type WorkspaceMode = 'payruns' | 'actions' | 'payments' | 'billing';
 type Actor = { email: string; role: string; permissions?: string[]; clientIds?: string[]; projectIds?: string[] };
@@ -35,7 +36,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
     setLoading(true);
     setMessage('');
     try {
-      const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup']
+      const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup','payment-instructions']
         : mode === 'actions' ? ['submissions','exceptions']
         : mode === 'payments' ? ['submissions','payment-instructions','payment-proofs','reconciliations'] : [];
       const meResponse = await fetch('/api/me');
@@ -156,7 +157,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
       {loading ? <Empty title="Memuat data operasional…" /> : (
         <>
-          {mode === 'payruns' && <Submissions rows={visibleSubmissions} role={role} act={act} />}
+          {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} act={act} />}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
           {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace actor={actor} />}
@@ -216,7 +217,7 @@ function CreatePayRunWizard({clients,projects,servicePlans,submissions,onClose,o
   </div></div>,document.body);
 }
 
-function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+function Submissions({ rows, instructions, role, permissions, act }: { rows: any[]; instructions:any[]; role: string; permissions:string[]; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
   const [selected, setSelected] = useState<any | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [reviewNote, setReviewNote] = useState('');
@@ -225,17 +226,22 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
   const [runDetail,setRunDetail]=useState<any|null>(null);
   const [runDetailLoading,setRunDetailLoading]=useState(false);
   if (!rows.length) return <Empty title="Belum ada payroll submission" detail="Submission baru akan tampil setelah service plan klien aktif dan data periode dikirim." />;
-  const validationStates = new Set(['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_RESUBMITTED','REVISION_REQUIRED']);
-  function nextFor(row:any) {
-    if (role === 'CLIENT_USER') return undefined;
-    if (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && row.state === 'CONTROLLER_REVIEW') return 'DATA_APPROVED';
-    if (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && row.state === 'DATA_APPROVED') return 'PAYMENT_INSTRUCTION_READY';
-    if (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && row.state === 'PAYROLL_FINALIZED') return 'PAYMENT_INSTRUCTION_READY';
-    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && row.state === 'PAYMENT_INSTRUCTION_READY') return 'GENERATE_PAYMENT_INSTRUCTION';
-    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && row.state === 'EXCEPTION_FOUND') return undefined;
-    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && validationStates.has(row.state)) return 'ADVANCE_VALIDATE';
-    if (['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && ['VALIDATED','STANDARDIZED'].includes(row.state)) return 'ADVANCE_FINALIZE';
-    return undefined;
+  const instructionBySubmission=new Map(instructions.map((row)=>[row.submission_id,row]));
+  function nextActionFor(row:any) {
+    const instruction=instructionBySubmission.get(row.id);
+    return derivePayrollNextAction({
+      role,
+      permissions,
+      state:row.state,
+      inputStatus:row.input_status,
+      sourceMode:row.source_mode,
+      periodStatus:row.period_status,
+      blockingCount:row.blocking_count,
+      exceptionCount:row.exception_count,
+      paymentInstructionStatus:instruction?.status,
+      hasPaymentInstruction:Boolean(instruction),
+      paymentInstructionId:instruction?.id,
+    });
   }
   function openReview(row:any) {
     setSelected(row); setConfirmed(false); setReviewNote('');
@@ -244,18 +250,21 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
     setRunDetail(null);setRunDetailLoading(true);
     void getPayRunDetail(row.id).then(setRunDetail).finally(()=>setRunDetailLoading(false));
   }
-  const actionName = (state:string) => ({ DRAFT:'Validasi Pay Run', SUBMITTED:'Validasi Pay Run', INGESTING:'Selesaikan validasi', AI_VALIDATING:'Selesaikan validasi', EXCEPTION_FOUND:'Validasi ulang', CLIENT_RESUBMITTED:'Validasi ulang', REVISION_REQUIRED:'Validasi ulang', VALIDATED:'Finalisasi Payroll', STANDARDIZED:'Finalisasi Payroll', CONTROLLER_REVIEW:'Setujui Data Payroll', DATA_APPROVED:'Siapkan Payment Instruction', PAYROLL_FINALIZED:'Siapkan Payment Instruction', PAYMENT_INSTRUCTION_READY:'Buat Payment Instruction' }[state] || 'Lihat detail');
   const table = <CardTable headers={['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={rows.map((r) => [
     <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id} · {String(r.run_type||'REGULAR').replaceAll('_',' ')}</small></div>,
     String(r.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' '),
     <Badge key="state" text={r.state} />,
     <div key="summary"><strong>{Number(r.employee_count || 0)} karyawan</strong><small style={small}>{formatIDR(Number(r.total_net || 0))} · {Number(r.blocking_count || 0)} blocker</small></div>,
     (() => {
-      return <button key="action" style={actionButton} onClick={() => openReview(r)}>Buka Pay Run</button>;
+      const nextAction=nextActionFor(r);
+      return nextAction.view==='operations'||nextAction.view==='exceptions'
+        ? <button key="action" style={actionButton} onClick={() => openReview(r)}>{nextAction.label}</button>
+        : <a key="action" className="btn" href={`?view=${nextAction.view}`}>{nextAction.label}</a>;
     })(),
   ])} />;
   if (!selected) return table;
-  const next = nextFor(selected);
+  const nextAction=nextActionFor(selected);
+  const next=nextAction.workflowCommand;
   const flowStates=PAYROLL_BUSINESS_STAGE_ORDER.map((stage)=>BUSINESS_STAGE_META[stage].label);
   const businessStage=derivePayrollBusinessStage({
     state:selected.state,
@@ -263,7 +272,7 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
     exceptionCount:selected.exception_count,
   });
   const currentFlowIndex=businessStage.index-1;
-  const reviewCheckpoint = next === 'ADVANCE_FINALIZE' || (['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role) && selected.state === 'CONTROLLER_REVIEW');
+  const reviewCheckpoint = next === 'ADVANCE_FINALIZE' || next === 'DATA_APPROVED';
   const arrears = [...new Set(arrearsText.split(/[,;\s]+/).map((item) => item.trim()).filter(Boolean))];
   return <>{table}{createPortal(<div className="directory-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
     <div className="directory-modal payroll-review-modal" role="dialog" aria-modal="true" aria-label="Review payroll submission">
@@ -271,7 +280,7 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
       <div className="payroll-review-meta"><div><span>Payroll</span><strong>{selected.period}</strong></div><div><span>Project</span><strong>{selected.project_name || '-'}</strong></div><div><span>Tier</span><strong>{String(selected.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' ')}</strong></div><div><span>Stage</span><strong>{businessStage.label}</strong><small>{String(selected.state||'').replaceAll('_',' ')}</small></div></div>
       <div className="pay-run-lifecycle"><span className={selected.input_status==='READY'?'ready':''}>Input {selected.input_status||'LEGACY'}</span><span>{String(selected.run_type||'REGULAR').replaceAll('_',' ')}</span><span>{String(selected.source_mode||'UPLOAD_FINAL').replaceAll('_',' ')}</span><span className={selected.period_status==='CLOSED'?'closed':''}>Periode {selected.period_status||'OPEN'}</span></div>
       <div className="pay-run-flow-guide" aria-label="Tahapan Pay Run menuju Payment Instruction">{flowStates.map((state,index)=><div key={state} className={index<currentFlowIndex?'done':index===currentFlowIndex?'current':''}><i>{index<currentFlowIndex?'✓':index+1}</i><span>{state}</span></div>)}</div>
-      <div className={`pay-run-next-action ${selected.input_status==='PENDING'?'pending':''}`}><strong>{selected.input_status==='PENDING'?'Input belum siap disubmit':next?`Aksi berikutnya: ${actionName(selected.state)}`:'Tidak ada aksi workflow untuk role ini'}</strong><span>{selected.input_status==='PENDING'?(selected.source_mode==='UPLOAD_FINAL'?'Upload file payroll final di bawah, periksa control total, lalu finalisasi input.':selected.source_mode==='MASTER_CURRENT'?'Hitung ulang dari master bila ada perubahan, periksa penerima, lalu finalisasi input.':'Lengkapi nominal dan rekening penerima sebelum finalisasi input.'):'Setelah aksi berhasil, status Pay Run berubah dan tetap dapat dipantau dari tabel Pay Runs.'}</span></div>
+      <div className={`pay-run-next-action ${nextAction.actionable?'':'pending'}`}><strong>{nextAction.actionable?`Next action: ${nextAction.label}`:nextAction.label}</strong><span>{nextAction.description}</span></div>
       <div className="payroll-review-totals"><div><span>Karyawan</span><strong>{Number(selected.employee_count || 0)}</strong></div><div><span>Gross</span><strong>{formatIDR(Number(selected.total_gross || 0))}</strong></div><div><span>Potongan</span><strong>{formatIDR(Number(selected.total_deduction || 0))}</strong></div><div><span>Net/THP</span><strong>{formatIDR(Number(selected.total_net || 0))}</strong></div></div>
       {runDetailLoading?<div className="directory-hint">Menghitung variance terhadap periode sebelumnya…</div>:runDetail?<div className="pay-run-variance"><div><span>Periode pembanding</span><strong>{runDetail.previousPeriod||'Periode pertama'}</strong></div><div><span>Variance THP</span><strong>{formatIDR(Number(runDetail.variance?.amount||0))}</strong><small>{runDetail.variance?.percent===null?'-':`${runDetail.variance.percent}%`}</small></div><div><span>Karyawan baru</span><strong>{runDetail.variance?.newEmployees||0}</strong></div><div><span>Berubah / keluar</span><strong>{runDetail.variance?.changedEmployees||0} / {runDetail.variance?.removedEmployees||0}</strong></div></div>:null}
       {runDetail?<PayRunLineTable detail={runDetail} editable={['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.period_status!=='CLOSED'&&['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(selected.state)} onEdit={async(line,gross,deduction,included)=>{await act({action:'UPDATE_PAY_RUN_LINE',submissionId:selected.id,employeeId:line.employee_id,grossAmount:gross,deductionAmount:deduction,netAmount:gross-deduction,included},'Data bulanan karyawan diperbarui');setSelected(null);}}/>:null}
@@ -283,7 +292,7 @@ function Submissions({ rows, role, act }: { rows: any[]; role: string; act: (p: 
       <p className="directory-hint">Periode payroll mengikuti sumber data. Periode pembayaran menentukan bulan pencairan; rapel mencatat periode tambahan yang dibayarkan bersamaan.</p>
       {role!=='CLIENT_USER'?<button type="button" className="btn" onClick={() => void act({ action:'UPDATE_SUBMISSION_PERIODS', submissionId:selected.id, paymentPeriod, arrearsPeriods:arrears }, 'Periode pembayaran dan rapel diperbarui')}>Simpan periode</button>:null}
       {reviewCheckpoint ? <><label>Catatan review<textarea rows={3} maxLength={1000} value={reviewNote} placeholder="Catatan akhir sebelum diserahkan ke tahap berikutnya" onChange={(event) => setReviewNote(event.target.value)} /></label><label className="payroll-review-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />Saya sudah memeriksa periode, jumlah karyawan, nilai payroll, dan exception.</label></> : null}
-      <div className="directory-modal-actions"><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button>{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.state==='DRAFT'&&selected.period_status!=='CLOSED'?<button type="button" className="btn btn-danger" onClick={()=>{const confirmation=window.prompt(`Hapus Pay Run ${selected.client_name||selected.client_id} periode ${selected.period}?\nKetik HAPUS PAY RUN untuk melanjutkan.`);if(confirmation==='HAPUS PAY RUN')void act({action:'DELETE_PAY_RUN',submissionId:selected.id,confirmation},'Pay Run dan snapshot input berhasil dihapus').then(()=>setSelected(null));}}>Hapus Pay Run</button>:null}{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.source_mode==='MASTER_CURRENT'&&selected.period_status!=='CLOSED'&&['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(selected.state)?<button type="button" className="btn" onClick={()=>void act({action:'REFRESH_PAY_RUN_FROM_MASTER',submissionId:selected.id},'Nominal Pay Run dihitung ulang dari master kompensasi').then(()=>setSelected(null))}>Hitung ulang dari master</button>:null}{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.input_status==='PENDING'?<button type="button" className="btn" onClick={()=>void act({action:'FINALIZE_PAY_RUN_INPUT',submissionId:selected.id,confirmation:'DATA PAYROLL FINAL'},'Input Pay Run berhasil difinalisasi').then(()=>setSelected(null))}>Finalisasi input</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status==='CLOSED'?<button type="button" className="btn" onClick={()=>{const reason=window.prompt('Alasan membuka kembali periode (minimal 10 karakter):');if(reason)void act({action:'REOPEN_PAY_RUN',submissionId:selected.id,reason,confirmation:'BUKA KEMBALI'},'Periode dibuka kembali untuk revisi').then(()=>setSelected(null));}}>Buka kembali</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status!=='CLOSED'&&['PAYROLL_FINALIZED','COMPLETED'].includes(selected.state)?<button type="button" className="btn" onClick={()=>{if(window.confirm('Tutup periode payroll ini? Snapshot tidak dapat diubah.'))void act({action:'CLOSE_PAY_RUN',submissionId:selected.id,confirmation:'TUTUP PERIODE'},'Periode payroll ditutup').then(()=>setSelected(null));}}>Tutup periode</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.state==='CONTROLLER_REVIEW'?<button type="button" className="btn" onClick={()=>{const reason=window.prompt('Alasan meminta revisi payroll (minimal 10 karakter):');if(reason&&reason.trim().length>=10)void act({action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:'REVISION_REQUIRED',reviewNote:reason.trim()},'Pay Run dikembalikan ke Processor untuk revisi').then(()=>setSelected(null));}}>Minta revisi</button>:null}{next ? <button type="button" className="btn btn-primary" disabled={(reviewCheckpoint && !confirmed)||selected.input_status==='PENDING'} onClick={() => {const payload=next==='GENERATE_PAYMENT_INSTRUCTION'?{action:next,submissionId:selected.id}:next.startsWith('ADVANCE_')?{action:'ADVANCE_PAY_RUN',submissionId:selected.id,command:next==='ADVANCE_VALIDATE'?'VALIDATE':next==='ADVANCE_FINALIZE'?'FINALIZE_PAYROLL':'VALIDATE',reviewConfirmed:true,reviewNote:reviewNote||undefined}:selected.state==='CONTROLLER_REVIEW'?{action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:next,reviewConfirmed:true,reviewNote:reviewNote||undefined}:{action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:next};void act(payload,next==='GENERATE_PAYMENT_INSTRUCTION'?'Payment Instruction draft berhasil dibuat':`${actionName(selected.state)} berhasil`).then(()=>setSelected(null));}}>{actionName(selected.state)}</button> : null}</div>
+      <div className="directory-modal-actions"><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button>{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.state==='DRAFT'&&selected.period_status!=='CLOSED'?<button type="button" className="btn btn-danger" onClick={()=>{const confirmation=window.prompt(`Hapus Pay Run ${selected.client_name||selected.client_id} periode ${selected.period}?\nKetik HAPUS PAY RUN untuk melanjutkan.`);if(confirmation==='HAPUS PAY RUN')void act({action:'DELETE_PAY_RUN',submissionId:selected.id,confirmation},'Pay Run dan snapshot input berhasil dihapus').then(()=>setSelected(null));}}>Hapus Pay Run</button>:null}{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.source_mode==='MASTER_CURRENT'&&selected.period_status!=='CLOSED'&&['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(selected.state)?<button type="button" className="btn" onClick={()=>void act({action:'REFRESH_PAY_RUN_FROM_MASTER',submissionId:selected.id},'Nominal Pay Run dihitung ulang dari master kompensasi').then(()=>setSelected(null))}>Hitung ulang dari master</button>:null}{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.input_status==='PENDING'?<button type="button" className="btn" onClick={()=>void act({action:'FINALIZE_PAY_RUN_INPUT',submissionId:selected.id,confirmation:'DATA PAYROLL FINAL'},'Input Pay Run berhasil difinalisasi').then(()=>setSelected(null))}>Finalisasi input</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status==='CLOSED'?<button type="button" className="btn" onClick={()=>{const reason=window.prompt('Alasan membuka kembali periode (minimal 10 karakter):');if(reason)void act({action:'REOPEN_PAY_RUN',submissionId:selected.id,reason,confirmation:'BUKA KEMBALI'},'Periode dibuka kembali untuk revisi').then(()=>setSelected(null));}}>Buka kembali</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status!=='CLOSED'&&['PAYROLL_FINALIZED','COMPLETED'].includes(selected.state)?<button type="button" className="btn" onClick={()=>{if(window.confirm('Tutup periode payroll ini? Snapshot tidak dapat diubah.'))void act({action:'CLOSE_PAY_RUN',submissionId:selected.id,confirmation:'TUTUP PERIODE'},'Periode payroll ditutup').then(()=>setSelected(null));}}>Tutup periode</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.state==='CONTROLLER_REVIEW'?<button type="button" className="btn" onClick={()=>{const reason=window.prompt('Alasan meminta revisi payroll (minimal 10 karakter):');if(reason&&reason.trim().length>=10)void act({action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:'REVISION_REQUIRED',reviewNote:reason.trim()},'Pay Run dikembalikan ke Processor untuk revisi').then(()=>setSelected(null));}}>Minta revisi</button>:null}{next ? <button type="button" className="btn btn-primary" disabled={(reviewCheckpoint && !confirmed)||selected.input_status==='PENDING'} onClick={() => {const payload=next==='GENERATE_PAYMENT_INSTRUCTION'?{action:next,submissionId:selected.id}:next.startsWith('ADVANCE_')?{action:'ADVANCE_PAY_RUN',submissionId:selected.id,command:next==='ADVANCE_VALIDATE'?'VALIDATE':'FINALIZE_PAYROLL',reviewConfirmed:true,reviewNote:reviewNote||undefined}:{action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:next,reviewConfirmed:true,reviewNote:reviewNote||undefined};void act(payload,next==='GENERATE_PAYMENT_INSTRUCTION'?'Payment Instruction draft berhasil dibuat':`${nextAction.label} berhasil`).then(()=>setSelected(null));}}>{nextAction.label}</button> : null}</div>
     </div>
   </div>, document.body)}</>;
 }
