@@ -122,7 +122,7 @@ function deriveBusinessStatus(stage, context, technicalState, piStatus, recStatu
     if (piStatus === 'PAYMENT_APPROVAL_PENDING' || technicalState === 'PAYMENT_APPROVAL_PENDING') return 'FOR_APPROVAL';
     return 'PROCESSING';
   }
-  if (recStatus === 'MATCHED' || ['COMPLETED','CLOSED'].includes(technicalState)
+  if (technicalState === 'CLOSED'
     || ['PAID','COMPLETED'].includes(normalize(context.invoiceStatus))
     || normalize(context.arStatus) === 'PAID') return 'COMPLETED';
   if (technicalState === 'PAYMENT_EXCEPTION' || recStatus === 'EXCEPTION') return 'ACTION_REQUIRED';
@@ -137,7 +137,7 @@ function reasonFor(stage, status, context, technicalState, piStatus, recStatus) 
   if (status === 'FOR_APPROVAL' && (technicalState === 'CONTROLLER_REVIEW' || technicalState === 'DATA_APPROVED')) return 'Payroll is waiting for approval';
   if (status === 'FOR_APPROVAL' && (piStatus === 'PAYMENT_APPROVAL_PENDING' || technicalState === 'PAYMENT_APPROVAL_PENDING')) return 'Payment instruction is waiting for approval';
   if (stage === 'PAY' && status === 'PROCESSING') return 'Payment is being prepared or processed';
-  if (stage === 'CLOSE' && recStatus === 'MATCHED') return 'Payment is reconciled and ready for closing';
+  if (stage === 'CLOSE' && recStatus === 'MATCHED') return 'Payment is reconciled; billing and closing can continue';
   if (technicalState === 'CANCELLED') return 'Payroll run was cancelled';
   if (technicalState === 'REJECTED') return 'Payroll run was rejected';
   if (stage === 'CLOSE' && status === 'COMPLETED') return 'Payroll cycle is completed';

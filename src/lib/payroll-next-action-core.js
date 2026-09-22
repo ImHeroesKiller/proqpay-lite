@@ -46,7 +46,7 @@ const MONITOR = {
 function clientAction(context, stage) {
   const state = normalize(context.state ?? context.submissionState);
   if (state === 'CLIENT_ACTION_REQUIRED') {
-    return result('CORRECT_PAYROLL_DATA','Correct Payroll Data','Payroll has items that require client correction.','operations',{
+    return result('CORRECT_PAYROLL_DATA','Correct Payroll Data','Payroll has items that require client correction.','exceptions',{
       actionable:true,tone:'danger',priority:1,category:'EXCEPTION',owner:'CLIENT_USER',
     });
   }
@@ -56,7 +56,7 @@ function clientAction(context, stage) {
     });
   }
   if (state === 'CLIENT_REVISION_REQUESTED') {
-    return result('REVIEW_PAYROLL_REVISION','Review Payroll Revision','A payroll revision requires your attention.','operations',{
+    return result('REVIEW_PAYROLL_REVISION','Review Payroll Revision','A payroll revision requires your attention.','exceptions',{
       actionable:true,tone:'warning',priority:2,category:'EXCEPTION',owner:'CLIENT_USER',
     });
   }
@@ -151,12 +151,14 @@ function processorAction(context, stage) {
   }
 
   if (stage.stage === 'CLOSE') {
-    if (stage.isTerminal) {
-      return result('PREPARE_BILLING','Continue to Billing','Payroll payment is complete. Continue billing and period closing.','billing',{
+    const recStatus = normalize(context.reconciliationStatus ?? context.recStatus);
+    const invoiceStatus = normalize(context.invoiceStatus);
+    if ((recStatus === 'MATCHED' || state === 'COMPLETED') && !invoiceStatus) {
+      return result('PREPARE_BILLING','Continue to Billing','Payment is reconciled. Prepare billing and continue period closing.','billing',{
         actionable:true,tone:'info',priority:3,category:'CLOSE',owner:'PAYROLL_PROCESSOR',
       });
     }
-    return result('CONTINUE_CLOSE','Continue Closing','Complete reconciliation and downstream closing activities.','billing',{
+    return result('CONTINUE_CLOSE','Continue Closing','Complete billing, collection, and remaining closing activities.','billing',{
       actionable:true,tone:'info',priority:3,category:'CLOSE',owner:'PAYROLL_PROCESSOR',
     });
   }
@@ -250,6 +252,26 @@ export function derivePayrollNextAction(context = {}) {
       ...result('REVIEW_WORKFLOW_STATUS','Review Workflow Status','A technical state is not mapped to the business process.','operations',{
         actionable:role === 'SUPER_ADMIN',tone:'danger',priority:1,category:'EXCEPTION',owner:'SUPER_ADMIN',
       }),
+      stage,
+    };
+  }
+
+  const state = normalize(context.state ?? context.submissionState);
+  if (['CANCELLED','REJECTED'].includes(state)) {
+    return {
+      ...result('VIEW_FINAL_STATUS',state === 'CANCELLED' ? 'Pay Run Cancelled' : 'Pay Run Rejected',
+        'This Pay Run is terminal and has no remaining workflow action.','operations',{
+          actionable:false,tone:'info',priority:5,category:'MONITOR',
+        }),
+      stage,
+    };
+  }
+  if (stage.isTerminal) {
+    return {
+      ...result('VIEW_CLOSED_CYCLE','View Closed Cycle',
+        'Payroll, billing and collection are complete for this cycle.','billing',{
+          actionable:false,tone:'success',priority:5,category:'MONITOR',
+        }),
       stage,
     };
   }

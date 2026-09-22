@@ -74,7 +74,8 @@ test('downstream payment and reconciliation evidence overrides an older submissi
   });
   assert.equal(result.stage,'CLOSE');
   assert.equal(result.source,'reconciliation');
-  assert.equal(result.isTerminal,true);
+  assert.equal(result.isTerminal,false);
+  assert.equal(result.status,'PROCESSING');
 });
 
 test('business status highlights action required and approval without exposing role logic', () => {
