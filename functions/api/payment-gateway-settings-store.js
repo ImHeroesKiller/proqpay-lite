@@ -2,6 +2,7 @@ import { d1First, d1Run } from './_d1.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const ENVIRONMENTS = ['UAT','PRODUCTION'];
 
 function bytesToBase64(bytes) {
   let binary = '';
@@ -44,6 +45,28 @@ async function decryptCredentials(env, row) {
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
 }
 
+function normalizeEnvironment(value, fallback = 'UAT') {
+  const normalized = String(value || fallback).trim().toUpperCase();
+  return ENVIRONMENTS.includes(normalized) ? normalized : fallback;
+}
+
+function normalizeProfiles(raw, activeEnvironment) {
+  if (raw?.profiles && typeof raw.profiles === 'object' && !Array.isArray(raw.profiles)) {
+    return {
+      UAT: raw.profiles.UAT && typeof raw.profiles.UAT === 'object' ? raw.profiles.UAT : {},
+      PRODUCTION: raw.profiles.PRODUCTION && typeof raw.profiles.PRODUCTION === 'object' ? raw.profiles.PRODUCTION : {},
+    };
+  }
+
+  // Backward compatibility for rows written before environment-separated profiles.
+  // The legacy credential document is bound only to the row's active environment,
+  // preventing it from leaking into the other provider host.
+  return {
+    UAT: activeEnvironment === 'UAT' ? raw || {} : {},
+    PRODUCTION: activeEnvironment === 'PRODUCTION' ? raw || {} : {},
+  };
+}
+
 export async function readGatewaySecureSettings(database, env, organizationId) {
   const row = await d1First(database,
     'SELECT * FROM gateway_secure_settings WHERE org_id=? LIMIT 1',
@@ -53,14 +76,20 @@ export async function readGatewaySecureSettings(database, env, organizationId) {
     provider:'UNCONFIGURED',
     environment:'UAT',
     credentials:{},
+    credentialProfiles:{ UAT:{}, PRODUCTION:{} },
     updatedBy:null,
     updatedAt:null,
   };
+
+  const environment = normalizeEnvironment(row.environment);
+  const raw = await decryptCredentials(env, row);
+  const credentialProfiles = normalizeProfiles(raw, environment);
   return {
     exists:true,
     provider:String(row.provider || 'UNCONFIGURED').toUpperCase(),
-    environment:String(row.environment || 'UAT').toUpperCase(),
-    credentials:await decryptCredentials(env, row),
+    environment,
+    credentials:credentialProfiles[environment] || {},
+    credentialProfiles,
     updatedBy:row.updated_by || null,
     updatedAt:row.updated_at || null,
   };
@@ -69,9 +98,17 @@ export async function readGatewaySecureSettings(database, env, organizationId) {
 export async function writeGatewaySecureSettings(database, env, organizationId, actorEmail, input) {
   const current = await readGatewaySecureSettings(database, env, organizationId);
   const provider = String(input.provider || current.provider || 'UNCONFIGURED').toUpperCase();
-  const environment = String(input.environment || current.environment || 'UAT').toUpperCase();
-  const credentials = { ...current.credentials, ...(input.credentials || {}) };
-  const encrypted = await encryptCredentials(env, credentials);
+  const environment = normalizeEnvironment(input.environment, current.environment || 'UAT');
+  const credentialProfiles = {
+    UAT:{ ...(current.credentialProfiles?.UAT || {}) },
+    PRODUCTION:{ ...(current.credentialProfiles?.PRODUCTION || {}) },
+  };
+  credentialProfiles[environment] = {
+    ...credentialProfiles[environment],
+    ...(input.credentials || {}),
+  };
+
+  const encrypted = await encryptCredentials(env, { profiles:credentialProfiles });
   await d1Run(database, `INSERT INTO gateway_secure_settings
     (org_id,provider,environment,credentials_ciphertext,credentials_iv,credential_version,updated_by,updated_at)
     VALUES(?,?,?,?,?,1,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -87,7 +124,7 @@ export async function writeGatewaySecureSettings(database, env, organizationId, 
   return readGatewaySecureSettings(database, env, organizationId);
 }
 
-export async function gatewayRuntimeEnv(database, env, organizationId) {
+export async function gatewayRuntimeEnv(database, env, organizationId, environmentOverride = null) {
   let stored;
   try {
     stored = await readGatewaySecureSettings(database, env, organizationId);
@@ -96,15 +133,18 @@ export async function gatewayRuntimeEnv(database, env, organizationId) {
     throw error;
   }
   if (!stored?.exists) return env;
+
+  const environment = normalizeEnvironment(environmentOverride, stored.environment);
+  const credentials = stored.credentialProfiles?.[environment] || {};
   const overrides = {
     PAYMENT_GATEWAY_PROVIDER:stored.provider,
-    E2PAY_ENV:stored.environment,
-    E2PAY_CLIENT_ID:String(stored.credentials.clientId || ''),
-    E2PAY_CLIENT_SECRET:String(stored.credentials.clientSecret || ''),
-    E2PAY_USERNAME:String(stored.credentials.username || ''),
-    E2PAY_PASSWORD_MD5:String(stored.credentials.passwordMd5 || ''),
-    E2PAY_ACCOUNT_SRC:String(stored.credentials.accountSrc || ''),
-    E2PAY_SOURCE_ID:String(stored.credentials.sourceId || ''),
+    E2PAY_ENV:environment,
+    E2PAY_CLIENT_ID:String(credentials.clientId || ''),
+    E2PAY_CLIENT_SECRET:String(credentials.clientSecret || ''),
+    E2PAY_USERNAME:String(credentials.username || ''),
+    E2PAY_PASSWORD_MD5:String(credentials.passwordMd5 || ''),
+    E2PAY_ACCOUNT_SRC:String(credentials.accountSrc || ''),
+    E2PAY_SOURCE_ID:String(credentials.sourceId || ''),
   };
   return Object.assign(Object.create(env || null), overrides);
 }
@@ -116,11 +156,8 @@ function masked(value) {
   return '••••' + text.slice(-4);
 }
 
-export function publicGatewaySettings(stored) {
-  const credentials = stored?.credentials || {};
+function profileSummary(credentials = {}) {
   return {
-    provider:stored?.provider || 'UNCONFIGURED',
-    environment:stored?.environment || 'UAT',
     stored:{
       clientId:Boolean(credentials.clientId),
       clientSecret:Boolean(credentials.clientSecret),
@@ -136,6 +173,20 @@ export function publicGatewaySettings(stored) {
       passwordMd5:credentials.passwordMd5 ? '••••••••' : null,
       accountSrc:masked(credentials.accountSrc),
       sourceId:masked(credentials.sourceId),
+    },
+  };
+}
+
+export function publicGatewaySettings(stored) {
+  const profiles = stored?.credentialProfiles || { UAT:{}, PRODUCTION:{} };
+  const active = profileSummary(profiles[stored?.environment || 'UAT'] || {});
+  return {
+    provider:stored?.provider || 'UNCONFIGURED',
+    environment:stored?.environment || 'UAT',
+    ...active,
+    profiles:{
+      UAT:profileSummary(profiles.UAT || {}),
+      PRODUCTION:profileSummary(profiles.PRODUCTION || {}),
     },
     updatedBy:stored?.updatedBy || null,
     updatedAt:stored?.updatedAt || null,
