@@ -162,6 +162,7 @@ export default function Home() {
   const periods = [...new Set([period,...(db.payrolls || []).map((item:any)=>item.period).filter(Boolean)])].sort((a:string,b:string)=>b.localeCompare(a));
   const gatewayCanView = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
   const gatewayCanExecute = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(actor.role);
+  const simplifiedInternal = ['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
 
   return (
     <div className={`app-shell theme-${settings.theme} accent-${settings.accentColor} density-${settings.density}${settings.enableAnimations ? '' : ' animations-off'}`} style={{ display: 'flex', minHeight: '100vh' }}>
@@ -185,7 +186,7 @@ export default function Home() {
         <main style={{ flex: 1, overflowY: 'auto', padding: pad }}>
           <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
             {view === 'dashboard' && (
-              <><RoleDashboard actor={actor} onNavigate={navigate} /><PayrollControlTower actor={actor} period={period} onNavigate={navigate} /></>
+              <>{!simplifiedInternal ? <RoleDashboard actor={actor} onNavigate={navigate} /> : null}<PayrollControlTower actor={actor} period={period} onNavigate={navigate} /></>
             )}
 
             {view === 'employees' && (

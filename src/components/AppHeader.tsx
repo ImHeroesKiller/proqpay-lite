@@ -40,6 +40,18 @@ const VIEW_LABELS: Record<AppView, string> = {
   portalAudit: "Portal Audit",
   portalSettings: "Portal Settings",
 };
+function viewLabel(view:AppView, role:string) {
+  const simplifiedInternal=["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role);
+  if (!simplifiedInternal) return VIEW_LABELS[view];
+  const labels:Partial<Record<AppView,string>>={
+    operations:"Payroll",
+    exceptions:"Issues",
+    payments:"Payments",
+    billing:"Close & Billing",
+  };
+  return labels[view] || VIEW_LABELS[view];
+}
+
 const SEARCH_ITEMS: Array<{ label: string; keywords: string; view: AppView }> =
   [
     {
@@ -122,12 +134,23 @@ export default function AppHeader({
       let exceptions = 0,
         approvals = 0;
       results.forEach((result) => {
-        exceptions += (result.exceptions || []).filter(
-          (row: any) => !["RESOLVED", "ACCEPTED"].includes(row.status),
-        ).length;
-        approvals += (result.paymentInstructions || []).filter(
-          (row: any) => row.status === "PAYMENT_APPROVAL_PENDING",
-        ).length;
+        const openExceptions=(result.exceptions || []).filter(
+          (row:any)=>!["RESOLVED","ACCEPTED","AUTO_NORMALIZED"].includes(row.status),
+        );
+        if (actor.role === "PAYROLL_PROCESSOR") {
+          exceptions += openExceptions.filter((row:any)=>row.status !== "CLIENT_ACTION_REQUIRED").length;
+        } else if (actor.role === "PAYROLL_CONTROLLER") {
+          approvals += (result.paymentInstructions || []).filter(
+            (row:any)=>row.status === "PAYMENT_APPROVAL_PENDING",
+          ).length;
+        } else if (actor.role === "CLIENT_USER") {
+          exceptions += openExceptions.filter((row:any)=>row.status === "CLIENT_ACTION_REQUIRED").length;
+        } else {
+          exceptions += openExceptions.length;
+          approvals += (result.paymentInstructions || []).filter(
+            (row:any)=>row.status === "PAYMENT_APPROVAL_PENDING",
+          ).length;
+        }
       });
       setAlerts({ exceptions, approvals });
     } catch {
@@ -203,7 +226,7 @@ export default function AppHeader({
               ProQPay /{" "}
               {clientCount === 1 ? "1 Client" : `${clientCount} Clients`}
             </span>
-            <strong>{VIEW_LABELS[view]}</strong>
+            <strong>{viewLabel(view, actor.role)}</strong>
           </div>
         </div>
         <div className="header-actions" ref={shellRef}>
@@ -259,7 +282,7 @@ export default function AppHeader({
                       setQuery("");
                     }}
                   >
-                    <strong>{item.label}</strong>
+                    <strong>{viewLabel(item.view, actor.role)}</strong>
                     <small>{item.keywords}</small>
                   </button>
                 ))}
@@ -283,26 +306,27 @@ export default function AppHeader({
             {alertsOpen ? (
               <div className="header-popover">
                 <span>WORK QUEUE</span>
-                <button
+                {alerts.exceptions ? <button
                   type="button"
                   onClick={() => {
                     onNavigate("exceptions");
                     setAlertsOpen(false);
                   }}
                 >
-                  <strong>Open exceptions</strong>
+                  <strong>{actor.role==="CLIENT_USER"?"Action required":"Issues"}</strong>
                   <b>{alerts.exceptions}</b>
-                </button>
-                <button
+                </button> : null}
+                {alerts.approvals ? <button
                   type="button"
                   onClick={() => {
                     onNavigate("payments");
                     setAlertsOpen(false);
                   }}
                 >
-                  <strong>PI awaiting approval</strong>
+                  <strong>For approval</strong>
                   <b>{alerts.approvals}</b>
-                </button>
+                </button> : null}
+                {!totalAlerts ? <small>No action required</small> : null}
               </div>
             ) : null}
           </div>

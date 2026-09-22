@@ -31,6 +31,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const [error,setError] = useState('');
   const [client,setClient] = useState('ALL');
   const [status,setStatus] = useState('ALL');
+  const [stage,setStage] = useState('ALL');
   const [tier,setTier] = useState('ALL');
   const [query,setQuery] = useState('');
   const [page,setPage] = useState(1);
@@ -61,6 +62,13 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const exceptions=useMemo(()=>data.exceptions||[],[data.exceptions]);
   const reconciliations=useMemo(()=>data.reconciliations||[],[data.reconciliations]);
   const portfolio=data.portfolioSummary||{};
+  const simplifiedInternal=['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
+  const workspaceTitle=actor.role==='PAYROLL_CONTROLLER'?'Approval Workspace':actor.role==='PAYROLL_PROCESSOR'?'Payroll Workspace':'Payroll Control Tower';
+  const workspaceDescription=actor.role==='PAYROLL_CONTROLLER'
+    ? 'Review hanya item yang membutuhkan approval atau kontrol Anda.'
+    : actor.role==='PAYROLL_PROCESSOR'
+      ? 'Kerjakan payroll berdasarkan prioritas dan next action yang tersedia.'
+      : 'Prioritas, deadline, pembayaran, dan seluruh pay run dalam satu kendali.';
   const instructionBySubmission=useMemo(()=>new Map(instructions.map((row)=>[row.submission_id,row])),[instructions]);
   const reconciliationByInstruction=useMemo(()=>new Map(reconciliations.map((row)=>[row.payment_instruction_id,row])),[reconciliations]);
   const operationalSubmissions=useMemo(()=>submissions.map((row)=>{
@@ -94,11 +102,14 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const statuses=useMemo(()=>[...new Set(operationalSubmissions.map((row)=>String(row.state||'')).filter(Boolean))].sort(),[operationalSubmissions]);
   const tiers=useMemo(()=>[...new Set(operationalSubmissions.map((row)=>String(row.service_tier||'')).filter(Boolean))].sort(),[operationalSubmissions]);
   const visible=useMemo(()=>operationalSubmissions.filter((row)=>{
-    const haystack=[row.client_name,row.project_name,row.period,row.payment_period,row.state,row.id].join(' ').toLowerCase();
+    const haystack=[row.client_name,row.project_name,row.period,row.payment_period,row.state,row.business.label,row.nextAction.label,row.id].join(' ').toLowerCase();
+    const workflowFilter=simplifiedInternal
+      ? (stage==='ALL'||row.business.stage===stage)
+      : (status==='ALL'||row.state===status);
     return (period==='ALL'||row.period===period||row.payment_period===period)
-      &&(client==='ALL'||row.client_id===client)&&(status==='ALL'||row.state===status)
+      &&(client==='ALL'||row.client_id===client)&&workflowFilter
       &&(tier==='ALL'||row.service_tier===tier)&&(!query.trim()||haystack.includes(query.trim().toLowerCase()));
-  }),[operationalSubmissions,period,client,status,tier,query]);
+  }),[operationalSubmissions,period,client,status,stage,tier,query,simplifiedInternal]);
   const visibleIds=useMemo(()=>new Set(visible.map((row)=>row.id)),[visible]);
   const visibleInstructions=useMemo(()=>instructions.filter((row)=>visibleIds.has(row.submission_id)),[instructions,visibleIds]);
   const visibleInstructionIds=useMemo(()=>new Set(visibleInstructions.map((row)=>row.id)),[visibleInstructions]);
@@ -126,6 +137,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
         action:row.nextAction.label,
         view:row.nextAction.view as AppView,
         priority:Number(row.nextAction.priority||5),
+        category:String(row.nextAction.category||'WORK'),
       }))
       .sort((a,b)=>a.priority-b.priority||({danger:0,warning:1,info:2,success:3}[a.tone]-{danger:0,warning:1,info:2,success:3}[b.tone]));
   },[visible]);
@@ -138,41 +150,50 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const pipelineTotal=Math.max(1,visible.length);
   const pageCount=Math.max(1,Math.ceil(visible.length/10));
   const pageRows=visible.slice((page-1)*10,page*10);
-  useEffect(()=>setPage(1),[period,client,status,tier,query]);
-  const reset=()=>{setClient('ALL');setStatus('ALL');setTier('ALL');setQuery('');};
+  useEffect(()=>setPage(1),[period,client,status,stage,tier,query]);
+  const reset=()=>{setClient('ALL');setStatus('ALL');setStage('ALL');setTier('ALL');setQuery('');};
 
-  return <section className="control-tower">
-    <div className="control-tower-heading"><div><span>PAYROLL CONTROL TOWER</span><h1>Selamat datang, {actor.email.split('@')[0]}</h1><p>Prioritas, deadline, pembayaran, dan seluruh pay run dalam satu kendali.</p></div><button type="button" className="btn control-refresh" onClick={()=>{invalidateOperatingCache();void load();}}><IconRefresh aria-hidden="true" /> Refresh data</button></div>
+  return <section className={`control-tower${simplifiedInternal?' control-tower-simple':''}`}>
+    <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription}</p></div><button type="button" className="btn control-refresh" onClick={()=>{invalidateOperatingCache();void load();}}><IconRefresh aria-hidden="true" /> Refresh</button></div>
     <div className="control-bar card">
       <label><span>Klien</span><select value={client} onChange={(event)=>setClient(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
-      <label><span>Status</span><select value={status} onChange={(event)=>setStatus(event.target.value)}><option value="ALL">Semua status</option>{statuses.map((item)=><option key={item}>{item}</option>)}</select></label>
-      <label><span>Service tier</span><select value={tier} onChange={(event)=>setTier(event.target.value)}><option value="ALL">Semua tier</option>{tiers.map((item)=><option key={item}>{statusLabel(item)}</option>)}</select></label>
-      <label className="control-search"><span>Pencarian</span><input value={query} onChange={(event)=>setQuery(event.target.value)} placeholder="Klien, project, pay run…" /></label>
+      {simplifiedInternal
+        ? <label><span>Stage</span><select value={stage} onChange={(event)=>setStage(event.target.value)}><option value="ALL">Semua stage</option>{PIPELINE.map((item)=><option key={item.stage} value={item.stage}>{item.label}</option>)}</select></label>
+        : <label><span>Status</span><select value={status} onChange={(event)=>setStatus(event.target.value)}><option value="ALL">Semua status</option>{statuses.map((item)=><option key={item}>{item}</option>)}</select></label>}
+      {!simplifiedInternal ? <label><span>Service tier</span><select value={tier} onChange={(event)=>setTier(event.target.value)}><option value="ALL">Semua tier</option>{tiers.map((item)=><option key={item}>{statusLabel(item)}</option>)}</select></label> : null}
+      <label className="control-search"><span>Pencarian</span><input value={query} onChange={(event)=>setQuery(event.target.value)} placeholder="Klien, project, payroll…" /></label>
       <button type="button" onClick={reset}>Reset</button>
     </div>
     {error?<div className="app-notice-bubble app-notice-error"><strong>Dashboard gagal dimuat</strong><span>{error}</span></div>:null}
     {loading?<div className="card control-loading">Menyiapkan payroll control tower…</div>:<>
-      <div className="portfolio-snapshot" aria-label="Ringkasan kesiapan master data">
+      {!simplifiedInternal ? <div className="portfolio-snapshot" aria-label="Ringkasan kesiapan master data">
         <span>Data readiness</span><b>{Number(portfolio.employees||0).toLocaleString('id-ID')} karyawan</b><i aria-hidden="true" />
         <b>{Number(portfolio.clients||0).toLocaleString('id-ID')} klien</b><i aria-hidden="true" />
         <b>{Number(portfolio.projects||0).toLocaleString('id-ID')} project</b><i aria-hidden="true" />
         <b>{Number(portfolio.bankCoveragePercent||0)}% rekening utama</b>
-      </div>
+      </div> : null}
       <div className="control-kpis">
-        <Kpi label="Active pay runs" value={String(activeRuns)} note={`${visible.length} pay run terfilter`} tone="blue" icon={<IconLayers />} onClick={()=>onNavigate('operations')} />
-        <Kpi label="Need attention" value={String(actions.filter((item)=>item.tone==='danger').length)} note={`${blockers} blocker aktif`} tone="red" icon={<IconAlertTriangle />} onClick={()=>onNavigate('operations')} />
-        <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval yang membutuhkan role Anda" tone="amber" icon={<IconClock />} onClick={()=>onNavigate(awaitingApproval?((actions.find((item)=>item.priority===2)?.view||'operations')):'operations')} />
-        <Kpi label="Payment due" value={formatIDRShort(totalNet)} note={`${visible.reduce((sum,row)=>sum+Number(row.employee_count||0),0).toLocaleString('id-ID')} penerima`} tone="navy" icon={<IconWallet />} featured onClick={()=>onNavigate('payments')} />
-        <Kpi label="Paid & matched" value={String(matched)} note={`${unmatched} belum match`} tone="green" icon={<IconCheckCircle />} onClick={()=>onNavigate('reports')} />
-        <Kpi label="Open exceptions" value={String(visibleExceptions.length)} note="Perlu diselesaikan" tone="violet" icon={<IconShieldCheck />} onClick={()=>onNavigate('operations')} />
+        {simplifiedInternal ? <>
+          <Kpi label="My work" value={String(actions.length)} note="Tindakan yang membutuhkan Anda" tone="blue" icon={<IconLayers />} onClick={()=>onNavigate(actions[0]?.view||'operations')} />
+          <Kpi label="Need attention" value={String(actions.filter((item)=>item.tone==='danger').length)} note={`${blockers} blocker aktif`} tone="red" icon={<IconAlertTriangle />} onClick={()=>onNavigate(actions.find((item)=>item.tone==='danger')?.view||'exceptions')} />
+          <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval sesuai role Anda" tone="amber" icon={<IconClock />} onClick={()=>onNavigate(awaitingApproval?(actions.find((item)=>item.category==='APPROVAL')?.view||'operations'):'operations')} />
+          <Kpi label="Active payroll" value={String(activeRuns)} note={`${visible.length} payroll pada filter`} tone="navy" icon={<IconWallet />} onClick={()=>onNavigate('operations')} />
+        </> : <>
+          <Kpi label="Active pay runs" value={String(activeRuns)} note={`${visible.length} pay run terfilter`} tone="blue" icon={<IconLayers />} onClick={()=>onNavigate('operations')} />
+          <Kpi label="Need attention" value={String(actions.filter((item)=>item.tone==='danger').length)} note={`${blockers} blocker aktif`} tone="red" icon={<IconAlertTriangle />} onClick={()=>onNavigate('operations')} />
+          <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval yang membutuhkan role Anda" tone="amber" icon={<IconClock />} onClick={()=>onNavigate(awaitingApproval?((actions.find((item)=>item.priority===2)?.view||'operations')):'operations')} />
+          <Kpi label="Payment due" value={formatIDRShort(totalNet)} note={`${visible.reduce((sum,row)=>sum+Number(row.employee_count||0),0).toLocaleString('id-ID')} penerima`} tone="navy" icon={<IconWallet />} featured onClick={()=>onNavigate('payments')} />
+          <Kpi label="Paid & matched" value={String(matched)} note={`${unmatched} belum match`} tone="green" icon={<IconCheckCircle />} onClick={()=>onNavigate('reports')} />
+          <Kpi label="Open exceptions" value={String(visibleExceptions.length)} note="Perlu diselesaikan" tone="violet" icon={<IconShieldCheck />} onClick={()=>onNavigate('operations')} />
+        </>}
       </div>
-      <div className="control-priority-grid">
-        <section className="card action-center"><PanelTitle eyebrow="PRIORITY QUEUE" title="Action Center" meta={`${actions.length} tindakan`} />
-          <div className="action-list">{actions.length?actions.slice(0,8).map((item)=><button type="button" key={item.id} onClick={()=>onNavigate(item.view)}><i className={`action-tone ${item.tone}`} /><span><strong>{item.client}</strong><small>{item.title} · {item.detail}</small></span><b>{item.amount?formatIDRShort(item.amount):'-'}</b><em>{item.action} →</em></button>):<Empty text="Tidak ada tindakan yang membutuhkan Anda pada filter ini." />}</div>
+      <div className={simplifiedInternal?'':'control-priority-grid'}>
+        <section className="card action-center"><PanelTitle eyebrow="PRIORITY QUEUE" title={simplifiedInternal?'My Work':'Action Center'} meta={`${actions.length} tindakan`} />
+          <div className="action-list">{actions.length?actions.slice(0,simplifiedInternal?10:8).map((item)=><button type="button" key={item.id} onClick={()=>onNavigate(item.view)}><i className={`action-tone ${item.tone}`} /><span><strong>{item.client}</strong><small>{item.title} · {item.detail}</small></span><b>{item.amount?formatIDRShort(item.amount):'-'}</b><em>{item.action} →</em></button>):<Empty text="Tidak ada tindakan yang membutuhkan Anda pada filter ini." />}</div>
         </section>
-        <section className="card deadline-panel"><PanelTitle eyebrow="NEXT 30 DAYS" title="Deadline & SLA" meta={`${deadlines.length} agenda`} />
+        {!simplifiedInternal ? <section className="card deadline-panel"><PanelTitle eyebrow="NEXT 30 DAYS" title="Deadline & SLA" meta={`${deadlines.length} agenda`} />
           <div className="deadline-list">{deadlines.length?deadlines.map((item)=><button type="button" key={item.id} onClick={()=>onNavigate('operations')}><time>{dateLabel(item.deadline)}</time><span><strong>{item.client_name||item.client_id}</strong><small>{item.business.label} · {statusLabel(item.state)}</small></span><b className={item.days!==null&&item.days<0?'overdue':''}>{item.days===null?'-':item.days<0?`${Math.abs(item.days)}h terlambat`:item.days===0?'Hari ini':`${item.days} hari`}</b></button>):<Empty text="Belum ada deadline operasional." />}</div>
-        </section>
+        </section> : null}
       </div>
       <section className="card pipeline-panel">
         <PanelTitle eyebrow="END-TO-END WORKFLOW" title="Payroll Pipeline" meta={`${visible.length} pay run`} />
@@ -190,12 +211,16 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
           </button>;
         })}</div>
       </section>
-      <section className="card portfolio-panel"><PanelTitle eyebrow="PORTFOLIO MONITORING" title="Pay Run Portfolio" meta={`${visible.length} record`} />
-        <div className="portfolio-table-wrap"><table className="portfolio-table"><thead><tr><th>Klien / Project</th><th>Periode</th><th>Tier</th><th>Penerima</th><th>Net / THP</th><th>Blocker</th><th>Current stage</th><th>Next action</th></tr></thead><tbody>{pageRows.map((row)=><tr key={row.id}><td><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||row.id}</small></td><td>{row.period}<small>Bayar {row.payment_period||row.period}</small></td><td>{statusLabel(row.service_tier).replace('TIER 1 ','T1 · ').replace('TIER 2 ','T2 · ').replace('TIER 3 ','T3 · ')}</td><td>{Number(row.employee_count||0).toLocaleString('id-ID')}</td><td><strong>{formatIDR(Number(row.total_net||0))}</strong></td><td><span className={Number(row.blocking_count||0)?'table-blocker':'table-clear'}>{Number(row.blocking_count||0)}</span></td><td><span className="stage-pill">{row.business.label}</span><small>{statusLabel(row.state)}</small></td><td><button type="button" onClick={()=>onNavigate(row.nextAction.view as AppView)}>{row.nextAction.label} →</button><small>{row.nextAction.actionable?'Action required':'No action required'}</small></td></tr>)}</tbody></table>{!pageRows.length?<Empty text="Tidak ada pay run sesuai filter." />:null}</div>
+      <section className="card portfolio-panel"><PanelTitle eyebrow={simplifiedInternal?'ALL PAYROLL':'PORTFOLIO MONITORING'} title={simplifiedInternal?'Payroll Overview':'Pay Run Portfolio'} meta={`${visible.length} record`} />
+        <div className="portfolio-table-wrap"><table className="portfolio-table"><thead>{simplifiedInternal
+          ? <tr><th>Klien / Project</th><th>Periode</th><th>Stage</th><th>Net / THP</th><th>Next action</th></tr>
+          : <tr><th>Klien / Project</th><th>Periode</th><th>Tier</th><th>Penerima</th><th>Net / THP</th><th>Blocker</th><th>Current stage</th><th>Next action</th></tr>}</thead><tbody>{pageRows.map((row)=>simplifiedInternal
+            ? <tr key={row.id}><td><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||row.id}</small></td><td>{row.period}<small>Bayar {row.payment_period||row.period}</small></td><td><span className="stage-pill">{row.business.label}</span><small>{statusLabel(row.business.status)}</small></td><td><strong>{formatIDR(Number(row.total_net||0))}</strong>{Number(row.blocking_count||0)?<small>{row.blocking_count} blocker</small>:null}</td><td><button type="button" onClick={()=>onNavigate(row.nextAction.view as AppView)}>{row.nextAction.label} →</button><small>{row.nextAction.actionable?'Action required':'Monitor only'}</small></td></tr>
+            : <tr key={row.id}><td><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||row.id}</small></td><td>{row.period}<small>Bayar {row.payment_period||row.period}</small></td><td>{statusLabel(row.service_tier).replace('TIER 1 ','T1 · ').replace('TIER 2 ','T2 · ').replace('TIER 3 ','T3 · ')}</td><td>{Number(row.employee_count||0).toLocaleString('id-ID')}</td><td><strong>{formatIDR(Number(row.total_net||0))}</strong></td><td><span className={Number(row.blocking_count||0)?'table-blocker':'table-clear'}>{Number(row.blocking_count||0)}</span></td><td><span className="stage-pill">{row.business.label}</span><small>{statusLabel(row.state)}</small></td><td><button type="button" onClick={()=>onNavigate(row.nextAction.view as AppView)}>{row.nextAction.label} →</button><small>{row.nextAction.actionable?'Action required':'No action required'}</small></td></tr>)}</tbody></table>{!pageRows.length?<Empty text="Tidak ada payroll sesuai filter." />:null}</div>
         <div className="control-pagination"><span>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div><button className="btn" disabled={page<=1} onClick={()=>setPage((value)=>value-1)}>←</button><button className="btn" disabled={page>=pageCount} onClick={()=>setPage((value)=>value+1)}>→</button></div></div>
       </section>
-      <div className="control-bottom-grid"><section className="card payment-control"><PanelTitle eyebrow="PAYMENT INTEGRITY" title="Payment Control" meta={`${visibleInstructions.length} PI`} /><div className="payment-control-grid"><div><span>PI value</span><strong>{formatIDRShort(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</strong></div><div><span>Matched</span><strong>{matched}</strong></div><div><span>Proof tercatat</span><strong>{visibleProofs.length}</strong></div><div><span>Legacy hash</span><strong>{visibleInstructions.filter((row)=>!row.content_hash).length}</strong></div></div><button type="button" className="btn" onClick={()=>onNavigate('payments')}>Buka payment control</button></section>
-        <section className="card trend-panel"><PanelTitle eyebrow="OPERATIONAL HEALTH" title="Performa periode" meta="Portfolio" /><div className="health-list"><div><span>On-track rate</span><strong>{visible.length?Math.round((visible.filter((row)=>!Number(row.blocking_count||0)).length/visible.length)*100):0}%</strong></div><div><span>Reconciliation match</span><strong>{visibleReconciliations.length?Math.round((matched/visibleReconciliations.length)*100):0}%</strong></div><div><span>Exception rate</span><strong>{visible.reduce((sum,row)=>sum+Number(row.employee_count||0),0)?((visibleExceptions.length/visible.reduce((sum,row)=>sum+Number(row.employee_count||0),0))*100).toFixed(1):'0.0'}%</strong></div></div><div className="role-focus"><span>{actor.role.replaceAll('_',' ')}</span><p>{roleFocus(actor.role)}</p></div></section></div>
+      {!simplifiedInternal ? <div className="control-bottom-grid"><section className="card payment-control"><PanelTitle eyebrow="PAYMENT INTEGRITY" title="Payment Control" meta={`${visibleInstructions.length} PI`} /><div className="payment-control-grid"><div><span>PI value</span><strong>{formatIDRShort(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</strong></div><div><span>Matched</span><strong>{matched}</strong></div><div><span>Proof tercatat</span><strong>{visibleProofs.length}</strong></div><div><span>Legacy hash</span><strong>{visibleInstructions.filter((row)=>!row.content_hash).length}</strong></div></div><button type="button" className="btn" onClick={()=>onNavigate('payments')}>Buka payment control</button></section>
+        <section className="card trend-panel"><PanelTitle eyebrow="OPERATIONAL HEALTH" title="Performa periode" meta="Portfolio" /><div className="health-list"><div><span>On-track rate</span><strong>{visible.length?Math.round((visible.filter((row)=>!Number(row.blocking_count||0)).length/visible.length)*100):0}%</strong></div><div><span>Reconciliation match</span><strong>{visibleReconciliations.length?Math.round((matched/visibleReconciliations.length)*100):0}%</strong></div><div><span>Exception rate</span><strong>{visible.reduce((sum,row)=>sum+Number(row.employee_count||0),0)?((visibleExceptions.length/visible.reduce((sum,row)=>sum+Number(row.employee_count||0),0))*100).toFixed(1):'0.0'}%</strong></div></div><div className="role-focus"><span>{actor.role.replaceAll('_',' ')}</span><p>{roleFocus(actor.role)}</p></div></section></div> : null}
     </>}
   </section>;
 }

@@ -18,8 +18,24 @@ const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; descriptio
   billing: { title:'Billing & AR', eyebrow:'FINANCE OPERATIONS', description:'Kelola invoice layanan, jatuh tempo, dan pelunasan piutang.', search:'Invoice, klien, periode…' },
 };
 
-const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') ? '#dc2626'
+const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') || state.includes('REVISION') ? '#dc2626'
   : state.includes('APPROVED') || state === 'COMPLETED' || state === 'MATCHED' ? '#059669' : 'var(--accent)';
+
+function paymentBusinessLabel(status:string) {
+  const labels:Record<string,string>={
+    PAYMENT_INSTRUCTION_READY:'Prepared',
+    PAYMENT_APPROVAL_PENDING:'For Approval',
+    APPROVED_FOR_PAYMENT:'Ready to Pay',
+    DISBURSEMENT_PROCESSING:'Processing',
+    PAYMENT_CONFIRMED:'Processing',
+    PROOF_UPLOADED:'Reconcile',
+    RECONCILIATION:'Reconcile',
+    PAYMENT_EXCEPTION:'Action Required',
+    REVISION_REQUIRED:'Revision Required',
+    COMPLETED:'Completed',
+  };
+  return labels[String(status||'')] || String(status||'-').replaceAll('_',' ');
+}
 
 export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: WorkspaceMode }) {
   const [actor, setActor] = useState<Actor | null>(null);
@@ -71,6 +87,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   }
 
   const role = actor?.role || 'UNKNOWN';
+  const simplifiedInternal = ['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role);
   const isProcessor = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role);
   const isController = ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role);
   const isClient = role === 'CLIENT_USER';
@@ -78,6 +95,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   // permission payload from hiding the Controller approval workflow.
   const canApprovePayment = isController || actor?.permissions?.includes('payment:approve') || false;
   const submissions = useMemo(() => data.submissions || [], [data.submissions]);
+  const instructionBySubmission = useMemo(() => new Map((data.paymentInstructions || []).map((row) => [row.submission_id,row])), [data.paymentInstructions]);
   const periods = useMemo(() => [...new Set(submissions.map((row) => String(row.period || '')).filter(Boolean))].sort((a, b) => b.localeCompare(a)), [submissions]);
   const clients = useMemo(() => {
     const map = new Map<string, string>();
@@ -85,12 +103,36 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
     return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [submissions]);
   const visibleSubmissions = useMemo(() => submissions.filter((row) => {
-    const haystack = [row.client_name,row.project_name,row.id,row.period,row.payment_period,row.state].join(' ').toLowerCase();
+    const instruction=instructionBySubmission.get(row.id);
+    const business=derivePayrollBusinessStage({
+      state:row.state,
+      paymentInstructionStatus:instruction?.status,
+      invoiceStatus:row.invoice_status,
+      arStatus:row.ar_status,
+    });
+    const nextAction=derivePayrollNextAction({
+      role,
+      permissions:actor?.permissions||[],
+      state:row.state,
+      inputStatus:row.input_status,
+      sourceMode:row.source_mode,
+      blockingCount:row.blocking_count,
+      exceptionCount:row.exception_count,
+      paymentInstructionStatus:instruction?.status,
+      invoiceStatus:row.invoice_status,
+      arStatus:row.ar_status,
+      hasPaymentInstruction:Boolean(instruction),
+      paymentInstructionId:instruction?.id,
+    });
+    const haystack = [row.client_name,row.project_name,row.id,row.period,row.payment_period,row.state,business.label,nextAction.label].join(' ').toLowerCase();
+    const workflowMatches=simplifiedInternal
+      ? (statusFilter === 'ALL' || business.stage === statusFilter)
+      : (statusFilter === 'ALL' || row.state === statusFilter);
     return (periodFilter === 'ALL' || row.period === periodFilter || row.payment_period === periodFilter)
       && (clientFilter === 'ALL' || row.client_id === clientFilter)
-      && (statusFilter === 'ALL' || row.state === statusFilter)
+      && workflowMatches
       && (!query.trim() || haystack.includes(query.trim().toLowerCase()));
-  }), [submissions, periodFilter, clientFilter, statusFilter, query]);
+  }), [submissions, instructionBySubmission, periodFilter, clientFilter, statusFilter, query, simplifiedInternal, role, actor?.permissions]);
   const visibleSubmissionIds = useMemo(() => new Set(visibleSubmissions.map((row) => row.id)), [visibleSubmissions]);
   const visibleInstructions = useMemo(() => (data.paymentInstructions || []).filter((row) => {
     const periodMatches = periodFilter === 'ALL' || row.payroll_period === periodFilter || row.payment_period === periodFilter;
@@ -100,7 +142,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
     return periodMatches && clientMatches && statusMatches && queryMatches;
   }), [data.paymentInstructions, periodFilter, clientFilter, statusFilter, query]);
   const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
-  const instructionBySubmission = useMemo(() => new Map((data.paymentInstructions || []).map((row) => [row.submission_id,row])), [data.paymentInstructions]);
+
   const visibleExceptions = useMemo(() => (data.exceptions || []).filter((row) => visibleSubmissionIds.has(row.submission_id)), [data.exceptions, visibleSubmissionIds]);
   const visibleProofs = useMemo(() => (data.paymentProofs || []).filter((row) => visibleInstructionIds.has(row.payment_instruction_id)), [data.paymentProofs, visibleInstructionIds]);
   const visibleReconciliations = useMemo(() => (data.reconciliations || []).filter((row) => visibleInstructionIds.has(row.payment_instruction_id)), [data.reconciliations, visibleInstructionIds]);
@@ -121,10 +163,38 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   const awaitingApproval = visibleInstructions.filter((row) => row.status === 'PAYMENT_APPROVAL_PENDING').length;
   const approvedPayments = visibleInstructions.filter((row) => ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(row.status)).length;
   const matchedPayments = visibleReconciliations.filter((row) => row.status === 'MATCHED').length;
-  const profile = profiles[mode];
+  const visibleNextActions=visibleSubmissions.map((row)=>{
+    const instruction=instructionBySubmission.get(row.id);
+    return derivePayrollNextAction({
+      role,
+      permissions:actor?.permissions||[],
+      state:row.state,
+      inputStatus:row.input_status,
+      sourceMode:row.source_mode,
+      blockingCount:row.blocking_count,
+      exceptionCount:row.exception_count,
+      paymentInstructionStatus:instruction?.status,
+      invoiceStatus:row.invoice_status,
+      arStatus:row.ar_status,
+      hasPaymentInstruction:Boolean(instruction),
+      paymentInstructionId:instruction?.id,
+    });
+  });
+  const myWork=visibleNextActions.filter((action)=>action.actionable);
+  const myAttention=myWork.filter((action)=>action.tone==='danger');
+  const myApprovals=myWork.filter((action)=>action.category==='APPROVAL');
+  const baseProfile = profiles[mode];
+  const profile = simplifiedInternal ? ({
+    payruns:{...baseProfile,title:'Payroll',eyebrow:'MY PAYROLL WORK',description:'Lihat payroll berdasarkan stage dan kerjakan satu next action yang tersedia.'},
+    actions:{...baseProfile,title:'Issues',eyebrow:'ACTION REQUIRED',description:'Tindak lanjuti hanya issue yang membutuhkan koreksi atau keputusan.'},
+    payments:{...baseProfile,title:'Payments',eyebrow:'PAYMENT WORK',description:'Review approval, execution, dan reconciliation tanpa melihat state teknis yang tidak perlu.'},
+    billing:{...baseProfile,title:'Close & Billing',eyebrow:'CLOSE',description:'Selesaikan billing, AR, dan penutupan payroll setelah payment matched.'},
+  } as Record<WorkspaceMode, typeof baseProfile>)[mode] : baseProfile;
   const statusOptions = mode === 'payments'
     ? [...new Set((data.paymentInstructions || []).map((row) => row.status))].sort()
-    : [...new Set(submissions.map((row) => row.state))].sort();
+    : simplifiedInternal && mode === 'payruns'
+      ? [...PAYROLL_BUSINESS_STAGE_ORDER]
+      : [...new Set(submissions.map((row) => row.state))].sort();
 
   return (
     <section>
@@ -140,12 +210,17 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       {mode !== 'billing' ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((period) => <option key={period} value={period}>{period}</option>)}</select></label>
         <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        <label><span>{mode === 'payments' ? 'Status PI' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">Semua status</option>{statusOptions.map((state) => <option key={state} value={state}>{String(state).replaceAll('_', ' ')}</option>)}</select></label>
+        <label><span>{mode === 'payments' ? 'Status PI' : simplifiedInternal && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedInternal&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedInternal&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:String(state).replaceAll('_', ' ')}</option>)}</select></label>
         <label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>
       </div> : null}
 
       {mode !== 'billing' ? <div className="operations-summary-grid">
-        {mode === 'payruns' ? <>
+        {mode === 'payruns' ? simplifiedInternal ? <>
+          <div><span>Payroll</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
+          <div><span>My work</span><strong>{myWork.length}</strong><small>Tindakan untuk role Anda</small></div>
+          <div><span>{role==='PAYROLL_CONTROLLER'?'For approval':'Need attention'}</span><strong>{role==='PAYROLL_CONTROLLER'?myApprovals.length:myAttention.length}</strong><small>{role==='PAYROLL_CONTROLLER'?'Menunggu keputusan Anda':`${blockers} blocker aktif`}</small></div>
+          <div><span>Net payroll</span><strong>{formatIDR(totalNet)}</strong><small>{visibleSubmissions.reduce((sum,row)=>sum+Number(row.employee_count||0),0).toLocaleString('id-ID')} penerima</small></div>
+        </> : <>
           <div><span>Pay runs</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
           <div><span>Control total</span><strong>{formatIDR(totalNet)}</strong><small>Net/THP submission</small></div>
           <div><span>Active workflow</span><strong>{pendingActions}</strong><small>{visibleSubmissions.reduce((sum,row)=>sum+Number(row.employee_count||0),0).toLocaleString('id-ID')} penerima</small></div>
@@ -155,6 +230,11 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           <div><span>Critical blockers</span><strong>{criticalExceptions.length}</strong><small>Harus diselesaikan</small></div>
           <div><span>Affected pay runs</span><strong>{affectedRuns}</strong><small>Dari {visibleSubmissions.length} pay run</small></div>
           <div><span>Client action</span><strong>{openExceptions.filter((row)=>row.status==='CLIENT_ACTION_REQUIRED').length}</strong><small>Menunggu perbaikan</small></div>
+        </> : simplifiedInternal ? <>
+          <div><span>Payments</span><strong>{visibleInstructions.length}</strong><small>{visibleInstructions.reduce((sum,row)=>sum+Number(row.recipient_count||0),0).toLocaleString('id-ID')} penerima</small></div>
+          <div><span>{role==='PAYROLL_CONTROLLER'?'For approval':'Ready to pay'}</span><strong>{role==='PAYROLL_CONTROLLER'?awaitingApproval:visibleInstructions.filter((row)=>row.status==='APPROVED_FOR_PAYMENT').length}</strong><small>{role==='PAYROLL_CONTROLLER'?'Menunggu keputusan Anda':'Siap dieksekusi'}</small></div>
+          <div><span>Processing</span><strong>{visibleInstructions.filter((row)=>['DISBURSEMENT_PROCESSING','PAYMENT_CONFIRMED'].includes(row.status)).length}</strong><small>{formatIDR(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</small></div>
+          <div><span>Reconciled</span><strong>{matchedPayments}</strong><small>{visibleReconciliations.length-matchedPayments} belum match</small></div>
         </> : <>
           <div><span>Payment Instructions</span><strong>{visibleInstructions.length}</strong><small>{visibleInstructions.reduce((sum,row)=>sum+Number(row.recipient_count||0),0).toLocaleString('id-ID')} penerima</small></div>
           <div><span>PI value</span><strong>{formatIDR(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</strong><small>Control total</small></div>
@@ -166,9 +246,9 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
       {loading ? <Empty title="Memuat data operasional…" /> : (
         <>
-          {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} act={act} />}
+          {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedInternal} act={act} />}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
-          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
+          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace actor={actor} />}
         </>
       )}
@@ -226,7 +306,7 @@ function CreatePayRunWizard({clients,projects,servicePlans,submissions,onClose,o
   </div></div>,document.body);
 }
 
-function Submissions({ rows, instructions, role, permissions, act }: { rows: any[]; instructions:any[]; role: string; permissions:string[]; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+function Submissions({ rows, instructions, role, permissions, simplified, act }: { rows: any[]; instructions:any[]; role: string; permissions:string[]; simplified:boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
   const [selected, setSelected] = useState<any | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [reviewNote, setReviewNote] = useState('');
@@ -261,19 +341,31 @@ function Submissions({ rows, instructions, role, permissions, act }: { rows: any
     setRunDetail(null);setRunDetailLoading(true);
     void getPayRunDetail(row.id).then(setRunDetail).finally(()=>setRunDetailLoading(false));
   }
-  const table = <CardTable headers={['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={rows.map((r) => [
-    <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id} · {String(r.run_type||'REGULAR').replaceAll('_',' ')}</small></div>,
-    String(r.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' '),
-    <Badge key="state" text={r.state} />,
-    <div key="summary"><strong>{Number(r.employee_count || 0)} karyawan</strong><small style={small}>{formatIDR(Number(r.total_net || 0))} · {Number(r.blocking_count || 0)} blocker</small></div>,
-    (() => {
-      const nextAction=nextActionFor(r);
-      const label=nextAction.actionable||nextAction.category==='MONITOR'?nextAction.label:'View Status';
-      return nextAction.view==='operations'||nextAction.view==='exceptions'
-        ? <button key="action" style={actionButton} onClick={() => openReview(r)}>{label}</button>
-        : <a key="action" className="btn" href={`?view=${nextAction.view}`}>{label}</a>;
-    })(),
-  ])} />;
+  const table = <CardTable headers={simplified?['Klien / Periode','Stage','Net / THP','Next action']:['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={rows.map((r) => {
+    const nextAction=nextActionFor(r);
+    const business=derivePayrollBusinessStage({
+      state:r.state,
+      paymentInstructionStatus:instructionBySubmission.get(r.id)?.status,
+      invoiceStatus:r.invoice_status,
+      arStatus:r.ar_status,
+    });
+    const label=nextAction.actionable||nextAction.category==='MONITOR'?nextAction.label:'View Status';
+    const actionCell=nextAction.view==='operations'||nextAction.view==='exceptions'
+      ? <button key="action" style={actionButton} onClick={() => openReview(r)}>{label}</button>
+      : <a key="action" className="btn" href={`?view=${nextAction.view}`}>{label}</a>;
+    return simplified ? [
+      <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id}</small></div>,
+      <div key="stage"><span className="stage-pill">{business.label}</span><small style={small}>{String(business.status).replaceAll('_',' ')}</small></div>,
+      <div key="summary"><strong>{formatIDR(Number(r.total_net || 0))}</strong><small style={small}>{Number(r.employee_count || 0)} karyawan{Number(r.blocking_count||0)?` · ${r.blocking_count} blocker`:''}</small></div>,
+      <div key="next">{actionCell}<small style={small}>{nextAction.actionable?'Action required':'Monitor only'}</small></div>,
+    ] : [
+      <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id} · {String(r.run_type||'REGULAR').replaceAll('_',' ')}</small></div>,
+      String(r.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' '),
+      <Badge key="state" text={r.state} />,
+      <div key="summary"><strong>{Number(r.employee_count || 0)} karyawan</strong><small style={small}>{formatIDR(Number(r.total_net || 0))} · {Number(r.blocking_count || 0)} blocker</small></div>,
+      actionCell,
+    ];
+  })} />;
   if (!selected) return table;
   const nextAction=nextActionFor(selected);
   const next=nextAction.workflowCommand;
@@ -372,7 +464,7 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
   </div>;
 }
 
-function Payments({ instructions, proofs, reconciliations, role, canReview, canApprove, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; role:string; canReview:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
+function Payments({ instructions, proofs, reconciliations, role, simplified, canReview, canApprove, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; role:string; simplified:boolean; canReview:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
   const [proofFor, setProofFor] = useState<string | null>(null);
   const [proof, setProof] = useState({ bank:'BCA', reference:'', transactionDate:new Date().toISOString().slice(0,10), amount:'' });
   const [file, setFile] = useState<File | null>(null);
@@ -432,7 +524,7 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
         ? <a className="btn btn-primary" href={`?view=operations&submissionId=${encodeURIComponent(r.submission_id)}`}>Perbaiki Pay Run</a>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
       else action = <button style={actionButton} onClick={() => void openDetail(r.id)}>Detail PI</button>;
-      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.status === 'REVISION_REQUIRED' && r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
+      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.status === 'REVISION_REQUIRED' && r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={simplified?paymentBusinessLabel(r.status):r.status} />, date(r.created_at), <span key="action">{action}</span>];
     })} />
     {detailLoading ? <div className="card" style={{padding:18}}>Memuat snapshot Payment Instruction…</div> : null}
     {detailError ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Detail PI gagal</strong><span>{detailError}</span></div> : null}

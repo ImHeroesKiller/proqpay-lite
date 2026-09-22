@@ -116,6 +116,7 @@ export default function Sidebar({
     "PAYROLL_PROCESSOR",
     "CLIENT_USER",
   ].includes(role || "");
+  const simplifiedInternal = ["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role || "");
   return (
     <>
       <button
@@ -158,8 +159,8 @@ export default function Sidebar({
             onClick={() => go("dashboard")}
           />
         </NavGroup>
-        <NavGroup label="Workflow">
-          {allowed.has("clients") ? (
+        <NavGroup label={simplifiedInternal ? "Work" : "Workflow"}>
+          {allowed.has("clients") && !simplifiedInternal ? (
             <NavBtn
               active={view === "clients"}
               icon={<IconBuilding />}
@@ -182,7 +183,7 @@ export default function Sidebar({
             <NavBtn
               active={view === "exceptions"}
               icon={<IconMessage />}
-              title="Data Readiness"
+              title={simplifiedInternal ? "Issues" : "Data Readiness"}
               onClick={() => go("exceptions")}
             />
           ) : null}
@@ -190,7 +191,7 @@ export default function Sidebar({
             <NavBtn
               active={view === "operations" && activePath !== "data-intake"}
               icon={<IconWallet />}
-              title={role === "CLIENT_USER" ? "Payroll Status" : "Pay Runs"}
+              title={role === "CLIENT_USER" ? "Payroll Status" : simplifiedInternal ? "Payroll" : "Pay Runs"}
               onClick={() => go("operations")}
             />
           ) : null}
@@ -201,7 +202,9 @@ export default function Sidebar({
               title={
                 role === "CLIENT_USER"
                   ? "Payment Status"
-                  : "Payment Instructions"
+                  : simplifiedInternal
+                    ? "Payments"
+                    : "Payment Instructions"
               }
               onClick={() => go("payments")}
             />
@@ -210,12 +213,20 @@ export default function Sidebar({
             <NavBtn
               active={view === "billing"}
               icon={<IconWallet />}
-              title={role === "CLIENT_USER" ? "Invoices" : "Billing & AR"}
+              title={role === "CLIENT_USER" ? "Invoices" : simplifiedInternal ? "Close & Billing" : "Billing & AR"}
               onClick={() => go("billing")}
             />
           ) : null}
         </NavGroup>
-        <NavGroup label="People & Insight">
+        <NavGroup label={simplifiedInternal ? "Reference & Reports" : "People & Insight"}>
+          {allowed.has("clients") && simplifiedInternal ? (
+            <NavBtn
+              active={view === "clients"}
+              icon={<IconBuilding />}
+              title="Clients & Projects"
+              onClick={() => go("clients")}
+            />
+          ) : null}
           {allowed.has("reports") ? (
             <NavBtn
               active={view === "reports"}
@@ -233,9 +244,9 @@ export default function Sidebar({
             />
           ) : null}
         </NavGroup>
-        {allowed.has("ewa") ||
+        {role === "SUPER_ADMIN" && (allowed.has("ewa") ||
         allowed.has("portalAudit") ||
-        allowed.has("portalSettings") ? (
+        allowed.has("portalSettings")) ? (
           <NavGroup label="Employee Portal">
             {allowed.has("ewa") ? (
               <NavBtn

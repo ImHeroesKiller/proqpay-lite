@@ -17,7 +17,7 @@ test('Controller role fallback keeps approve action visible', () => {
 });
 
 test('Payment Control filters PI status and hides stale rejection reasons', () => {
-  assert.match(ui, /mode === 'payments' \? 'Status PI' : 'Status pay run'/);
+  assert.match(ui, /mode === 'payments' \? 'Status PI'/);
   assert.match(ui, /statusMatches = statusFilter === 'ALL' \|\| row\.status === statusFilter/);
   assert.match(ui, /r\.status === 'REVISION_REQUIRED' && r\.rejection_reason/);
 });
