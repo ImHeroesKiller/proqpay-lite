@@ -33,7 +33,7 @@ test('Control Tower becomes My Workspace with business-stage filtering for inter
   assert.match(source,/ALL PAYROLL/);
   assert.match(source,/Monitor only/);
   assert.match(source,/category:String\(row\.nextAction\.category/);
-  assert.match(source,/item\.category==='APPROVAL'/);
+  assert.match(source,/(?:item|row)\.category==='APPROVAL'/);
 });
 
 test('internal payroll workspace filters and displays business stages instead of technical submission states', async()=>{
@@ -66,6 +66,6 @@ test('header labels and work alerts are role-owned for Processor and Controller'
   assert.match(source,/billing:"Close & Billing"/);
   assert.match(source,/actor\.role === "PAYROLL_PROCESSOR"/);
   assert.match(source,/actor\.role === "PAYROLL_CONTROLLER"/);
-  assert.match(source,/row\.status === "PAYMENT_APPROVAL_PENDING"/);
+  assert.match(source,/row\.status\s*===\s*"PAYMENT_APPROVAL_PENDING"/);
   assert.match(source,/No action required/);
 });
