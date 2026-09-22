@@ -133,3 +133,28 @@ test('gateway execution lease blocks concurrent financial attempts and can be re
   assert.ok(third);
   await releaseExecutionLease(DB,'PGT-LOCK',third);
 });
+
+
+test('VALIDATE detects corrupted payroll control totals instead of only changing status',async()=>{
+  const DB=new D1Mock(); seedPayroll(DB);
+  const processor={id:'USR-V',email:'validator@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:[]};
+  const created=await direct(DB,processor,{action:'CREATE_PAY_RUN',clientId:'CLI-CRIT',projectId:'PRJ-CRIT',servicePlanId:'SP-CRIT',period:'2026-10',paymentPeriod:'2026-10',paymentDate:'2026-10-25',runType:'REGULAR',sourceMode:'MASTER_CURRENT'});
+  assert.equal(created.response.status,201,JSON.stringify(created.payload));
+  const id=created.payload.submission.id;
+  assert.equal((await direct(DB,processor,{action:'FINALIZE_PAY_RUN_INPUT',submissionId:id,confirmation:'DATA PAYROLL FINAL'})).response.status,200);
+
+  // Simulate a corrupted canonical snapshot that still has positive THP and bank data.
+  DB.sqlite.prepare('UPDATE payroll_run_lines SET deduction_amount=100000,net_amount=5000000 WHERE submission_id=?').run(id);
+  const invalid=await direct(DB,processor,{action:'ADVANCE_PAY_RUN',submissionId:id,command:'VALIDATE',reviewConfirmed:true});
+  assert.equal(invalid.response.status,200,JSON.stringify(invalid.payload));
+  assert.equal(invalid.payload.submission.state,'EXCEPTION_FOUND');
+  assert.ok(Number(invalid.payload.blockingCount)>0);
+  const exception=DB.sqlite.prepare("SELECT status FROM payroll_exceptions WHERE submission_id=? AND category='SYSTEM_PAYROLL_CONTROL_MISMATCH' ORDER BY created_at DESC LIMIT 1").get(id);
+  assert.equal(exception.status,'OPEN');
+
+  DB.sqlite.prepare('UPDATE payroll_run_lines SET deduction_amount=0,net_amount=5000000 WHERE submission_id=?').run(id);
+  const valid=await direct(DB,processor,{action:'ADVANCE_PAY_RUN',submissionId:id,command:'VALIDATE',reviewConfirmed:true});
+  assert.equal(valid.response.status,200,JSON.stringify(valid.payload));
+  assert.equal(valid.payload.submission.state,'VALIDATED');
+  assert.equal(DB.sqlite.prepare("SELECT COUNT(*) count FROM payroll_exceptions WHERE submission_id=? AND category LIKE 'SYSTEM_%' AND status='OPEN'").get(id).count,0);
+});
