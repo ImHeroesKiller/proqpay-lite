@@ -69,10 +69,16 @@ function parseJsonFields(rows, fields) {
   });
 }
 
-function scopeWhere({ organizationId, clientId, projectIds = [], orgColumn = 's.org_id', clientColumn = 's.client_id', projectColumn = 's.project_id' }) {
+function scopeWhere({ organizationId, clientId, clientIds, projectIds = [], orgColumn = 's.org_id', clientColumn = 's.client_id', projectColumn = 's.project_id' }) {
   const clauses = [`${orgColumn}=?`];
   const bindings = [organizationId];
   if (clientId) { clauses.push(`${clientColumn}=?`); bindings.push(clientId); }
+  else if (Array.isArray(clientIds)) {
+    if (clientIds.length) {
+      clauses.push(`${clientColumn} IN (${clientIds.map(()=>'?').join(',')})`);
+      bindings.push(...clientIds);
+    } else clauses.push('1=0');
+  }
   if (projectIds.length) {
     clauses.push(`${projectColumn} IN (${projectIds.map(() => '?').join(',')})`);
     bindings.push(...projectIds);
@@ -102,6 +108,10 @@ const SUBMISSION_SELECT = `SELECT s.*, c.name AS client_name, p.name AS project_
     WHERE e.client_id=s.client_id AND (s.project_id IS NULL OR e.project_id=s.project_id)
       AND ec.payroll_source_period=s.period),0) END AS total_net,
   (SELECT COUNT(*) FROM payroll_exceptions pe WHERE pe.submission_id=s.id) AS exception_count,
+  (SELECT COUNT(*) FROM payroll_exceptions pe WHERE pe.submission_id=s.id
+    AND pe.status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')) AS open_exception_count,
+  (SELECT COUNT(*) FROM payroll_exceptions pe WHERE pe.submission_id=s.id
+    AND pe.status='CLIENT_ACTION_REQUIRED') AS client_action_count,
   (SELECT COUNT(*) FROM payroll_exceptions pe WHERE pe.submission_id=s.id AND pe.severity='CRITICAL'
     AND pe.status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')) AS blocking_count,
   (SELECT pi_status.status FROM payment_instructions pi_status
@@ -140,17 +150,34 @@ const PI_SELECT = `SELECT pi.*, s.period AS payroll_period, COALESCE(s.payment_p
 async function readResource(database, params, actor, env, organizationId) {
   const resource = params.get('resource') || 'submissions';
   const clientId = params.get('clientId');
+  const requestedPeriod = params.get('period');
   const projectIds = actor.role === 'CLIENT_USER' && Array.isArray(actor.projectIds) ? actor.projectIds.map(String) : [];
+  const dashboardAggregate = resource === 'dashboard' || resource === 'dashboard-periods';
+  const aggregateClientIds = actor.role === 'CLIENT_USER' && dashboardAggregate
+    ? [...(clientScope(actor,env) || new Set())]
+    : undefined;
   const selfScopingDetail = resource === 'pay-run-detail' || resource === 'payment-instruction-detail';
   if (actor.role === 'CLIENT_USER') {
     if (clientId && !assertClientScope(actor, env, clientId)) {
       return { status: 403, data: { error: 'Client scope denied' } };
     }
-    if (!clientId && !selfScopingDetail) {
+    if (!clientId && !selfScopingDetail && !dashboardAggregate) {
       return { status: 403, data: { error: 'Client scope required' } };
     }
   }
-  const submissionScope = scopeWhere({ organizationId, clientId, projectIds });
+  const submissionScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds });
+
+  if (resource === 'dashboard-periods') {
+    const rows = await d1All(database, `SELECT period FROM (
+      SELECT s.period AS period FROM payroll_submissions s
+        WHERE ${submissionScope.sql} AND s.state<>'CANCELLED'
+      UNION
+      SELECT COALESCE(s.payment_period,s.period) AS period FROM payroll_submissions s
+        WHERE ${submissionScope.sql} AND s.state<>'CANCELLED'
+    ) WHERE period IS NOT NULL AND period<>'' ORDER BY period DESC LIMIT 120`,
+      [...submissionScope.bindings, ...submissionScope.bindings]);
+    return { data:{ ok:true, periods:rows.map((row)=>String(row.period)) } };
+  }
 
   if (resource === 'service-plans') {
     const where = clientId ? 'sp.client_id=? AND c.org_id=?' : 'c.org_id=?';
@@ -314,19 +341,47 @@ async function readResource(database, params, actor, env, organizationId) {
     return { data: { ok: true, paymentReports: parseJsonFields(rows, ['arrears_periods']) } };
   }
 
-  const submissions = await d1All(database, `${SUBMISSION_SELECT} WHERE ${submissionScope.sql}
-    ORDER BY s.created_at DESC LIMIT 200`, submissionScope.bindings);
+  const dashboardPeriodSql = resource === 'dashboard' && requestedPeriod
+    ? ' AND (s.period=? OR COALESCE(s.payment_period,s.period)=?)'
+    : '';
+  const dashboardBindings = requestedPeriod && resource === 'dashboard'
+    ? [...submissionScope.bindings, requestedPeriod, requestedPeriod]
+    : submissionScope.bindings;
+  const submissionLimit = resource === 'dashboard' ? 1000 : 200;
+  const submissions = await d1All(database, `${SUBMISSION_SELECT} WHERE ${submissionScope.sql}${dashboardPeriodSql}
+    ORDER BY s.created_at DESC LIMIT ${submissionLimit}`, dashboardBindings);
   parseJsonFields(submissions, ['arrears_periods']);
   if (resource !== 'dashboard') return { data: { ok: true, submissions } };
-  const clientScope = scopeWhere({ organizationId, clientId, projectIds: [], orgColumn: 'c.org_id', clientColumn: 'c.id' });
-  const projectScope = scopeWhere({ organizationId, clientId, projectIds, orgColumn: 'p.org_id', clientColumn: 'p.client_id', projectColumn: 'p.id' });
-  const employeeScope = scopeWhere({ organizationId, clientId, projectIds, orgColumn: 'e.org_id', clientColumn: 'e.client_id', projectColumn: 'e.project_id' });
-  const [exceptions, paymentInstructions, paymentProofs, reconciliations, clientCount, projectCount, employeeCount, bankCount] = await Promise.all([
-    readResource(database, new URLSearchParams({ resource: 'exceptions', ...(clientId ? { clientId } : {}) }), actor, env, organizationId),
-    readResource(database, new URLSearchParams({ resource: 'payment-instructions', ...(clientId ? { clientId } : {}) }), actor, env, organizationId),
-    readResource(database, new URLSearchParams({ resource: 'payment-proofs', ...(clientId ? { clientId } : {}) }), actor, env, organizationId),
-    readResource(database, new URLSearchParams({ resource: 'reconciliations', ...(clientId ? { clientId } : {}) }), actor, env, organizationId),
-    d1First(database, `SELECT COUNT(*) AS total FROM clients c WHERE ${clientScope.sql}`, clientScope.bindings),
+
+  const totalRow = await d1First(database, `SELECT COUNT(*) AS total FROM payroll_submissions s
+    WHERE ${submissionScope.sql}${dashboardPeriodSql}`, dashboardBindings);
+  const submissionsTotal = Number(totalRow?.total || 0);
+  const submissionIds = submissions.map((row)=>String(row.id));
+  let paymentInstructions = [];
+  if (submissionIds.length) {
+    const placeholders = submissionIds.map(()=>'?').join(',');
+    const internalHash = actor.role === 'CLIENT_USER' ? '' : ', pi.content_hash';
+    paymentInstructions = await d1All(database, `SELECT
+      pi.id,pi.client_id,pi.submission_id,pi.status,pi.expected_total,pi.document_no,
+      pi.currency,pi.recipient_count,pi.created_at,pi.updated_at${internalHash},
+      s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,
+      c.name AS client_name,p.name AS project_name,
+      (SELECT COUNT(*) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id) AS proof_count
+      FROM payment_instructions pi
+      JOIN payroll_submissions s ON s.id=pi.submission_id
+      JOIN clients c ON c.id=pi.client_id
+      LEFT JOIN projects p ON p.id=s.project_id
+      WHERE pi.org_id=? AND pi.status<>'REJECTED'
+        AND pi.submission_id IN (${placeholders})
+      ORDER BY pi.updated_at DESC,pi.created_at DESC`,
+      [organizationId,...submissionIds]);
+  }
+
+  const clientSummaryScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds: [], orgColumn: 'c.org_id', clientColumn: 'c.id' });
+  const projectScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds, orgColumn: 'p.org_id', clientColumn: 'p.client_id', projectColumn: 'p.id' });
+  const employeeScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds, orgColumn: 'e.org_id', clientColumn: 'e.client_id', projectColumn: 'e.project_id' });
+  const [clientCount, projectCount, employeeCount, bankCount] = await Promise.all([
+    d1First(database, `SELECT COUNT(*) AS total FROM clients c WHERE ${clientSummaryScope.sql}`, clientSummaryScope.bindings),
     d1First(database, `SELECT COUNT(*) AS total FROM projects p WHERE ${projectScope.sql}`, projectScope.bindings),
     d1First(database, `SELECT COUNT(*) AS total,
       SUM(CASE WHEN ${ACTIVE_EMPLOYEE} THEN 1 ELSE 0 END) AS active
@@ -337,9 +392,16 @@ async function readResource(database, params, actor, env, organizationId) {
   ]);
   const employees = Number(employeeCount?.total || 0);
   const primaryAccounts = Number(bankCount?.total || 0);
-  return { data: { ok: true, submissions, exceptions: exceptions.data.exceptions,
-    paymentInstructions: paymentInstructions.data.paymentInstructions,
-    paymentProofs: paymentProofs.data.paymentProofs, reconciliations: reconciliations.data.reconciliations,
+  return { data: { ok: true, submissions, paymentInstructions,
+    // Dashboard intentionally carries summary-level evidence only. Detailed exceptions,
+    // proofs and reconciliation records stay in their dedicated workspaces.
+    exceptions: [], paymentProofs: [], reconciliations: [],
+    dashboardMeta: {
+      period: requestedPeriod || 'ALL',
+      submissionsTotal,
+      submissionsReturned: submissions.length,
+      truncated: submissions.length < submissionsTotal,
+    },
     portfolioSummary: { clients: Number(clientCount?.total || 0), projects: Number(projectCount?.total || 0),
       employees, activeEmployees: Number(employeeCount?.active || 0), primaryAccounts,
       bankCoveragePercent: employees ? Math.round((primaryAccounts / employees) * 100) : 0 } } };

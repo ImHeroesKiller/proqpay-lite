@@ -56,10 +56,12 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   const [data, setData] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
-  const [periodFilter, setPeriodFilter] = useState('ALL');
+  const [periodFilter, setPeriodFilter] = useState(()=>typeof window==='undefined'?'ALL':new URLSearchParams(window.location.search).get('payrollPeriod')||'ALL');
   const [clientFilter, setClientFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [query, setQuery] = useState('');
+  const [focusSubmissionId, setFocusSubmissionId] = useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('submissionId')||'');
+  const [dashboardStage, setDashboardStage] = useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('dashboardStage')||'');
   const [createOpen, setCreateOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -151,16 +153,19 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
     return (periodFilter === 'ALL' || row.period === periodFilter || row.payment_period === periodFilter)
       && (clientFilter === 'ALL' || row.client_id === clientFilter)
       && workflowMatches
+      && (!focusSubmissionId || String(row.id)===focusSubmissionId)
+      && (!dashboardStage || business.stage===dashboardStage)
       && (!query.trim() || haystack.includes(query.trim().toLowerCase()));
-  }), [submissions, instructionBySubmission, periodFilter, clientFilter, statusFilter, query, simplifiedWorkspace, role, actor?.permissions]);
+  }), [submissions, instructionBySubmission, periodFilter, clientFilter, statusFilter, query, simplifiedWorkspace, role, actor?.permissions, focusSubmissionId, dashboardStage]);
   const visibleSubmissionIds = useMemo(() => new Set(visibleSubmissions.map((row) => row.id)), [visibleSubmissions]);
   const visibleInstructions = useMemo(() => (data.paymentInstructions || []).filter((row) => {
     const periodMatches = periodFilter === 'ALL' || row.payroll_period === periodFilter || row.payment_period === periodFilter;
     const clientMatches = clientFilter === 'ALL' || row.client_id === clientFilter;
     const statusMatches = statusFilter === 'ALL' || row.status === statusFilter;
     const queryMatches = !query.trim() || [row.document_no,row.client_name,row.project_name,row.status].join(' ').toLowerCase().includes(query.trim().toLowerCase());
-    return periodMatches && clientMatches && statusMatches && queryMatches;
-  }), [data.paymentInstructions, periodFilter, clientFilter, statusFilter, query]);
+    const focusMatches=!focusSubmissionId || String(row.submission_id)===focusSubmissionId;
+    return periodMatches && clientMatches && statusMatches && queryMatches && focusMatches;
+  }), [data.paymentInstructions, periodFilter, clientFilter, statusFilter, query, focusSubmissionId]);
   const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
 
   const visibleExceptions = useMemo(() => (data.exceptions || []).filter((row) => visibleSubmissionIds.has(row.submission_id)), [data.exceptions, visibleSubmissionIds]);
@@ -218,6 +223,15 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
     payments:{...baseProfile,title:'Payments',eyebrow:'PAYMENT WORK',description:'Review approval, execution, dan reconciliation tanpa melihat state teknis yang tidak perlu.'},
     billing:{...baseProfile,title:'Close & Billing',eyebrow:'CLOSE',description:'Selesaikan billing, AR, dan penutupan payroll setelah payment matched.'},
   } as Record<WorkspaceMode, typeof baseProfile>)[mode] : baseProfile;
+  function clearDashboardFocus(){
+    setFocusSubmissionId(''); setDashboardStage('');
+    const url=new URL(window.location.href);
+    url.searchParams.delete('submissionId');
+    url.searchParams.delete('dashboardStage');
+    url.searchParams.delete('payrollPeriod');
+    window.history.replaceState({},'',url);
+  }
+
   const statusOptions = mode === 'payments'
     ? [...new Set((data.paymentInstructions || []).map((row) => row.status))].sort()
     : simplifiedWorkspace && mode === 'payruns'
@@ -234,6 +248,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&clientExperience?<a className="btn btn-primary" href="/data-intake">Kirim data payroll</a>:mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}{!clientExperience?<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div>:null}</div>
       </div>
+
+      {(focusSubmissionId||dashboardStage) && mode!=='billing' ? <div className="dashboard-focus-banner" role="status"><span>Dashboard focus · {focusSubmissionId || dashboardStage}</span><button type="button" onClick={clearDashboardFocus}>Tampilkan semua</button></div> : null}
 
       {mode !== 'billing' ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((period) => <option key={period} value={period}>{period}</option>)}</select></label>

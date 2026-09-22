@@ -12,6 +12,7 @@ import RoleDashboard from '@/components/RoleDashboard';
 import SystemHealthBubble from '@/components/SystemHealthBubble';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
+import { listOperatingPeriods } from '@/lib/operating-model-api';
 import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
 
 const OperatingWorkspace = dynamic(() => import('@/components/OperatingWorkspace'), { loading: () => <ViewLoading /> });
@@ -53,6 +54,7 @@ export default function Home() {
   const [initError, setInitError] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [canonicalPeriods, setCanonicalPeriods] = useState<string[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,6 +72,16 @@ export default function Home() {
         if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
         const authenticatedActor = { ...(result.user || {}), authMode: result.authMode || 'origin' };
         setActor(authenticatedActor);
+        const periodScopes:[string|undefined] = [undefined];
+        void Promise.all(periodScopes.map((clientId:string|undefined)=>listOperatingPeriods(clientId)))
+          .then((results)=>{
+            const merged=[...new Set(results.flatMap((result:any)=>Array.isArray(result.periods)?result.periods:[]))]
+              .map(String).sort((a,b)=>b.localeCompare(a));
+            setCanonicalPeriods(merged);
+            const preferred=String(data?.meta?.currentPeriod || st.defaultPeriod || '');
+            if(merged.length && !merged.includes(preferred)) setPeriod(merged[0]);
+          })
+          .catch(()=>setCanonicalPeriods([]));
         const allowedViews = allowedViewsForRole(authenticatedActor.role);
         const preferredView = normalizeViewForRole(authenticatedActor.role, (requestedView || st.defaultView) as AppView);
         setView(allowedViews.includes(preferredView) ? preferredView : 'dashboard');
@@ -79,7 +91,6 @@ export default function Home() {
           .then(({ db: canonical }) => {
             saveDatabase(canonical);
             setDb(canonical);
-            if (canonical?.meta?.currentPeriod) setPeriod(canonical.meta.currentPeriod);
           })
           .catch((error) => {
             if (error?.name !== 'AbortError') writeSystemLog('WARN', 'DATABASE', 'BACKGROUND_SYNC_FAILED', 'Sinkronisasi data latar belakang gagal');
@@ -169,7 +180,7 @@ export default function Home() {
   }
 
   const pad = settings.density === 'compact' ? '18px 16px' : '28px 24px';
-  const periods = [...new Set([period,...(db.payrolls || []).map((item:any)=>item.period).filter(Boolean)])].sort((a:string,b:string)=>b.localeCompare(a));
+  const periods = [...new Set([period,...(canonicalPeriods.length ? canonicalPeriods : (db.payrolls || []).map((item:any)=>item.period).filter(Boolean))])].sort((a:string,b:string)=>b.localeCompare(a));
   const gatewayCanView = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
   const gatewayCanExecute = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(actor.role);
   const simplifiedInternal = ['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
@@ -197,7 +208,7 @@ export default function Home() {
           <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
             {view === 'dashboard' && (
               actor.role === 'CLIENT_USER'
-                ? <ClientHome actor={actor} onNavigate={navigate} />
+                ? <ClientHome actor={actor} period={period} onNavigate={navigate} />
                 : <>{!simplifiedInternal ? <RoleDashboard actor={actor} onNavigate={navigate} /> : null}<PayrollControlTower actor={actor} period={period} onNavigate={navigate} /></>
             )}
 
