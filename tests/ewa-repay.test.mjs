@@ -107,12 +107,28 @@ test('FINALIZE_PAY_RUN_INPUT deducts disbursed EWA then PI uses the new net', as
     env,
   }, actor);
   const controller = { id:'USR-CTRL', email:'controller@proqpay.test', role:'PAYROLL_CONTROLLER', permissions:['payment:approve'] };
-  const piResponse = await handleD1OperatingModel({
+  const controllerReview = await handleD1OperatingModel({
     request: request('/api/operating-model', { method: 'POST', body: JSON.stringify({
-      action: 'APPROVE_PAYROLL_AND_GENERATE_PI', submissionId, reviewConfirmed:true, reviewNote:'Controller review complete',
+      action:'TRANSITION_SUBMISSION',submissionId,toState:'CLIENT_APPROVAL_PENDING',reviewConfirmed:true,reviewNote:'Controller review complete',
     }) }),
     env,
   }, controller);
+  assert.equal(controllerReview.status,200,await controllerReview.clone().text());
+
+  const clientActor={id:'USR-CLIENT',email:'client@run.test',role:'CLIENT_USER',permissions:[],clientIds:['CLI-RUN'],projectIds:['PRJ-RUN']};
+  const clientApproval=await handleD1OperatingModel({
+    request:request('/api/operating-model',{method:'POST',body:JSON.stringify({
+      action:'CLIENT_APPROVE_PAYROLL',submissionId,reviewConfirmed:true,confirmation:'SETUJUI PAYROLL',reviewNote:'Client sign-off complete',
+    })}),env,
+  },clientActor);
+  assert.equal(clientApproval.status,200,await clientApproval.clone().text());
+
+  const piResponse = await handleD1OperatingModel({
+    request: request('/api/operating-model', { method: 'POST', body: JSON.stringify({
+      action:'GENERATE_PAYMENT_INSTRUCTION',submissionId,
+    }) }),
+    env,
+  }, actor);
   assert.equal(piResponse.status, 201, await piResponse.clone().text());
   const pi = await piResponse.json();
   const aniLine = DB.sqlite.prepare('SELECT amount FROM payment_instruction_lines WHERE employee_id=?').get('EMP-A');
