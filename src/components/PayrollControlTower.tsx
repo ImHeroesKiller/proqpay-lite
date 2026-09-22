@@ -7,12 +7,17 @@ import { invalidateOperatingCache, listOperatingDashboard } from '@/lib/operatin
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
 import { IconAlertTriangle, IconCheckCircle, IconClock, IconLayers, IconRefresh, IconShieldCheck, IconWallet } from './Icons';
+import type { DashboardActor, DashboardApiResponse, DashboardPaymentInstruction, DashboardPortfolioSummary, DashboardSubmission } from '@/lib/dashboard-types';
 
-type Actor = { email:string; role:string; permissions:string[]; clientIds?:string[]|null };
+type Actor = DashboardActor;
 type Props = { actor:Actor; period:string; onNavigate:(view:AppView)=>void };
 type Tone = 'danger'|'warning'|'info'|'success';
-type PortfolioSummary = { clients:number;projects:number;employees:number;activeEmployees:number;primaryAccounts:number;bankCoveragePercent:number };
-type DashboardData = { submissions?:any[];paymentInstructions?:any[];portfolioSummary?:Partial<PortfolioSummary>;dashboardMeta?:{period?:string;submissionsTotal?:number;submissionsReturned?:number;truncated?:boolean} };
+type OperationalSubmission = DashboardSubmission & {
+  submission_state:string;
+  payment_instruction_id?:string;
+  business:ReturnType<typeof derivePayrollBusinessStage>;
+  nextAction:ReturnType<typeof derivePayrollNextAction>;
+};
 
 const PIPELINE = PAYROLL_BUSINESS_STAGE_ORDER.map((stage) => ({
   stage,
@@ -21,22 +26,22 @@ const PIPELINE = PAYROLL_BUSINESS_STAGE_ORDER.map((stage) => ({
   view:BUSINESS_STAGE_META[stage].view as AppView,
 }));
 
-function localDate(value:string) {
+function localDate(value?:string|null) {
   if (!value) return null;
   const match=String(value).slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
   return new Date(Number(match[1]),Number(match[2])-1,Number(match[3]));
 }
-function dateLabel(value:string) { const date=localDate(value); return date ? date.toLocaleDateString('id-ID',{day:'2-digit',month:'short'}) : '-'; }
-function statusLabel(value:string) { return String(value||'-').replaceAll('_',' '); }
-function daysFromNow(value:string) {
+function dateLabel(value?:string|null) { const date=localDate(value); return date ? date.toLocaleDateString('id-ID',{day:'2-digit',month:'short'}) : '-'; }
+function statusLabel(value?:string|null) { return String(value||'-').replaceAll('_',' '); }
+function daysFromNow(value?:string|null) {
   const target=localDate(value); if (!target) return null;
   const today=new Date(); today.setHours(0,0,0,0);
   return Math.round((target.getTime()-today.getTime())/86_400_000);
 }
 
 export default function PayrollControlTower({actor,period,onNavigate}:Props) {
-  const [data,setData] = useState<DashboardData>({});
+  const [data,setData] = useState<DashboardApiResponse>({submissions:[],paymentInstructions:[]});
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState('');
   const [client,setClient] = useState('ALL');
@@ -45,27 +50,18 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const [tier,setTier] = useState('ALL');
   const [query,setQuery] = useState('');
   const [page,setPage] = useState(1);
-  const [scopedPortfolio,setScopedPortfolio] = useState<Partial<PortfolioSummary>|null>(null);
+  const [scopedPortfolio,setScopedPortfolio] = useState<Partial<DashboardPortfolioSummary>|null>(null);
 
   const load = useCallback(async()=>{
     setLoading(true); setError('');
     try {
-      const scopedClientIds:[string|undefined]=[undefined];
-      const results=await Promise.all(scopedClientIds.map((clientId)=>listOperatingDashboard(clientId,period)));
-      const merged:Record<string,any>={};
-      results.forEach((result)=>Object.entries(result).forEach(([key,value])=>{
-        if(Array.isArray(value)) merged[key]=[...(merged[key]||[]),...value];
-        else if(key==='dashboardMeta'&&value&&typeof value==='object') merged[key]=value;
-        else if(key==='portfolioSummary'&&value&&typeof value==='object') {
-          const previous=merged[key]||{}; const current=value as Record<string,number>;
-          merged[key]={clients:Number(previous.clients||0)+Number(current.clients||0),projects:Number(previous.projects||0)+Number(current.projects||0),employees:Number(previous.employees||0)+Number(current.employees||0),activeEmployees:Number(previous.activeEmployees||0)+Number(current.activeEmployees||0),primaryAccounts:Number(previous.primaryAccounts||0)+Number(current.primaryAccounts||0)};
-        }
-      }));
-      if(merged.portfolioSummary){const summary=merged.portfolioSummary;summary.bankCoveragePercent=summary.employees?Math.round((summary.primaryAccounts/summary.employees)*100):0;}
-      setData(merged);
-    } catch (loadError) { setError(loadError instanceof Error?loadError.message:'Dashboard operasional gagal dimuat'); }
-    finally { setLoading(false); }
-  },[actor.clientIds,actor.role,period]);
+      setData(await listOperatingDashboard(undefined,period));
+    } catch (loadError) {
+      setError(loadError instanceof Error?loadError.message:'Dashboard operasional gagal dimuat');
+    } finally {
+      setLoading(false);
+    }
+  },[period]);
   useEffect(()=>{void load();},[load]);
 
   const submissions=useMemo(()=>data.submissions||[],[data.submissions]);
@@ -79,11 +75,11 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
       ? 'Kerjakan payroll berdasarkan prioritas dan next action yang tersedia.'
       : 'Prioritas, deadline, pembayaran, dan seluruh pay run dalam satu kendali.';
   const instructionBySubmission=useMemo(()=>{
-    const map=new Map<string,any>();
+    const map=new Map<string,DashboardPaymentInstruction>();
     instructions.forEach((row)=>{ if(!map.has(String(row.submission_id))) map.set(String(row.submission_id),row); });
     return map;
   },[instructions]);
-  const operationalSubmissions=useMemo(()=>submissions.map((row)=>{
+  const operationalSubmissions=useMemo<OperationalSubmission[]>(()=>submissions.map((row)=>{
     const instruction=instructionBySubmission.get(row.id);
     const operationalState=row.reconciliation_status==='MATCHED'?'COMPLETED':instruction?.status||row.state;
     const businessContext={
@@ -186,9 +182,9 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   };
 
 
-  return <section className={`control-tower${simplifiedInternal?' control-tower-simple':''}`}>
+  return <section className={`control-tower${simplifiedInternal?' control-tower-simple':''}`} aria-busy={loading}>
     <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription}</p></div><button type="button" className="btn control-refresh" onClick={()=>{invalidateOperatingCache();void load();}}><IconRefresh aria-hidden="true" /> Refresh</button></div>
-    <div className="control-bar card">
+    <div className="control-bar card" aria-label="Filter dashboard payroll">
       <label><span>Klien</span><select value={client} onChange={(event)=>setClient(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
       {simplifiedInternal
         ? <label><span>Stage</span><select value={stage} onChange={(event)=>setStage(event.target.value)}><option value="ALL">Semua stage</option>{PIPELINE.map((item)=><option key={item.stage} value={item.stage}>{item.label}</option>)}</select></label>
@@ -197,16 +193,16 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
       <label className="control-search"><span>Pencarian</span><input value={query} onChange={(event)=>setQuery(event.target.value)} placeholder="Klien, project, payroll…" /></label>
       <button type="button" onClick={reset}>Reset</button>
     </div>
-    {error?<div className="app-notice-bubble app-notice-error"><strong>Dashboard gagal dimuat</strong><span>{error}</span></div>:null}
+    {error?<div className="app-notice-bubble app-notice-error" role="alert"><strong>Dashboard gagal dimuat</strong><span>{error}</span></div>:null}
     {data.dashboardMeta?.truncated?<div className="app-notice-bubble app-notice-error" role="alert"><strong>Dashboard dibatasi</strong><span>Menampilkan {Number(data.dashboardMeta.submissionsReturned||0).toLocaleString('id-ID')} dari {Number(data.dashboardMeta.submissionsTotal||0).toLocaleString('id-ID')} Pay Run. Gunakan periode yang lebih spesifik agar seluruh KPI akurat.</span></div>:null}
-    {loading?<div className="card control-loading">Menyiapkan payroll control tower…</div>:<>
+    {loading?<div className="card control-loading" role="status" aria-live="polite">Menyiapkan payroll control tower…</div>:<>
       {!simplifiedInternal ? <div className="portfolio-snapshot" aria-label="Ringkasan kesiapan master data">
         <span>Data readiness</span><b>{Number(portfolio.employees||0).toLocaleString('id-ID')} karyawan</b><i aria-hidden="true" />
         <b>{Number(portfolio.clients||0).toLocaleString('id-ID')} klien</b><i aria-hidden="true" />
         <b>{Number(portfolio.projects||0).toLocaleString('id-ID')} project</b><i aria-hidden="true" />
         <b>{Number(portfolio.bankCoveragePercent||0)}% rekening utama</b>
       </div> : null}
-      <div className="control-kpis">
+      <div className="control-kpis" aria-label="KPI dashboard payroll">
         {simplifiedInternal ? <>
           <Kpi label="My work" value={String(actions.length)} note="Tindakan yang membutuhkan Anda" tone="blue" icon={<IconLayers />} onClick={()=>actions[0]?openContext(actions[0].view,actions[0].submissionId):openContext('operations')} />
           <Kpi label="Need attention" value={String(actions.filter((item)=>item.tone==='danger').length)} note={`${blockers} blocker aktif`} tone="red" icon={<IconAlertTriangle />} onClick={()=>{const item=actions.find((row)=>row.tone==='danger');item?openContext(item.view,item.submissionId):openContext('exceptions');}} />
@@ -246,11 +242,13 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
         })}</div>
       </section>
       <section className="card portfolio-panel"><PanelTitle eyebrow={simplifiedInternal?'ALL PAYROLL':'PORTFOLIO MONITORING'} title={simplifiedInternal?'Payroll Overview':'Pay Run Portfolio'} meta={`${visible.length} record`} />
-        <div className="portfolio-table-wrap"><table className="portfolio-table"><thead>{simplifiedInternal
-          ? <tr><th>Klien / Project</th><th>Periode</th><th>Stage</th><th>Net / THP</th><th>Next action</th></tr>
-          : <tr><th>Klien / Project</th><th>Periode</th><th>Tier</th><th>Penerima</th><th>Net / THP</th><th>Blocker</th><th>Current stage</th><th>Next action</th></tr>}</thead><tbody>{pageRows.map((row)=>simplifiedInternal
-            ? <tr key={row.id}><td><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||row.id}</small></td><td>{row.period}<small>Bayar {row.payment_period||row.period}</small></td><td><span className="stage-pill">{row.business.label}</span><small>{statusLabel(row.business.status)}</small></td><td><strong>{formatIDR(Number(row.total_net||0))}</strong>{Number(row.blocking_count||0)?<small>{row.blocking_count} blocker</small>:null}</td><td><button type="button" onClick={()=>openContext(row.nextAction.view as AppView,String(row.id))}>{row.nextAction.label} →</button><small>{row.nextAction.actionable?'Action required':'Monitor only'}</small></td></tr>
-            : <tr key={row.id}><td><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||row.id}</small></td><td>{row.period}<small>Bayar {row.payment_period||row.period}</small></td><td>{statusLabel(row.service_tier).replace('TIER 1 ','T1 · ').replace('TIER 2 ','T2 · ').replace('TIER 3 ','T3 · ')}</td><td>{Number(row.employee_count||0).toLocaleString('id-ID')}</td><td><strong>{formatIDR(Number(row.total_net||0))}</strong></td><td><span className={Number(row.blocking_count||0)?'table-blocker':'table-clear'}>{Number(row.blocking_count||0)}</span></td><td><span className="stage-pill">{row.business.label}</span><small>{statusLabel(row.state)}</small></td><td><button type="button" onClick={()=>openContext(row.nextAction.view as AppView,String(row.id))}>{row.nextAction.label} →</button><small>{row.nextAction.actionable?'Action required':'No action required'}</small></td></tr>)}</tbody></table>{!pageRows.length?<Empty text="Tidak ada payroll sesuai filter." />:null}</div>
+        <div className="portfolio-table-wrap"><table className="portfolio-table dashboard-responsive-table">
+          <caption className="visually-hidden">{simplifiedInternal?'Daftar payroll dan tindakan berikutnya':'Portfolio Pay Run sesuai filter dashboard'}</caption>
+          <thead>{simplifiedInternal
+          ? <tr><th scope="col">Klien / Project</th><th scope="col">Periode</th><th scope="col">Stage</th><th scope="col">Net / THP</th><th scope="col">Next action</th></tr>
+          : <tr><th scope="col">Klien / Project</th><th scope="col">Periode</th><th scope="col">Tier</th><th scope="col">Penerima</th><th scope="col">Net / THP</th><th scope="col">Blocker</th><th scope="col">Current stage</th><th scope="col">Next action</th></tr>}</thead><tbody>{pageRows.map((row)=>simplifiedInternal
+            ? <tr key={row.id}><td data-label="Klien / Project"><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||row.id}</small></td><td data-label="Periode">{row.period}<small>Bayar {row.payment_period||row.period}</small></td><td data-label="Stage"><span className="stage-pill">{row.business.label}</span><small>{statusLabel(row.business.status)}</small></td><td data-label="Net / THP"><strong>{formatIDR(Number(row.total_net||0))}</strong>{Number(row.blocking_count||0)?<small>{row.blocking_count} blocker</small>:null}</td><td data-label="Next action"><button type="button" onClick={()=>openContext(row.nextAction.view as AppView,String(row.id))}>{row.nextAction.label} →</button><small>{row.nextAction.actionable?'Action required':'Monitor only'}</small></td></tr>
+            : <tr key={row.id}><td data-label="Klien / Project"><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||row.id}</small></td><td data-label="Periode">{row.period}<small>Bayar {row.payment_period||row.period}</small></td><td data-label="Tier">{statusLabel(row.service_tier).replace('TIER 1 ','T1 · ').replace('TIER 2 ','T2 · ').replace('TIER 3 ','T3 · ')}</td><td data-label="Penerima">{Number(row.employee_count||0).toLocaleString('id-ID')}</td><td data-label="Net / THP"><strong>{formatIDR(Number(row.total_net||0))}</strong></td><td data-label="Blocker"><span className={Number(row.blocking_count||0)?'table-blocker':'table-clear'}>{Number(row.blocking_count||0)}</span></td><td data-label="Current stage"><span className="stage-pill">{row.business.label}</span><small>{statusLabel(row.state)}</small></td><td data-label="Next action"><button type="button" onClick={()=>openContext(row.nextAction.view as AppView,String(row.id))}>{row.nextAction.label} →</button><small>{row.nextAction.actionable?'Action required':'No action required'}</small></td></tr>)}</tbody></table>{!pageRows.length?<Empty text="Tidak ada payroll sesuai filter." />:null}</div>
         <div className="control-pagination"><span>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div><button className="btn" disabled={page<=1} onClick={()=>setPage((value)=>value-1)}>←</button><button className="btn" disabled={page>=pageCount} onClick={()=>setPage((value)=>value+1)}>→</button></div></div>
       </section>
       {!simplifiedInternal ? <div className="control-bottom-grid"><section className="card payment-control"><PanelTitle eyebrow="PAYMENT INTEGRITY" title="Payment Control" meta={`${visibleInstructions.length} PI`} /><div className="payment-control-grid"><div><span>PI value</span><strong>{formatIDRShort(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</strong></div><div><span>Matched</span><strong>{matched}</strong></div><div><span>Proof tercatat</span><strong>{proofCount}</strong></div><div><span>Legacy hash</span><strong>{visibleInstructions.filter((row)=>!row.content_hash).length}</strong></div></div><button type="button" className="btn" onClick={()=>openContext('payments')}>Buka payment control</button></section>
@@ -261,5 +259,5 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
 
 function Kpi({label,value,note,tone,icon,featured=false,onClick}:{label:string;value:string;note:string;tone:string;icon:React.ReactNode;featured?:boolean;onClick:()=>void}) { return <button type="button" className={`control-kpi ${tone}${featured?' featured':''}`} onClick={onClick}><span className="control-kpi-icon" aria-hidden="true">{icon}</span><span className="control-kpi-label">{label}</span><strong>{value}</strong><small>{note}</small><i aria-hidden="true">↗</i></button>; }
 function PanelTitle({eyebrow,title,meta}:{eyebrow:string;title:string;meta:string}) { return <div className="control-panel-title"><div><span>{eyebrow}</span><h2>{title}</h2></div><small>{meta}</small></div>; }
-function Empty({text}:{text:string}) { return <div className="control-empty">{text}</div>; }
+function Empty({text}:{text:string}) { return <div className="control-empty" role="status">{text}</div>; }
 function roleFocus(role:string) { return role==='PAYROLL_PROCESSOR'?'Prioritas Anda: Prepare dan Review payroll, lalu siapkan proses Pay setelah approval.':role==='PAYROLL_CONTROLLER'?'Prioritas Anda: Approve payroll/payment dan memastikan Close melalui rekonsiliasi serta billing.':role==='CLIENT_USER'?'Prioritas Anda: pantau payroll, tindak lanjuti Action Required, dan lihat hasil proses.':'Pantau Prepare → Review → Approve → Pay → Close untuk seluruh klien.'; }
