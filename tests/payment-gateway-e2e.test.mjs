@@ -41,8 +41,8 @@ function seed(DB) {
       VALUES('PRJ-PG','ORG-OTSINDO','CLI-PG','PRJ-PG','Gateway Project','seed');
     INSERT INTO client_service_plans(id,client_id,tier,effective_from,created_by,status)
       VALUES('SP-PG','CLI-PG','TIER_1_PAYMENT_PROCESSING','2026-01-01','seed','ACTIVE');
-    INSERT INTO payroll_submissions(id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,state,created_by)
-      VALUES('SUB-PG','ORG-OTSINDO','CLI-PG','PRJ-PG','SP-PG','TIER_1_PAYMENT_PROCESSING','2026-09','2026-09','PAYMENT_INSTRUCTION_READY','seed');
+    INSERT INTO payroll_submissions(id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,state,created_by,client_reviewed_by,client_review_decision)
+      VALUES('SUB-PG','ORG-OTSINDO','CLI-PG','PRJ-PG','SP-PG','TIER_1_PAYMENT_PROCESSING','2026-09','2026-09','CLIENT_APPROVED','seed','client.pg@proqpay.test','APPROVED');
     INSERT INTO employees(id,org_id,client_id,project_id,employee_code,name,status_aktif)
       VALUES('EMP-PG','ORG-OTSINDO','CLI-PG','PRJ-PG','PG-001','Gateway Recipient','ACTIVE');
     INSERT INTO employee_compensation(employee_id,basic_salary,payroll_source_period,imported_gross,imported_deduction,imported_net)
