@@ -126,6 +126,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     </div>
     {transactionActive ? <small style={{ color:'var(--text3)' }}>Gateway {runtime.transaction?.provider} · {runtime.transaction?.status}</small> : null}
     {isE2Pay && runtime.items.length ? <small style={{ color:'var(--text3)' }}>E2Pay {e2paySucceeded}/{runtime.items.length} sukses · {e2payUnresolved} proses · {e2payReady} siap · {e2payFailed} gagal</small> : null}
+    {isE2Pay && transactionActive && e2payFailed > 0 && e2payUnresolved === 0 && e2payReady === 0 && e2paySucceeded < runtime.items.length ? <small style={{ color:'#b45309' }}>Ada beneficiary gagal. Jangan ulang seluruh PI; review item gagal sebelum retry terkontrol.</small> : null}
     {hostedActive ? <small style={{ color:'var(--text3)' }}>Hosted {runtime.session?.status} · berlaku sampai {runtime.session?.expires_at ? new Date(runtime.session.expires_at).toLocaleTimeString('id-ID') : '-'}</small> : null}
     {!loading && runtime.session?.status === 'EXPIRED' ? <small style={{ color:'var(--text3)' }}>Hosted session sebelumnya sudah expired. Payment dapat dicoba kembali.</small> : null}
     {!loading && !seamlessReady && !hostedReady ? <small style={{ color:'var(--text3)' }}>Gateway belum ready. <a href="?view=integrations">Cek Integrations</a></small> : null}
