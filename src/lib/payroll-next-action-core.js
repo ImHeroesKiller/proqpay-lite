@@ -254,6 +254,26 @@ export function derivePayrollNextAction(context = {}) {
     };
   }
 
+  const state = normalize(context.state ?? context.submissionState);
+  if (['CANCELLED','REJECTED'].includes(state)) {
+    return {
+      ...result('VIEW_FINAL_STATUS',state === 'CANCELLED' ? 'Pay Run Cancelled' : 'Pay Run Rejected',
+        'This Pay Run is terminal and has no remaining workflow action.','operations',{
+          actionable:false,tone:'info',priority:5,category:'MONITOR',
+        }),
+      stage,
+    };
+  }
+  if (stage.isTerminal) {
+    return {
+      ...result('VIEW_CLOSED_CYCLE','View Closed Cycle',
+        'Payroll, billing and collection are complete for this cycle.','billing',{
+          actionable:false,tone:'success',priority:5,category:'MONITOR',
+        }),
+      stage,
+    };
+  }
+
   let action;
   if (role === 'CLIENT_USER') action = clientAction(context, stage);
   else if (role === 'SUPER_ADMIN') {
