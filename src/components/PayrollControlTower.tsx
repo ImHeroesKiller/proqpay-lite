@@ -7,12 +7,17 @@ import { invalidateOperatingCache, listOperatingDashboard } from '@/lib/operatin
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
 import { IconAlertTriangle, IconCheckCircle, IconClock, IconLayers, IconRefresh, IconShieldCheck, IconWallet } from './Icons';
+import type { DashboardActor, DashboardApiResponse, DashboardPaymentInstruction, DashboardPortfolioSummary, DashboardSubmission } from '@/lib/dashboard-types';
 
-type Actor = { email:string; role:string; permissions:string[]; clientIds?:string[]|null };
+type Actor = DashboardActor;
 type Props = { actor:Actor; period:string; onNavigate:(view:AppView)=>void };
 type Tone = 'danger'|'warning'|'info'|'success';
-type PortfolioSummary = { clients:number;projects:number;employees:number;activeEmployees:number;primaryAccounts:number;bankCoveragePercent:number };
-type DashboardData = { submissions?:any[];paymentInstructions?:any[];portfolioSummary?:Partial<PortfolioSummary>;dashboardMeta?:{period?:string;submissionsTotal?:number;submissionsReturned?:number;truncated?:boolean} };
+type OperationalSubmission = DashboardSubmission & {
+  submission_state:string;
+  payment_instruction_id?:string;
+  business:ReturnType<typeof derivePayrollBusinessStage>;
+  nextAction:ReturnType<typeof derivePayrollNextAction>;
+};
 
 const PIPELINE = PAYROLL_BUSINESS_STAGE_ORDER.map((stage) => ({
   stage,
@@ -36,7 +41,7 @@ function daysFromNow(value:string) {
 }
 
 export default function PayrollControlTower({actor,period,onNavigate}:Props) {
-  const [data,setData] = useState<DashboardData>({});
+  const [data,setData] = useState<DashboardApiResponse>({submissions:[],paymentInstructions:[]});
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState('');
   const [client,setClient] = useState('ALL');
@@ -45,27 +50,18 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const [tier,setTier] = useState('ALL');
   const [query,setQuery] = useState('');
   const [page,setPage] = useState(1);
-  const [scopedPortfolio,setScopedPortfolio] = useState<Partial<PortfolioSummary>|null>(null);
+  const [scopedPortfolio,setScopedPortfolio] = useState<Partial<DashboardPortfolioSummary>|null>(null);
 
   const load = useCallback(async()=>{
     setLoading(true); setError('');
     try {
-      const scopedClientIds:[string|undefined]=[undefined];
-      const results=await Promise.all(scopedClientIds.map((clientId)=>listOperatingDashboard(clientId,period)));
-      const merged:Record<string,any>={};
-      results.forEach((result)=>Object.entries(result).forEach(([key,value])=>{
-        if(Array.isArray(value)) merged[key]=[...(merged[key]||[]),...value];
-        else if(key==='dashboardMeta'&&value&&typeof value==='object') merged[key]=value;
-        else if(key==='portfolioSummary'&&value&&typeof value==='object') {
-          const previous=merged[key]||{}; const current=value as Record<string,number>;
-          merged[key]={clients:Number(previous.clients||0)+Number(current.clients||0),projects:Number(previous.projects||0)+Number(current.projects||0),employees:Number(previous.employees||0)+Number(current.employees||0),activeEmployees:Number(previous.activeEmployees||0)+Number(current.activeEmployees||0),primaryAccounts:Number(previous.primaryAccounts||0)+Number(current.primaryAccounts||0)};
-        }
-      }));
-      if(merged.portfolioSummary){const summary=merged.portfolioSummary;summary.bankCoveragePercent=summary.employees?Math.round((summary.primaryAccounts/summary.employees)*100):0;}
-      setData(merged);
-    } catch (loadError) { setError(loadError instanceof Error?loadError.message:'Dashboard operasional gagal dimuat'); }
-    finally { setLoading(false); }
-  },[actor.clientIds,actor.role,period]);
+      setData(await listOperatingDashboard(undefined,period));
+    } catch (loadError) {
+      setError(loadError instanceof Error?loadError.message:'Dashboard operasional gagal dimuat');
+    } finally {
+      setLoading(false);
+    }
+  },[period]);
   useEffect(()=>{void load();},[load]);
 
   const submissions=useMemo(()=>data.submissions||[],[data.submissions]);
@@ -79,11 +75,11 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
       ? 'Kerjakan payroll berdasarkan prioritas dan next action yang tersedia.'
       : 'Prioritas, deadline, pembayaran, dan seluruh pay run dalam satu kendali.';
   const instructionBySubmission=useMemo(()=>{
-    const map=new Map<string,any>();
+    const map=new Map<string,DashboardPaymentInstruction>();
     instructions.forEach((row)=>{ if(!map.has(String(row.submission_id))) map.set(String(row.submission_id),row); });
     return map;
   },[instructions]);
-  const operationalSubmissions=useMemo(()=>submissions.map((row)=>{
+  const operationalSubmissions=useMemo<OperationalSubmission[]>(()=>submissions.map((row)=>{
     const instruction=instructionBySubmission.get(row.id);
     const operationalState=row.reconciliation_status==='MATCHED'?'COMPLETED':instruction?.status||row.state;
     const businessContext={
