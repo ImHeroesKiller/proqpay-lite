@@ -5,6 +5,7 @@ import type { AppView } from './Sidebar';
 import { formatIDR, formatIDRShort } from '@/lib/format';
 import { invalidateOperatingCache, listOperatingDashboard } from '@/lib/operating-model-api';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
+import { derivePayrollNextAction } from '@/lib/payroll-next-action';
 import { IconAlertTriangle, IconCheckCircle, IconClock, IconLayers, IconRefresh, IconShieldCheck, IconWallet } from './Icons';
 
 type Actor = { email:string; role:string; permissions:string[]; clientIds?:string[]|null };
@@ -66,15 +67,24 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
     const instruction=instructionBySubmission.get(row.id);
     const reconciliation=instruction?reconciliationByInstruction.get(instruction.id):null;
     const operationalState=reconciliation?.status==='MATCHED'?'COMPLETED':instruction?.status||row.state;
-    const business=derivePayrollBusinessStage({
+    const businessContext={
+      role:actor.role,
+      permissions:actor.permissions,
       state:row.state,
       paymentInstructionStatus:instruction?.status,
       reconciliationStatus:reconciliation?.status,
       blockingCount:row.blocking_count,
       exceptionCount:row.exception_count,
-    });
-    return {...row,state:operationalState,submission_state:row.state,payment_instruction_id:instruction?.id,business};
-  }),[submissions,instructionBySubmission,reconciliationByInstruction]);
+      inputStatus:row.input_status,
+      sourceMode:row.source_mode,
+      periodStatus:row.period_status,
+      hasPaymentInstruction:Boolean(instruction),
+      paymentInstructionId:instruction?.id,
+    };
+    const business=derivePayrollBusinessStage(businessContext);
+    const nextAction=derivePayrollNextAction(businessContext);
+    return {...row,state:operationalState,submission_state:row.state,payment_instruction_id:instruction?.id,business,nextAction};
+  }),[submissions,instructionBySubmission,reconciliationByInstruction,actor.role,actor.permissions]);
   const clients=useMemo(()=>{
     const map=new Map<string,string>(); operationalSubmissions.forEach((row)=>map.set(String(row.client_id),String(row.client_name||row.client_id)));
     return [...map.entries()].sort((a,b)=>a[1].localeCompare(b[1]));
@@ -97,20 +107,26 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const totalNet=visible.reduce((sum,row)=>sum+Number(row.total_net||0),0);
   const activeRuns=visible.filter((row)=>!row.business.isTerminal).length;
   const blockers=visible.reduce((sum,row)=>sum+Number(row.blocking_count||0),0);
-  const awaitingApproval=visible.filter((row)=>row.state==='PAYMENT_APPROVAL_PENDING').length;
+  const awaitingApproval=visible.filter((row)=>row.nextAction.actionable&&row.nextAction.category==='APPROVAL').length;
   const matched=visibleReconciliations.filter((row)=>row.status==='MATCHED').length;
   const unmatched=visibleReconciliations.filter((row)=>row.status!=='MATCHED').length;
 
   const actions=useMemo(()=>{
-    const list:Array<{id:string;tone:Tone;title:string;detail:string;client:string;amount:number;action:string;view:AppView}> = [];
-    visible.forEach((row)=>{
-      if(Number(row.blocking_count||0)>0) list.push({id:`block-${row.id}`,tone:'danger',title:`${row.blocking_count} blocker payroll`,detail:`${row.business.label} · ${statusLabel(row.state)}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:'Review exception',view:'operations'});
-      else if(row.state==='PAYMENT_APPROVAL_PENDING') list.push({id:`approve-${row.id}`,tone:'warning',title:'PI menunggu approval',detail:`${row.business.label} · Payroll ${row.period}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:actor.role==='PAYROLL_CONTROLLER'?'Review PI':'Lihat status',view:'payments'});
-      else if(!row.business.isTerminal) list.push({id:`work-${row.id}`,tone:row.business.status==='FOR_APPROVAL'?'warning':'info',title:row.business.reason,detail:`${row.business.label} · ${statusLabel(row.state)}`,client:row.client_name||row.client_id,amount:Number(row.total_net||0),action:row.business.label==='Pay'?'Buka payment':'Buka pay run',view:row.business.view as AppView});
-    });
-    visibleReconciliations.filter((row)=>row.status!=='MATCHED').forEach((row)=>list.unshift({id:`rec-${row.id}`,tone:'danger',title:'Rekonsiliasi belum match',detail:`Selisih ${formatIDR(Number(row.difference||0))}`,client:'Payment control',amount:Number(row.difference||0),action:'Reconcile',view:'payments'}));
-    return list.sort((a,b)=>({danger:0,warning:1,info:2,success:3}[a.tone]-{danger:0,warning:1,info:2,success:3}[b.tone]));
-  },[visible,visibleReconciliations,actor.role]);
+    return visible
+      .filter((row)=>row.nextAction.actionable)
+      .map((row)=>({
+        id:`action-${row.id}-${row.nextAction.code}`,
+        tone:row.nextAction.tone as Tone,
+        title:row.nextAction.label,
+        detail:`${row.business.label} · ${row.nextAction.description}`,
+        client:row.client_name||row.client_id,
+        amount:Number(row.total_net||0),
+        action:row.nextAction.label,
+        view:row.nextAction.view as AppView,
+        priority:Number(row.nextAction.priority||5),
+      }))
+      .sort((a,b)=>a.priority-b.priority||({danger:0,warning:1,info:2,success:3}[a.tone]-{danger:0,warning:1,info:2,success:3}[b.tone]));
+  },[visible]);
 
   const deadlines=useMemo(()=>visible.map((row)=>{
     const raw=row.payment_date||row.due_date||row.cutoff_date||row.payment_due_date;
@@ -143,14 +159,14 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
       <div className="control-kpis">
         <Kpi label="Active pay runs" value={String(activeRuns)} note={`${visible.length} pay run terfilter`} tone="blue" icon={<IconLayers />} onClick={()=>onNavigate('operations')} />
         <Kpi label="Need attention" value={String(actions.filter((item)=>item.tone==='danger').length)} note={`${blockers} blocker aktif`} tone="red" icon={<IconAlertTriangle />} onClick={()=>onNavigate('operations')} />
-        <Kpi label="Awaiting PI approval" value={String(awaitingApproval)} note="Menunggu Controller" tone="amber" icon={<IconClock />} onClick={()=>onNavigate('payments')} />
+        <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval yang membutuhkan role Anda" tone="amber" icon={<IconClock />} onClick={()=>onNavigate(awaitingApproval?((actions.find((item)=>item.priority===2)?.view||'operations')):'operations')} />
         <Kpi label="Payment due" value={formatIDRShort(totalNet)} note={`${visible.reduce((sum,row)=>sum+Number(row.employee_count||0),0).toLocaleString('id-ID')} penerima`} tone="navy" icon={<IconWallet />} featured onClick={()=>onNavigate('payments')} />
         <Kpi label="Paid & matched" value={String(matched)} note={`${unmatched} belum match`} tone="green" icon={<IconCheckCircle />} onClick={()=>onNavigate('reports')} />
         <Kpi label="Open exceptions" value={String(visibleExceptions.length)} note="Perlu diselesaikan" tone="violet" icon={<IconShieldCheck />} onClick={()=>onNavigate('operations')} />
       </div>
       <div className="control-priority-grid">
         <section className="card action-center"><PanelTitle eyebrow="PRIORITY QUEUE" title="Action Center" meta={`${actions.length} tindakan`} />
-          <div className="action-list">{actions.length?actions.slice(0,8).map((item)=><button type="button" key={item.id} onClick={()=>onNavigate(item.view)}><i className={`action-tone ${item.tone}`} /><span><strong>{item.client}</strong><small>{item.title} · {item.detail}</small></span><b>{item.amount?formatIDRShort(item.amount):'-'}</b><em>{item.action} →</em></button>):<Empty text="Tidak ada pekerjaan kritis pada filter ini." />}</div>
+          <div className="action-list">{actions.length?actions.slice(0,8).map((item)=><button type="button" key={item.id} onClick={()=>onNavigate(item.view)}><i className={`action-tone ${item.tone}`} /><span><strong>{item.client}</strong><small>{item.title} · {item.detail}</small></span><b>{item.amount?formatIDRShort(item.amount):'-'}</b><em>{item.action} →</em></button>):<Empty text="Tidak ada tindakan yang membutuhkan Anda pada filter ini." />}</div>
         </section>
         <section className="card deadline-panel"><PanelTitle eyebrow="NEXT 30 DAYS" title="Deadline & SLA" meta={`${deadlines.length} agenda`} />
           <div className="deadline-list">{deadlines.length?deadlines.map((item)=><button type="button" key={item.id} onClick={()=>onNavigate('operations')}><time>{dateLabel(item.deadline)}</time><span><strong>{item.client_name||item.client_id}</strong><small>{item.business.label} · {statusLabel(item.state)}</small></span><b className={item.days!==null&&item.days<0?'overdue':''}>{item.days===null?'-':item.days<0?`${Math.abs(item.days)}h terlambat`:item.days===0?'Hari ini':`${item.days} hari`}</b></button>):<Empty text="Belum ada deadline operasional." />}</div>
@@ -173,7 +189,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
         })}</div>
       </section>
       <section className="card portfolio-panel"><PanelTitle eyebrow="PORTFOLIO MONITORING" title="Pay Run Portfolio" meta={`${visible.length} record`} />
-        <div className="portfolio-table-wrap"><table className="portfolio-table"><thead><tr><th>Klien / Project</th><th>Periode</th><th>Tier</th><th>Penerima</th><th>Net / THP</th><th>Blocker</th><th>Current stage</th><th>Next action</th></tr></thead><tbody>{pageRows.map((row)=><tr key={row.id}><td><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||row.id}</small></td><td>{row.period}<small>Bayar {row.payment_period||row.period}</small></td><td>{statusLabel(row.service_tier).replace('TIER 1 ','T1 · ').replace('TIER 2 ','T2 · ').replace('TIER 3 ','T3 · ')}</td><td>{Number(row.employee_count||0).toLocaleString('id-ID')}</td><td><strong>{formatIDR(Number(row.total_net||0))}</strong></td><td><span className={Number(row.blocking_count||0)?'table-blocker':'table-clear'}>{Number(row.blocking_count||0)}</span></td><td><span className="stage-pill">{row.business.label}</span><small>{statusLabel(row.state)}</small></td><td><button type="button" onClick={()=>onNavigate(row.business.view as AppView)}>{row.business.label==='Pay'?'Payment':row.business.label==='Close'?'Close':'Review'} →</button></td></tr>)}</tbody></table>{!pageRows.length?<Empty text="Tidak ada pay run sesuai filter." />:null}</div>
+        <div className="portfolio-table-wrap"><table className="portfolio-table"><thead><tr><th>Klien / Project</th><th>Periode</th><th>Tier</th><th>Penerima</th><th>Net / THP</th><th>Blocker</th><th>Current stage</th><th>Next action</th></tr></thead><tbody>{pageRows.map((row)=><tr key={row.id}><td><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||row.id}</small></td><td>{row.period}<small>Bayar {row.payment_period||row.period}</small></td><td>{statusLabel(row.service_tier).replace('TIER 1 ','T1 · ').replace('TIER 2 ','T2 · ').replace('TIER 3 ','T3 · ')}</td><td>{Number(row.employee_count||0).toLocaleString('id-ID')}</td><td><strong>{formatIDR(Number(row.total_net||0))}</strong></td><td><span className={Number(row.blocking_count||0)?'table-blocker':'table-clear'}>{Number(row.blocking_count||0)}</span></td><td><span className="stage-pill">{row.business.label}</span><small>{statusLabel(row.state)}</small></td><td><button type="button" onClick={()=>onNavigate(row.nextAction.view as AppView)}>{row.nextAction.label} →</button><small>{row.nextAction.actionable?'Action required':'No action required'}</small></td></tr>)}</tbody></table>{!pageRows.length?<Empty text="Tidak ada pay run sesuai filter." />:null}</div>
         <div className="control-pagination"><span>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div><button className="btn" disabled={page<=1} onClick={()=>setPage((value)=>value-1)}>←</button><button className="btn" disabled={page>=pageCount} onClick={()=>setPage((value)=>value+1)}>→</button></div></div>
       </section>
       <div className="control-bottom-grid"><section className="card payment-control"><PanelTitle eyebrow="PAYMENT INTEGRITY" title="Payment Control" meta={`${visibleInstructions.length} PI`} /><div className="payment-control-grid"><div><span>PI value</span><strong>{formatIDRShort(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</strong></div><div><span>Matched</span><strong>{matched}</strong></div><div><span>Proof tercatat</span><strong>{visibleProofs.length}</strong></div><div><span>Legacy hash</span><strong>{visibleInstructions.filter((row)=>!row.content_hash).length}</strong></div></div><button type="button" className="btn" onClick={()=>onNavigate('payments')}>Buka payment control</button></section>

@@ -107,6 +107,7 @@ function closeEvidence(context) {
 
 function deriveBusinessStatus(stage, context, technicalState, piStatus, recStatus) {
   const blocking = Number(context.blockingCount || 0);
+  if (['CANCELLED','REJECTED'].includes(technicalState)) return 'COMPLETED';
   const openExceptions = Number(context.openExceptionCount || context.exceptionCount || 0);
   if (stage === 'PREPARE') return 'IN_PROGRESS';
   if (stage === 'REVIEW') {
@@ -137,6 +138,8 @@ function reasonFor(stage, status, context, technicalState, piStatus, recStatus) 
   if (status === 'FOR_APPROVAL' && (piStatus === 'PAYMENT_APPROVAL_PENDING' || technicalState === 'PAYMENT_APPROVAL_PENDING')) return 'Payment instruction is waiting for approval';
   if (stage === 'PAY' && status === 'PROCESSING') return 'Payment is being prepared or processed';
   if (stage === 'CLOSE' && recStatus === 'MATCHED') return 'Payment is reconciled and ready for closing';
+  if (technicalState === 'CANCELLED') return 'Payroll run was cancelled';
+  if (technicalState === 'REJECTED') return 'Payroll run was rejected';
   if (stage === 'CLOSE' && status === 'COMPLETED') return 'Payroll cycle is completed';
   if (stage === 'CLOSE') return 'Reconciliation, billing or closing is in progress';
   if (stage === 'REVIEW') return 'Payroll is being reviewed and validated';
@@ -190,7 +193,7 @@ export function derivePayrollBusinessStage(context = {}) {
     paymentInstructionStatus:piStatus || null,
     reconciliationStatus:recStatus || null,
     knownState,
-    isTerminal:stage === 'CLOSE' && status === 'COMPLETED',
+    isTerminal:status === 'COMPLETED' && (stage === 'CLOSE' || ['CANCELLED','REJECTED'].includes(technicalState)),
   };
 }
 

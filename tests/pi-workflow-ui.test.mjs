@@ -3,6 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 
 const ui = readFileSync('src/components/OperatingWorkspace.tsx', 'utf8');
+const nextAction = readFileSync('src/lib/payroll-next-action-core.js', 'utf8');
 
 test('Processor sees submit and rejected PI recovery actions', () => {
   assert.match(ui, /PAYMENT_INSTRUCTION_READY[\s\S]*?Submit PI/);
@@ -22,10 +23,13 @@ test('Payment Control filters PI status and hides stale rejection reasons', () =
 });
 
 test('Controller can approve or return CONTROLLER_REVIEW pay run', () => {
-  assert.match(ui, /PAYROLL_CONTROLLER[\s\S]*?CONTROLLER_REVIEW[\s\S]*?DATA_APPROVED/);
-  assert.match(ui, /CONTROLLER_REVIEW:'Setujui Data Payroll'/);
+  assert.match(nextAction, /state === 'CONTROLLER_REVIEW'/);
+  assert.match(nextAction, /REVIEW_APPROVE_PAYROLL/);
+  assert.match(nextAction, /workflowCommand:'DATA_APPROVED'/);
+  assert.match(nextAction, /\['DATA_APPROVED','PAYROLL_FINALIZED'\]/);
+  assert.match(nextAction, /workflowCommand:'PAYMENT_INSTRUCTION_READY'/);
   assert.match(ui, /toState:'REVISION_REQUIRED'/);
   assert.match(ui, /Minta revisi/);
-  assert.match(ui, /DATA_APPROVED[\s\S]*?PAYMENT_INSTRUCTION_READY/);
+  assert.match(ui, /const next=nextAction\.workflowCommand/);
   assert.match(ui, /reviewConfirmed:true/);
 });
