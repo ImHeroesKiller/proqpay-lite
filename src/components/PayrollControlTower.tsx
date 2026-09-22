@@ -137,6 +137,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
         action:row.nextAction.label,
         view:row.nextAction.view as AppView,
         priority:Number(row.nextAction.priority||5),
+        category:String(row.nextAction.category||'WORK'),
       }))
       .sort((a,b)=>a.priority-b.priority||({danger:0,warning:1,info:2,success:3}[a.tone]-{danger:0,warning:1,info:2,success:3}[b.tone]));
   },[visible]);
@@ -175,7 +176,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
         {simplifiedInternal ? <>
           <Kpi label="My work" value={String(actions.length)} note="Tindakan yang membutuhkan Anda" tone="blue" icon={<IconLayers />} onClick={()=>onNavigate(actions[0]?.view||'operations')} />
           <Kpi label="Need attention" value={String(actions.filter((item)=>item.tone==='danger').length)} note={`${blockers} blocker aktif`} tone="red" icon={<IconAlertTriangle />} onClick={()=>onNavigate(actions.find((item)=>item.tone==='danger')?.view||'exceptions')} />
-          <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval sesuai role Anda" tone="amber" icon={<IconClock />} onClick={()=>onNavigate(actions.find((item)=>item.priority===2&&item.view)?.view||'operations')} />
+          <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval sesuai role Anda" tone="amber" icon={<IconClock />} onClick={()=>onNavigate(awaitingApproval?(actions.find((item)=>item.category==='APPROVAL')?.view||'operations'):'operations')} />
           <Kpi label="Active payroll" value={String(activeRuns)} note={`${visible.length} payroll pada filter`} tone="navy" icon={<IconWallet />} onClick={()=>onNavigate('operations')} />
         </> : <>
           <Kpi label="Active pay runs" value={String(activeRuns)} note={`${visible.length} pay run terfilter`} tone="blue" icon={<IconLayers />} onClick={()=>onNavigate('operations')} />
