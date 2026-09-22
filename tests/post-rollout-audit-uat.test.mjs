@@ -112,6 +112,12 @@ test('audit: Controller cannot execute Processor-owned legacy submission or vali
     action:'CREATE_VALIDATION_BATCH',submissionId:'SUB-VALIDATE',issues:[],
   });
   assert.equal(result.response.status,403,JSON.stringify(result.payload));
+
+  result=await operating(DB,env,controller,{
+    action:'UPDATE_SUBMISSION_PERIODS',submissionId:'SUB-VALIDATE',
+    paymentPeriod:'2026-10',arrearsPeriods:['2026-08'],
+  });
+  assert.equal(result.response.status,403,JSON.stringify(result.payload));
 });
 
 test('UAT E2E: Processor → Controller → Client → PI → payment → billing → Close',async()=>{
@@ -241,4 +247,7 @@ test('UI audit: intake notes, client close context, and infrastructure health vi
   assert.match(clientHome,/reconciliationStatus:row\.reconciliation_status/);
   assert.match(clientHome,/periodStatus:row\.period_status/);
   assert.match(page,/actor\.role === 'SUPER_ADMIN' \? <SystemHealthBubble \/> : null/);
+
+  const workspace=await readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
+  assert.match(workspace,/\['SUPER_ADMIN','PAYROLL_PROCESSOR'\]\.includes\(role\)\?<><div className="directory-form-grid">/);
 });
