@@ -322,7 +322,7 @@ function auditOperation(organizationId, actor, action, detail, entity, entityId)
 
 async function validateCanonicalPayRunSnapshot(database, submission, actor, organizationId) {
   const rows = await d1All(database, `SELECT l.employee_id,l.employee_name,l.gross_amount,l.deduction_amount,l.net_amount,
-      l.bank_name,l.account_last4,e.client_id AS employee_client_id,e.project_id AS employee_project_id,
+      l.bank_name,l.account_last4,
       eba.bank_name AS primary_bank_name,eba.account_no AS primary_account_no
     FROM payroll_run_lines l
     JOIN employees e ON e.id=l.employee_id
@@ -345,11 +345,6 @@ async function validateCanonicalPayRunSnapshot(database, submission, actor, orga
       || !Number.isSafeInteger(net) || net <= 0 || gross - deduction !== net) {
       add(row, 'SYSTEM_PAYROLL_CONTROL_MISMATCH', 'netAmount',
         `Control payroll tidak balance untuk ${row.employee_name || row.employee_id}: Gross ${gross} - Potongan ${deduction} != THP ${net}.`);
-    }
-    if (String(row.employee_client_id) !== String(submission.client_id)
-      || String(row.employee_project_id || '') !== String(submission.project_id || '')) {
-      add(row, 'SYSTEM_EMPLOYEE_SCOPE_MISMATCH', 'projectId',
-        'Karyawan pada snapshot tidak lagi berada pada client/project Pay Run yang sama.');
     }
     const account = String(row.primary_account_no || '').replace(/\s+/g, '');
     if (!row.primary_bank_name || !/^\d{6,34}$/.test(account)) {
