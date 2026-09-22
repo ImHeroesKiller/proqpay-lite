@@ -543,7 +543,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId,organizationId]);
     if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
     if (submission.source_mode!=='MASTER_CURRENT') return { status:409, data:{ error:'Hitung ulang master hanya tersedia untuk sumber MASTER_CURRENT' } };
-    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(submission.state)) {
+    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED','CLIENT_REVISION_REQUESTED'].includes(submission.state)) {
       return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci dan tidak dapat dihitung ulang' } };
     }
     await d1Batch(database, [
@@ -596,7 +596,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
     if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
-    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(submission.state)) return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci' } };
+    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED','CLIENT_REVISION_REQUESTED'].includes(submission.state)) return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci' } };
     const row = await d1First(database, `UPDATE payroll_run_lines SET gross_amount=?,deduction_amount=?,net_amount=?,included=?,components=?,updated_at=${NOW}
       WHERE submission_id=? AND employee_id=? RETURNING *`, [body.grossAmount,body.deductionAmount,body.netAmount,
       body.included===false?0:1,JSON.stringify(body.components||{}),body.submissionId,body.employeeId]);
@@ -608,7 +608,7 @@ async function executeAction(database, body, actor, env, organizationId) {
   if (body.action === 'FINALIZE_PAY_RUN_INPUT') {
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
     if (!submission || submission.period_status==='CLOSED') return { status:409, data:{ error:'Pay Run tidak tersedia untuk finalisasi input' } };
-    const inputMutableStates = ['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'];
+    const inputMutableStates = ['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED','CLIENT_REVISION_REQUESTED'];
     if (!inputMutableStates.includes(String(submission.state || ''))) return { status:409, data:{
       error:`Input payroll sudah terkunci pada tahap ${submission.state}; Controller harus meminta revisi sebelum snapshot dapat berubah`,
       code:'PAY_RUN_INPUT_LOCKED_FOR_REVIEW',
@@ -668,7 +668,7 @@ async function executeAction(database, body, actor, env, organizationId) {
 
     if (body.command === 'VALIDATE') {
       if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat menjalankan validasi' } };
-      if (!['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','CLIENT_RESUBMITTED','REVISION_REQUIRED','EXCEPTION_FOUND'].includes(submission.state)) {
+      if (!['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','CLIENT_RESUBMITTED','REVISION_REQUIRED','CLIENT_REVISION_REQUESTED','EXCEPTION_FOUND'].includes(submission.state)) {
         return { status:409, data:{ error:`Pay Run berstatus ${submission.state} tidak dapat divalidasi ulang` } };
       }
       if (submission.input_status !== 'READY') return { status:409, data:{ error:'Finalisasi input payroll sebelum menjalankan validasi' } };
@@ -737,8 +737,12 @@ async function executeAction(database, body, actor, env, organizationId) {
     }
     if (!roleAllowsTransition(actor.role, submission.state, targetState)) return { status: 403, data: { error: 'Role cannot perform transition' } };
     const processorReview = submission.state === 'STANDARDIZED' && targetState === 'CONTROLLER_REVIEW';
-    const controllerReview = submission.state === 'CONTROLLER_REVIEW' && targetState === 'DATA_APPROVED';
+    const controllerReview = submission.state === 'CONTROLLER_REVIEW' && targetState === 'CLIENT_APPROVAL_PENDING';
     if ((processorReview || controllerReview) && body.reviewConfirmed !== true) return { status: 409, data: { error: 'Preview dan konfirmasi review wajib dilakukan sebelum melanjutkan' } };
+    if (controllerReview && submission.processor_reviewed_by
+      && String(submission.processor_reviewed_by).toLowerCase() === String(actor.email || '').toLowerCase()) {
+      return { status:409, data:{ error:'Processor reviewer tidak boleh menyetujui payroll yang sama sebagai Controller', code:'PAYROLL_REVIEW_SOD' } };
+    }
     if (['VALIDATED','DATA_APPROVED','PAYROLL_FINALIZED','APPROVED_FOR_PAYMENT'].includes(targetState)) {
       const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
         AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
@@ -747,14 +751,68 @@ async function executeAction(database, body, actor, env, organizationId) {
     let update = `UPDATE payroll_submissions SET state=?,updated_at=${NOW}`;
     const bindings = [targetState];
     if (processorReview) { update += `,processor_reviewed_at=${NOW},processor_reviewed_by=?,processor_review_note=?`; bindings.push(actor.email, String(body.reviewNote || '').slice(0, 1000)); }
-    if (controllerReview) { update += `,controller_reviewed_at=${NOW},controller_reviewed_by=?,controller_review_note=?`; bindings.push(actor.email, String(body.reviewNote || '').slice(0, 1000)); }
+    if (controllerReview) {
+      update += `,controller_reviewed_at=${NOW},controller_reviewed_by=?,controller_review_note=?,client_reviewed_at=NULL,client_reviewed_by=NULL,client_review_note=NULL,client_review_decision=NULL`;
+      bindings.push(actor.email, String(body.reviewNote || '').slice(0, 1000));
+    }
     update += ' WHERE id=? RETURNING *'; bindings.push(submission.id);
     await d1Batch(database, [
       { statement: update, bindings },
-      auditOperation(organizationId, actor, 'SUBMISSION_TRANSITION', `${submission.state} → ${targetState}`, 'payroll_submission', submission.id),
+      auditOperation(organizationId, actor, controllerReview ? 'PAYROLL_SENT_FOR_CLIENT_APPROVAL' : 'SUBMISSION_TRANSITION',
+        `${submission.state} → ${targetState}${controllerReview && body.reviewNote ? ` · ${String(body.reviewNote).slice(0,1000)}` : ''}`,
+        'payroll_submission', submission.id),
     ]);
     const updatedSubmission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=?', [submission.id]);
     return { data: { ok: true, submission: updatedSubmission } };
+  }
+
+  if (body.action === 'CLIENT_APPROVE_PAYROLL' || body.action === 'CLIENT_REQUEST_PAYROLL_REVISION') {
+    if (!CLIENT_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Client User yang dapat memberikan keputusan approval client' } };
+    const submission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
+    if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
+    if (!assertClientScope(actor, env, submission.client_id) || !assertProjectScope(actor, submission.project_id)) return { status:403, data:{ error:'Scope denied' } };
+    if (submission.period_status === 'CLOSED') return { status:409, data:{ error:'Periode Pay Run sudah ditutup' } };
+
+    if (body.action === 'CLIENT_APPROVE_PAYROLL' && submission.state === 'CLIENT_APPROVED') {
+      return { data:{ ok:true,submission,idempotentReplay:true } };
+    }
+    if (body.action === 'CLIENT_REQUEST_PAYROLL_REVISION' && submission.state === 'CLIENT_REVISION_REQUESTED') {
+      return { data:{ ok:true,submission,idempotentReplay:true } };
+    }
+    if (submission.state !== 'CLIENT_APPROVAL_PENDING') return { status:409, data:{
+      error:`Payroll berstatus ${submission.state || 'UNKNOWN'} tidak sedang menunggu keputusan client`,
+      code:'CLIENT_APPROVAL_STATE_REQUIRED',
+    } };
+    if (!submission.controller_reviewed_by) return { status:409, data:{
+      error:'Approval Controller belum tercatat; client approval diblokir',
+      code:'CONTROLLER_APPROVAL_REQUIRED',
+    } };
+    const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
+      AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
+    if (Number(blocking?.count || 0) > 0) return { status:409, data:{ error:'Critical exceptions still open', code:'CRITICAL_EXCEPTION_BLOCKS_CLIENT_APPROVAL' } };
+
+    if (body.action === 'CLIENT_APPROVE_PAYROLL') {
+      await d1Batch(database, [
+        { statement:`UPDATE payroll_submissions SET state='CLIENT_APPROVED',
+            client_reviewed_at=${NOW},client_reviewed_by=?,client_review_note=?,client_review_decision='APPROVED',updated_at=${NOW}
+            WHERE id=? AND state='CLIENT_APPROVAL_PENDING'`,
+          bindings:[actor.email,String(body.reviewNote || '').slice(0,1000),submission.id] },
+        auditOperation(organizationId,actor,'CLIENT_PAYROLL_APPROVED',
+          `Payroll ${submission.period} disetujui client${body.reviewNote ? ` · ${String(body.reviewNote).slice(0,1000)}` : ''}`,
+          'payroll_submission',submission.id),
+      ]);
+    } else {
+      await d1Batch(database, [
+        { statement:`UPDATE payroll_submissions SET state='CLIENT_REVISION_REQUESTED',input_status='PENDING',
+            client_reviewed_at=${NOW},client_reviewed_by=?,client_review_note=?,client_review_decision='REVISION_REQUESTED',updated_at=${NOW}
+            WHERE id=? AND state='CLIENT_APPROVAL_PENDING'`,
+          bindings:[actor.email,String(body.reason).trim().slice(0,1000),submission.id] },
+        auditOperation(organizationId,actor,'CLIENT_PAYROLL_REVISION_REQUESTED',
+          String(body.reason).trim().slice(0,1000),'payroll_submission',submission.id),
+      ]);
+    }
+    const updated = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=?', [submission.id]);
+    return { data:{ ok:true,submission:updated } };
   }
 
   if (body.action === 'UPDATE_SUBMISSION_PERIODS') {
@@ -770,8 +828,15 @@ async function executeAction(database, body, actor, env, organizationId) {
     return { data: { ok: true, submission: row } };
   }
 
-  if (body.action === 'GENERATE_PAYMENT_INSTRUCTION' || body.action === 'APPROVE_PAYROLL_AND_GENERATE_PI') {
-    const atomicControllerApproval = body.action === 'APPROVE_PAYROLL_AND_GENERATE_PI';
+  if (body.action === 'APPROVE_PAYROLL_AND_GENERATE_PI') {
+    return { status:409, data:{
+      error:'Controller approval tidak boleh langsung membuat PI. Payroll wajib disetujui Client terlebih dahulu.',
+      code:'CLIENT_PAYROLL_APPROVAL_REQUIRED',
+    } };
+  }
+
+  if (body.action === 'GENERATE_PAYMENT_INSTRUCTION') {
+    const atomicControllerApproval = false;
     if (atomicControllerApproval ? !CONTROLLER_ROLES.has(actor.role) : !PROCESSOR_ROLES.has(actor.role)) {
       return { status: 403, data: { error: atomicControllerApproval
         ? 'Hanya Payroll Controller yang dapat menyetujui payroll dan menerbitkan PI'
@@ -784,10 +849,11 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (atomicControllerApproval && submission.state === 'PAYMENT_INSTRUCTION_READY' && existing && existing.status !== 'REVISION_REQUIRED') {
       return { data: { ok: true, paymentInstruction: existing, idempotentReplay: true } };
     }
-    const expectedState = atomicControllerApproval ? 'CONTROLLER_REVIEW' : 'PAYMENT_INSTRUCTION_READY';
-    if (submission.state !== expectedState) return { status: 409, data: { error: atomicControllerApproval
-      ? 'Submission tidak berada pada tahap review Controller'
-      : 'Submission belum siap dibuatkan payment instruction' } };
+    const expectedStates = ['CLIENT_APPROVED','PAYMENT_INSTRUCTION_READY'];
+    if (!expectedStates.includes(submission.state)) return { status:409, data:{
+      error:'Submission belum memiliki approval Client atau belum siap dibuatkan payment instruction',
+      code:'CLIENT_PAYROLL_APPROVAL_REQUIRED',
+    } };
     if (atomicControllerApproval && body.reviewConfirmed !== true) return { status:409, data:{ error:'Preview dan konfirmasi review wajib dilakukan sebelum melanjutkan' } };
     if (atomicControllerApproval && submission.processor_reviewed_by
       && String(submission.processor_reviewed_by).toLowerCase() === String(actor.email || '').toLowerCase()) {
@@ -1079,8 +1145,8 @@ export async function handleD1OperatingModel({ request, env }, actor) {
     catch (error) { return respond({ error: error.message === 'PAYLOAD_TOO_LARGE' ? 'Payload too large' : 'Invalid JSON' }, error.message === 'PAYLOAD_TOO_LARGE' ? 413 : 400); }
     const validation = validateOperatingAction(body);
     if (!validation.ok) return respond({ error: validation.errors.join('; ') }, 422);
-    if (actor.role === 'CLIENT_USER' && !['ADD_EXCEPTION_NOTE','RESOLVE_EXCEPTION'].includes(body.action)) {
-      return respond({ error:'Client User memiliki akses monitoring dan koreksi exception terbatas' }, 403);
+    if (actor.role === 'CLIENT_USER' && !['ADD_EXCEPTION_NOTE','RESOLVE_EXCEPTION','CLIENT_APPROVE_PAYROLL','CLIENT_REQUEST_PAYROLL_REVISION'].includes(body.action)) {
+      return respond({ error:'Client User memiliki akses monitoring, koreksi exception, dan approval payroll sesuai scope' }, 403);
     }
     const result = await executeAction(env.DB, body, actor, env, organizationId);
     return respond(result.data, result.status || 200);
