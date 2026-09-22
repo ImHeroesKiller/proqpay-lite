@@ -333,7 +333,7 @@ function PayRunLineTable({detail,editable,onEdit}:{detail:any;editable:boolean;o
 
 function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string; canResolve: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
   const [severity, setSeverity] = useState('ALL');
-  const [status, setStatus] = useState('OPEN');
+  const [status, setStatus] = useState(role === 'CLIENT_USER' ? 'CLIENT_ACTION_REQUIRED' : 'OPEN');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<any | null>(null);
