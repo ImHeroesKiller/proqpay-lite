@@ -69,7 +69,7 @@ const SEARCH_ITEMS: Array<{ label: string; keywords: string; view: AppView }> =
     },
     {
       label: "Integrations",
-      keywords: "hris attendance accounting bank koneksi",
+      keywords: "payment gateway e2pay api endpoint connected apps monitoring",
       view: "integrations",
     },
     {
