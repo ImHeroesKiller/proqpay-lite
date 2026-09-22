@@ -257,9 +257,10 @@ function Submissions({ rows, instructions, role, permissions, act }: { rows: any
     <div key="summary"><strong>{Number(r.employee_count || 0)} karyawan</strong><small style={small}>{formatIDR(Number(r.total_net || 0))} · {Number(r.blocking_count || 0)} blocker</small></div>,
     (() => {
       const nextAction=nextActionFor(r);
+      const label=nextAction.actionable||nextAction.category==='MONITOR'?nextAction.label:'View Status';
       return nextAction.view==='operations'||nextAction.view==='exceptions'
-        ? <button key="action" style={actionButton} onClick={() => openReview(r)}>{nextAction.label}</button>
-        : <a key="action" className="btn" href={`?view=${nextAction.view}`}>{nextAction.label}</a>;
+        ? <button key="action" style={actionButton} onClick={() => openReview(r)}>{label}</button>
+        : <a key="action" className="btn" href={`?view=${nextAction.view}`}>{label}</a>;
     })(),
   ])} />;
   if (!selected) return table;
