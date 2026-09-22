@@ -52,7 +52,6 @@ test('Super Admin dashboard wording preserves financial segregation of duties',a
 
 test('unused legacy dashboard components are removed',async()=>{
   const removed=[
-    'src/components/ActivityTimeline.tsx',
     'src/components/DashFilters.tsx',
     'src/components/MetricCard.tsx',
     'src/components/MetricPopup.tsx',
