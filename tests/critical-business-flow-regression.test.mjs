@@ -106,4 +106,5 @@ test('inactive HRIS source is fail-closed in API and absent from pay run wizard'
 
   const ui=await readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
   assert.doesNotMatch(ui,/<option value="HRIS">/);
+  assert.match(ui,/\['PROOF_UPLOADED','RECONCILIATION'\]\.includes\(r\.status\)/);
 });
