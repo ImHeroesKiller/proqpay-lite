@@ -365,8 +365,6 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
       paymentInstructionStatus:instruction?.status,
       invoiceStatus:row.invoice_status,
       arStatus:row.ar_status,
-      reconciliationStatus:row.reconciliation_status,
-      periodStatus:row.period_status,
       hasPaymentInstruction:Boolean(instruction),
       paymentInstructionId:instruction?.id,
     });
