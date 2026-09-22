@@ -8,7 +8,6 @@ import {
   gatewayReadiness,
   gatewayRequestHash,
 } from './payment-gateway-core.js';
-import { e2paySyncBeneficiaryLimit } from './payment-gateway-e2pay.js';
 import { executeE2PayBatch, reconcileE2PayBatch } from './payment-gateway-e2pay-service.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 
@@ -158,9 +157,6 @@ export async function onRequest(context) {
     const beneficiaries = await beneficiarySnapshot(database, payment.id, runtimeEnv.PI_ENCRYPTION_KEY);
     const requestHash = await gatewayRequestHash(payment, beneficiaries.map((row) => row.lineHash), paymentMethod);
     if (!beneficiaries.length) return secureJson({ error: 'Payment Instruction tidak memiliki beneficiary' }, 409, request, env, METHODS);
-    if (readiness.provider === 'E2PAY' && beneficiaries.length > e2paySyncBeneficiaryLimit(runtimeEnv)) {
-      return secureJson({ error: `Batch ${beneficiaries.length} beneficiary memerlukan E2Pay queue worker`, code:'E2PAY_BATCH_REQUIRES_QUEUE', maxSyncBeneficiaries:e2paySyncBeneficiaryLimit(runtimeEnv) }, 409, request, env, METHODS);
-    }
     if (beneficiaries.reduce((sum, row) => sum + row.amount, 0) !== Number(payment.expected_total)) {
       return secureJson({ error: 'Beneficiary snapshot tidak sesuai control total', code: 'PAYMENT_BENEFICIARY_TOTAL_MISMATCH' }, 409, request, env, METHODS);
     }
