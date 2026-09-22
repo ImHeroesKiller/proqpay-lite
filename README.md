@@ -35,6 +35,12 @@ Built with **Next.js 16** · static export for **Cloudflare Pages** with Pages F
   - Approval/revision memakai explicit confirmation, metadata reviewer, dan immutable audit trail.
   - Permintaan revisi mengembalikan payroll ke Processor untuk koreksi, revalidasi, Controller review, dan client approval ulang.
   - Maker-checker PI/payment, SoD Processor–Controller, bank snapshot, reconciliation, dan billing flow tetap dipertahankan.
+- **Phase 6 — Close & Rollout:** Close menjadi checkpoint formal setelah payment `COMPLETED`, reconciliation `MATCHED`, dan invoice sudah diterbitkan.
+  - Invoice/AR `PAID` tidak otomatis berarti payroll period sudah `CLOSED`.
+  - Outstanding AR tetap dimonitor setelah payroll period ditutup; collection tidak memblokir close.
+  - Close hanya dilakukan Controller dan tercatat sebagai `PAY_RUN_CLOSED` pada audit trail.
+  - Production rollout dilindungi D1 backup, migration gate, payment invariant checks, health check, anonymous-auth smoke test, dan Access split assertion.
+  - Runbook operasional: [ROLLOUT_RUNBOOK.md](./ROLLOUT_RUNBOOK.md).
 
 ## Local development
 
