@@ -188,6 +188,8 @@ async function prepareBeneficiaries(database, env, transactionId, payment, benef
       await updateItem(database, item.id, {
         status:'FAILED',
         bank_id:String(bank.id),
+        response_code:null,
+        response_message:null,
         error_code:error instanceof E2PayRequestError ? error.code : 'E2PAY_INQUIRY_FAILED',
         error_message:String(error?.message || 'Inquiry E2Pay gagal').slice(0, 300),
       });
