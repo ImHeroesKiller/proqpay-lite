@@ -153,7 +153,7 @@ test('production rollout pipeline enforces post-deploy smoke checks',async()=>{
   assert.ok(workflow.indexOf('Verify production health') < workflow.indexOf('Production smoke test'));
   assert.match(smoke,/\/api\/health/);
   assert.match(smoke,/\/api\/operating-model\?resource=submissions/);
-  assert.match(smoke,/expected HTTP 401/);
+  assert.match(smoke,/json\(path, 401\)/);
   assert.match(runbook,/Prepare → Review → Approve → Pay → Close/);
   assert.match(runbook,/Outstanding AR does \*\*not\*\* block payroll period close/);
 });
