@@ -92,6 +92,22 @@ export async function executeSeamlessPayment(paymentInstructionId: string, payme
     gateway: PaymentGatewayReadiness;
     transaction: PaymentGatewayTransaction;
     idempotentReplay?: boolean;
+    hasMore?: boolean;
+    remaining?: number;
+    processedThisCall?: number;
+    chunkLimit?: number;
+    parentStatus?: string;
+    items?: PaymentGatewayItem[];
+    summary?: {
+      total: number;
+      succeeded: number;
+      processing: number;
+      failed: number;
+      ready: number;
+      amount: number;
+      fees: number;
+      requiredBalance: number;
+    };
   }>;
 }
 
