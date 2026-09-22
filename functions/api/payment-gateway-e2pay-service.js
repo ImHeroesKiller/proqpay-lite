@@ -78,6 +78,12 @@ function beneficiaryMap(beneficiaries) {
   return new Map(beneficiaries.map((row) => [row.id, row]));
 }
 
+export function isRetryableE2PayFailure(item) {
+  if (String(item?.status || '') !== 'FAILED') return false;
+  if (Number(item?.attempt_count || 0) === 0) return true;
+  return String(item?.response_code || '').trim() === '99';
+}
+
 async function updateItem(database, itemId, fields) {
   const names = Object.keys(fields);
   if (!names.length) return;
@@ -121,7 +127,7 @@ async function transitionPaymentState(database, payment, parentStatus, summary) 
   }
 }
 
-async function prepareBeneficiaries(database, env, transactionId, payment, beneficiaries, accessToken, banks) {
+async function prepareBeneficiaries(database, env, transactionId, payment, beneficiaries, accessToken, banks, { retryFailed = false } = {}) {
   let items = await ensureItems(database, transactionId, payment, beneficiaries);
   const byLine = beneficiaryMap(beneficiaries);
 
@@ -136,7 +142,8 @@ async function prepareBeneficiaries(database, env, transactionId, payment, benef
       continue;
     }
     if (['SUCCEEDED','PROCESSING','PENDING','UNKNOWN','INQUIRY_READY'].includes(item.status)) continue;
-    if (item.status === 'FAILED' && Number(item.attempt_count || 0) > 0) continue;
+    if (item.status === 'FAILED' && Number(item.attempt_count || 0) > 0
+      && !(retryFailed && isRetryableE2PayFailure(item))) continue;
 
     const bank = resolveE2PayBank(banks, beneficiary);
     if (!bank) {
@@ -181,6 +188,8 @@ async function prepareBeneficiaries(database, env, transactionId, payment, benef
       await updateItem(database, item.id, {
         status:'FAILED',
         bank_id:String(bank.id),
+        response_code:null,
+        response_message:null,
         error_code:error instanceof E2PayRequestError ? error.code : 'E2PAY_INQUIRY_FAILED',
         error_message:String(error?.message || 'Inquiry E2Pay gagal').slice(0, 300),
       });
@@ -197,7 +206,7 @@ function parentOutcome(items) {
   return { status:'FAILED', summary };
 }
 
-export async function executeE2PayBatch({ database, env, transactionId, payment, beneficiaries }) {
+export async function executeE2PayBatch({ database, env, transactionId, payment, beneficiaries, retryFailed = false }) {
   const limit = e2paySyncBeneficiaryLimit(env);
   if (beneficiaries.length > limit) {
     return {
@@ -214,7 +223,7 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     e2payBankList(env, auth.accessToken),
   ]);
   const merchantBalance = number(merchant?.balance);
-  let items = await prepareBeneficiaries(database, env, transactionId, payment, beneficiaries, auth.accessToken, banks);
+  let items = await prepareBeneficiaries(database, env, transactionId, payment, beneficiaries, auth.accessToken, banks, { retryFailed });
   let summary = summarizeE2PayItems(items);
 
   if (summary.failed > 0 && summary.succeeded === 0 && summary.processing === 0) {
@@ -251,7 +260,8 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
 
   const byLine = beneficiaryMap(beneficiaries);
   for (const item of items) {
-    if (item.status !== 'INQUIRY_READY' || Number(item.attempt_count || 0) > 0) continue;
+    if (item.status !== 'INQUIRY_READY') continue;
+    if (Number(item.attempt_count || 0) > 0 && !retryFailed) continue;
     const beneficiary = byLine.get(item.payment_instruction_line_id);
     if (!beneficiary) continue;
     await updateItem(database, item.id, {
@@ -278,7 +288,8 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
         error_message:itemStatus === 'FAILED' ? String(result?.responseMessage || 'E2Pay transaction failed').slice(0, 300) : null,
       });
     } catch (error) {
-      const ambiguous = error instanceof E2PayRequestError && ['E2PAY_TIMEOUT','E2PAY_NETWORK_ERROR'].includes(error.code);
+      const ambiguous = error instanceof E2PayRequestError && (['E2PAY_TIMEOUT','E2PAY_NETWORK_ERROR'].includes(error.code)
+        || (error.code === 'E2PAY_HTTP_ERROR' && (Number(error.httpStatus) >= 500 || [408,429].includes(Number(error.httpStatus)))));
       await updateItem(database, item.id, {
         status:ambiguous ? 'UNKNOWN' : 'FAILED',
         last_checked_at:new Date().toISOString(),
@@ -320,7 +331,7 @@ export async function reconcileE2PayBatch({ database, env, transactionId, paymen
         await updateItem(database, item.id, { last_checked_at:new Date().toISOString() });
         continue;
       }
-      const normalized = e2payResponseStatus(history.responseCode, { emptyIsSuccess:true });
+      const normalized = e2payResponseStatus(history.responseCode);
       const status = normalized === 'PENDING' ? 'UNKNOWN' : normalized;
       await updateItem(database, item.id, {
         status,

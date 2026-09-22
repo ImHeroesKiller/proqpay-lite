@@ -96,6 +96,29 @@ export async function executeSeamlessPayment(paymentInstructionId: string, payme
 }
 
 
+export async function retryFailedE2PayPayment(paymentInstructionId: string) {
+  return parseResponse(await fetch('/api/payment-gateway', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paymentInstructionId, action:'RETRY_FAILED' }),
+  })) as Promise<{
+    ok: boolean;
+    gateway: PaymentGatewayReadiness;
+    transaction: PaymentGatewayTransaction;
+    items?: PaymentGatewayItem[];
+    summary?: {
+      total: number;
+      succeeded: number;
+      processing: number;
+      failed: number;
+      ready: number;
+      amount: number;
+      fees: number;
+      requiredBalance: number;
+    };
+  }>;
+}
+
 export async function reconcileE2PayPayment(paymentInstructionId: string) {
   return parseResponse(await fetch('/api/payment-gateway', {
     method: 'POST',
