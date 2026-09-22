@@ -137,11 +137,9 @@ export default function AppHeader({
   const user = { ...actor, name: actor.name || actor.email.split("@")[0] };
   const refreshAlerts = useCallback(async () => {
     try {
-      const scopes =
-        actor.role === "CLIENT_USER" ? actor.clientIds || [] : [undefined];
-      const results = await Promise.all(
-        scopes.map((clientId) => listOperatingDashboard(clientId, period)),
-      );
+      const results = await Promise.all([
+        listOperatingDashboard(undefined, period),
+      ]);
       let exceptions = 0,
         approvals = 0;
       results.forEach((result) => {
