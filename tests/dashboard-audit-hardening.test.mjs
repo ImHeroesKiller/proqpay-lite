@@ -90,9 +90,28 @@ test('client dashboard aggregates all assigned scopes without clientId and minim
   assert.equal('idempotency_key' in pi,false);
   assert.equal('creator_user_id' in pi,false);
   assert.equal('rejection_reason' in pi,false);
+  const submission=result.payload.submissions[0];
+  assert.equal('processor_review_note' in submission,false);
+  assert.equal('controller_review_note' in submission,false);
+  assert.equal('created_by' in submission,false);
+  assert.equal('closed_by' in submission,false);
+  assert.equal('reopen_reason' in submission,false);
+  assert.equal(submission.total_net,5000000);
+  assert.equal(submission.state,'PAYMENT_APPROVAL_PENDING');
   assert.deepEqual(result.payload.exceptions,[]);
   assert.deepEqual(result.payload.paymentProofs,[]);
   assert.deepEqual(result.payload.reconciliations,[]);
+});
+
+test('dashboard API exposes paging metadata so large periods can be fetched completely',async()=>{
+  const DB=new D1Mock(); seed(DB);
+  const result=await dashboard(DB,internal,'/api/operating-model?resource=dashboard&period=2026-09&offset=1');
+  assert.equal(result.response.status,200,JSON.stringify(result.payload));
+  assert.equal(result.payload.dashboardMeta.offset,1);
+  assert.equal(result.payload.dashboardMeta.submissionsTotal,2);
+  assert.equal(result.payload.submissions.length,1);
+  assert.equal(result.payload.dashboardMeta.nextOffset,null);
+  assert.equal(result.payload.dashboardMeta.truncated,false);
 });
 
 test('dashboard period resource comes from canonical submissions and respects client scope',async()=>{
@@ -144,6 +163,9 @@ test('dashboard UI contracts implement audited P1 and P2 fixes',async()=>{
   assert.match(billingApi,/submissionFilter=focusSubmissionId/);
   assert.match(billingApi,/\$\{submissionFilter\.sql\}/);
   assert.match(api,/dashboard-periods/);
+  assert.match(api,/while \(true\)/);
+  assert.match(api,/dashboardMeta\?\.nextOffset/);
+  assert.match(api,/truncated:false/);
   assert.match(css,/theme-dark \.control-kpi/);
   assert.match(css,/dashboard-focus-banner/);
   assert.match(indexes,/idx_dashboard_active_pi_submission/);
