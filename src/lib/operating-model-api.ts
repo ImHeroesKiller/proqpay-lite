@@ -106,18 +106,18 @@ export function invalidateOperatingCache() {
   }
 }
 
-export async function getPaymentInstructionDetail(paymentInstructionId: string) {
+export async function getPaymentInstructionDetail(paymentInstructionId: string):Promise<any> {
   const params = new URLSearchParams({ resource:'payment-instruction-detail', paymentInstructionId });
-  return parseResponse(await fetch(`/api/operating-model?${params}`, { headers:{Accept:'application/json'} }));
+  return parseResponse<any>(await fetch(`/api/operating-model?${params}`, { headers:{Accept:'application/json'} }));
 }
 
-export async function getPayRunDetail(submissionId: string) {
+export async function getPayRunDetail(submissionId: string):Promise<any> {
   const params = new URLSearchParams({ resource:'pay-run-detail', submissionId });
-  return parseResponse(await fetch(`/api/operating-model?${params}`, { headers:{Accept:'application/json'} }));
+  return parseResponse<any>(await fetch(`/api/operating-model?${params}`, { headers:{Accept:'application/json'} }));
 }
 
-export async function executeOperatingAction(action: Record<string, unknown>) {
-  const result = await parseResponse(await fetch('/api/operating-model', {
+export async function executeOperatingAction(action: Record<string, unknown>):Promise<any> {
+  const result = await parseResponse<any>(await fetch('/api/operating-model', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(action),
