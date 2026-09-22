@@ -75,6 +75,8 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
       reconciliationStatus:reconciliation?.status,
       blockingCount:row.blocking_count,
       exceptionCount:row.exception_count,
+      invoiceStatus:row.invoice_status,
+      arStatus:row.ar_status,
       inputStatus:row.input_status,
       sourceMode:row.source_mode,
       periodStatus:row.period_status,
