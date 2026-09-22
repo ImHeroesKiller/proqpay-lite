@@ -104,15 +104,19 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
 
     <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:12 }}>
       <div style={modeStyle}>
-        <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}><strong>Seamless / API</strong><span style={{ color:tone(runtime.seamless), fontSize:10.5, fontWeight:750 }}>{statusLabel(runtime.seamless)}</span></div>
-        <span style={{ color:'var(--text3)', fontSize:11.5 }}>Payment tetap dieksekusi dari UI ProQPay melalui backend orchestration.</span>
+        <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}><strong>{isE2Pay ? 'E2Pay B2B Disbursement' : 'Seamless / API'}</strong><span style={{ color:tone(runtime.seamless), fontSize:10.5, fontWeight:750 }}>{statusLabel(runtime.seamless)}</span></div>
+        <span style={{ color:'var(--text3)', fontSize:11.5 }}>Payment dieksekusi dari ProQPay melalui backend orchestration setelah Payment Instruction approved.</span>
         <small style={{ color:'var(--text3)' }}>{runtime.seamless?.reason || 'Adapter seamless siap digunakan.'}</small>
       </div>
-      <div style={modeStyle}>
+      {isE2Pay ? <div style={modeStyle}>
+        <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}><strong>Environment</strong><span style={{ color:tone(runtime.seamless), fontSize:10.5, fontWeight:750 }}>{runtime.seamless?.environment || 'UAT'}</span></div>
+        <span style={{ color:'var(--text3)', fontSize:11.5 }}>Credential UAT dan Production disimpan sebagai profile terpisah dan terenkripsi.</span>
+        <small style={{ color:'var(--text3)' }}>Konfigurasi: Settings → Payment Gateway.</small>
+      </div> : <div style={modeStyle}>
         <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}><strong>Hosted Checkout</strong><span style={{ color:tone(runtime.hosted), fontSize:10.5, fontWeight:750 }}>{statusLabel(runtime.hosted)}</span></div>
         <span style={{ color:'var(--text3)', fontSize:11.5 }}>User diarahkan ke checkout provider; return browser bukan bukti payment.</span>
         <small style={{ color:'var(--text3)' }}>{runtime.hosted?.reason || 'Hosted checkout siap digunakan.'}</small>
-      </div>
+      </div>}
     </div>
 
     {isE2Pay ? <div style={{ display:'grid', gap:7 }}>
@@ -132,9 +136,9 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
         <span><code>PAYMENT_GATEWAY_PROVIDER</code> — provider adapter aktif.</span>
         {isE2Pay ? <>
           <span><code>E2PAY_ENV</code> — UAT atau PRODUCTION; host dipilih server-side.</span>
-          <span><code>E2PAY_CLIENT_ID / E2PAY_CLIENT_SECRET</code> — Cloudflare Secret.</span>
-          <span><code>E2PAY_USERNAME / E2PAY_PASSWORD_MD5</code> — credential merchant server-side.</span>
-          <span><code>E2PAY_ACCOUNT_SRC / E2PAY_SOURCE_ID</code> — source account dan source ID dari E2Pay.</span>
+          <span><code>E2PAY_CLIENT_ID / E2PAY_CLIENT_SECRET</code> — tersimpan terenkripsi melalui Settings → Payment Gateway.</span>
+          <span><code>E2PAY_USERNAME / E2PAY_PASSWORD_MD5</code> — credential merchant tersimpan server-side dan tidak dikirim kembali ke browser.</span>
+          <span><code>E2PAY_ACCOUNT_SRC / E2PAY_SOURCE_ID</code> — source account dan Source ID E2Pay per environment.</span>
         </> : <span><code>PAYMENT_GATEWAY_WEBHOOK_SECRET</code> — secret signature callback, Cloudflare Secret only.</span>}
         <span><code>PAYMENT_GATEWAY_HOSTED_ENABLED</code> — aktifkan Hosted hanya jika adapter hosted tersedia.</span>
         <span><code>PAYMENT_GATEWAY_HOSTED_TTL_SECONDS</code> — TTL Hosted session, default 900 detik.</span>
