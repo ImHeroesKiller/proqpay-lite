@@ -377,11 +377,11 @@ async function readResource(database, params, actor, env, organizationId) {
       [organizationId,...submissionIds]);
   }
 
-  const clientScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds: [], orgColumn: 'c.org_id', clientColumn: 'c.id' });
+  const clientSummaryScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds: [], orgColumn: 'c.org_id', clientColumn: 'c.id' });
   const projectScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds, orgColumn: 'p.org_id', clientColumn: 'p.client_id', projectColumn: 'p.id' });
   const employeeScope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, projectIds, orgColumn: 'e.org_id', clientColumn: 'e.client_id', projectColumn: 'e.project_id' });
   const [clientCount, projectCount, employeeCount, bankCount] = await Promise.all([
-    d1First(database, `SELECT COUNT(*) AS total FROM clients c WHERE ${clientScope.sql}`, clientScope.bindings),
+    d1First(database, `SELECT COUNT(*) AS total FROM clients c WHERE ${clientSummaryScope.sql}`, clientSummaryScope.bindings),
     d1First(database, `SELECT COUNT(*) AS total FROM projects p WHERE ${projectScope.sql}`, projectScope.bindings),
     d1First(database, `SELECT COUNT(*) AS total,
       SUM(CASE WHEN ${ACTIVE_EMPLOYEE} THEN 1 ELSE 0 END) AS active
