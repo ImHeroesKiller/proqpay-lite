@@ -142,3 +142,18 @@ test('Close & Billing workspace exposes rollout-ready close controls',async()=>{
   assert.match(workspace,/Close readiness/);
   assert.doesNotMatch(workspace,/\['PAYROLL_FINALIZED','COMPLETED'\]\.includes\(selected\.state\)/);
 });
+
+
+test('production rollout pipeline enforces post-deploy smoke checks',async()=>{
+  const workflow=await readFile(new URL('../.github/workflows/cloudflare-deploy.yml',import.meta.url),'utf8');
+  const smoke=await readFile(new URL('../scripts/production-smoke.mjs',import.meta.url),'utf8');
+  const runbook=await readFile(new URL('../ROLLOUT_RUNBOOK.md',import.meta.url),'utf8');
+  assert.match(workflow,/Production smoke test/);
+  assert.match(workflow,/node scripts\/production-smoke\.mjs https:\/\/proqpay-lite\.pages\.dev/);
+  assert.ok(workflow.indexOf('Verify production health') < workflow.indexOf('Production smoke test'));
+  assert.match(smoke,/\/api\/health/);
+  assert.match(smoke,/\/api\/operating-model\?resource=submissions/);
+  assert.match(smoke,/expected HTTP 401/);
+  assert.match(runbook,/Prepare → Review → Approve → Pay → Close/);
+  assert.match(runbook,/Outstanding AR does \*\*not\*\* block payroll period close/);
+});
