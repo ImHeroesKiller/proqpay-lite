@@ -478,6 +478,7 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'CREATE_SUBMISSION') {
+    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat membuat submission payroll' } };
     if (!assertClientScope(actor, env, body.clientId)) return { status: 403, data: { error: 'Client scope denied' } };
     const plan = await d1First(database, `SELECT sp.* FROM client_service_plans sp JOIN clients c ON c.id=sp.client_id
       WHERE sp.id=? AND sp.client_id=? AND c.org_id=? AND sp.status='ACTIVE'
@@ -1027,6 +1028,7 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'CREATE_VALIDATION_BATCH') {
+    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat membuat validation batch' } };
     const submission = await d1First(database, 'SELECT id,client_id FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
     if (!submission) return { status: 404, data: { error: 'Submission not found' } };
     if (!assertClientScope(actor, env, submission.client_id)) return { status: 403, data: { error: 'Client scope denied' } };
@@ -1137,6 +1139,14 @@ async function executeAction(database, body, actor, env, organizationId) {
         ORDER BY COALESCE(paid_at,updated_at,created_at) DESC LIMIT 1),0) AS gateway_total
       FROM payment_instructions pi WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
     if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
+    const paymentState = String(payment.status || '').toUpperCase();
+    if (!['PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED'].includes(paymentState)) {
+      return { status:409, data:{
+        error:'Payment instruction belum berada pada tahap rekonsiliasi',
+        code:'RECONCILIATION_STATE_REQUIRED',
+        paymentStatus:paymentState,
+      } };
+    }
     const settlementTotal = Number(payment.manual_proof_total || 0) > 0
       ? Number(payment.manual_proof_total)
       : Number(payment.gateway_total || 0);
