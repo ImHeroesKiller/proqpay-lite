@@ -49,6 +49,47 @@ test('gateway credentials are encrypted at rest and runtime can hydrate E2Pay wi
   DB.sqlite.close();
 });
 
+test('UAT and Production credentials stay isolated across environment switches', async () => {
+  const DB = new D1Mock();
+  await writeGatewaySecureSettings(DB, env, 'ORG-OTSINDO', 'admin@proqpay.test', {
+    provider:'E2PAY',
+    environment:'UAT',
+    credentials:{
+      clientId:'uat-client',
+      clientSecret:'uat-secret',
+      username:'uat-user',
+      passwordMd5:'ABCDEF0123456789ABCDEF0123456789',
+      accountSrc:'uat-account',
+      sourceId:'UAT-SOURCE',
+    },
+  });
+  await writeGatewaySecureSettings(DB, env, 'ORG-OTSINDO', 'admin@proqpay.test', {
+    provider:'E2PAY',
+    environment:'PRODUCTION',
+    credentials:{
+      clientId:'prod-client',
+      clientSecret:'prod-secret',
+      username:'prod-user',
+      passwordMd5:'0123456789ABCDEF0123456789ABCDEF',
+      accountSrc:'prod-account',
+      sourceId:'PROD-SOURCE',
+    },
+  });
+
+  const uat = await gatewayRuntimeEnv(DB, { ...env, DB }, 'ORG-OTSINDO', 'UAT');
+  const prod = await gatewayRuntimeEnv(DB, { ...env, DB }, 'ORG-OTSINDO', 'PRODUCTION');
+  assert.equal(uat.E2PAY_CLIENT_SECRET, 'uat-secret');
+  assert.equal(prod.E2PAY_CLIENT_SECRET, 'prod-secret');
+  assert.notEqual(uat.E2PAY_CLIENT_ID, prod.E2PAY_CLIENT_ID);
+
+  const stored = await readGatewaySecureSettings(DB, env, 'ORG-OTSINDO');
+  const browserSafe = publicGatewaySettings(stored);
+  assert.equal(browserSafe.profiles.UAT.stored.clientSecret, true);
+  assert.equal(browserSafe.profiles.PRODUCTION.stored.clientSecret, true);
+  assert.doesNotMatch(JSON.stringify(browserSafe), /uat-secret|prod-secret/);
+  DB.sqlite.close();
+});
+
 test('saved UNCONFIGURED state overrides any environment-level provider fallback', async () => {
   const DB = new D1Mock();
   await writeGatewaySecureSettings(DB, env, 'ORG-OTSINDO', 'admin@proqpay.test', {

@@ -88,7 +88,22 @@ export async function onRequest({ request, env }) {
     const action = String(body.action || 'SAVE').trim().toUpperCase();
 
     if (action === 'TEST') {
-      const runtimeEnv = await gatewayRuntimeEnv(env.DB, env, organizationId);
+      const environment = clean(body.environment || 'UAT', 40).toUpperCase();
+      if (!['UAT','PRODUCTION'].includes(environment)) {
+        return secureJson({ error:'Environment E2Pay harus UAT atau PRODUCTION' }, 422, request, env, METHODS);
+      }
+      const draft = parseCredentials(body);
+      const storedRuntime = await gatewayRuntimeEnv(env.DB, env, organizationId, environment);
+      const runtimeEnv = Object.assign(Object.create(storedRuntime || null), {
+        PAYMENT_GATEWAY_PROVIDER:'E2PAY',
+        E2PAY_ENV:environment,
+        E2PAY_CLIENT_ID:draft.clientId || storedRuntime.E2PAY_CLIENT_ID || '',
+        E2PAY_CLIENT_SECRET:draft.clientSecret || storedRuntime.E2PAY_CLIENT_SECRET || '',
+        E2PAY_USERNAME:draft.username || storedRuntime.E2PAY_USERNAME || '',
+        E2PAY_PASSWORD_MD5:draft.passwordMd5 || storedRuntime.E2PAY_PASSWORD_MD5 || '',
+        E2PAY_ACCOUNT_SRC:draft.accountSrc || storedRuntime.E2PAY_ACCOUNT_SRC || '',
+        E2PAY_SOURCE_ID:draft.sourceId || storedRuntime.E2PAY_SOURCE_ID || '',
+      });
       const readiness = e2payReadiness(runtimeEnv);
       if (!readiness.configured) {
         return secureJson({ error:readiness.reason, code:'E2PAY_NOT_READY', readiness }, 409, request, env, METHODS);

@@ -132,7 +132,7 @@ export default function Sidebar({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             className="sidebar-brand-logo"
-            src="/assets/proqpay-logo.png"
+            src="/assets/proqpay-logo-v2.svg"
             alt="ProQPay"
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}

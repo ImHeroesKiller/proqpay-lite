@@ -57,7 +57,7 @@ export function LoginScreen() {
           <div className="login-story-content">
             <div className="login-brand login-brand-inverse">
               <Image
-                src="/assets/proqpay-logo.png"
+                src="/assets/proqpay-logo-v2.svg"
                 alt="ProQPay"
                 width={210}
                 height={49}
@@ -97,7 +97,7 @@ export function LoginScreen() {
         <div className="login-panel">
           <div className="login-mobile-brand login-brand">
             <Image
-              src="/assets/proqpay-logo.png"
+              src="/assets/proqpay-logo-v2.svg"
               alt="ProQPay"
               width={210}
               height={49}
