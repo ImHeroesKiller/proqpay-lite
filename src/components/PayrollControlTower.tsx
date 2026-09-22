@@ -26,15 +26,15 @@ const PIPELINE = PAYROLL_BUSINESS_STAGE_ORDER.map((stage) => ({
   view:BUSINESS_STAGE_META[stage].view as AppView,
 }));
 
-function localDate(value:string) {
+function localDate(value?:string|null) {
   if (!value) return null;
   const match=String(value).slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
   return new Date(Number(match[1]),Number(match[2])-1,Number(match[3]));
 }
-function dateLabel(value:string) { const date=localDate(value); return date ? date.toLocaleDateString('id-ID',{day:'2-digit',month:'short'}) : '-'; }
-function statusLabel(value:string) { return String(value||'-').replaceAll('_',' '); }
-function daysFromNow(value:string) {
+function dateLabel(value?:string|null) { const date=localDate(value); return date ? date.toLocaleDateString('id-ID',{day:'2-digit',month:'short'}) : '-'; }
+function statusLabel(value?:string|null) { return String(value||'-').replaceAll('_',' '); }
+function daysFromNow(value?:string|null) {
   const target=localDate(value); if (!target) return null;
   const today=new Date(); today.setHours(0,0,0,0);
   return Math.round((target.getTime()-today.getTime())/86_400_000);
