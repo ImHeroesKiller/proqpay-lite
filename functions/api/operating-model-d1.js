@@ -151,6 +151,7 @@ async function readResource(database, params, actor, env, organizationId) {
   const resource = params.get('resource') || 'submissions';
   const clientId = params.get('clientId');
   const requestedPeriod = params.get('period');
+  const dashboardOffset = Math.max(0, Number.parseInt(params.get('offset') || '0', 10) || 0);
   const projectIds = actor.role === 'CLIENT_USER' && Array.isArray(actor.projectIds) ? actor.projectIds.map(String) : [];
   const dashboardAggregate = resource === 'dashboard' || resource === 'dashboard-periods';
   const aggregateClientIds = actor.role === 'CLIENT_USER' && dashboardAggregate
@@ -348,8 +349,9 @@ async function readResource(database, params, actor, env, organizationId) {
     ? [...submissionScope.bindings, requestedPeriod, requestedPeriod]
     : submissionScope.bindings;
   const submissionLimit = resource === 'dashboard' ? 1000 : 200;
+  const dashboardPagingSql = resource === 'dashboard' ? ` OFFSET ${dashboardOffset}` : '';
   const submissions = await d1All(database, `${SUBMISSION_SELECT} WHERE ${submissionScope.sql}${dashboardPeriodSql}
-    ORDER BY s.created_at DESC LIMIT ${submissionLimit}`, dashboardBindings);
+    ORDER BY s.created_at DESC LIMIT ${submissionLimit}${dashboardPagingSql}`, dashboardBindings);
   parseJsonFields(submissions, ['arrears_periods']);
   if (resource !== 'dashboard') return { data: { ok: true, submissions } };
 
@@ -357,6 +359,16 @@ async function readResource(database, params, actor, env, organizationId) {
     WHERE ${submissionScope.sql}${dashboardPeriodSql}`, dashboardBindings);
   const submissionsTotal = Number(totalRow?.total || 0);
   const submissionIds = submissions.map((row)=>String(row.id));
+  const clientDashboardSubmissionFields = new Set([
+    'id','client_id','project_id','service_plan_id','service_tier','period','payment_period','arrears_periods',
+    'state','run_type','source_mode','input_status','period_status','payment_date','created_at','updated_at',
+    'client_name','project_name','employee_count','total_gross','total_deduction','total_net',
+    'exception_count','open_exception_count','client_action_count','blocking_count','payment_status',
+    'reconciliation_status','invoice_id','invoice_status','ar_status'
+  ]);
+  const dashboardSubmissions = actor.role === 'CLIENT_USER'
+    ? submissions.map((row)=>Object.fromEntries(Object.entries(row).filter(([key])=>clientDashboardSubmissionFields.has(key))))
+    : submissions;
   let paymentInstructions = [];
   if (submissionIds.length) {
     const placeholders = submissionIds.map(()=>'?').join(',');
@@ -392,7 +404,7 @@ async function readResource(database, params, actor, env, organizationId) {
   ]);
   const employees = Number(employeeCount?.total || 0);
   const primaryAccounts = Number(bankCount?.total || 0);
-  return { data: { ok: true, submissions, paymentInstructions,
+  return { data: { ok: true, submissions:dashboardSubmissions, paymentInstructions,
     // Dashboard intentionally carries summary-level evidence only. Detailed exceptions,
     // proofs and reconciliation records stay in their dedicated workspaces.
     exceptions: [], paymentProofs: [], reconciliations: [],
@@ -400,7 +412,9 @@ async function readResource(database, params, actor, env, organizationId) {
       period: requestedPeriod || 'ALL',
       submissionsTotal,
       submissionsReturned: submissions.length,
-      truncated: submissions.length < submissionsTotal,
+      offset: dashboardOffset,
+      nextOffset: dashboardOffset + submissions.length < submissionsTotal ? dashboardOffset + submissions.length : null,
+      truncated: dashboardOffset + submissions.length < submissionsTotal,
     },
     portfolioSummary: { clients: Number(clientCount?.total || 0), projects: Number(projectCount?.total || 0),
       employees, activeEmployees: Number(employeeCount?.active || 0), primaryAccounts,
