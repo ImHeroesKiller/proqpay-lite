@@ -91,7 +91,9 @@ test('blocked Pay Run UI no longer routes EXCEPTION_FOUND back into validation',
   const source=await fs.readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
   assert.match(source,/row\.state === 'EXCEPTION_FOUND'\) return undefined/);
   assert.match(source,/Buka Exception Center/);
-  assert.doesNotMatch(source,/validationStates\.has\(row\.state\).*EXCEPTION_FOUND/s);
+  const explicit=source.indexOf("row.state === 'EXCEPTION_FOUND') return undefined");
+  const generic=source.indexOf('validationStates.has(row.state)');
+  assert.ok(explicit >= 0 && generic >= 0 && explicit < generic,'EXCEPTION_FOUND must short-circuit before generic validation routing');
 });
 
 
