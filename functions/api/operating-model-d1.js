@@ -680,6 +680,10 @@ async function executeAction(database, body, actor, env, organizationId) {
       ? 'Submission tidak berada pada tahap review Controller'
       : 'Submission belum siap dibuatkan payment instruction' } };
     if (atomicControllerApproval && body.reviewConfirmed !== true) return { status:409, data:{ error:'Preview dan konfirmasi review wajib dilakukan sebelum melanjutkan' } };
+    if (atomicControllerApproval && submission.processor_reviewed_by
+      && String(submission.processor_reviewed_by).toLowerCase() === String(actor.email || '').toLowerCase()) {
+      return { status:409, data:{ error:'Processor reviewer tidak boleh menyetujui payroll yang sama sebagai Controller', code:'PAYROLL_REVIEW_SOD' } };
+    }
     if (atomicControllerApproval) {
       const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
         AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
