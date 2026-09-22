@@ -20,6 +20,16 @@ Built with **Next.js 16** · static export for **Cloudflare Pages** with Pages F
 - Payroll calc (BPJS + PPh 21) with Cloudflare D1 operational persistence
 - Period / bundling filters, Settings modal
 
+## Role experience
+
+- **Payroll Processor / Controller** memakai workspace internal berbasis business stage `Prepare → Review → Approve → Pay → Close`.
+- **Client User (Phase 4)** hanya melihat tiga area utama: **Home · Payroll · Documents**.
+  - Home: Needs Your Attention, For Approval, Payment Status, Documents.
+  - Payroll: data intake, koreksi data, status payroll, dan status pembayaran dengan bahasa bisnis.
+  - Documents: invoice, payment history, payroll register, dan payslip register sesuai scope akun.
+- Route client lama untuk Exceptions/Payment/Billing dinormalisasi ke Payroll atau Documents agar bookmark lama tetap aman.
+- **Batas Phase 4:** belum mengaktifkan mutasi approval payroll oleh Client User. Client payroll approval tetap scope Phase 5.
+
 ## Local development
 
 ```bash

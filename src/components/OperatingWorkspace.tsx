@@ -21,6 +21,18 @@ const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; descriptio
 const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') || state.includes('REVISION') ? '#dc2626'
   : state.includes('APPROVED') || state === 'COMPLETED' || state === 'MATCHED' ? '#059669' : 'var(--accent)';
 
+function clientActionLabel(code:string,label:string) {
+  const labels:Record<string,string>={
+    CORRECT_PAYROLL_DATA:'Perbaiki data payroll',
+    REVIEW_PAYROLL_REVISION:'Tinjau revisi payroll',
+    APPROVE_PAYROLL:'Review payroll',
+    VIEW_RESULTS:'Lihat dokumen',
+    TRACK_PAYROLL:'Lihat status',
+    MONITOR_PAYMENT:'Pantau pembayaran',
+  };
+  return labels[code] || label;
+}
+
 function paymentBusinessLabel(status:string) {
   const labels:Record<string,string>={
     PAYMENT_INSTRUCTION_READY:'Prepared',
@@ -52,7 +64,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
     setLoading(true);
     setMessage('');
     try {
-      const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup','payment-instructions']
+      const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup','payment-instructions','exceptions']
         : mode === 'actions' ? ['submissions','exceptions']
         : mode === 'payments' ? ['submissions','payment-instructions','payment-proofs','reconciliations'] : [];
       const meResponse = await fetch('/api/me');
@@ -88,6 +100,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
 
   const role = actor?.role || 'UNKNOWN';
   const simplifiedInternal = ['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role);
+  const clientExperience = role === 'CLIENT_USER';
+  const simplifiedWorkspace = simplifiedInternal || clientExperience;
   const isProcessor = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role);
   const isController = ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role);
   const isClient = role === 'CLIENT_USER';
@@ -125,14 +139,14 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       paymentInstructionId:instruction?.id,
     });
     const haystack = [row.client_name,row.project_name,row.id,row.period,row.payment_period,row.state,business.label,nextAction.label].join(' ').toLowerCase();
-    const workflowMatches=simplifiedInternal
+    const workflowMatches=simplifiedWorkspace
       ? (statusFilter === 'ALL' || business.stage === statusFilter)
       : (statusFilter === 'ALL' || row.state === statusFilter);
     return (periodFilter === 'ALL' || row.period === periodFilter || row.payment_period === periodFilter)
       && (clientFilter === 'ALL' || row.client_id === clientFilter)
       && workflowMatches
       && (!query.trim() || haystack.includes(query.trim().toLowerCase()));
-  }), [submissions, instructionBySubmission, periodFilter, clientFilter, statusFilter, query, simplifiedInternal, role, actor?.permissions]);
+  }), [submissions, instructionBySubmission, periodFilter, clientFilter, statusFilter, query, simplifiedWorkspace, role, actor?.permissions]);
   const visibleSubmissionIds = useMemo(() => new Set(visibleSubmissions.map((row) => row.id)), [visibleSubmissions]);
   const visibleInstructions = useMemo(() => (data.paymentInstructions || []).filter((row) => {
     const periodMatches = periodFilter === 'ALL' || row.payroll_period === periodFilter || row.payment_period === periodFilter;
@@ -183,8 +197,12 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   const myWork=visibleNextActions.filter((action)=>action.actionable);
   const myAttention=myWork.filter((action)=>action.tone==='danger');
   const myApprovals=myWork.filter((action)=>action.category==='APPROVAL');
+  const clientCorrections=openExceptions.filter((row)=>row.status==='CLIENT_ACTION_REQUIRED');
+  const clientPaymentProcessing=visibleInstructions.filter((row)=>!['COMPLETED','REJECTED'].includes(row.status)).length;
   const baseProfile = profiles[mode];
-  const profile = simplifiedInternal ? ({
+  const profile = clientExperience && mode === 'payruns'
+    ? {...baseProfile,title:'Payroll',eyebrow:'YOUR PAYROLL',description:'Kirim data payroll, tindak lanjuti koreksi, dan pantau status proses dalam satu halaman.'}
+    : simplifiedInternal ? ({
     payruns:{...baseProfile,title:'Payroll',eyebrow:'MY PAYROLL WORK',description:'Lihat payroll berdasarkan stage dan kerjakan satu next action yang tersedia.'},
     actions:{...baseProfile,title:'Issues',eyebrow:'ACTION REQUIRED',description:'Tindak lanjuti hanya issue yang membutuhkan koreksi atau keputusan.'},
     payments:{...baseProfile,title:'Payments',eyebrow:'PAYMENT WORK',description:'Review approval, execution, dan reconciliation tanpa melihat state teknis yang tidak perlu.'},
@@ -192,7 +210,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   } as Record<WorkspaceMode, typeof baseProfile>)[mode] : baseProfile;
   const statusOptions = mode === 'payments'
     ? [...new Set((data.paymentInstructions || []).map((row) => row.status))].sort()
-    : simplifiedInternal && mode === 'payruns'
+    : simplifiedWorkspace && mode === 'payruns'
       ? [...PAYROLL_BUSINESS_STAGE_ORDER]
       : [...new Set(submissions.map((row) => row.state))].sort();
 
@@ -204,18 +222,23 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           <h2 style={{ fontSize: 22, fontWeight: 720, margin: '4px 0 0' }}>{profile.title}</h2>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>{profile.description}</p>
         </div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div></div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&clientExperience?<a className="btn btn-primary" href="/data-intake">Kirim data payroll</a>:mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}{!clientExperience?<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div>:null}</div>
       </div>
 
       {mode !== 'billing' ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((period) => <option key={period} value={period}>{period}</option>)}</select></label>
         <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        <label><span>{mode === 'payments' ? 'Status PI' : simplifiedInternal && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedInternal&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedInternal&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:String(state).replaceAll('_', ' ')}</option>)}</select></label>
+        <label><span>{mode === 'payments' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:String(state).replaceAll('_', ' ')}</option>)}</select></label>
         <label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>
       </div> : null}
 
       {mode !== 'billing' ? <div className="operations-summary-grid">
-        {mode === 'payruns' ? simplifiedInternal ? <>
+        {mode === 'payruns' ? clientExperience ? <>
+          <div><span>Payroll</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
+          <div><span>Needs attention</span><strong>{clientCorrections.length}</strong><small>Perlu koreksi atau konfirmasi</small></div>
+          <div><span>For approval</span><strong>{myApprovals.length}</strong><small>Payroll siap direview</small></div>
+          <div><span>Payment status</span><strong>{clientPaymentProcessing}</strong><small>{visibleInstructions.filter((row)=>row.status==='COMPLETED').length} selesai</small></div>
+        </> : simplifiedInternal ? <>
           <div><span>Payroll</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
           <div><span>My work</span><strong>{myWork.length}</strong><small>Tindakan untuk role Anda</small></div>
           <div><span>{role==='PAYROLL_CONTROLLER'?'For approval':'Need attention'}</span><strong>{role==='PAYROLL_CONTROLLER'?myApprovals.length:myAttention.length}</strong><small>{role==='PAYROLL_CONTROLLER'?'Menunggu keputusan Anda':`${blockers} blocker aktif`}</small></div>
@@ -246,7 +269,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
       {loading ? <Empty title="Memuat data operasional…" /> : (
         <>
-          {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedInternal} act={act} />}
+          {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
+          {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
           {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace actor={actor} />}
@@ -341,7 +365,8 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
     setRunDetail(null);setRunDetailLoading(true);
     void getPayRunDetail(row.id).then(setRunDetail).finally(()=>setRunDetailLoading(false));
   }
-  const table = <CardTable headers={simplified?['Klien / Periode','Stage','Net / THP','Next action']:['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={rows.map((r) => {
+  const simpleHeaders=role==='CLIENT_USER'?['Payroll','Stage','Net / THP','Payment','Next']:['Klien / Periode','Stage','Net / THP','Next action'];
+  const table = <CardTable headers={simplified?simpleHeaders:['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={rows.map((r) => {
     const nextAction=nextActionFor(r);
     const business=derivePayrollBusinessStage({
       state:r.state,
@@ -349,11 +374,20 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
       invoiceStatus:r.invoice_status,
       arStatus:r.ar_status,
     });
-    const label=nextAction.actionable||nextAction.category==='MONITOR'?nextAction.label:'View Status';
+    const rawLabel=nextAction.actionable||nextAction.category==='MONITOR'?nextAction.label:'View Status';
+    const label=role==='CLIENT_USER'?clientActionLabel(nextAction.code,rawLabel):rawLabel;
+    const targetView=role==='CLIENT_USER'&&nextAction.view==='billing'?'reports':nextAction.view;
     const actionCell=nextAction.view==='operations'||nextAction.view==='exceptions'
       ? <button key="action" style={actionButton} onClick={() => openReview(r)}>{label}</button>
-      : <a key="action" className="btn" href={`?view=${nextAction.view}`}>{label}</a>;
-    return simplified ? [
+      : <a key="action" className="btn" href={`?view=${targetView}`}>{label}</a>;
+    const instruction=instructionBySubmission.get(r.id);
+    return simplified ? role==='CLIENT_USER' ? [
+      <div key="id"><strong>{r.project_name || r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small></div>,
+      <div key="stage"><span className="stage-pill">{business.label}</span><small style={small}>{business.description}</small></div>,
+      <div key="summary"><strong>{formatIDR(Number(r.total_net || 0))}</strong><small style={small}>{Number(r.employee_count || 0)} karyawan</small></div>,
+      <div key="payment"><strong>{instruction?paymentBusinessLabel(instruction.status):'Belum masuk pembayaran'}</strong><small style={small}>{instruction?.status==='COMPLETED'?'Pembayaran selesai':'Pantau dari stage payroll'}</small></div>,
+      <div key="next">{actionCell}<small style={small}>{nextAction.actionable?'Perlu tindakan':'Pantau status'}</small></div>,
+    ] : [
       <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id}</small></div>,
       <div key="stage"><span className="stage-pill">{business.label}</span><small style={small}>{String(business.status).replaceAll('_',' ')}</small></div>,
       <div key="summary"><strong>{formatIDR(Number(r.total_net || 0))}</strong><small style={small}>{Number(r.employee_count || 0)} karyawan{Number(r.blocking_count||0)?` · ${r.blocking_count} blocker`:''}</small></div>,
@@ -380,21 +414,21 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
   const arrears = [...new Set(arrearsText.split(/[,;\s]+/).map((item) => item.trim()).filter(Boolean))];
   return <>{table}{createPortal(<div className="directory-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
     <div className="directory-modal payroll-review-modal" role="dialog" aria-modal="true" aria-label="Review payroll submission">
-      <div className="directory-modal-title"><div><span>PAYROLL REVIEW</span><h3>{selected.client_name || selected.client_id}</h3></div><button type="button" onClick={() => setSelected(null)}>✕</button></div>
-      <div className="payroll-review-meta"><div><span>Payroll</span><strong>{selected.period}</strong></div><div><span>Project</span><strong>{selected.project_name || '-'}</strong></div><div><span>Tier</span><strong>{String(selected.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' ')}</strong></div><div><span>Stage</span><strong>{businessStage.label}</strong><small>{String(selected.state||'').replaceAll('_',' ')}</small></div></div>
-      <div className="pay-run-lifecycle"><span className={selected.input_status==='READY'?'ready':''}>Input {selected.input_status||'LEGACY'}</span><span>{String(selected.run_type||'REGULAR').replaceAll('_',' ')}</span><span>{String(selected.source_mode||'UPLOAD_FINAL').replaceAll('_',' ')}</span><span className={selected.period_status==='CLOSED'?'closed':''}>Periode {selected.period_status||'OPEN'}</span></div>
+      <div className="directory-modal-title"><div><span>{role==='CLIENT_USER'?'PAYROLL':'PAYROLL REVIEW'}</span><h3>{selected.client_name || selected.client_id}</h3></div><button type="button" onClick={() => setSelected(null)}>✕</button></div>
+      <div className="payroll-review-meta"><div><span>Payroll</span><strong>{selected.period}</strong></div><div><span>Project</span><strong>{selected.project_name || '-'}</strong></div>{role!=='CLIENT_USER'?<div><span>Tier</span><strong>{String(selected.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' ')}</strong></div>:<div><span>Net/THP</span><strong>{formatIDR(Number(selected.total_net||0))}</strong></div>}<div><span>Stage</span><strong>{businessStage.label}</strong>{role!=='CLIENT_USER'?<small>{String(selected.state||'').replaceAll('_',' ')}</small>:null}</div></div>
+      {role!=='CLIENT_USER'?<div className="pay-run-lifecycle"><span className={selected.input_status==='READY'?'ready':''}>Input {selected.input_status||'LEGACY'}</span><span>{String(selected.run_type||'REGULAR').replaceAll('_',' ')}</span><span>{String(selected.source_mode||'UPLOAD_FINAL').replaceAll('_',' ')}</span><span className={selected.period_status==='CLOSED'?'closed':''}>Periode {selected.period_status||'OPEN'}</span></div>:null}
       <div className="pay-run-flow-guide" aria-label="Tahapan Pay Run menuju Payment Instruction">{flowStates.map((state,index)=><div key={state} className={index<currentFlowIndex?'done':index===currentFlowIndex?'current':''}><i>{index<currentFlowIndex?'✓':index+1}</i><span>{state}</span></div>)}</div>
-      <div className={`pay-run-next-action ${nextAction.actionable?'':'pending'}`}><strong>{nextAction.actionable?`Next action: ${nextAction.label}`:nextAction.label}</strong><span>{nextAction.description}</span></div>
+      <div className={`pay-run-next-action ${nextAction.actionable?'':'pending'}`}><strong>{role==='CLIENT_USER'?clientActionLabel(nextAction.code,nextAction.label):(nextAction.actionable?`Next action: ${nextAction.label}`:nextAction.label)}</strong><span>{nextAction.description}</span></div>
       <div className="payroll-review-totals"><div><span>Karyawan</span><strong>{Number(selected.employee_count || 0)}</strong></div><div><span>Gross</span><strong>{formatIDR(Number(selected.total_gross || 0))}</strong></div><div><span>Potongan</span><strong>{formatIDR(Number(selected.total_deduction || 0))}</strong></div><div><span>Net/THP</span><strong>{formatIDR(Number(selected.total_net || 0))}</strong></div></div>
       {runDetailLoading?<div className="directory-hint">Menghitung variance terhadap periode sebelumnya…</div>:runDetail?<div className="pay-run-variance"><div><span>Periode pembanding</span><strong>{runDetail.previousPeriod||'Periode pertama'}</strong></div><div><span>Variance THP</span><strong>{formatIDR(Number(runDetail.variance?.amount||0))}</strong><small>{runDetail.variance?.percent===null?'-':`${runDetail.variance.percent}%`}</small></div><div><span>Karyawan baru</span><strong>{runDetail.variance?.newEmployees||0}</strong></div><div><span>Berubah / keluar</span><strong>{runDetail.variance?.changedEmployees||0} / {runDetail.variance?.removedEmployees||0}</strong></div></div>:null}
-      {runDetail?<PayRunLineTable detail={runDetail} editable={['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.period_status!=='CLOSED'&&['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(selected.state)} onEdit={async(line,gross,deduction,included)=>{await act({action:'UPDATE_PAY_RUN_LINE',submissionId:selected.id,employeeId:line.employee_id,grossAmount:gross,deductionAmount:deduction,netAmount:gross-deduction,included},'Data bulanan karyawan diperbarui');setSelected(null);}}/>:null}
-      {selected.source_mode==='UPLOAD_FINAL'&&selected.state==='DRAFT'&&selected.period_status!=='CLOSED'?<PayRunUpload submission={selected} onImported={async(total)=>{await act({},`File payroll final berhasil dimuat: ${total} penerima`);setSelected(null);}}/>:null}
+      {runDetail&&role!=='CLIENT_USER'?<PayRunLineTable detail={runDetail} editable={['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.period_status!=='CLOSED'&&['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(selected.state)} onEdit={async(line,gross,deduction,included)=>{await act({action:'UPDATE_PAY_RUN_LINE',submissionId:selected.id,employeeId:line.employee_id,grossAmount:gross,deductionAmount:deduction,netAmount:gross-deduction,included},'Data bulanan karyawan diperbarui');setSelected(null);}}/>:null}
+      {role!=='CLIENT_USER'&&selected.source_mode==='UPLOAD_FINAL'&&selected.state==='DRAFT'&&selected.period_status!=='CLOSED'?<PayRunUpload submission={selected} onImported={async(total)=>{await act({},`File payroll final berhasil dimuat: ${total} penerima`);setSelected(null);}}/>:null}
       <div className="payroll-review-alert"><strong>{Number(selected.blocking_count || 0)} blocker · {Number(selected.exception_count || 0)} total temuan</strong><span>{Number(selected.blocking_count || 0) ? 'Temuan kritis harus diselesaikan sebelum approval.' : 'Tidak ada temuan kritis yang memblokir tahap berikutnya.'}</span></div>
       {selected.state==='EXCEPTION_FOUND' && ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) ? <div className="directory-hint"><strong>Perbaikan wajib diproses per temuan.</strong> <a className="btn" href="?view=exceptions">Buka Exception Center</a></div> : null}
-      <div className="directory-form-grid"><label>Periode payroll<input type="month" value={selected.period} readOnly /></label><label>Periode pembayaran<input type="month" value={paymentPeriod} readOnly={role==='CLIENT_USER'} onChange={(event) => setPaymentPeriod(event.target.value)} /></label></div>
+      {role!=='CLIENT_USER'?<><div className="directory-form-grid"><label>Periode payroll<input type="month" value={selected.period} readOnly /></label><label>Periode pembayaran<input type="month" value={paymentPeriod} onChange={(event) => setPaymentPeriod(event.target.value)} /></label></div>
       <label>Periode rapel (opsional)<input value={arrearsText} placeholder="Contoh: 2026-05, 2026-06" onChange={(event) => setArrearsText(event.target.value)} /></label>
       <p className="directory-hint">Periode payroll mengikuti sumber data. Periode pembayaran menentukan bulan pencairan; rapel mencatat periode tambahan yang dibayarkan bersamaan.</p>
-      {role!=='CLIENT_USER'?<button type="button" className="btn" onClick={() => void act({ action:'UPDATE_SUBMISSION_PERIODS', submissionId:selected.id, paymentPeriod, arrearsPeriods:arrears }, 'Periode pembayaran dan rapel diperbarui')}>Simpan periode</button>:null}
+      <button type="button" className="btn" onClick={() => void act({ action:'UPDATE_SUBMISSION_PERIODS', submissionId:selected.id, paymentPeriod, arrearsPeriods:arrears }, 'Periode pembayaran dan rapel diperbarui')}>Simpan periode</button></>:null}
       {reviewCheckpoint ? <><label>Catatan review<textarea rows={3} maxLength={1000} value={reviewNote} placeholder="Catatan akhir sebelum diserahkan ke tahap berikutnya" onChange={(event) => setReviewNote(event.target.value)} /></label><label className="payroll-review-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />Saya sudah memeriksa periode, jumlah karyawan, nilai payroll, dan exception.</label></> : null}
       <div className="directory-modal-actions"><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button>{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.state==='DRAFT'&&selected.period_status!=='CLOSED'?<button type="button" className="btn btn-danger" onClick={()=>{const confirmation=window.prompt(`Hapus Pay Run ${selected.client_name||selected.client_id} periode ${selected.period}?\nKetik HAPUS PAY RUN untuk melanjutkan.`);if(confirmation==='HAPUS PAY RUN')void act({action:'DELETE_PAY_RUN',submissionId:selected.id,confirmation},'Pay Run dan snapshot input berhasil dihapus').then(()=>setSelected(null));}}>Hapus Pay Run</button>:null}{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.source_mode==='MASTER_CURRENT'&&selected.period_status!=='CLOSED'&&['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(selected.state)?<button type="button" className="btn" onClick={()=>void act({action:'REFRESH_PAY_RUN_FROM_MASTER',submissionId:selected.id},'Nominal Pay Run dihitung ulang dari master kompensasi').then(()=>setSelected(null))}>Hitung ulang dari master</button>:null}{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.input_status==='PENDING'?<button type="button" className="btn" onClick={()=>void act({action:'FINALIZE_PAY_RUN_INPUT',submissionId:selected.id,confirmation:'DATA PAYROLL FINAL'},'Input Pay Run berhasil difinalisasi').then(()=>setSelected(null))}>Finalisasi input</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status==='CLOSED'?<button type="button" className="btn" onClick={()=>{const reason=window.prompt('Alasan membuka kembali periode (minimal 10 karakter):');if(reason)void act({action:'REOPEN_PAY_RUN',submissionId:selected.id,reason,confirmation:'BUKA KEMBALI'},'Periode dibuka kembali untuk revisi').then(()=>setSelected(null));}}>Buka kembali</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.period_status!=='CLOSED'&&['PAYROLL_FINALIZED','COMPLETED'].includes(selected.state)?<button type="button" className="btn" onClick={()=>{if(window.confirm('Tutup periode payroll ini? Snapshot tidak dapat diubah.'))void act({action:'CLOSE_PAY_RUN',submissionId:selected.id,confirmation:'TUTUP PERIODE'},'Periode payroll ditutup').then(()=>setSelected(null));}}>Tutup periode</button>:null}{['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role)&&selected.state==='CONTROLLER_REVIEW'?<button type="button" className="btn" onClick={()=>{const reason=window.prompt('Alasan meminta revisi payroll (minimal 10 karakter):');if(reason&&reason.trim().length>=10)void act({action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:'REVISION_REQUIRED',reviewNote:reason.trim()},'Pay Run dikembalikan ke Processor untuk revisi').then(()=>setSelected(null));}}>Minta revisi</button>:null}{next ? <button type="button" className="btn btn-primary" disabled={(reviewCheckpoint && !confirmed)||selected.input_status==='PENDING'} onClick={() => {const payload=next==='GENERATE_PAYMENT_INSTRUCTION'?{action:next,submissionId:selected.id}:next.startsWith('ADVANCE_')?{action:'ADVANCE_PAY_RUN',submissionId:selected.id,command:next==='ADVANCE_VALIDATE'?'VALIDATE':'FINALIZE_PAYROLL',reviewConfirmed:true,reviewNote:reviewNote||undefined}:{action:'TRANSITION_SUBMISSION',submissionId:selected.id,toState:next,reviewConfirmed:true,reviewNote:reviewNote||undefined};void act(payload,next==='GENERATE_PAYMENT_INSTRUCTION'?'Payment Instruction draft berhasil dibuat':`${nextAction.label} berhasil`).then(()=>setSelected(null));}}>{nextAction.label}</button> : null}</div>
     </div>
@@ -424,6 +458,7 @@ function PayRunLineTable({detail,editable,onEdit}:{detail:any;editable:boolean;o
 }
 
 function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string; canResolve: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+  const clientMode = role === 'CLIENT_USER';
   const [severity, setSeverity] = useState('ALL');
   const [status, setStatus] = useState(role === 'CLIENT_USER' ? 'CLIENT_ACTION_REQUIRED' : 'OPEN');
   const [query, setQuery] = useState('');
@@ -437,12 +472,16 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
   if (!rows.length) return <Empty title="Tidak ada exception operasional" detail="Temuan validasi akan masuk ke antrean ini dan diblokir berdasarkan tingkat severity." />;
   return <div style={{display:'grid',gap:12}}>
     <div className="card" style={{padding:12,display:'flex',gap:8,flexWrap:'wrap'}}>
-      <input style={{...input,flex:'1 1 220px'}} value={query} placeholder="Cari karyawan, temuan, klien…" onChange={(e)=>{setQuery(e.target.value);setPage(1);}} />
-      <select style={input} value={severity} onChange={(e)=>{setSeverity(e.target.value);setPage(1);}}><option value="ALL">Semua severity</option><option>CRITICAL</option><option>WARNING</option><option>INFO</option></select>
-      <select style={input} value={status} onChange={(e)=>{setStatus(e.target.value);setPage(1);}}><option value="ALL">Semua status</option><option>OPEN</option><option>CLIENT_ACTION_REQUIRED</option><option>RESOLVED</option><option>ACCEPTED</option></select>
-      <span style={{...small,margin:'auto 0'}}><strong>{filtered.length}</strong> temuan</span>
+      <input style={{...input,flex:'1 1 220px'}} value={query} placeholder={clientMode?"Cari payroll atau karyawan…":"Cari karyawan, temuan, klien…"} onChange={(e)=>{setQuery(e.target.value);setPage(1);}} />
+      {!clientMode?<><select style={input} value={severity} onChange={(e)=>{setSeverity(e.target.value);setPage(1);}}><option value="ALL">Semua severity</option><option>CRITICAL</option><option>WARNING</option><option>INFO</option></select>
+      <select style={input} value={status} onChange={(e)=>{setStatus(e.target.value);setPage(1);}}><option value="ALL">Semua status</option><option>OPEN</option><option>CLIENT_ACTION_REQUIRED</option><option>RESOLVED</option><option>ACCEPTED</option></select></>:null}
+      <span style={{...small,margin:'auto 0'}}><strong>{filtered.length}</strong> {clientMode?'perlu diperbaiki':'temuan'}</span>
     </div>
-    <CardTable headers={['Temuan','Klien / Project','Severity','Status','Aksi']} rows={visible.map((r) => [
+    <CardTable headers={clientMode?['Perlu diperbaiki','Payroll','Aksi']:['Temuan','Klien / Project','Severity','Status','Aksi']} rows={visible.map((r) => clientMode ? [
+      <div key="finding"><strong>{r.reason || r.category || 'Perbaikan data payroll'}</strong><small style={small}>{r.employee_id || 'Data payroll'} </small></div>,
+      <div key="scope"><strong>{r.project_name || r.client_name || r.client_id || '-'}</strong><small style={small}>Periode {r.period || '-'}</small></div>,
+      <button key="detail" style={actionButton} onClick={() => setSelected(r)}>Lihat & konfirmasi</button>,
+    ] : [
       <div key="finding"><strong>{r.category}</strong><small style={small}>{r.employee_id || 'Submission'} · {r.reason || r.field || '-'}</small></div>,
       <div key="scope"><strong>{r.client_name || r.client_id || '-'}</strong><small style={small}>{r.project_name || r.period || '-'}</small></div>,
       <Badge key="severity" text={r.severity} />,
@@ -451,12 +490,12 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
     ])} />
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={small}>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div style={{display:'flex',gap:6}}><button className="btn" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>←</button><button className="btn" disabled={page>=pageCount} onClick={()=>setPage(p=>p+1)}>→</button></div></div>
     {selected ? <div className="directory-modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)setSelected(null);}}><div className="directory-modal" role="dialog" aria-modal="true">
-      <div className="directory-modal-title"><div><span>EXCEPTION CENTER</span><h3>{selected.category}</h3></div><button onClick={()=>setSelected(null)}>✕</button></div>
-      <p><strong>{selected.employee_id || 'Submission'}</strong> · {selected.client_name || selected.client_id}</p><p style={{color:'var(--text2)',fontSize:13}}>{selected.reason}</p>
+      <div className="directory-modal-title"><div><span>{clientMode?'PERBAIKAN PAYROLL':'EXCEPTION CENTER'}</span><h3>{clientMode?'Perlu diperbaiki':selected.category}</h3></div><button onClick={()=>setSelected(null)}>✕</button></div>
+      <p><strong>{selected.employee_id || (clientMode?'Data payroll':'Submission')}</strong> · {selected.client_name || selected.client_id}</p><p style={{color:'var(--text2)',fontSize:13}}>{selected.reason}</p>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:16}}>
         {['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && !['RESOLVED','ACCEPTED'].includes(selected.status) ? <button className="btn btn-primary" onClick={()=>{const message=window.prompt('Instruksi perbaikan untuk user klien:',selected.reason||'Mohon lengkapi dan validasi data ini.');if(message)void act({action:'REQUEST_CLIENT_ACTION',exceptionId:selected.id,message},'Permintaan perbaikan dikirim ke user klien').then(()=>setSelected(null));}}>Minta perbaikan klien</button> : null}
-        <button className="btn" onClick={()=>{const message=window.prompt('Tulis pesan pada temuan:');if(message)void act({action:'ADD_EXCEPTION_NOTE',exceptionId:selected.id,message},'Pesan tersimpan pada temuan').then(()=>setSelected(null));}}>Chat / catatan</button>
-        {selected.client_email ? <a className="btn" href={`mailto:${encodeURIComponent(selected.client_email)}?subject=${encodeURIComponent(`Perbaikan data payroll ${selected.period || ''}`)}&body=${encodeURIComponent(selected.reason || '')}`}>Email klien</a> : <span style={small}>Email akun klien belum dipasangkan</span>}
+        {!clientMode?<><button className="btn" onClick={()=>{const message=window.prompt('Tulis pesan pada temuan:');if(message)void act({action:'ADD_EXCEPTION_NOTE',exceptionId:selected.id,message},'Pesan tersimpan pada temuan').then(()=>setSelected(null));}}>Chat / catatan</button>
+        {selected.client_email ? <a className="btn" href={`mailto:${encodeURIComponent(selected.client_email)}?subject=${encodeURIComponent(`Perbaikan data payroll ${selected.period || ''}`)}&body=${encodeURIComponent(selected.reason || '')}`}>Email klien</a> : <span style={small}>Email akun klien belum dipasangkan</span>}</>:null}
         {canResolve && !['RESOLVED','ACCEPTED'].includes(selected.status) ? <button className="btn" onClick={()=>void act({action:'RESOLVE_EXCEPTION',exceptionId:selected.id,status:role==='CLIENT_USER'?'ACCEPTED':'RESOLVED',resolutionNote:role==='CLIENT_USER'?'Data telah diperbaiki/dikonfirmasi oleh user klien':'Diverifikasi dan diselesaikan'},'Exception diperbarui').then(()=>setSelected(null))}>{role==='CLIENT_USER'?'Konfirmasi sudah diperbaiki':'Tandai selesai'}</button> : null}
       </div>
       {selected.resolution_note ? <div className="directory-message" style={{marginTop:14,whiteSpace:'pre-wrap'}}>{selected.resolution_note}</div> : null}

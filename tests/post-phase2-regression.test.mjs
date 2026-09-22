@@ -120,7 +120,7 @@ test('dashboard active employee KPI uses canonical payroll eligibility semantics
 });
 
 
-test('client correction next action opens the scoped exception workflow without adding a sidebar item', async()=>{
+test('client correction next action remains exception-owned while Phase 4 routes it through Payroll', async()=>{
   const action=derivePayrollNextAction({role:'CLIENT_USER',state:'CLIENT_ACTION_REQUIRED'});
   assert.equal(action.code,'CORRECT_PAYROLL_DATA');
   assert.equal(action.view,'exceptions');
@@ -129,7 +129,8 @@ test('client correction next action opens the scoped exception workflow without 
   const fs=await import('node:fs/promises');
   const sidebar=await fs.readFile(new URL('../src/components/Sidebar.tsx',import.meta.url),'utf8');
   const workspace=await fs.readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
-  assert.match(sidebar,/CLIENT_USER: \["dashboard", "operations", "exceptions", "payments", "billing", "reports"\]/);
-  assert.match(sidebar,/allowed\.has\("exceptions"\) && role !== "CLIENT_USER"/);
+  assert.match(sidebar,/CLIENT_USER: \["dashboard", "operations", "reports"\]/);
+  assert.match(sidebar,/title="Payroll"/);
   assert.match(workspace,/role === 'CLIENT_USER' \? 'CLIENT_ACTION_REQUIRED' : 'OPEN'/);
+  assert.match(workspace,/clientCorrections=openExceptions\.filter/);
 });

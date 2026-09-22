@@ -38,10 +38,10 @@ test('Control Tower becomes My Workspace with business-stage filtering for inter
 
 test('internal payroll workspace filters and displays business stages instead of technical submission states', async()=>{
   const source=await read('src/components/OperatingWorkspace.tsx');
-  assert.match(source,/simplifiedInternal && mode === 'payruns'/);
+  assert.match(source,/const simplifiedWorkspace = simplifiedInternal \|\| clientExperience/);
   assert.match(source,/PAYROLL_BUSINESS_STAGE_ORDER/);
   assert.match(source,/BUSINESS_STAGE_META\[state as keyof typeof BUSINESS_STAGE_META\]/);
-  assert.match(source,/headers=\{simplified\?\['Klien \/ Periode','Stage','Net \/ THP','Next action'\]/);
+  assert.match(source,/simpleHeaders=role==='CLIENT_USER'\?\['Payroll','Stage','Net \/ THP','Payment','Next'\]:\['Klien \/ Periode','Stage','Net \/ THP','Next action'\]/);
   assert.match(source,/business\.label/);
   assert.match(source,/nextAction\.actionable\?'Action required':'Monitor only'/);
 });

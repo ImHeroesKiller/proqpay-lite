@@ -128,5 +128,5 @@ test('Pay Run workspace uses engine workflowCommand instead of duplicated nextFo
   assert.match(source,/const next=nextAction\.workflowCommand/);
   assert.doesNotMatch(source,/function nextFor\(/);
   assert.doesNotMatch(source,/const actionName =/);
-  assert.match(source,/\['submissions','pay-run-setup','payment-instructions'\]/);
+  assert.match(source,/\['submissions','pay-run-setup','payment-instructions','exceptions'\]/);
 });

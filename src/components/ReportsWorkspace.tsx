@@ -12,6 +12,7 @@ type PaymentReport = {
   reconciliation_status?:string; difference?:number; employee_count?:number; proof_id?:string;
 };
 type ReportType = 'payments'|'register'|'control'|'uploads'|'payslips'|'exceptions';
+type Props = { clientMode?: boolean };
 
 const LABELS: Record<ReportType,string> = {
   payments:'Payment Report', register:'Payroll Register', control:'Control Report', uploads:'Upload Audit', payslips:'Payslip Register', exceptions:'Exception Report',
@@ -30,7 +31,7 @@ function downloadRows(name:string, rows:Record<string,unknown>[]) {
   anchor.href=url; anchor.download=name; anchor.click(); URL.revokeObjectURL(url);
 }
 
-export default function ReportsWorkspace() {
+export default function ReportsWorkspace({clientMode=false}:Props = {}) {
   const [type,setType] = useState<ReportType>('payments');
   const [paymentRows, setPaymentRows] = useState<PaymentReport[]>([]);
   const [payrollRows,setPayrollRows] = useState<Record<string,any>[]>([]);
@@ -84,6 +85,7 @@ export default function ReportsWorkspace() {
   const employees = completed.reduce((sum,row) => sum + Number(row.employee_count || 0), 0);
 
   const statusOptions = [...new Set(activeRows.map((row:any) => row.status || row.state || row.payment_status).filter(Boolean))];
+  const reportTypes:ReportType[] = clientMode ? ['payments','register','payslips'] : (Object.keys(LABELS) as ReportType[]);
 
   function exportCurrent() {
     if (type === 'payments') {
@@ -93,9 +95,9 @@ export default function ReportsWorkspace() {
   }
 
   return <section>
-    <PayrollSourceUpload />
-    <div className="reports-heading"><div><h2>Payroll & Payment Reports</h2><p>Audit trail dari raw source, canonical payroll snapshot, payslip final, pembayaran dan rekonsiliasi.</p></div><button className="btn btn-primary" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div>
-    <div className="report-filter" style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>{(Object.keys(LABELS) as ReportType[]).map((item)=><button key={item} type="button" className={`btn ${type===item?'btn-primary':''}`} onClick={()=>setType(item)}>{LABELS[item]}</button>)}</div>
+    {!clientMode ? <PayrollSourceUpload /> : null}
+    <div className="reports-heading"><div><h2>{clientMode?'Reports':'Payroll & Payment Reports'}</h2><p>{clientMode?'Laporan payroll dan pembayaran yang tersedia untuk scope akun Anda.':'Audit trail dari raw source, canonical payroll snapshot, payslip final, pembayaran dan rekonsiliasi.'}</p></div><button className="btn btn-primary" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div>
+    <div className="report-filter" style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>{reportTypes.map((item)=><button key={item} type="button" className={`btn ${type===item?'btn-primary':''}`} onClick={()=>setType(item)}>{clientMode&&item==='payments'?'Payment History':LABELS[item]}</button>)}</div>
 
     {type === 'payments' ? <div className="report-summary-grid"><Summary label="Pembayaran selesai" value={String(completed.length)} /><Summary label="Total dibayarkan" value={formatIDR(paidTotal)} /><Summary label="Karyawan dibayar" value={String(employees)} /><Summary label="Perlu tindak lanjut" value={String(filteredPayments.filter((row) => ['PAYMENT_EXCEPTION','PROOF_UPLOADED'].includes(row.status)).length)} /></div>
       : type === 'control' ? <div className="report-summary-grid"><Summary label="Pay Run" value={String(filteredPayroll.length)} /><Summary label="Balanced" value={String(filteredPayroll.filter((row)=>Number(row.payroll_gross||0)-Number(row.payroll_deduction||0)===Number(row.payroll_net||0)).length)} /><Summary label="PI mismatch" value={String(filteredPayroll.filter((row)=>Number(row.pi_total||0)&&Number(row.pi_total)!==Number(row.payroll_net||0)).length)} /><Summary label="Reconciliation diff" value={String(filteredPayroll.filter((row)=>Number(row.reconciliation_difference||0)!==0).length)} /></div>

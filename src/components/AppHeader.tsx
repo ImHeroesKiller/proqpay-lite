@@ -41,6 +41,17 @@ const VIEW_LABELS: Record<AppView, string> = {
   portalSettings: "Portal Settings",
 };
 function viewLabel(view:AppView, role:string) {
+  if (role === "CLIENT_USER") {
+    const clientLabels:Partial<Record<AppView,string>>={
+      dashboard:"Home",
+      operations:"Payroll",
+      reports:"Documents",
+      exceptions:"Payroll",
+      payments:"Payroll",
+      billing:"Documents",
+    };
+    return clientLabels[view] || VIEW_LABELS[view];
+  }
   const simplifiedInternal=["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role);
   if (!simplifiedInternal) return VIEW_LABELS[view];
   const labels:Partial<Record<AppView,string>>={
@@ -145,6 +156,9 @@ export default function AppHeader({
           ).length;
         } else if (actor.role === "CLIENT_USER") {
           exceptions += openExceptions.filter((row:any)=>row.status === "CLIENT_ACTION_REQUIRED").length;
+          approvals += (result.submissions || []).filter(
+            (row:any)=>row.state === "CLIENT_APPROVAL_PENDING",
+          ).length;
         } else {
           exceptions += openExceptions.length;
           approvals += (result.paymentInstructions || []).filter(
@@ -309,7 +323,7 @@ export default function AppHeader({
                 {alerts.exceptions ? <button
                   type="button"
                   onClick={() => {
-                    onNavigate("exceptions");
+                    onNavigate(actor.role==="CLIENT_USER" ? "operations" : "exceptions");
                     setAlertsOpen(false);
                   }}
                 >
@@ -319,11 +333,11 @@ export default function AppHeader({
                 {alerts.approvals ? <button
                   type="button"
                   onClick={() => {
-                    onNavigate("payments");
+                    onNavigate(actor.role==="CLIENT_USER" ? "operations" : "payments");
                     setAlertsOpen(false);
                   }}
                 >
-                  <strong>For approval</strong>
+                  <strong>{actor.role==="CLIENT_USER"?"For approval":"For approval"}</strong>
                   <b>{alerts.approvals}</b>
                 </button> : null}
                 {!totalAlerts ? <small>No action required</small> : null}

@@ -70,7 +70,7 @@ const ROLE_VIEWS: Record<string, AppView[]> = {
     "portalAudit",
     "portalSettings",
   ],
-  CLIENT_USER: ["dashboard", "operations", "exceptions", "payments", "billing", "reports"],
+  CLIENT_USER: ["dashboard", "operations", "reports"],
 };
 
 export function allowedViewsForRole(role?: string) {
@@ -114,9 +114,9 @@ export default function Sidebar({
   const canIntake = [
     "SUPER_ADMIN",
     "PAYROLL_PROCESSOR",
-    "CLIENT_USER",
   ].includes(role || "");
   const simplifiedInternal = ["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role || "");
+  const clientExperience = role === "CLIENT_USER";
   return (
     <>
       <button
@@ -151,6 +151,26 @@ export default function Sidebar({
             ✕
           </button>
         </div>
+        {clientExperience ? <NavGroup label="Workspace">
+          <NavBtn
+            active={view === "dashboard"}
+            icon={<IconDashboard />}
+            title="Home"
+            onClick={() => go("dashboard")}
+          />
+          <NavBtn
+            active={view === "operations"}
+            icon={<IconWallet />}
+            title="Payroll"
+            onClick={() => go("operations")}
+          />
+          <NavBtn
+            active={view === "reports"}
+            icon={<IconFile />}
+            title="Documents"
+            onClick={() => go("reports")}
+          />
+        </NavGroup> : <>
         <NavGroup label="Overview">
           <NavBtn
             active={view === "dashboard"}
@@ -301,8 +321,9 @@ export default function Sidebar({
             />
           </NavGroup>
         ) : null}
+        </>}
         <div className="sidebar-spacer" />
-        <button
+        {!clientExperience ? <button
           type="button"
           className="sidebar-ida"
           onClick={() => {
@@ -312,7 +333,7 @@ export default function Sidebar({
         >
           <IconMessage />
           <span>Ask IDA</span>
-        </button>
+        </button> : null}
         <div className="sidebar-system-meta">
           <span>
             <i />
