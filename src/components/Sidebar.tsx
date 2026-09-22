@@ -52,7 +52,6 @@ const ROLE_VIEWS: Record<string, AppView[]> = {
     "exceptions",
     "payments",
     "billing",
-    "integrations",
     "employees",
     "clients",
     "reports",
