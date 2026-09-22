@@ -44,10 +44,10 @@ function cachedOperatingGet<T=unknown>(url: string):Promise<T> {
   return request;
 }
 
-export async function listOperatingResource(resource: OperatingResource, clientId?: string):Promise<Record<string,unknown>> {
+export async function listOperatingResource<T=any>(resource: OperatingResource, clientId?: string):Promise<T> {
   const params = new URLSearchParams({ resource });
   if (clientId) params.set('clientId', clientId);
-  return cachedOperatingGet<Record<string,unknown>>(`/api/operating-model?${params}`);
+  return cachedOperatingGet<T>(`/api/operating-model?${params}`);
 }
 
 export function listOperatingDashboard(clientId?: string, period?: string):Promise<DashboardApiResponse> {
@@ -95,7 +95,7 @@ export function listOperatingDashboard(clientId?: string, period?: string):Promi
 }
 
 export async function listOperatingPeriods(clientId?: string):Promise<{periods:string[]}> {
-  const result = await listOperatingResource('dashboard-periods', clientId);
+  const result = await listOperatingResource<{periods?:unknown[]}>('dashboard-periods', clientId);
   return { periods:Array.isArray(result.periods) ? result.periods.map(String) : [] };
 }
 
