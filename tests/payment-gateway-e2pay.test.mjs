@@ -11,7 +11,7 @@ import {
   e2paySyncBeneficiaryLimit,
   resolveE2PayBank,
 } from '../functions/api/payment-gateway-e2pay.js';
-import { isRetryableE2PayFailure } from '../functions/api/payment-gateway-e2pay-service.js';
+import { isRetryableE2PayFailure, selectE2PayExecutionChunk } from '../functions/api/payment-gateway-e2pay-service.js';
 
 const baseEnv = {
   E2PAY_ENV:'UAT',
@@ -69,6 +69,9 @@ test('E2Pay response codes are fail-closed and sync batch limit is bounded', () 
   assert.equal(e2payResponseStatus('UNKNOWN'), 'PENDING');
   assert.equal(e2paySyncBeneficiaryLimit({}), 25);
   assert.equal(e2paySyncBeneficiaryLimit({ E2PAY_MAX_SYNC_BENEFICIARIES:'500' }), 100);
+  const large = Array.from({ length:60 }, (_, index) => ({ id:String(index), status:'CREATED', attempt_count:0 }));
+  assert.equal(selectE2PayExecutionChunk(large,25,false).length,25);
+  assert.deepEqual(selectE2PayExecutionChunk(large,25,false).map((item)=>item.id),large.slice(0,25).map((item)=>item.id));
 });
 
 test('E2Pay retry policy permits only preflight failures or provider-confirmed code 99', () => {
@@ -106,7 +109,11 @@ test('E2Pay migration and gateway endpoint keep beneficiary-level ledger and saf
   assert.match(endpoint, /RECONCILE/);
   assert.match(endpoint, /RETRY_FAILED/);
   assert.match(endpoint, /E2PAY_NO_RETRYABLE_FAILURES/);
-  assert.match(endpoint, /E2PAY_BATCH_REQUIRES_QUEUE/);
+  assert.doesNotMatch(endpoint, /E2PAY_BATCH_REQUIRES_QUEUE/);
+  assert.match(service, /selectE2PayExecutionChunk/);
+  assert.match(service, /hasMore/);
+  assert.match(service, /blockedByUnresolved:true/);
+  assert.match(service, /AWAITING_RECONCILIATION/);
   assert.match(service, /E2PAY_INSUFFICIENT_BALANCE/);
   assert.match(service, /E2PAY_INQUIRY_CONTROL_MISMATCH/);
   assert.match(service, /UNKNOWN/);

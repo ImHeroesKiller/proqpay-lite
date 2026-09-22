@@ -261,8 +261,19 @@ async function readResource(database, params, actor, env, organizationId) {
     const rows = await d1All(database, `SELECT pi.id,pi.client_id,c.name AS client_name,s.project_id,p.name AS project_name,
       s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,
       COALESCE(s.arrears_periods,'[]') AS arrears_periods,pi.status,pi.expected_total,
-      COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0) AS paid_total,
-      (SELECT MAX(pp.transaction_date) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id) AS payment_date,
+      COALESCE(
+        NULLIF((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0),
+        (SELECT pgt.amount FROM payment_gateway_transactions pgt
+          WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
+          ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC LIMIT 1),
+        0
+      ) AS paid_total,
+      COALESCE(
+        (SELECT MAX(pp.transaction_date) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),
+        (SELECT substr(COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at),1,10) FROM payment_gateway_transactions pgt
+          WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
+          ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC LIMIT 1)
+      ) AS payment_date,
       (SELECT pp.id FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id ORDER BY pp.created_at DESC LIMIT 1) AS proof_id,
       (SELECT r.status FROM reconciliations r WHERE r.payment_instruction_id=pi.id LIMIT 1) AS reconciliation_status,
       (SELECT r.difference FROM reconciliations r WHERE r.payment_instruction_id=pi.id LIMIT 1) AS difference,
@@ -307,6 +318,68 @@ async function readResource(database, params, actor, env, organizationId) {
 function auditOperation(organizationId, actor, action, detail, entity, entityId) {
   return { statement: `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
     VALUES (?,?,?,?,?,?,?,?)`, bindings: [`AUD-${crypto.randomUUID()}`, organizationId, actor.email, actor.role, action, detail, entity, entityId] };
+}
+
+async function validateCanonicalPayRunSnapshot(database, submission, actor, organizationId) {
+  const rows = await d1All(database, `SELECT l.employee_id,l.employee_name,l.gross_amount,l.deduction_amount,l.net_amount,
+      l.bank_name,l.account_last4,
+      eba.bank_name AS primary_bank_name,eba.account_no AS primary_account_no
+    FROM payroll_run_lines l
+    JOIN employees e ON e.id=l.employee_id
+    LEFT JOIN employee_bank_accounts eba ON eba.employee_id=l.employee_id AND eba.is_primary=1
+    WHERE l.submission_id=? AND l.included=1 ORDER BY l.employee_id`, [submission.id]);
+  const issues = [];
+  const add = (row, category, field, reason) => issues.push({
+    employeeId: row?.employee_id || null,
+    category,
+    field,
+    reason,
+  });
+  if (!rows.length) add(null, 'SYSTEM_EMPTY_PAY_RUN', 'recipients', 'Pay Run tidak memiliki penerima aktif.');
+
+  for (const row of rows) {
+    const gross = Number(row.gross_amount);
+    const deduction = Number(row.deduction_amount);
+    const net = Number(row.net_amount);
+    if (!Number.isSafeInteger(gross) || gross <= 0 || !Number.isSafeInteger(deduction) || deduction < 0
+      || !Number.isSafeInteger(net) || net <= 0 || gross - deduction !== net) {
+      add(row, 'SYSTEM_PAYROLL_CONTROL_MISMATCH', 'netAmount',
+        `Control payroll tidak balance untuk ${row.employee_name || row.employee_id}: Gross ${gross} - Potongan ${deduction} != THP ${net}.`);
+    }
+    const account = String(row.primary_account_no || '').replace(/\s+/g, '');
+    if (!row.primary_bank_name || !/^\d{6,34}$/.test(account)) {
+      add(row, 'SYSTEM_BANK_INVALID', 'accountNo',
+        'Rekening utama penerima tidak lengkap atau nomor rekening bukan 6-34 digit.');
+    } else if (row.account_last4 && account.slice(-4) !== String(row.account_last4)) {
+      add(row, 'SYSTEM_BANK_CHANGED', 'accountNo',
+        'Rekening utama berubah setelah snapshot Pay Run dibuat; refresh/upload ulang data sebelum melanjutkan.');
+    }
+  }
+
+  const previous = await d1All(database, `SELECT id FROM payroll_exceptions
+    WHERE submission_id=? AND category LIKE 'SYSTEM_%'
+      AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
+  const operations = previous.length ? [{
+    statement:`UPDATE payroll_exceptions SET status='AUTO_NORMALIZED',resolution_note='Superseded by deterministic re-validation',
+      resolved_at=${NOW},resolved_by=? WHERE submission_id=? AND category LIKE 'SYSTEM_%'
+      AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`,
+    bindings:[actor.email,submission.id],
+  }] : [];
+  for (const issue of issues) operations.push({
+    statement:`INSERT INTO payroll_exceptions
+      (id,submission_id,employee_id,field,category,severity,reason,owner,status)
+      VALUES (?,?,?,?,?,'CRITICAL',?,'PAYROLL_PROCESSOR','OPEN')`,
+    bindings:[`EXC-${crypto.randomUUID()}`,submission.id,issue.employeeId,issue.field,issue.category,issue.reason],
+  });
+  if (operations.length) await d1Batch(database, operations);
+  if (issues.length) {
+    await d1Batch(database, [
+      { statement:`UPDATE payroll_submissions SET input_status='PENDING',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },
+      auditOperation(organizationId, actor, 'PAY_RUN_DETERMINISTIC_VALIDATION_FAILED',
+        `${issues.length} critical control issue(s) detected`, 'payroll_submission', submission.id),
+    ]);
+  }
+  return { issues, recipients:rows.length };
 }
 
 function lineInsertOperations(paymentInstructionId, lines) {
@@ -451,7 +524,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId,organizationId]);
     if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
     if (submission.source_mode!=='MASTER_CURRENT') return { status:409, data:{ error:'Hitung ulang master hanya tersedia untuk sumber MASTER_CURRENT' } };
-    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','REVISION_REQUIRED'].includes(submission.state)) {
+    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(submission.state)) {
       return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci dan tidak dapat dihitung ulang' } };
     }
     await d1Batch(database, [
@@ -504,7 +577,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
     if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
-    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','REVISION_REQUIRED'].includes(submission.state)) return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci' } };
+    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(submission.state)) return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci' } };
     const row = await d1First(database, `UPDATE payroll_run_lines SET gross_amount=?,deduction_amount=?,net_amount=?,included=?,components=?,updated_at=${NOW}
       WHERE submission_id=? AND employee_id=? RETURNING *`, [body.grossAmount,body.deductionAmount,body.netAmount,
       body.included===false?0:1,JSON.stringify(body.components||{}),body.submissionId,body.employeeId]);
@@ -516,18 +589,42 @@ async function executeAction(database, body, actor, env, organizationId) {
   if (body.action === 'FINALIZE_PAY_RUN_INPUT') {
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
     if (!submission || submission.period_status==='CLOSED') return { status:409, data:{ error:'Pay Run tidak tersedia untuk finalisasi input' } };
+    const inputMutableStates = ['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'];
+    if (!inputMutableStates.includes(String(submission.state || ''))) return { status:409, data:{
+      error:`Input payroll sudah terkunci pada tahap ${submission.state}; Controller harus meminta revisi sebelum snapshot dapat berubah`,
+      code:'PAY_RUN_INPUT_LOCKED_FOR_REVIEW',
+    } };
     if (!PROCESSOR_ROLES.has(actor.role) && !CLIENT_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
     if (!assertClientScope(actor, env, submission.client_id) || !assertProjectScope(actor, submission.project_id)) return { status:403, data:{ error:'Scope denied' } };
     try { await applyEwaRepayments(database, submission.id); }
     catch (error) {
       if (!/no such table|no such column/i.test(String(error?.message || error))) throw error;
     }
+    // Finalisasi input is the explicit checkpoint that refreshes the visible bank
+    // snapshot from the employee master. The full account is validated here and
+    // fingerprinted later at Processor finalization before Controller approval.
+    await d1Batch(database, [{
+      statement:`UPDATE payroll_run_lines SET
+        bank_name=(SELECT eba.bank_name FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
+        account_last4=(SELECT substr(REPLACE(eba.account_no,' ',''),-4) FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
+        updated_at=${NOW}
+        WHERE submission_id=? AND included=1`,
+      bindings:[submission.id],
+    }]);
     const quality = await d1First(database, `SELECT COUNT(*) AS recipients,
-      SUM(CASE WHEN net_amount<=0 THEN 1 ELSE 0 END) AS invalid_net,
-      SUM(CASE WHEN bank_name IS NULL OR account_last4 IS NULL THEN 1 ELSE 0 END) AS invalid_bank
+      SUM(CASE WHEN gross_amount<=0 OR deduction_amount<0 OR net_amount<=0
+        OR gross_amount-deduction_amount<>net_amount THEN 1 ELSE 0 END) AS invalid_control,
+      SUM(CASE WHEN bank_name IS NULL OR account_last4 IS NULL OR NOT EXISTS(
+        SELECT 1 FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1
+          AND length(REPLACE(eba.account_no,' ','')) BETWEEN 6 AND 34
+          AND REPLACE(eba.account_no,' ','') NOT GLOB '*[^0-9]*'
+      ) THEN 1 ELSE 0 END) AS invalid_bank
       FROM payroll_run_lines WHERE submission_id=? AND included=1`, [submission.id]);
     if (!Number(quality?.recipients||0)) return { status:409, data:{ error:'Pay Run tidak memiliki penerima aktif' } };
-    if (Number(quality?.invalid_net||0) || Number(quality?.invalid_bank||0)) return { status:409, data:{ error:`Input belum valid: ${Number(quality?.invalid_net||0)} THP dan ${Number(quality?.invalid_bank||0)} rekening bermasalah` } };
+    if (Number(quality?.invalid_control||0) || Number(quality?.invalid_bank||0)) return { status:409, data:{
+      error:`Input belum valid: ${Number(quality?.invalid_control||0)} control payroll dan ${Number(quality?.invalid_bank||0)} rekening bermasalah`,
+      code:'PAY_RUN_INPUT_CONTROL_INVALID',
+    } };
     await d1Batch(database, [
       { statement:`UPDATE payroll_submissions SET input_status='READY',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },
       auditOperation(organizationId,actor,'PAY_RUN_INPUT_FINALIZED',`${quality.recipients} penerima tervalidasi`,'payroll_submission',submission.id),
@@ -545,7 +642,7 @@ async function executeAction(database, body, actor, env, organizationId) {
 
     const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
       AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
-    const blockingCount = Number(blocking?.count || 0);
+    let blockingCount = Number(blocking?.count || 0);
     let targetState;
     let reviewFields = '';
     const bindings = [];
@@ -556,12 +653,18 @@ async function executeAction(database, body, actor, env, organizationId) {
         return { status:409, data:{ error:`Pay Run berstatus ${submission.state} tidak dapat divalidasi ulang` } };
       }
       if (submission.input_status !== 'READY') return { status:409, data:{ error:'Finalisasi input payroll sebelum menjalankan validasi' } };
+      await validateCanonicalPayRunSnapshot(database, submission, actor, organizationId);
+      const refreshedBlocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
+        AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
+      blockingCount = Number(refreshedBlocking?.count || 0);
       targetState = blockingCount ? 'EXCEPTION_FOUND' : 'VALIDATED';
     } else if (body.command === 'FINALIZE_PAYROLL') {
       if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat memfinalisasi payroll' } };
       if (!['VALIDATED','STANDARDIZED'].includes(submission.state)) return { status:409, data:{ error:'Pay Run harus selesai divalidasi sebelum difinalisasi' } };
       if (blockingCount) return { status:409, data:{ error:`${blockingCount} critical exception masih terbuka` } };
-      targetState = 'PAYMENT_INSTRUCTION_READY';
+      // Processor finalization must stop at Controller review. PI creation is a separate
+      // Controller checkpoint so payroll data cannot bypass maker-checker segregation.
+      targetState = 'CONTROLLER_REVIEW';
       reviewFields = `,processor_reviewed_at=${NOW},processor_reviewed_by=?,processor_review_note=?`;
       bindings.push(actor.email, String(body.reviewNote || '').slice(0,1000));
     } else {
@@ -667,6 +770,10 @@ async function executeAction(database, body, actor, env, organizationId) {
       ? 'Submission tidak berada pada tahap review Controller'
       : 'Submission belum siap dibuatkan payment instruction' } };
     if (atomicControllerApproval && body.reviewConfirmed !== true) return { status:409, data:{ error:'Preview dan konfirmasi review wajib dilakukan sebelum melanjutkan' } };
+    if (atomicControllerApproval && submission.processor_reviewed_by
+      && String(submission.processor_reviewed_by).toLowerCase() === String(actor.email || '').toLowerCase()) {
+      return { status:409, data:{ error:'Processor reviewer tidak boleh menyetujui payroll yang sama sebagai Controller', code:'PAYROLL_REVIEW_SOD' } };
+    }
     if (atomicControllerApproval) {
       const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
         AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
@@ -850,10 +957,17 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (!PROCESSOR_ROLES.has(actor.role) && !CONTROLLER_ROLES.has(actor.role)) return { status: 403, data: { error: 'Role tidak dapat melakukan rekonsiliasi' } };
     const payment = await d1First(database, `SELECT pi.id,pi.submission_id,pi.expected_total,
       COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total,
-      COALESCE((SELECT SUM(amount) FROM payment_proofs WHERE payment_instruction_id=pi.id),0) AS proof_total
+      COALESCE((SELECT SUM(amount) FROM payment_proofs WHERE payment_instruction_id=pi.id),0) AS manual_proof_total,
+      COALESCE((SELECT amount FROM payment_gateway_transactions
+        WHERE payment_instruction_id=pi.id AND status='SUCCEEDED'
+        ORDER BY COALESCE(paid_at,updated_at,created_at) DESC LIMIT 1),0) AS gateway_total
       FROM payment_instructions pi WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
     if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
-    const difference = Number(payment.proof_total) - Number(payment.expected_total);
+    const settlementTotal = Number(payment.manual_proof_total || 0) > 0
+      ? Number(payment.manual_proof_total)
+      : Number(payment.gateway_total || 0);
+    const settlementSource = Number(payment.manual_proof_total || 0) > 0 ? 'MANUAL_PROOF' : 'PAYMENT_GATEWAY';
+    const difference = settlementTotal - Number(payment.expected_total);
     const status = difference === 0 && Number(payment.instruction_total) === Number(payment.expected_total) ? 'MATCHED' : 'EXCEPTION';
     const id = `REC-${crypto.randomUUID()}`;
     await d1Batch(database, [
@@ -862,12 +976,12 @@ async function executeAction(database, body, actor, env, organizationId) {
         VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(payment_instruction_id) DO UPDATE SET
         expected_total=excluded.expected_total,instruction_total=excluded.instruction_total,proof_total=excluded.proof_total,
         difference=excluded.difference,status=excluded.status,reviewed_by=excluded.reviewed_by,created_at=${NOW}`,
-        bindings: [id, payment.id, payment.expected_total, payment.instruction_total, payment.proof_total, difference, status, actor.email] },
+        bindings: [id, payment.id, payment.expected_total, payment.instruction_total, settlementTotal, difference, status, actor.email] },
       { statement: `UPDATE payment_instructions SET status=?,updated_at=${NOW} WHERE id=?`,
         bindings: [status === 'MATCHED' ? 'COMPLETED' : 'PAYMENT_EXCEPTION', payment.id] },
       { statement: `UPDATE payroll_submissions SET state=?,updated_at=${NOW} WHERE id=?`,
         bindings: [status === 'MATCHED' ? 'COMPLETED' : 'PAYMENT_EXCEPTION', payment.submission_id] },
-      auditOperation(organizationId, actor, 'PAYMENT_RECONCILED', `${status} · difference ${difference}`, 'payment_instruction', payment.id),
+      auditOperation(organizationId, actor, 'PAYMENT_RECONCILED', `${status} · ${settlementSource} · settled ${settlementTotal} · difference ${difference}`, 'payment_instruction', payment.id),
     ]);
     if (status === 'MATCHED') {
       try { await markEwaRepaid(database, payment.submission_id); }

@@ -8,7 +8,6 @@ import {
   gatewayReadiness,
   gatewayRequestHash,
 } from './payment-gateway-core.js';
-import { e2paySyncBeneficiaryLimit } from './payment-gateway-e2pay.js';
 import { executeE2PayBatch, reconcileE2PayBatch } from './payment-gateway-e2pay-service.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 
@@ -73,6 +72,26 @@ async function readBody(request) {
 async function findTransaction(database, organizationId, paymentInstructionId) {
   return d1First(database, `SELECT * FROM payment_gateway_transactions
     WHERE org_id=? AND payment_instruction_id=? ORDER BY created_at DESC LIMIT 1`, [organizationId, paymentInstructionId]);
+}
+
+export async function acquireExecutionLease(database, transactionId) {
+  const token = crypto.randomUUID();
+  const locked = await d1First(database, `UPDATE payment_gateway_transactions
+    SET execution_lock_token=?,execution_lock_until=datetime('now','+10 minutes'),updated_at=${NOW}
+    WHERE id=? AND (execution_lock_until IS NULL OR datetime(execution_lock_until)<=datetime('now'))
+    RETURNING id`, [token, transactionId]);
+  return locked ? token : null;
+}
+
+export async function releaseExecutionLease(database, transactionId, token) {
+  if (!token) return;
+  try {
+    await d1Batch(database, [{ statement:`UPDATE payment_gateway_transactions
+      SET execution_lock_token=NULL,execution_lock_until=NULL,updated_at=${NOW}
+      WHERE id=? AND execution_lock_token=?`, bindings:[transactionId,token] }]);
+  } catch {
+    // Lease expires automatically; release failure must never trigger a second financial attempt.
+  }
 }
 
 export async function onRequest(context) {
@@ -158,9 +177,6 @@ export async function onRequest(context) {
     const beneficiaries = await beneficiarySnapshot(database, payment.id, runtimeEnv.PI_ENCRYPTION_KEY);
     const requestHash = await gatewayRequestHash(payment, beneficiaries.map((row) => row.lineHash), paymentMethod);
     if (!beneficiaries.length) return secureJson({ error: 'Payment Instruction tidak memiliki beneficiary' }, 409, request, env, METHODS);
-    if (readiness.provider === 'E2PAY' && beneficiaries.length > e2paySyncBeneficiaryLimit(runtimeEnv)) {
-      return secureJson({ error: `Batch ${beneficiaries.length} beneficiary memerlukan E2Pay queue worker`, code:'E2PAY_BATCH_REQUIRES_QUEUE', maxSyncBeneficiaries:e2paySyncBeneficiaryLimit(runtimeEnv) }, 409, request, env, METHODS);
-    }
     if (beneficiaries.reduce((sum, row) => sum + row.amount, 0) !== Number(payment.expected_total)) {
       return secureJson({ error: 'Beneficiary snapshot tidak sesuai control total', code: 'PAYMENT_BENEFICIARY_TOTAL_MISMATCH' }, 409, request, env, METHODS);
     }
@@ -191,6 +207,13 @@ export async function onRequest(context) {
     }
 
     if (readiness.provider === 'E2PAY') {
+      const leaseToken = await acquireExecutionLease(database, transactionId);
+      if (!leaseToken) {
+        return secureJson({
+          error:'PI E2Pay sedang diproses oleh request lain. Muat ulang status sebelum mencoba kembali.',
+          code:'PAYMENT_GATEWAY_EXECUTION_BUSY',
+        }, 409, request, env, METHODS);
+      }
       try {
         const result = await executeE2PayBatch({ database, env:runtimeEnv, transactionId, payment, beneficiaries, retryFailed:action === 'RETRY_FAILED' });
         transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transactionId]);
@@ -201,6 +224,8 @@ export async function onRequest(context) {
         await d1Batch(database, [{ statement: `UPDATE payment_gateway_transactions SET status='FAILED',error_code=?,error_message=?,updated_at=${NOW} WHERE id=?`,
           bindings: ['E2PAY_EXECUTION_FAILED', String(error?.message || error).slice(0, 500), transactionId] }]);
         return secureJson({ error:'Eksekusi E2Pay gagal sebelum status final dapat ditentukan', code:'E2PAY_EXECUTION_FAILED', transactionId }, 502, request, env, METHODS);
+      } finally {
+        await releaseExecutionLease(database, transactionId, leaseToken);
       }
     }
 

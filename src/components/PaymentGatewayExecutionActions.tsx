@@ -72,7 +72,20 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
   async function seamless() {
     setBusy('seamless'); setError('');
     try {
-      await executeSeamlessPayment(paymentInstructionId, 'BANK_TRANSFER');
+      let result = await executeSeamlessPayment(paymentInstructionId, 'BANK_TRANSFER');
+      // E2Pay is deliberately processed in bounded Worker requests. Continue a
+      // large PI automatically while every completed beneficiary stays durable
+      // in the gateway ledger, so a browser/network interruption can resume safely.
+      if (result.gateway?.provider === 'E2PAY') {
+        let continuationCalls = 0;
+        while (result.hasMore && continuationCalls < 20) {
+          result = await executeSeamlessPayment(paymentInstructionId, 'BANK_TRANSFER');
+          continuationCalls += 1;
+        }
+        if (result.hasMore) {
+          setError(`Masih ada ${Number(result.remaining || 0).toLocaleString('id-ID')} beneficiary. Klik Lanjut E2Pay untuk meneruskan batch berikutnya.`);
+        }
+      }
       await changed();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Eksekusi seamless gagal');

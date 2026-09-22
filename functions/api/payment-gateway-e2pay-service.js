@@ -50,8 +50,11 @@ async function loadItems(database, transactionId) {
 }
 
 async function ensureItems(database, transactionId, payment, beneficiaries) {
+  const existing = await loadItems(database, transactionId);
+  const existingLines = new Set(existing.map((item) => item.payment_instruction_line_id));
   const operations = [];
   for (const beneficiary of beneficiaries) {
+    if (existingLines.has(beneficiary.id)) continue;
     const clientRef = await e2payClientRef(payment, beneficiary);
     operations.push({
       statement: 'INSERT OR IGNORE INTO payment_gateway_items ' +
@@ -70,7 +73,9 @@ async function ensureItems(database, transactionId, payment, beneficiaries) {
       ],
     });
   }
-  if (operations.length) await d1Batch(database, operations);
+  for (let offset = 0; offset < operations.length; offset += 50) {
+    await d1Batch(database, operations.slice(offset, offset + 50));
+  }
   return loadItems(database, transactionId);
 }
 
@@ -133,14 +138,9 @@ async function prepareBeneficiaries(database, env, transactionId, payment, benef
 
   for (const item of items) {
     const beneficiary = byLine.get(item.payment_instruction_line_id);
-    if (!beneficiary) {
-      await updateItem(database, item.id, {
-        status:'FAILED',
-        error_code:'E2PAY_BENEFICIARY_SNAPSHOT_MISSING',
-        error_message:'Beneficiary snapshot tidak ditemukan',
-      });
-      continue;
-    }
+    // A continuation call intentionally passes only the bounded beneficiary chunk.
+    // Items outside the chunk stay untouched for the next request.
+    if (!beneficiary) continue;
     if (['SUCCEEDED','PROCESSING','PENDING','UNKNOWN','INQUIRY_READY'].includes(item.status)) continue;
     if (item.status === 'FAILED' && Number(item.attempt_count || 0) > 0
       && !(retryFailed && isRetryableE2PayFailure(item))) continue;
@@ -206,16 +206,62 @@ function parentOutcome(items) {
   return { status:'FAILED', summary };
 }
 
+export function selectE2PayExecutionChunk(items = [], limit = 25, retryFailed = false) {
+  const bounded = Math.max(1, Math.min(100, Number(limit) || 25));
+  const eligible = retryFailed
+    ? items.filter((item) => isRetryableE2PayFailure(item))
+    : items.filter((item) => item.status === 'CREATED'
+      || (item.status === 'INQUIRY_READY' && Number(item.attempt_count || 0) === 0));
+  return eligible.slice(0, bounded);
+}
+
 export async function executeE2PayBatch({ database, env, transactionId, payment, beneficiaries, retryFailed = false }) {
   const limit = e2paySyncBeneficiaryLimit(env);
-  if (beneficiaries.length > limit) {
+  const allItems = await ensureItems(database, transactionId, payment, beneficiaries);
+  const unresolved = allItems.filter((item) => ['PENDING','PROCESSING','UNKNOWN'].includes(item.status));
+  if (unresolved.length) {
+    const outcome = parentOutcome(allItems);
+    const remaining = allItems.filter((item) => item.status === 'CREATED'
+      || (item.status === 'INQUIRY_READY' && Number(item.attempt_count || 0) === 0)).length;
+    await updateParent(database, transactionId, {
+      status:'PROCESSING',
+      provider_status:'AWAITING_RECONCILIATION',
+      error_code:null,
+      error_message:null,
+    });
+    await transitionPaymentState(database, payment, 'PROCESSING', outcome.summary);
     return {
-      ok:false,
-      statusCode:409,
-      code:'E2PAY_BATCH_REQUIRES_QUEUE',
-      error:'E2Pay sync execution dibatasi ' + limit + ' beneficiary. Gunakan queue worker untuk batch lebih besar.',
+      ok:true,
+      statusCode:200,
+      summary:outcome.summary,
+      items:allItems,
+      parentStatus:'PROCESSING',
+      hasMore:false,
+      remaining,
+      processedThisCall:0,
+      blockedByUnresolved:true,
     };
   }
+  const chunkItems = selectE2PayExecutionChunk(allItems, limit, retryFailed);
+  if (!chunkItems.length) {
+    const outcome = parentOutcome(allItems);
+    await updateParent(database, transactionId, {
+      status:outcome.status,
+      provider_status:outcome.status,
+    });
+    await transitionPaymentState(database, payment, outcome.status, outcome.summary);
+    return {
+      ok:true,
+      statusCode:200,
+      summary:outcome.summary,
+      items:allItems,
+      parentStatus:outcome.status,
+      hasMore:false,
+      processedThisCall:0,
+    };
+  }
+  const chunkLineIds = new Set(chunkItems.map((item) => item.payment_instruction_line_id));
+  const chunkBeneficiaries = beneficiaries.filter((row) => chunkLineIds.has(row.id));
 
   const auth = await e2payAuthorize(env);
   const [merchant, banks] = await Promise.all([
@@ -223,10 +269,10 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     e2payBankList(env, auth.accessToken),
   ]);
   const merchantBalance = number(merchant?.balance);
-  let items = await prepareBeneficiaries(database, env, transactionId, payment, beneficiaries, auth.accessToken, banks, { retryFailed });
+  let items = await prepareBeneficiaries(database, env, transactionId, payment, chunkBeneficiaries, auth.accessToken, banks, { retryFailed });
   let summary = summarizeE2PayItems(items);
 
-  if (summary.failed > 0 && summary.succeeded === 0 && summary.processing === 0) {
+  if (summary.failed > 0 && summary.succeeded === 0 && summary.processing === 0 && summary.ready === 0) {
     await updateParent(database, transactionId, {
       status:'FAILED',
       provider_status:'PREFLIGHT_FAILED',
@@ -236,8 +282,11 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     return { ok:false, statusCode:409, code:'E2PAY_PREFLIGHT_FAILED', error:'Preflight beneficiary E2Pay belum lolos', merchantBalance, summary, items };
   }
 
+  // Only funds for beneficiaries that have not yet been sent may be reserved here.
+  // UNKNOWN/PENDING/PROCESSING may already have moved money at the provider and
+  // must never be counted as a fresh disbursement requirement.
   const remainingRequired = items
-    .filter((item) => item.status !== 'SUCCEEDED')
+    .filter((item) => ['CREATED','INQUIRY_READY'].includes(item.status))
     .reduce((sum, item) => sum + number(item.amount) + number(item.fee_amount), 0);
   if (merchantBalance < remainingRequired) {
     await updateParent(database, transactionId, {
@@ -258,7 +307,7 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     };
   }
 
-  const byLine = beneficiaryMap(beneficiaries);
+  const byLine = beneficiaryMap(chunkBeneficiaries);
   for (const item of items) {
     if (item.status !== 'INQUIRY_READY') continue;
     if (Number(item.attempt_count || 0) > 0 && !retryFailed) continue;
@@ -317,7 +366,22 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     }]);
   }
   await transitionPaymentState(database, payment, outcome.status, summary);
-  return { ok:true, statusCode:201, merchantBalance, summary, items, parentStatus:outcome.status };
+  const remaining = retryFailed
+    ? items.filter((item) => isRetryableE2PayFailure(item)).length
+    : items.filter((item) => item.status === 'CREATED'
+      || (item.status === 'INQUIRY_READY' && Number(item.attempt_count || 0) === 0)).length;
+  return {
+    ok:true,
+    statusCode:201,
+    merchantBalance,
+    summary,
+    items,
+    parentStatus:outcome.status,
+    hasMore:remaining > 0,
+    remaining,
+    processedThisCall:chunkBeneficiaries.length,
+    chunkLimit:limit,
+  };
 }
 
 export async function reconcileE2PayBatch({ database, env, transactionId, payment }) {

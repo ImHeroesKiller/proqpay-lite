@@ -2,7 +2,7 @@ const ID = /^[A-Za-z0-9._:-]{1,120}$/;
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const RUN_TYPES = new Set(['REGULAR','OFF_CYCLE','ADJUSTMENT']);
-const SOURCE_MODES = new Set(['MASTER_CURRENT','COPY_PREVIOUS','UPLOAD_FINAL','HRIS']);
+const SOURCE_MODES = new Set(['MASTER_CURRENT','COPY_PREVIOUS','UPLOAD_FINAL']);
 const TIERS = new Set([
   'TIER_1_PAYMENT_PROCESSING',
   'TIER_2_MANAGED_PAYROLL',
@@ -68,7 +68,8 @@ export function validateOperatingAction(input) {
     if (PERIOD.test(String(input.paymentPeriod || '')) && DATE.test(String(input.paymentDate || ''))
       && !String(input.paymentDate).startsWith(`${input.paymentPeriod}-`)) errors.push('paymentDate harus berada pada paymentPeriod yang dipilih');
     if (!RUN_TYPES.has(input.runType)) errors.push('runType tidak valid');
-    if (!SOURCE_MODES.has(input.sourceMode)) errors.push('sourceMode tidak valid');
+    if (String(input.sourceMode || '').toUpperCase() === 'HRIS') errors.push('Integrasi HRIS belum aktif; gunakan UPLOAD_FINAL, MASTER_CURRENT, atau COPY_PREVIOUS');
+    else if (!SOURCE_MODES.has(input.sourceMode)) errors.push('sourceMode tidak valid');
     if (input.parentSubmissionId && !validId(input.parentSubmissionId)) errors.push('parentSubmissionId tidak valid');
   } else if (action === 'UPDATE_PAY_RUN_LINE') {
     if (!validId(input.submissionId) || !validId(input.employeeId)) errors.push('submissionId/employeeId tidak valid');

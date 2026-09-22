@@ -106,10 +106,13 @@ test('FINALIZE_PAY_RUN_INPUT deducts disbursed EWA then PI uses the new net', as
     request: request('/api/operating-model', { method: 'POST', body: JSON.stringify({ action: 'ADVANCE_PAY_RUN', submissionId, command: 'FINALIZE_PAYROLL', reviewConfirmed: true, reviewNote: 'ok' }) }),
     env,
   }, actor);
+  const controller = { id:'USR-CTRL', email:'controller@proqpay.test', role:'PAYROLL_CONTROLLER', permissions:['payment:approve'] };
   const piResponse = await handleD1OperatingModel({
-    request: request('/api/operating-model', { method: 'POST', body: JSON.stringify({ action: 'GENERATE_PAYMENT_INSTRUCTION', submissionId }) }),
+    request: request('/api/operating-model', { method: 'POST', body: JSON.stringify({
+      action: 'APPROVE_PAYROLL_AND_GENERATE_PI', submissionId, reviewConfirmed:true, reviewNote:'Controller review complete',
+    }) }),
     env,
-  }, actor);
+  }, controller);
   assert.equal(piResponse.status, 201, await piResponse.clone().text());
   const pi = await piResponse.json();
   const aniLine = DB.sqlite.prepare('SELECT amount FROM payment_instruction_lines WHERE employee_id=?').get('EMP-A');
