@@ -72,7 +72,7 @@ export default function Home() {
         if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
         const authenticatedActor = { ...(result.user || {}), authMode: result.authMode || 'origin' };
         setActor(authenticatedActor);
-        const periodScopes = authenticatedActor.role === 'CLIENT_USER' ? (authenticatedActor.clientIds || []) : [undefined];
+        const periodScopes:[string|undefined] = [undefined];
         void Promise.all(periodScopes.map((clientId:string|undefined)=>listOperatingPeriods(clientId)))
           .then((results)=>{
             const merged=[...new Set(results.flatMap((result:any)=>Array.isArray(result.periods)?result.periods:[]))]
