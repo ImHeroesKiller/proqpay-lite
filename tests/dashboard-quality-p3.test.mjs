@@ -44,7 +44,7 @@ test('dashboard tables are accessible and become stacked cards on mobile',async(
 
 test('Super Admin dashboard wording preserves financial segregation of duties',async()=>{
   const roleDashboard=await read('src/components/RoleDashboard.tsx');
-  assert.match(roleDashboard,/maker-checker and segregation of duties/);
+  assert.match(roleDashboard,/maker-checker (?:dan|and) segregation of duties/);
   assert.match(roleDashboard,/tanpa bypass approval/);
   assert.doesNotMatch(roleDashboard,/Akses penuh untuk konfigurasi/);
   assert.match(roleDashboard,/review payroll pada tahap yang memang membutuhkan keputusan klien/);
