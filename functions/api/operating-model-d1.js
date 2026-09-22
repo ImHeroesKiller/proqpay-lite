@@ -743,7 +743,7 @@ async function executeAction(database, body, actor, env, organizationId) {
       && String(submission.processor_reviewed_by).toLowerCase() === String(actor.email || '').toLowerCase()) {
       return { status:409, data:{ error:'Processor reviewer tidak boleh menyetujui payroll yang sama sebagai Controller', code:'PAYROLL_REVIEW_SOD' } };
     }
-    if (['VALIDATED','DATA_APPROVED','PAYROLL_FINALIZED','APPROVED_FOR_PAYMENT'].includes(targetState)) {
+    if (['VALIDATED','DATA_APPROVED','PAYROLL_FINALIZED','CLIENT_APPROVAL_PENDING','CLIENT_APPROVED','APPROVED_FOR_PAYMENT'].includes(targetState)) {
       const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
         AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
       if (Number(blocking?.count || 0) > 0) return { status: 409, data: { error: 'Critical exceptions still open' } };
@@ -836,34 +836,31 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'GENERATE_PAYMENT_INSTRUCTION') {
-    const atomicControllerApproval = false;
-    if (atomicControllerApproval ? !CONTROLLER_ROLES.has(actor.role) : !PROCESSOR_ROLES.has(actor.role)) {
-      return { status: 403, data: { error: atomicControllerApproval
-        ? 'Hanya Payroll Controller yang dapat menyetujui payroll dan menerbitkan PI'
-        : 'Hanya Payroll Processor yang dapat membuat PI' } };
+    if (!PROCESSOR_ROLES.has(actor.role)) {
+      return { status:403, data:{ error:'Hanya Payroll Processor yang dapat membuat PI' } };
     }
     const submission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
     if (!submission) return { status: 404, data: { error: 'Submission not found' } };
     const existing = await d1First(database, `SELECT * FROM payment_instructions
       WHERE submission_id=? AND org_id=? AND status<>'REJECTED' ORDER BY created_at DESC LIMIT 1`, [submission.id, organizationId]);
-    if (atomicControllerApproval && submission.state === 'PAYMENT_INSTRUCTION_READY' && existing && existing.status !== 'REVISION_REQUIRED') {
-      return { data: { ok: true, paymentInstruction: existing, idempotentReplay: true } };
-    }
     const expectedStates = ['CLIENT_APPROVED','PAYMENT_INSTRUCTION_READY'];
     if (!expectedStates.includes(submission.state)) return { status:409, data:{
       error:'Submission belum memiliki approval Client atau belum siap dibuatkan payment instruction',
       code:'CLIENT_PAYROLL_APPROVAL_REQUIRED',
     } };
-    if (atomicControllerApproval && body.reviewConfirmed !== true) return { status:409, data:{ error:'Preview dan konfirmasi review wajib dilakukan sebelum melanjutkan' } };
-    if (atomicControllerApproval && submission.processor_reviewed_by
-      && String(submission.processor_reviewed_by).toLowerCase() === String(actor.email || '').toLowerCase()) {
-      return { status:409, data:{ error:'Processor reviewer tidak boleh menyetujui payroll yang sama sebagai Controller', code:'PAYROLL_REVIEW_SOD' } };
+    if (submission.state === 'CLIENT_APPROVED'
+      && (submission.client_review_decision !== 'APPROVED' || !submission.client_reviewed_by)) {
+      return { status:409, data:{
+        error:'Bukti approval Client belum lengkap; Payment Instruction diblokir',
+        code:'CLIENT_APPROVAL_EVIDENCE_REQUIRED',
+      } };
     }
-    if (atomicControllerApproval) {
-      const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
-        AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
-      if (Number(blocking?.count || 0) > 0) return { status:409, data:{ error:'Critical exceptions still open' } };
-    }
+    const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
+      AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
+    if (Number(blocking?.count || 0) > 0) return { status:409, data:{
+      error:'Critical exceptions still open',
+      code:'CRITICAL_EXCEPTION_BLOCKS_PI',
+    } };
     if (existing && existing.status !== 'REVISION_REQUIRED') return { data: { ok: true, paymentInstruction: existing, idempotentReplay: true } };
     const snapshotCount = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_run_lines WHERE submission_id=?`, [submission.id]);
     const source = Number(snapshotCount?.count || 0) ? await d1All(database, `SELECT l.employee_id AS id,l.employee_name AS name,l.net_amount AS amount,
@@ -934,12 +931,8 @@ async function executeAction(database, body, actor, env, organizationId) {
         bindings: [id, organizationId, submission.client_id, submission.id, expectedTotal, actor.id, idempotencyKey,
           documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length, billingSnapshot] },
       ...lineInsertOperations(id, snapshotLines),
-      { statement: atomicControllerApproval
-        ? `UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',controller_reviewed_at=${NOW},controller_reviewed_by=?,controller_review_note=?,updated_at=${NOW} WHERE id=? AND state='CONTROLLER_REVIEW'`
-        : `UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`,
-        bindings: atomicControllerApproval ? [actor.email, String(body.reviewNote || '').slice(0,1000), submission.id] : [submission.id] },
-      ...(atomicControllerApproval ? [auditOperation(organizationId, actor, 'PAYROLL_APPROVED_AND_PI_CREATED',
-        `CONTROLLER_REVIEW → PAYMENT_INSTRUCTION_READY · ${documentNo}`, 'payroll_submission', submission.id)] : []),
+      { statement:`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`,
+        bindings:[submission.id] },
       auditOperation(organizationId, actor, existing ? 'PAYMENT_INSTRUCTION_REVISED' : 'PAYMENT_INSTRUCTION_CREATED', `${documentNo} · revisi ${revisionNo} · ${snapshotLines.length} penerima · ${contentHash}`, 'payment_instruction', id),
     ]);
     const paymentInstruction = await d1First(database, 'SELECT * FROM payment_instructions WHERE id=?', [id]);
