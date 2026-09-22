@@ -22,7 +22,7 @@ const SystemLogs = dynamic(() => import('@/components/SystemLogs'), { loading: (
 const EwaInbox = dynamic(() => import('@/components/EwaInbox'), { loading: () => <ViewLoading /> });
 const PortalSettings = dynamic(() => import('@/components/PortalSettings'), { loading: () => <ViewLoading /> });
 const PortalAudit = dynamic(() => import('@/components/PortalAudit'), { loading: () => <ViewLoading /> });
-const PaymentGatewayIntegrationPanel = dynamic(() => import('@/components/PaymentGatewayIntegrationPanel'), { loading: () => <ViewLoading /> });
+const IntegrationsWorkspace = dynamic(() => import('@/components/IntegrationsWorkspace'), { loading: () => <ViewLoading /> });
 const PaymentGatewayPaymentPanel = dynamic(() => import('@/components/PaymentGatewayPaymentPanel'), { loading: () => <ViewLoading /> });
 const IdaFab = dynamic(() => import('@/components/IdaFab'));
 const HelpModal = dynamic(() => import('@/components/HelpModal'));
@@ -209,7 +209,7 @@ export default function Home() {
 
             {view === 'payments' && <><OperatingWorkspace mode="payments" />{gatewayCanView ? <PaymentGatewayPaymentPanel role={actor.role} /> : null}</>}
             {view === 'billing' && <OperatingWorkspace mode="billing" />}
-            {view === 'integrations' && <><OperatingWorkspace mode="integrations" /><div style={{ marginTop:16 }}><PaymentGatewayIntegrationPanel canManage={gatewayCanExecute} canView={gatewayCanView} /></div></>}
+            {view === 'integrations' && <IntegrationsWorkspace canManage={gatewayCanExecute} canView={gatewayCanView} />}
 
             {view === 'ewa' && <EwaInbox />}
             {view === 'portalSettings' && <PortalSettings />}
