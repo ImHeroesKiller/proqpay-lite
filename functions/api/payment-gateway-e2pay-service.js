@@ -278,7 +278,8 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
         error_message:itemStatus === 'FAILED' ? String(result?.responseMessage || 'E2Pay transaction failed').slice(0, 300) : null,
       });
     } catch (error) {
-      const ambiguous = error instanceof E2PayRequestError && ['E2PAY_TIMEOUT','E2PAY_NETWORK_ERROR'].includes(error.code);
+      const ambiguous = error instanceof E2PayRequestError && (['E2PAY_TIMEOUT','E2PAY_NETWORK_ERROR'].includes(error.code)
+        || (error.code === 'E2PAY_HTTP_ERROR' && (Number(error.httpStatus) >= 500 || [408,429].includes(Number(error.httpStatus)))));
       await updateItem(database, item.id, {
         status:ambiguous ? 'UNKNOWN' : 'FAILED',
         last_checked_at:new Date().toISOString(),
@@ -320,7 +321,7 @@ export async function reconcileE2PayBatch({ database, env, transactionId, paymen
         await updateItem(database, item.id, { last_checked_at:new Date().toISOString() });
         continue;
       }
-      const normalized = e2payResponseStatus(history.responseCode, { emptyIsSuccess:true });
+      const normalized = e2payResponseStatus(history.responseCode);
       const status = normalized === 'PENDING' ? 'UNKNOWN' : normalized;
       await updateItem(database, item.id, {
         status,
