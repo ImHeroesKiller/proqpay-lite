@@ -873,6 +873,7 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'UPDATE_SUBMISSION_PERIODS') {
+    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat mengubah periode pembayaran dan rapel' } };
     const current = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
     if (!current) return { status: 404, data: { error: 'Submission not found' } };
     if (!assertClientScope(actor, env, current.client_id) || !assertProjectScope(actor, current.project_id)) return { status: 403, data: { error: 'Scope denied' } };
