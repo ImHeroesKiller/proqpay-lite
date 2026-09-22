@@ -117,6 +117,10 @@ jobs:
           echo "Production health check failed."
           exit 1
 
+      - name: Production smoke test
+        shell: bash
+        run: node scripts/production-smoke.mjs https://proqpay-lite.pages.dev
+
       - name: Assert Access split (ops ≠ employee portal)
         shell: bash
         run: node scripts/assert-access-split.mjs
