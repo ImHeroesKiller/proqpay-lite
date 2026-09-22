@@ -70,7 +70,7 @@ const ROLE_VIEWS: Record<string, AppView[]> = {
     "portalAudit",
     "portalSettings",
   ],
-  CLIENT_USER: ["dashboard", "operations", "payments", "billing", "reports"],
+  CLIENT_USER: ["dashboard", "operations", "exceptions", "payments", "billing", "reports"],
 };
 
 export function allowedViewsForRole(role?: string) {
@@ -178,7 +178,7 @@ export default function Sidebar({
               <span>Data Intake</span>
             </a>
           ) : null}
-          {allowed.has("exceptions") ? (
+          {allowed.has("exceptions") && role !== "CLIENT_USER" ? (
             <NavBtn
               active={view === "exceptions"}
               icon={<IconMessage />}
