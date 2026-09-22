@@ -445,7 +445,7 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
       <div key="finding"><strong>{r.category}</strong><small style={small}>{r.employee_id || 'Submission'} · {r.reason || r.field || '-'}</small></div>,
       <div key="scope"><strong>{r.client_name || r.client_id || '-'}</strong><small style={small}>{r.project_name || r.period || '-'}</small></div>,
       <Badge key="severity" text={r.severity} />,
-      <Badge key="status" text={simplified?paymentBusinessLabel(r.status):r.status} />,
+      <Badge key="status" text={r.status} />,
       <button key="detail" style={actionButton} onClick={() => setSelected(r)}>Tindak lanjut</button>,
     ])} />
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={small}>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div style={{display:'flex',gap:6}}><button className="btn" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>←</button><button className="btn" disabled={page>=pageCount} onClick={()=>setPage(p=>p+1)}>→</button></div></div>
@@ -523,7 +523,7 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
         ? <a className="btn btn-primary" href={`?view=operations&submissionId=${encodeURIComponent(r.submission_id)}`}>Perbaiki Pay Run</a>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
       else action = <button style={actionButton} onClick={() => void openDetail(r.id)}>Detail PI</button>;
-      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.status === 'REVISION_REQUIRED' && r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={r.status} />, date(r.created_at), <span key="action">{action}</span>];
+      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.status === 'REVISION_REQUIRED' && r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={simplified?paymentBusinessLabel(r.status):r.status} />, date(r.created_at), <span key="action">{action}</span>];
     })} />
     {detailLoading ? <div className="card" style={{padding:18}}>Memuat snapshot Payment Instruction…</div> : null}
     {detailError ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Detail PI gagal</strong><span>{detailError}</span></div> : null}
