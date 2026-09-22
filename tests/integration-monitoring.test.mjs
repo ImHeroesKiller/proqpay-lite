@@ -21,8 +21,9 @@ test('API monitoring middleware observes identified apps without becoming an aut
   assert.match(middleware, /X-ProQPay-App-Id/);
   assert.match(middleware, /Cf-Access-Client-Id/);
   assert.match(middleware, /const response = await context\.next\(\)/);
-  assert.match(middleware, /do not grant access|do not grant|normal authentication/i);
-  assert.doesNotMatch(middleware, /Authorization:\s*Bearer|authenticateApiClient|bypass/i);
+  assert.match(middleware, /normal ProQPay authentication/i);
+  assert.doesNotMatch(middleware, /Authorization:\s*Bearer|authenticateApiClient/i);
+  assert.match(middleware, /do not bypass normal ProQPay authentication/i);
   assert.match(security, /X-ProQPay-App-Id/);
   assert.match(security, /X-ProQPay-App-Name/);
 });
