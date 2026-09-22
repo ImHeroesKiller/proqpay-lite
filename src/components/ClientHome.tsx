@@ -89,8 +89,10 @@ export default function ClientHome({actor,onNavigate}:Props) {
       blockingCount:row.blocking_count,
       exceptionCount:row.exception_count,
       paymentInstructionStatus:instruction?.status,
+      reconciliationStatus:row.reconciliation_status,
       invoiceStatus:row.invoice_status,
       arStatus:row.ar_status,
+      periodStatus:row.period_status,
       hasPaymentInstruction:Boolean(instruction),
       paymentInstructionId:instruction?.id,
     };

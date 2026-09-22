@@ -129,13 +129,11 @@ export default function DataIntakePage() {
   const progress = preview?.confirmed ? 4 : preview ? 3 : parsed ? 2 : 1;
   const notesComplete = (preview?.missing || []).every((item) => {
     const value = resolutions[item.employeeId];
-    return (
-      value &&
-      !(
-        ["TRANSFERRED", "OTHER"].includes(value.resolution) ||
-        value.note?.trim()
-      )
-    );
+    if (!value) return false;
+    if (["TRANSFERRED", "OTHER"].includes(value.resolution)) {
+      return Boolean(value.note?.trim());
+    }
+    return true;
   });
 
   function resetFile() {
