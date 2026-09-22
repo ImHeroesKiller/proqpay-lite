@@ -401,7 +401,7 @@ function Payments({ instructions, proofs, reconciliations, role, canReview, canA
         ? <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview & Approve</button>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button>;
       else if (canReview && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
-      else if (canReview && r.status === 'PROOF_UPLOADED') action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
+      else if (canReview && ['PROOF_UPLOADED','RECONCILIATION'].includes(r.status)) action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
       else if (r.status === 'REVISION_REQUIRED') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
         ? <a className="btn btn-primary" href={`?view=operations&submissionId=${encodeURIComponent(r.submission_id)}`}>Perbaiki Pay Run</a>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
