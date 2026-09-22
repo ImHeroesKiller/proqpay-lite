@@ -7,8 +7,8 @@ type Actor = { email: string; role: string; permissions: string[] };
 const ROLE_CONTENT: Record<string, { title: string; description: string; tasks: string[]; actions: Array<{ label: string; view: AppView }> }> = {
   SUPER_ADMIN: {
     title: 'Administrative Command Center',
-    description: 'Akses penuh untuk konfigurasi, master data, payroll operation, payment control, dan audit.',
-    tasks: ['Kelola klien & project', 'Pantau seluruh workflow', 'Kelola role & konfigurasi'],
+    description: 'Akses administratif lintas modul untuk konfigurasi, master data, monitoring workflow, dan audit. Approval finansial tetap mengikuti maker-checker dan segregation of duties.',
+    tasks: ['Kelola klien & project', 'Pantau workflow tanpa bypass approval', 'Kelola role & konfigurasi'],
     actions: [{ label: 'Kelola klien & project', view: 'clients' }, { label: 'Buka payroll operations', view: 'operations' }, { label: 'Lihat system logs', view: 'logs' }],
   },
   PAYROLL_PROCESSOR: {
@@ -25,8 +25,8 @@ const ROLE_CONTENT: Record<string, { title: string; description: string; tasks: 
   },
   CLIENT_USER: {
     title: 'Client Payroll Workspace',
-    description: 'Monitoring read-only untuk data klien dan project yang ditetapkan pada akun Anda.',
-    tasks: ['Pantau status payroll', 'Pantau status pembayaran', 'Unduh laporan dan invoice'],
+    description: 'Akses terbatas pada data klien dan project yang ditetapkan, termasuk review payroll pada tahap yang memang membutuhkan keputusan klien.',
+    tasks: ['Pantau status payroll', 'Review payroll bila diminta', 'Unduh laporan dan invoice'],
     actions: [{ label: 'Lihat status submission', view: 'operations' }, { label: 'Unduh laporan', view: 'reports' }],
   },
 };
