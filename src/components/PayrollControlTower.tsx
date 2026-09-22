@@ -50,7 +50,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const load = useCallback(async()=>{
     setLoading(true); setError('');
     try {
-      const scopedClientIds=actor.role==='CLIENT_USER'?(actor.clientIds||[]):[undefined];
+      const scopedClientIds:[string|undefined]=[undefined];
       const results=await Promise.all(scopedClientIds.map((clientId)=>listOperatingDashboard(clientId,period)));
       const merged:Record<string,any>={};
       results.forEach((result)=>Object.entries(result).forEach(([key,value])=>{
