@@ -18,6 +18,8 @@ const OperatingWorkspace = dynamic(() => import('@/components/OperatingWorkspace
 const EmployeeDirectory = dynamic(() => import('@/components/EmployeeDirectory'), { loading: () => <ViewLoading /> });
 const DirectoryManager = dynamic(() => import('@/components/DirectoryManager'), { loading: () => <ViewLoading /> });
 const ReportsWorkspace = dynamic(() => import('@/components/ReportsWorkspace'), { loading: () => <ViewLoading /> });
+const ClientHome = dynamic(() => import('@/components/ClientHome'), { loading: () => <ViewLoading /> });
+const ClientDocumentsWorkspace = dynamic(() => import('@/components/ClientDocumentsWorkspace'), { loading: () => <ViewLoading /> });
 const SystemLogs = dynamic(() => import('@/components/SystemLogs'), { loading: () => <ViewLoading /> });
 const EwaInbox = dynamic(() => import('@/components/EwaInbox'), { loading: () => <ViewLoading /> });
 const PortalSettings = dynamic(() => import('@/components/PortalSettings'), { loading: () => <ViewLoading /> });
@@ -28,6 +30,13 @@ const IdaFab = dynamic(() => import('@/components/IdaFab'));
 const HelpModal = dynamic(() => import('@/components/HelpModal'));
 
 type Actor = { id: string; name?: string; email: string; role: string; permissions: string[]; mustChangePassword?: boolean; clientIds?: string[] | null; projectIds?: string[] | null; authMode?: string };
+
+function normalizeViewForRole(role:string, view:AppView):AppView {
+  if (role !== 'CLIENT_USER') return view;
+  if (view === 'exceptions' || view === 'payments') return 'operations';
+  if (view === 'billing') return 'reports';
+  return view;
+}
 
 export default function Home() {
   const [db, setDb] = useState<any>(null);
@@ -62,8 +71,8 @@ export default function Home() {
         const authenticatedActor = { ...(result.user || {}), authMode: result.authMode || 'origin' };
         setActor(authenticatedActor);
         const allowedViews = allowedViewsForRole(authenticatedActor.role);
-        const preferredView = requestedView || st.defaultView;
-        setView(allowedViews.includes(preferredView as AppView) ? preferredView as AppView : 'dashboard');
+        const preferredView = normalizeViewForRole(authenticatedActor.role, (requestedView || st.defaultView) as AppView);
+        setView(allowedViews.includes(preferredView) ? preferredView : 'dashboard');
         setAuthRequired(false);
         setAuthChecked(true);
         void syncDatabaseFromCloudflare(data, { signal: controller.signal })
@@ -128,7 +137,8 @@ export default function Home() {
   }
 
   function navigate(nextView: AppView) {
-    const safeView = actor && allowedViewsForRole(actor.role).includes(nextView) ? nextView : 'dashboard';
+    const normalizedView = actor ? normalizeViewForRole(actor.role,nextView) : nextView;
+    const safeView = actor && allowedViewsForRole(actor.role).includes(normalizedView) ? normalizedView : 'dashboard';
     setView(safeView);
     const url = new URL(window.location.href);
     url.searchParams.set('view', safeView);
@@ -181,12 +191,14 @@ export default function Home() {
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-        <AppHeader period={period} periods={periods} view={view} clientCount={(db.companies || []).length} onPeriodChange={handlePeriodChange} onNavigate={navigate} onHelp={() => setHelpOpen(true)} onMenu={() => setMobileNavOpen(true)} actor={actor} />
+        <AppHeader period={period} periods={periods} view={view} clientCount={actor.role==='CLIENT_USER'?(actor.clientIds?.length||0):(db.companies || []).length} onPeriodChange={handlePeriodChange} onNavigate={navigate} onHelp={() => setHelpOpen(true)} onMenu={() => setMobileNavOpen(true)} actor={actor} />
 
         <main style={{ flex: 1, overflowY: 'auto', padding: pad }}>
           <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
             {view === 'dashboard' && (
-              <>{!simplifiedInternal ? <RoleDashboard actor={actor} onNavigate={navigate} /> : null}<PayrollControlTower actor={actor} period={period} onNavigate={navigate} /></>
+              actor.role === 'CLIENT_USER'
+                ? <ClientHome actor={actor} onNavigate={navigate} />
+                : <>{!simplifiedInternal ? <RoleDashboard actor={actor} onNavigate={navigate} /> : null}<PayrollControlTower actor={actor} period={period} onNavigate={navigate} /></>
             )}
 
             {view === 'employees' && (
@@ -216,7 +228,7 @@ export default function Home() {
             {view === 'portalSettings' && <PortalSettings />}
             {view === 'portalAudit' && <PortalAudit />}
 
-            {view === 'reports' && <ReportsWorkspace />}
+            {view === 'reports' && (actor.role === 'CLIENT_USER' ? <ClientDocumentsWorkspace actor={actor} /> : <ReportsWorkspace />)}
           </div>
         </main>
       </div>
