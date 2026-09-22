@@ -151,12 +151,14 @@ function processorAction(context, stage) {
   }
 
   if (stage.stage === 'CLOSE') {
-    if (stage.isTerminal) {
-      return result('PREPARE_BILLING','Continue to Billing','Payroll payment is complete. Continue billing and period closing.','billing',{
+    const recStatus = normalize(context.reconciliationStatus ?? context.recStatus);
+    const invoiceStatus = normalize(context.invoiceStatus);
+    if ((recStatus === 'MATCHED' || state === 'COMPLETED') && !invoiceStatus) {
+      return result('PREPARE_BILLING','Continue to Billing','Payment is reconciled. Prepare billing and continue period closing.','billing',{
         actionable:true,tone:'info',priority:3,category:'CLOSE',owner:'PAYROLL_PROCESSOR',
       });
     }
-    return result('CONTINUE_CLOSE','Continue Closing','Complete reconciliation and downstream closing activities.','billing',{
+    return result('CONTINUE_CLOSE','Continue Closing','Complete billing, collection, and remaining closing activities.','billing',{
       actionable:true,tone:'info',priority:3,category:'CLOSE',owner:'PAYROLL_PROCESSOR',
     });
   }
