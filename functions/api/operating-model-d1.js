@@ -378,8 +378,11 @@ async function validateCanonicalPayRunSnapshot(database, submission, actor, orga
   });
   if (operations.length) await d1Batch(database, operations);
   if (issues.length) {
-    await d1Batch(database, [auditOperation(organizationId, actor, 'PAY_RUN_DETERMINISTIC_VALIDATION_FAILED',
-      `${issues.length} critical control issue(s) detected`, 'payroll_submission', submission.id)]);
+    await d1Batch(database, [
+      { statement:`UPDATE payroll_submissions SET input_status='PENDING',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },
+      auditOperation(organizationId, actor, 'PAY_RUN_DETERMINISTIC_VALIDATION_FAILED',
+        `${issues.length} critical control issue(s) detected`, 'payroll_submission', submission.id),
+    ]);
   }
   return { issues, recipients:rows.length };
 }
@@ -526,7 +529,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId,organizationId]);
     if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
     if (submission.source_mode!=='MASTER_CURRENT') return { status:409, data:{ error:'Hitung ulang master hanya tersedia untuk sumber MASTER_CURRENT' } };
-    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','REVISION_REQUIRED'].includes(submission.state)) {
+    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(submission.state)) {
       return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci dan tidak dapat dihitung ulang' } };
     }
     await d1Batch(database, [
@@ -579,7 +582,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
     if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
-    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','REVISION_REQUIRED'].includes(submission.state)) return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci' } };
+    if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(submission.state)) return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci' } };
     const row = await d1First(database, `UPDATE payroll_run_lines SET gross_amount=?,deduction_amount=?,net_amount=?,included=?,components=?,updated_at=${NOW}
       WHERE submission_id=? AND employee_id=? RETURNING *`, [body.grossAmount,body.deductionAmount,body.netAmount,
       body.included===false?0:1,JSON.stringify(body.components||{}),body.submissionId,body.employeeId]);
@@ -597,12 +600,31 @@ async function executeAction(database, body, actor, env, organizationId) {
     catch (error) {
       if (!/no such table|no such column/i.test(String(error?.message || error))) throw error;
     }
+    // Finalisasi input is the explicit checkpoint that refreshes the visible bank
+    // snapshot from the employee master. The full account is validated here and
+    // fingerprinted later at Processor finalization before Controller approval.
+    await d1Batch(database, [{
+      statement:`UPDATE payroll_run_lines SET
+        bank_name=(SELECT eba.bank_name FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
+        account_last4=(SELECT substr(REPLACE(eba.account_no,' ',''),-4) FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
+        updated_at=${NOW}
+        WHERE submission_id=? AND included=1`,
+      bindings:[submission.id],
+    }]);
     const quality = await d1First(database, `SELECT COUNT(*) AS recipients,
-      SUM(CASE WHEN net_amount<=0 THEN 1 ELSE 0 END) AS invalid_net,
-      SUM(CASE WHEN bank_name IS NULL OR account_last4 IS NULL THEN 1 ELSE 0 END) AS invalid_bank
+      SUM(CASE WHEN gross_amount<=0 OR deduction_amount<0 OR net_amount<=0
+        OR gross_amount-deduction_amount<>net_amount THEN 1 ELSE 0 END) AS invalid_control,
+      SUM(CASE WHEN bank_name IS NULL OR account_last4 IS NULL OR NOT EXISTS(
+        SELECT 1 FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1
+          AND length(REPLACE(eba.account_no,' ','')) BETWEEN 6 AND 34
+          AND REPLACE(eba.account_no,' ','') NOT GLOB '*[^0-9]*'
+      ) THEN 1 ELSE 0 END) AS invalid_bank
       FROM payroll_run_lines WHERE submission_id=? AND included=1`, [submission.id]);
     if (!Number(quality?.recipients||0)) return { status:409, data:{ error:'Pay Run tidak memiliki penerima aktif' } };
-    if (Number(quality?.invalid_net||0) || Number(quality?.invalid_bank||0)) return { status:409, data:{ error:`Input belum valid: ${Number(quality?.invalid_net||0)} THP dan ${Number(quality?.invalid_bank||0)} rekening bermasalah` } };
+    if (Number(quality?.invalid_control||0) || Number(quality?.invalid_bank||0)) return { status:409, data:{
+      error:`Input belum valid: ${Number(quality?.invalid_control||0)} control payroll dan ${Number(quality?.invalid_bank||0)} rekening bermasalah`,
+      code:'PAY_RUN_INPUT_CONTROL_INVALID',
+    } };
     await d1Batch(database, [
       { statement:`UPDATE payroll_submissions SET input_status='READY',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },
       auditOperation(organizationId,actor,'PAY_RUN_INPUT_FINALIZED',`${quality.recipients} penerima tervalidasi`,'payroll_submission',submission.id),
