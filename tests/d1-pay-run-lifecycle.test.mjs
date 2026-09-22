@@ -80,10 +80,15 @@ test('Pay Run snapshots monthly data, compares variance, and controls period lif
   assert.equal(detail.variance.changedEmployees,1);
 
   DB.sqlite.prepare("UPDATE payroll_submissions SET state='PAYROLL_FINALIZED' WHERE id=?").run(secondId);
-  const closed=await action(DB,{action:'CLOSE_PAY_RUN',submissionId:secondId,confirmation:'TUTUP PERIODE'});
-  assert.equal(closed.payload.submission.period_status,'CLOSED');
+  const prematureClose=await action(DB,{action:'CLOSE_PAY_RUN',submissionId:secondId,confirmation:'TUTUP PERIODE'});
+  assert.equal(prematureClose.response.status,409);
+  assert.equal(prematureClose.payload.code,'CLOSE_READINESS_REQUIRED');
+  assert.ok(prematureClose.payload.readiness.reasons.includes('PAYROLL_NOT_RECONCILED'));
   const locked=await action(DB,{action:'UPDATE_PAY_RUN_LINE',submissionId:secondId,employeeId:'EMP-B',grossAmount:1,deductionAmount:0,netAmount:1,included:true});
   assert.equal(locked.response.status,409);
+
+  // Legacy/admin-only closed periods without payment can still be reopened for correction.
+  DB.sqlite.prepare("UPDATE payroll_submissions SET state='REVISION_REQUIRED',period_status='CLOSED' WHERE id=?").run(secondId);
   const reopened=await action(DB,{action:'REOPEN_PAY_RUN',submissionId:secondId,reason:'Koreksi data lembur bulan Agustus',confirmation:'BUKA KEMBALI'});
   assert.equal(reopened.payload.submission.period_status,'OPEN');
   assert.equal(reopened.payload.submission.state,'REVISION_REQUIRED');
