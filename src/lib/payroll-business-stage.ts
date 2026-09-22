@@ -1,60 +1,68 @@
-export const PAYROLL_BUSINESS_STAGE_ORDER = [
-  'DATA_READINESS',
-  'PAYROLL_PREPARATION',
-  'REVIEW_APPROVAL',
-  'PAYMENT',
-  'RECONCILIATION_CLOSE',
-] as const;
+import {
+  BUSINESS_STAGE_META as CORE_META,
+  PAYROLL_BUSINESS_STAGE_COUNT as CORE_COUNT,
+  PAYROLL_BUSINESS_STAGE_ORDER as CORE_ORDER,
+  derivePayrollBusinessStage as deriveCore,
+  payrollBusinessStage as stageCore,
+  payrollBusinessStageIndex as indexCore,
+  payrollBusinessStageLabel as labelCore,
+} from './payroll-business-stage-core.js';
 
-export type PayrollBusinessStage = (typeof PAYROLL_BUSINESS_STAGE_ORDER)[number];
-export const PAYROLL_BUSINESS_STAGE_COUNT = PAYROLL_BUSINESS_STAGE_ORDER.length;
+export type PayrollBusinessStage = 'PREPARE' | 'REVIEW' | 'APPROVE' | 'PAY' | 'CLOSE';
+export type PayrollBusinessStatus = 'IN_PROGRESS' | 'ACTION_REQUIRED' | 'FOR_APPROVAL' | 'PROCESSING' | 'COMPLETED';
 
-const STAGE_BY_STATE: Record<string, PayrollBusinessStage> = {
-  DRAFT: 'DATA_READINESS',
-  SUBMITTED: 'PAYROLL_PREPARATION',
-  INGESTING: 'PAYROLL_PREPARATION',
-  AI_VALIDATING: 'PAYROLL_PREPARATION',
-  EXCEPTION_FOUND: 'DATA_READINESS',
-  EXCEPTION_REVIEW: 'DATA_READINESS',
-  CLIENT_ACTION_REQUIRED: 'DATA_READINESS',
-  CLIENT_RESUBMITTED: 'PAYROLL_PREPARATION',
-  VALIDATED: 'PAYROLL_PREPARATION',
-  STANDARDIZED: 'PAYROLL_PREPARATION',
-  PROCESSOR_REVIEW: 'PAYROLL_PREPARATION',
-  CONTROLLER_REVIEW: 'REVIEW_APPROVAL',
-  REVISION_REQUIRED: 'DATA_READINESS',
-  DATA_APPROVED: 'REVIEW_APPROVAL',
-  PAYROLL_FINALIZED: 'REVIEW_APPROVAL',
-  PAYMENT_INSTRUCTION_READY: 'PAYMENT',
-  PAYMENT_APPROVAL_PENDING: 'PAYMENT',
-  APPROVED_FOR_PAYMENT: 'PAYMENT',
-  DISBURSEMENT_PROCESSING: 'PAYMENT',
-  PROOF_UPLOADED: 'PAYMENT',
-  RECONCILIATION: 'RECONCILIATION_CLOSE',
-  PAYMENT_EXCEPTION: 'RECONCILIATION_CLOSE',
-  COMPLETED: 'RECONCILIATION_CLOSE',
-  REJECTED: 'DATA_READINESS',
-  CANCELLED: 'DATA_READINESS',
+export type PayrollBusinessContext = {
+  state?: unknown;
+  submissionState?: unknown;
+  paymentInstructionStatus?: unknown;
+  piStatus?: unknown;
+  reconciliationStatus?: unknown;
+  recStatus?: unknown;
+  invoiceStatus?: unknown;
+  arStatus?: unknown;
+  blockingCount?: number | string | null;
+  openExceptionCount?: number | string | null;
+  exceptionCount?: number | string | null;
 };
 
-export const BUSINESS_STAGE_LABELS: Record<PayrollBusinessStage, string> = {
-  DATA_READINESS: 'Data Readiness',
-  PAYROLL_PREPARATION: 'Payroll Preparation',
-  REVIEW_APPROVAL: 'Review & Approval',
-  PAYMENT: 'Payment',
-  RECONCILIATION_CLOSE: 'Reconciliation & Close',
+export type PayrollBusinessStageResult = {
+  stage: PayrollBusinessStage;
+  label: string;
+  description: string;
+  view: 'operations' | 'payments' | 'billing';
+  index: number;
+  progress: number;
+  status: PayrollBusinessStatus;
+  reason: string;
+  source: string;
+  sourceValue: string;
+  technicalState: string;
+  paymentInstructionStatus: string | null;
+  reconciliationStatus: string | null;
+  knownState: boolean;
+  isTerminal: boolean;
 };
+
+export const PAYROLL_BUSINESS_STAGE_ORDER = CORE_ORDER as readonly PayrollBusinessStage[];
+export const PAYROLL_BUSINESS_STAGE_COUNT = CORE_COUNT;
+export const BUSINESS_STAGE_META = CORE_META as Readonly<Record<PayrollBusinessStage, {
+  label:string;
+  description:string;
+  view:'operations'|'payments'|'billing';
+}>>;
+
+export function derivePayrollBusinessStage(context: PayrollBusinessContext = {}): PayrollBusinessStageResult {
+  return deriveCore(context) as PayrollBusinessStageResult;
+}
 
 export function payrollBusinessStage(state: unknown): PayrollBusinessStage {
-  return STAGE_BY_STATE[String(state || '').toUpperCase()] || 'DATA_READINESS';
+  return stageCore(state) as PayrollBusinessStage;
 }
 
 export function payrollBusinessStageLabel(state: unknown) {
-  return BUSINESS_STAGE_LABELS[payrollBusinessStage(state)];
+  return labelCore(state);
 }
 
 export function payrollBusinessStageIndex(state: unknown, piStatus?: unknown, recStatus?: unknown) {
-  if (recStatus && /MATCH|COMPLETE/i.test(String(recStatus))) return PAYROLL_BUSINESS_STAGE_COUNT;
-  if (piStatus && /PAID|COMPLETED|RECONCILED/i.test(String(piStatus))) return PAYROLL_BUSINESS_STAGE_COUNT;
-  return PAYROLL_BUSINESS_STAGE_ORDER.indexOf(payrollBusinessStage(state)) + 1;
+  return indexCore(state, piStatus, recStatus);
 }
