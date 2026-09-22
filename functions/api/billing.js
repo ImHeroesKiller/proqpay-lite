@@ -74,27 +74,31 @@ export async function onRequest({request,env}) {
   const database=env.DB,actor=authorization.actor,organizationId=orgId(env);
   try {
     if (request.method==='GET') {
+      const focusSubmissionId=new URL(request.url).searchParams.get('submissionId');
+      const submissionFilter=focusSubmissionId?{sql:' AND s.id=?',bindings:[focusSubmissionId]}:{sql:'',bindings:[]};
       const cs=clientFilter(actor,'id'),is=clientFilter(actor,'i.client_id'),as=clientFilter(actor,'ar.client_id');
       const [clients,billablePayments,invoices,arItems]=await Promise.all([
         d1All(database,`SELECT id,code,name,npwp,nitku,billing_address,billing_email,payment_terms_days,tax_status,
           purchase_order,billing_method,billing_rate,billing_admin_fee,billing_tax_rate FROM clients
           WHERE org_id=?${cs.sql} ORDER BY name`,[organizationId,...cs.bindings]),
         actor.role==='CLIENT_USER'?Promise.resolve([]):d1All(database,`SELECT pi.id,pi.id AS instruction_number,pi.client_id,
-          c.name AS company,c.name AS client_name,s.project_id,p.name AS project_name,s.period AS payroll_period,
+          s.id AS submission_id,c.name AS company,c.name AS client_name,s.project_id,p.name AS project_name,s.period AS payroll_period,
           COALESCE(s.payment_period,s.period) AS payment_period,pi.expected_total,pi.expected_total AS payroll_total,
           (SELECT COUNT(*) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id) AS employee_count
           FROM payment_instructions pi JOIN clients c ON c.id=pi.client_id JOIN payroll_submissions s ON s.id=pi.submission_id
           LEFT JOIN projects p ON p.id=s.project_id WHERE pi.org_id=? AND pi.status='COMPLETED'
-          AND NOT EXISTS(SELECT 1 FROM invoices i WHERE i.payment_instruction_id=pi.id)
-          ORDER BY pi.updated_at DESC LIMIT 200`,[organizationId]),
-        d1All(database,`SELECT i.*,c.name AS client_name,c.billing_email,c.billing_address,c.npwp,c.nitku,c.tax_status,
+          AND NOT EXISTS(SELECT 1 FROM invoices i WHERE i.payment_instruction_id=pi.id)${submissionFilter.sql}
+          ORDER BY pi.updated_at DESC LIMIT 200`,[organizationId,...submissionFilter.bindings]),
+        d1All(database,`SELECT i.*,s.id AS submission_id,c.name AS client_name,c.billing_email,c.billing_address,c.npwp,c.nitku,c.tax_status,
           c.tax_status AS client_tax_status,p.name AS project_name,
           EXISTS(SELECT 1 FROM audit_logs al WHERE al.org_id=i.org_id AND al.entity='tax_invoice_file' AND al.entity_id=i.id AND al.action='TAX_INVOICE_FILE_UPLOADED') AS tax_invoice_file_uploaded,
           COALESCE(ar.status,CASE WHEN i.status='ISSUED' THEN 'OUTSTANDING' ELSE NULL END) AS ar_status,
           COALESCE(ar.balance,i.total_amount) AS ar_balance,ar.id AS ar_id FROM invoices i JOIN clients c ON c.id=i.client_id
+          LEFT JOIN payment_instructions pi_link ON pi_link.id=i.payment_instruction_id
+          LEFT JOIN payroll_submissions s ON s.id=pi_link.submission_id
           LEFT JOIN projects p ON p.id=i.project_id LEFT JOIN ar_monitor ar ON ar.invoice_id=i.id
-          WHERE i.org_id=?${is.sql}${actor.role==='CLIENT_USER'?" AND i.status IN ('ISSUED','PARTIALLY_PAID','PAID')":''}
-          ORDER BY (i.issued_at IS NULL),i.issued_at DESC,i.updated_at DESC LIMIT 500`,[organizationId,...is.bindings]),
+          WHERE i.org_id=?${is.sql}${actor.role==='CLIENT_USER'?" AND i.status IN ('ISSUED','PARTIALLY_PAID','PAID')":''}${submissionFilter.sql}
+          ORDER BY (i.issued_at IS NULL),i.issued_at DESC,i.updated_at DESC LIMIT 500`,[organizationId,...is.bindings,...submissionFilter.bindings]),
         d1All(database,`SELECT ar.*,i.invoice_number,i.total_amount,i.issued_at,c.name AS client_name,p.name AS project_name,
           CASE WHEN ar.status NOT IN ('PAID','DISPUTED') AND date(ar.due_date)<date('now') THEN 'OVERDUE'
           WHEN ar.status='OUTSTANDING' AND date(ar.due_date)>=date('now') THEN 'NOT_DUE' ELSE ar.status END AS display_status,
@@ -110,7 +114,10 @@ export async function onRequest({request,env}) {
           COALESCE((SELECT json_group_array(json_object('id',af.id,'note',af.note,'next_follow_up_at',af.next_follow_up_at,
           'created_by',af.created_by,'created_at',af.created_at)) FROM ar_follow_ups af WHERE af.ar_id=ar.id),'[]') AS follow_ups
           FROM ar_monitor ar JOIN invoices i ON i.id=ar.invoice_id JOIN clients c ON c.id=ar.client_id
-          LEFT JOIN projects p ON p.id=ar.project_id WHERE ar.org_id=?${as.sql} ORDER BY ar.due_date DESC LIMIT 500`,[organizationId,...as.bindings]),
+          LEFT JOIN payment_instructions pi_link ON pi_link.id=i.payment_instruction_id
+          LEFT JOIN payroll_submissions s ON s.id=pi_link.submission_id
+          LEFT JOIN projects p ON p.id=ar.project_id WHERE ar.org_id=?${as.sql}${submissionFilter.sql}
+          ORDER BY ar.due_date DESC LIMIT 500`,[organizationId,...as.bindings,...submissionFilter.bindings]),
       ]);
       for (const invoice of invoices) invoice.items=parseJson(invoice.items);
       for (const ar of arItems) { ar.payments=parseJson(ar.payments); ar.unapplied_cash=parseJson(ar.unapplied_cash); ar.follow_ups=parseJson(ar.follow_ups); }

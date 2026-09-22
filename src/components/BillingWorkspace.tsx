@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatIDR } from "@/lib/format";
-import { executeOperatingAction, listOperatingResource } from "@/lib/operating-model-api";
+import { executeOperatingAction, getPayRunDetail, listOperatingResource } from "@/lib/operating-model-api";
 
 type Actor = { email: string; role: string };
 type Section = "invoice" | "tax" | "ar" | "close" | "setup";
@@ -31,8 +31,20 @@ const initialData: BillingData = {
   submissions: [],
 };
 
-export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
-  const [section, setSection] = useState<Section>("invoice");
+type BillingWorkspaceProps = {
+  actor: Actor | null;
+  focusSubmissionId?: string;
+  focusSection?: Section;
+  onClearFocus?: () => void;
+};
+
+export default function BillingWorkspace({
+  actor,
+  focusSubmissionId = "",
+  focusSection,
+  onClearFocus,
+}: BillingWorkspaceProps) {
+  const [section, setSection] = useState<Section>(focusSection || "invoice");
   const [data, setData] = useState<BillingData>(initialData);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
@@ -46,14 +58,27 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [response, operating] = await Promise.all([
-        fetch("/api/billing", { credentials: "same-origin" }),
+      const billingUrl = focusSubmissionId
+        ? `/api/billing?submissionId=${encodeURIComponent(focusSubmissionId)}`
+        : "/api/billing";
+      const [response, operating, focused] = await Promise.all([
+        fetch(billingUrl, { credentials: "same-origin" }),
         listOperatingResource("submissions"),
+        focusSubmissionId
+          ? getPayRunDetail(focusSubmissionId).catch(() => null)
+          : Promise.resolve(null),
       ]);
       const body = await response.json();
       if (!response.ok)
         throw new Error(body.error || `HTTP ${response.status}`);
-      setData({ ...initialData, ...body, submissions: operating.submissions || [] });
+      const submissions = [...(operating.submissions || [])];
+      if (
+        focused?.submission &&
+        !submissions.some((row: any) => String(row.id) === String(focused.submission.id))
+      ) {
+        submissions.unshift(focused.submission);
+      }
+      setData({ ...initialData, ...body, submissions });
     } catch (error) {
       setNotice(
         error instanceof Error ? error.message : "Gagal memuat Billing & AR",
@@ -61,11 +86,47 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [focusSubmissionId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (focusSection) {
+      setSection(focusSection);
+      return;
+    }
+    if (!focusSubmissionId) return;
+    const submission = data.submissions.find((row) => String(row.id) === focusSubmissionId);
+    if (!submission) return;
+    const closingInvoice = ["ISSUED", "PARTIALLY_PAID", "PAID"].includes(
+      String(submission.invoice_status || ""),
+    );
+    setSection(
+      submission.period_status === "CLOSED" || closingInvoice ? "close" : "invoice",
+    );
+  }, [data.submissions, focusSection, focusSubmissionId]);
+
+  const focusedData = useMemo(() => {
+    if (!focusSubmissionId) return data;
+    const submissions = data.submissions.filter(
+      (row) => String(row.id) === focusSubmissionId,
+    );
+    const billablePayments = data.billablePayments.filter(
+      (row) => String(row.submission_id || "") === focusSubmissionId,
+    );
+    const invoices = data.invoices.filter(
+      (row) => String(row.submission_id || "") === focusSubmissionId,
+    );
+    const invoiceIds = new Set(invoices.map((row) => String(row.id)));
+    const arItems = data.arItems.filter((row) =>
+      invoiceIds.has(String(row.invoice_id || "")),
+    );
+    const clientIds = new Set(submissions.map((row) => String(row.client_id || "")));
+    const clients = data.clients.filter((row) => clientIds.has(String(row.id)));
+    return { ...data, submissions, billablePayments, invoices, arItems, clients };
+  }, [data, focusSubmissionId]);
 
   async function act(
     action: string,
@@ -140,8 +201,8 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
   }
 
   const totals = useMemo(() => {
-    const open = data.arItems.filter((r) => Number(r.balance) > 0);
-    const closeReady = data.submissions.filter((r) =>
+    const open = focusedData.arItems.filter((r) => Number(r.balance) > 0);
+    const closeReady = focusedData.submissions.filter((r) =>
       r.period_status !== "CLOSED" &&
       r.state === "COMPLETED" &&
       r.payment_status === "COMPLETED" &&
@@ -149,8 +210,8 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
       ["ISSUED", "PARTIALLY_PAID", "PAID"].includes(r.invoice_status),
     ).length;
     return {
-      billable: data.billablePayments.length,
-      review: data.invoices.filter((r) =>
+      billable: focusedData.billablePayments.length,
+      review: focusedData.invoices.filter((r) =>
         ["DRAFT", "UNDER_REVIEW"].includes(r.status),
       ).length,
       closeReady,
@@ -159,7 +220,7 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
         .filter((r) => Number(r.aging_days) > 0)
         .reduce((n, r) => n + Number(r.balance || 0), 0),
     };
-  }, [data]);
+  }, [focusedData]);
 
   function openGenerate(row: any) {
     setForm({ reimbursement: 0, discount: 0 });
@@ -281,6 +342,16 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {(focusSubmissionId || focusSection) && (
+        <div className="dashboard-focus-banner" role="status">
+          <span>
+            Dashboard focus · {focusSubmissionId || sections[focusSection || "close"]}
+          </span>
+          {onClearFocus ? (
+            <button type="button" onClick={onClearFocus}>Tampilkan semua</button>
+          ) : null}
+        </div>
+      )}
       <div
         style={{
           display: "grid",
@@ -344,7 +415,7 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
 
       {section === "invoice" && (
         <InvoiceSection
-          data={data}
+          data={focusedData}
           canPrepare={canPrepare}
           canControl={canControl}
           act={act}
@@ -356,7 +427,7 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
       )}
       {section === "tax" && (
         <TaxSection
-          rows={data.invoices}
+          rows={focusedData.invoices}
           canControl={canControl}
           openTax={openTax}
           exportCoretax={exportCoretax}
@@ -364,7 +435,7 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
       )}
       {section === "ar" && (
         <ARSection
-          rows={data.arItems}
+          rows={focusedData.arItems}
           canControl={canControl}
           canFollow={canControl || canPrepare}
           payment={openPayment}
@@ -373,14 +444,14 @@ export default function BillingWorkspace({ actor }: { actor: Actor | null }) {
       )}
       {section === "close" && (
         <CloseSection
-          rows={data.submissions}
+          rows={focusedData.submissions}
           canControl={canControl}
           close={closePayRun}
         />
       )}
       {section === "setup" && (
         <SetupSection
-          clients={data.clients}
+          clients={focusedData.clients}
           canEdit={canPrepare}
           open={openSetup}
         />

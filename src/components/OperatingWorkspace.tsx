@@ -299,7 +299,12 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
           {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
-          {mode === 'billing' && actor && <BillingWorkspace actor={actor} />}
+          {mode === 'billing' && actor && <BillingWorkspace
+            actor={actor}
+            focusSubmissionId={focusSubmissionId}
+            focusSection={dashboardStage === 'CLOSE' ? 'close' : undefined}
+            onClearFocus={clearDashboardFocus}
+          />}
         </>
       )}
       {createOpen ? <CreatePayRunWizard clients={data.clients||[]} projects={data.projects||[]} servicePlans={data.servicePlans||[]} submissions={submissions} onClose={()=>setCreateOpen(false)} onCreated={async()=>{setCreateOpen(false);await load();}} /> : null}
