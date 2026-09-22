@@ -78,6 +78,12 @@ function beneficiaryMap(beneficiaries) {
   return new Map(beneficiaries.map((row) => [row.id, row]));
 }
 
+export function isRetryableE2PayFailure(item) {
+  if (String(item?.status || '') !== 'FAILED') return false;
+  if (Number(item?.attempt_count || 0) === 0) return true;
+  return String(item?.response_code || '').trim() === '99';
+}
+
 async function updateItem(database, itemId, fields) {
   const names = Object.keys(fields);
   if (!names.length) return;
@@ -121,7 +127,7 @@ async function transitionPaymentState(database, payment, parentStatus, summary) 
   }
 }
 
-async function prepareBeneficiaries(database, env, transactionId, payment, beneficiaries, accessToken, banks) {
+async function prepareBeneficiaries(database, env, transactionId, payment, beneficiaries, accessToken, banks, { retryFailed = false } = {}) {
   let items = await ensureItems(database, transactionId, payment, beneficiaries);
   const byLine = beneficiaryMap(beneficiaries);
 
@@ -136,7 +142,8 @@ async function prepareBeneficiaries(database, env, transactionId, payment, benef
       continue;
     }
     if (['SUCCEEDED','PROCESSING','PENDING','UNKNOWN','INQUIRY_READY'].includes(item.status)) continue;
-    if (item.status === 'FAILED' && Number(item.attempt_count || 0) > 0) continue;
+    if (item.status === 'FAILED' && Number(item.attempt_count || 0) > 0
+      && !(retryFailed && isRetryableE2PayFailure(item))) continue;
 
     const bank = resolveE2PayBank(banks, beneficiary);
     if (!bank) {
@@ -197,7 +204,7 @@ function parentOutcome(items) {
   return { status:'FAILED', summary };
 }
 
-export async function executeE2PayBatch({ database, env, transactionId, payment, beneficiaries }) {
+export async function executeE2PayBatch({ database, env, transactionId, payment, beneficiaries, retryFailed = false }) {
   const limit = e2paySyncBeneficiaryLimit(env);
   if (beneficiaries.length > limit) {
     return {
@@ -214,7 +221,7 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     e2payBankList(env, auth.accessToken),
   ]);
   const merchantBalance = number(merchant?.balance);
-  let items = await prepareBeneficiaries(database, env, transactionId, payment, beneficiaries, auth.accessToken, banks);
+  let items = await prepareBeneficiaries(database, env, transactionId, payment, beneficiaries, auth.accessToken, banks, { retryFailed });
   let summary = summarizeE2PayItems(items);
 
   if (summary.failed > 0 && summary.succeeded === 0 && summary.processing === 0) {
@@ -251,7 +258,8 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
 
   const byLine = beneficiaryMap(beneficiaries);
   for (const item of items) {
-    if (item.status !== 'INQUIRY_READY' || Number(item.attempt_count || 0) > 0) continue;
+    if (item.status !== 'INQUIRY_READY') continue;
+    if (Number(item.attempt_count || 0) > 0 && !retryFailed) continue;
     const beneficiary = byLine.get(item.payment_instruction_line_id);
     if (!beneficiary) continue;
     await updateItem(database, item.id, {
