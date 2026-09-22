@@ -13,6 +13,7 @@ function integer(value,min=0,max=Number.MAX_SAFE_INTEGER) { const n=Number(value
 function processor(role) { return ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role); }
 function controller(role) { return ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role); }
 function parseJson(value) { try { return JSON.parse(value||'[]'); } catch { return []; } }
+function parseObject(value) { try { const parsed=JSON.parse(value||'{}'); return parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{}; } catch { return {}; } }
 
 export function addBusinessDaysUtc(start, days) {
   const date = new Date(start);
@@ -138,23 +139,27 @@ export async function onRequest({request,env}) {
       if (!item) return respond({error:'Payment belum selesai atau tidak ditemukan'},409);
       const existing=await d1First(database,'SELECT * FROM invoices WHERE payment_instruction_id=? LIMIT 1',[item.id]);
       if (existing) return respond({ok:true,invoice:existing,idempotentReplay:true});
-      const rate=Number(item.billing_rate||0),employees=Number(item.employee_count||0),payroll=Number(item.expected_total||0),
-        serviceFee=item.billing_method==='PER_EMPLOYEE'?Math.round(employees*rate):item.billing_method==='PERCENTAGE_OF_PAYROLL'?Math.round(payroll*rate/100):Math.round(rate),
-        adminFee=Number(item.billing_admin_fee||0),reimbursement=integer(body.reimbursement||0,0),discount=integer(body.discount||0,0);
-      if (reimbursement===null||discount===null||serviceFee+adminFee+reimbursement-discount<=0) return respond({error:'Billing rule belum lengkap atau nilai invoice tidak valid'},409);
-      const subtotal=serviceFee+adminFee+reimbursement-discount,taxRate=item.tax_status==='PKP'?Number(item.billing_tax_rate||0):0,
+      const frozen=parseObject(item.billing_snapshot);
+      const billingMethod=String(frozen.method||item.billing_method||'');
+      const rate=Number(frozen.rate ?? item.billing_rate ?? 0),employees=Number(item.employee_count||0),payroll=Number(item.expected_total||0),
+        serviceFee=billingMethod==='PER_EMPLOYEE'?Math.round(employees*rate):billingMethod==='PERCENTAGE_OF_PAYROLL'?Math.round(payroll*rate/100):Math.round(rate),
+        adminFee=Number(frozen.adminFee ?? item.billing_admin_fee ?? 0),reimbursement=integer(body.reimbursement||0,0),discount=integer(body.discount||0,0);
+      if (!['PER_EMPLOYEE','FIXED','PERCENTAGE_OF_PAYROLL'].includes(billingMethod)||reimbursement===null||discount===null||serviceFee+adminFee+reimbursement-discount<=0) return respond({error:'Billing rule belum lengkap atau nilai invoice tidak valid'},409);
+      const taxStatus=String(frozen.taxStatus||item.tax_status||'NON_PKP');
+      const subtotal=serviceFee+adminFee+reimbursement-discount,taxRate=taxStatus==='PKP'?Number(frozen.taxRate ?? item.billing_tax_rate ?? 0):0,
         taxAmount=Math.round(subtotal*taxRate/100),total=subtotal+taxAmount,period=String(item.payment_period||item.period||new Date().toISOString().slice(0,7));
       if (!PERIOD.test(period)) return respond({error:'Periode invoice tidak valid'},409);
       const sequence=await nextInvoiceSequence(database,organizationId,period);
       const invoiceNumber=`INV/${period.replace('-','')}/${String(item.code||'CLIENT').replace(/[^A-Z0-9]/gi,'').slice(0,10)}/${String(sequence).padStart(4,'0')}`,
-        id=`INV-${crypto.randomUUID()}`,items=[{description:'Payroll service fee',quantity:item.billing_method==='PER_EMPLOYEE'?employees:1,rate,amount:serviceFee},
+        id=`INV-${crypto.randomUUID()}`,items=[{description:'Payroll service fee',quantity:billingMethod==='PER_EMPLOYEE'?employees:1,rate,amount:serviceFee},
         ...(adminFee?[{description:'Administration fee',quantity:1,rate:adminFee,amount:adminFee}]:[]),...(reimbursement?[{description:'Reimbursement',quantity:1,rate:reimbursement,amount:reimbursement}]:[]),
         ...(discount?[{description:'Discount',quantity:1,rate:-discount,amount:-discount}]:[])];
       try {
         const invoice=await d1First(database,`INSERT INTO invoices(id,org_id,client_id,project_id,payment_instruction_id,company,period,invoice_number,
-          amount,subtotal,tax_rate,tax_amount,total_amount,status,items,tax_invoice_status,created_by,updated_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,${NOW}) RETURNING *`,[id,organizationId,item.client_id,item.project_id,item.id,item.name,period,
-          invoiceNumber,subtotal,subtotal,taxRate,taxAmount,total,JSON.stringify(items),item.tax_status==='PKP'?'PENDING':'NOT_REQUIRED',actor.email]);
+          amount,subtotal,tax_rate,tax_amount,total_amount,status,items,tax_invoice_status,created_by,billing_snapshot,updated_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,?,${NOW}) RETURNING *`,[id,organizationId,item.client_id,item.project_id,item.id,item.name,period,
+          invoiceNumber,subtotal,subtotal,taxRate,taxAmount,total,JSON.stringify(items),taxStatus==='PKP'?'PENDING':'NOT_REQUIRED',actor.email,
+          item.billing_snapshot || JSON.stringify({ method:billingMethod,rate,adminFee,taxRate,taxStatus,paymentTermsDays:Number(item.payment_terms_days||0),purchaseOrder:item.purchase_order||null,legacyFallback:true })]);
         invoice.items=items; return respond({ok:true,invoice},201);
       } catch (insertError) {
         if (/payment_instruction_id|UNIQUE constraint failed: invoices\.payment_instruction_id/i.test(String(insertError?.message||insertError))) {

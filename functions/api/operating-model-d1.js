@@ -799,6 +799,20 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (changedAccounts.length) return { status:409, data:{ error:`${changedAccounts.length} rekening berubah setelah snapshot; review dan finalisasi ulang Pay Run diperlukan` } };
     if (!env.PI_ENCRYPTION_KEY || String(env.PI_ENCRYPTION_KEY).length < 32) return { status: 503, data: { error: 'PI_ENCRYPTION_KEY belum dikonfigurasi dengan aman' } };
     const expectedTotal = source.reduce((sum, row) => sum + Number(row.amount), 0);
+    const billingProfile = await d1First(database, `SELECT billing_method,billing_rate,billing_admin_fee,billing_tax_rate,
+      tax_status,payment_terms_days,purchase_order FROM clients WHERE id=? AND org_id=? LIMIT 1`,
+      [submission.client_id, organizationId]);
+    if (!billingProfile) return { status:404, data:{ error:'Client billing profile tidak ditemukan' } };
+    const billingSnapshot = JSON.stringify({
+      method:String(billingProfile.billing_method || 'PER_EMPLOYEE'),
+      rate:Number(billingProfile.billing_rate || 0),
+      adminFee:Number(billingProfile.billing_admin_fee || 0),
+      taxRate:Number(billingProfile.billing_tax_rate || 0),
+      taxStatus:String(billingProfile.tax_status || 'NON_PKP'),
+      paymentTermsDays:Number(billingProfile.payment_terms_days || 0),
+      purchaseOrder:billingProfile.purchase_order || null,
+      capturedAt:new Date().toISOString(),
+    });
     const id = `PI-${crypto.randomUUID()}`;
     const paymentPeriod = submission.payment_period || submission.period;
     const snapshotLines = await Promise.all(source.map(async (row) => {
@@ -830,10 +844,10 @@ async function executeAction(database, body, actor, env, organizationId) {
       ...(existing ? [{ statement:`UPDATE payment_instructions SET status='REJECTED',updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[existing.id] }] : []),
       { statement: `INSERT INTO payment_instructions
         (id,org_id,client_id,submission_id,status,expected_total,creator_user_id,idempotency_key,
-         document_no,content_hash,currency,execution_date,recipient_count)
-        VALUES (?,?,?,?,'PAYMENT_INSTRUCTION_READY',?,?,?,?,?,'IDR',?,?)`,
+         document_no,content_hash,currency,execution_date,recipient_count,billing_snapshot)
+        VALUES (?,?,?,?,'PAYMENT_INSTRUCTION_READY',?,?,?,?,?,'IDR',?,?,?)`,
         bindings: [id, organizationId, submission.client_id, submission.id, expectedTotal, actor.id, idempotencyKey,
-          documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length] },
+          documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length, billingSnapshot] },
       ...lineInsertOperations(id, snapshotLines),
       { statement: atomicControllerApproval
         ? `UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',controller_reviewed_at=${NOW},controller_reviewed_by=?,controller_review_note=?,updated_at=${NOW} WHERE id=? AND state='CONTROLLER_REVIEW'`
@@ -891,21 +905,43 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'REQUEST_CLIENT_ACTION' || body.action === 'ADD_EXCEPTION_NOTE' || body.action === 'RESOLVE_EXCEPTION') {
-    const current = await d1First(database, `SELECT e.*,s.client_id,s.project_id FROM payroll_exceptions e
+    const current = await d1First(database, `SELECT e.*,s.client_id,s.project_id,s.state AS submission_state FROM payroll_exceptions e
       JOIN payroll_submissions s ON s.id=e.submission_id WHERE e.id=? AND s.org_id=? LIMIT 1`,
       [body.exceptionId, organizationId]);
     if (!current) return { status: 404, data: { error: 'Exception not found' } };
     if (!assertClientScope(actor, env, current.client_id) || !assertProjectScope(actor, current.project_id)) return { status: 403, data: { error: 'Scope denied' } };
+    if (actor.role === 'CLIENT_USER') {
+      if (!['ADD_EXCEPTION_NOTE','RESOLVE_EXCEPTION'].includes(body.action)) return { status:403, data:{ error:'Client User hanya dapat memberi catatan atau mengonfirmasi perbaikan exception' } };
+      if (body.action === 'RESOLVE_EXCEPTION' && (body.status !== 'ACCEPTED' || current.status !== 'CLIENT_ACTION_REQUIRED')) {
+        return { status:409, data:{ error:'Client hanya dapat mengonfirmasi exception yang sedang menunggu perbaikan klien', code:'CLIENT_EXCEPTION_STATE_REQUIRED' } };
+      }
+    }
     let row;
     if (body.action === 'RESOLVE_EXCEPTION') {
       row = await d1First(database, `UPDATE payroll_exceptions SET status=?,resolution_note=?,resolved_at=${NOW},resolved_by=?
         WHERE id=? RETURNING *`, [body.status, body.resolutionNote, actor.email, body.exceptionId]);
+      if (actor.role === 'CLIENT_USER' && body.status === 'ACCEPTED') {
+        const remaining = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions
+          WHERE submission_id=? AND status='CLIENT_ACTION_REQUIRED' AND id<>?`, [current.submission_id, current.id]);
+        if (Number(remaining?.count || 0) === 0 && current.submission_state === 'CLIENT_ACTION_REQUIRED') {
+          await d1Batch(database, [
+            { statement:`UPDATE payroll_submissions SET state='CLIENT_RESUBMITTED',updated_at=${NOW} WHERE id=? AND state='CLIENT_ACTION_REQUIRED'`, bindings:[current.submission_id] },
+            auditOperation(organizationId, actor, 'CLIENT_PAYROLL_CORRECTION_CONFIRMED', 'Semua exception client action telah dikonfirmasi', 'payroll_submission', current.submission_id),
+          ]);
+        }
+      }
     } else {
       const status = body.action === 'REQUEST_CLIENT_ACTION' ? 'CLIENT_ACTION_REQUIRED' : current.status;
       const owner = body.action === 'REQUEST_CLIENT_ACTION' ? 'CLIENT_USER' : current.owner;
       const note = `${current.resolution_note ? `${current.resolution_note}\n` : ''}[${new Date().toISOString()}] ${actor.email}: ${String(body.message).slice(0,1000)}`;
       row = await d1First(database, 'UPDATE payroll_exceptions SET status=?,owner=?,resolution_note=? WHERE id=? RETURNING *',
         [status, owner, note, body.exceptionId]);
+      if (body.action === 'REQUEST_CLIENT_ACTION' && current.submission_state === 'EXCEPTION_FOUND') {
+        await d1Batch(database, [
+          { statement:`UPDATE payroll_submissions SET state='CLIENT_ACTION_REQUIRED',updated_at=${NOW} WHERE id=? AND state='EXCEPTION_FOUND'`, bindings:[current.submission_id] },
+          auditOperation(organizationId, actor, 'CLIENT_ACTION_REQUESTED', String(body.message).slice(0,1000), 'payroll_submission', current.submission_id),
+        ]);
+      }
     }
     return { data: { ok: true, exception: row } };
   }
@@ -1024,7 +1060,9 @@ export async function handleD1OperatingModel({ request, env }, actor) {
     catch (error) { return respond({ error: error.message === 'PAYLOAD_TOO_LARGE' ? 'Payload too large' : 'Invalid JSON' }, error.message === 'PAYLOAD_TOO_LARGE' ? 413 : 400); }
     const validation = validateOperatingAction(body);
     if (!validation.ok) return respond({ error: validation.errors.join('; ') }, 422);
-    if (actor.role === 'CLIENT_USER') return respond({ error:'Client User memiliki akses monitoring saja' }, 403);
+    if (actor.role === 'CLIENT_USER' && !['ADD_EXCEPTION_NOTE','RESOLVE_EXCEPTION'].includes(body.action)) {
+      return respond({ error:'Client User memiliki akses monitoring dan koreksi exception terbatas' }, 403);
+    }
     const result = await executeAction(env.DB, body, actor, env, organizationId);
     return respond(result.data, result.status || 200);
   } catch (error) {
