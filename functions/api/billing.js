@@ -80,18 +80,20 @@ export async function onRequest({request,env}) {
           purchase_order,billing_method,billing_rate,billing_admin_fee,billing_tax_rate FROM clients
           WHERE org_id=?${cs.sql} ORDER BY name`,[organizationId,...cs.bindings]),
         actor.role==='CLIENT_USER'?Promise.resolve([]):d1All(database,`SELECT pi.id,pi.id AS instruction_number,pi.client_id,
-          c.name AS company,c.name AS client_name,s.project_id,p.name AS project_name,s.period AS payroll_period,
+          s.id AS submission_id,c.name AS company,c.name AS client_name,s.project_id,p.name AS project_name,s.period AS payroll_period,
           COALESCE(s.payment_period,s.period) AS payment_period,pi.expected_total,pi.expected_total AS payroll_total,
           (SELECT COUNT(*) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id) AS employee_count
           FROM payment_instructions pi JOIN clients c ON c.id=pi.client_id JOIN payroll_submissions s ON s.id=pi.submission_id
           LEFT JOIN projects p ON p.id=s.project_id WHERE pi.org_id=? AND pi.status='COMPLETED'
           AND NOT EXISTS(SELECT 1 FROM invoices i WHERE i.payment_instruction_id=pi.id)
           ORDER BY pi.updated_at DESC LIMIT 200`,[organizationId]),
-        d1All(database,`SELECT i.*,c.name AS client_name,c.billing_email,c.billing_address,c.npwp,c.nitku,c.tax_status,
+        d1All(database,`SELECT i.*,s.id AS submission_id,c.name AS client_name,c.billing_email,c.billing_address,c.npwp,c.nitku,c.tax_status,
           c.tax_status AS client_tax_status,p.name AS project_name,
           EXISTS(SELECT 1 FROM audit_logs al WHERE al.org_id=i.org_id AND al.entity='tax_invoice_file' AND al.entity_id=i.id AND al.action='TAX_INVOICE_FILE_UPLOADED') AS tax_invoice_file_uploaded,
           COALESCE(ar.status,CASE WHEN i.status='ISSUED' THEN 'OUTSTANDING' ELSE NULL END) AS ar_status,
           COALESCE(ar.balance,i.total_amount) AS ar_balance,ar.id AS ar_id FROM invoices i JOIN clients c ON c.id=i.client_id
+          LEFT JOIN payment_instructions pi_link ON pi_link.id=i.payment_instruction_id
+          LEFT JOIN payroll_submissions s ON s.id=pi_link.submission_id
           LEFT JOIN projects p ON p.id=i.project_id LEFT JOIN ar_monitor ar ON ar.invoice_id=i.id
           WHERE i.org_id=?${is.sql}${actor.role==='CLIENT_USER'?" AND i.status IN ('ISSUED','PARTIALLY_PAID','PAID')":''}
           ORDER BY (i.issued_at IS NULL),i.issued_at DESC,i.updated_at DESC LIMIT 500`,[organizationId,...is.bindings]),
