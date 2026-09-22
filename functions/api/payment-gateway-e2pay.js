@@ -198,11 +198,12 @@ export async function e2payInquiry(env, accessToken, input, fetchImpl = fetch) {
   }, fetchImpl);
 }
 
-export function e2payResponseStatus(responseCode, { emptyIsSuccess = false } = {}) {
+export function e2payResponseStatus(responseCode) {
   const code = String(responseCode ?? '').trim();
-  if (code === '00' || (emptyIsSuccess && code === '')) return 'SUCCEEDED';
+  if (code === '00') return 'SUCCEEDED';
   if (code === '96') return 'PROCESSING';
   if (code === '99') return 'FAILED';
+  // Any missing or undocumented response code is unresolved, never success.
   return 'PENDING';
 }
 
