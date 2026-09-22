@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { STATES } from '../functions/api/operating-model-validation.js';
 import {
   BUSINESS_STAGE_META,
   PAYROLL_BUSINESS_STAGE_ORDER,
@@ -48,6 +49,13 @@ test('technical payroll states map deterministically to the five business stages
   };
   for (const [state, expected] of Object.entries(cases)) {
     assert.equal(payrollBusinessStage(state), expected, state);
+  }
+});
+
+test('every canonical operating-model state is covered by the business mapper', () => {
+  for (const state of STATES) {
+    const result = derivePayrollBusinessStage({ state });
+    assert.equal(result.knownState, true, `Unmapped canonical state: ${state}`);
   }
 });
 
