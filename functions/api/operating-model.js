@@ -9,8 +9,8 @@ const CONTROLLER_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_CONTROLLER']);
 const RECONCILIABLE_STATUSES = new Set(['PROOF_UPLOADED', 'RECONCILIATION', 'PAYMENT_EXCEPTION']);
 const APPROVED_OR_LATER_STATUSES = new Set(['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED']);
 const PAYMENT_RUNTIME_STATES = new Set(['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED']);
-const VALIDATION_MUTABLE_STATES = new Set(['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','CLIENT_RESUBMITTED','REVISION_REQUIRED','EXCEPTION_FOUND']);
-const COPYABLE_PREVIOUS_STATES = new Set(['PAYROLL_FINALIZED','PAYMENT_INSTRUCTION_READY','PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED']);
+const VALIDATION_MUTABLE_STATES = new Set(['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','CLIENT_RESUBMITTED','REVISION_REQUIRED','CLIENT_REVISION_REQUESTED','EXCEPTION_FOUND']);
+const COPYABLE_PREVIOUS_STATES = new Set(['CLIENT_APPROVED','PAYROLL_FINALIZED','PAYMENT_INSTRUCTION_READY','PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED']);
 const encoder = new TextEncoder();
 
 async function sha256Hex(value) {
@@ -159,6 +159,13 @@ async function guardBusinessProcessActions(body, actor, env) {
 
 async function guardSensitivePaymentActions(body, env) {
   if (!body) return null;
+  if (body.action === 'APPROVE_PAYROLL_AND_GENERATE_PI') {
+    return { status: 409, data: {
+      error: 'Controller approval tidak lagi dapat langsung membuat Payment Instruction. Payroll wajib melewati approval Client terlebih dahulu.',
+      code: 'CLIENT_PAYROLL_APPROVAL_REQUIRED',
+      replacementAction: 'TRANSITION_SUBMISSION:CLIENT_APPROVAL_PENDING',
+    } };
+  }
   if (body.action === 'APPROVE_PAYMENT') {
     const paymentInstructionId = String(body.paymentInstructionId || '').trim();
     if (!paymentInstructionId) return { status: 422, data: { error: 'paymentInstructionId wajib diisi' } };
@@ -173,7 +180,7 @@ async function guardSensitivePaymentActions(body, env) {
       }
     }
   }
-  if (body.action === 'GENERATE_PAYMENT_INSTRUCTION' || body.action === 'APPROVE_PAYROLL_AND_GENERATE_PI') {
+  if (body.action === 'GENERATE_PAYMENT_INSTRUCTION') {
     const submissionId = String(body.submissionId || '').trim();
     if (!submissionId) return { status: 422, data: { error: 'submissionId wajib diisi' } };
     let snapshot = await validateBankSnapshot(env, submissionId);
@@ -230,7 +237,7 @@ async function validateSnapshotCapture(body, actor, env) {
   return null;
 }
 
-async function completeControllerApprovalToPI(context, actor, body) {
+async function normalizeLegacyControllerApproval(context, actor, body) {
   if (context.request.method !== 'POST' || !CONTROLLER_ROLES.has(actor.role) || body?.action !== 'TRANSITION_SUBMISSION') return null;
   const target = String(body.toState || '').toUpperCase();
   if (!['DATA_APPROVED','PAYMENT_INSTRUCTION_READY'].includes(target)) return null;
@@ -240,15 +247,11 @@ async function completeControllerApprovalToPI(context, actor, body) {
   const submission = await d1First(context.env.DB, `SELECT state FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`,
     [submissionId, String(context.env.DEFAULT_ORG_ID || 'ORG-OTSINDO')]);
   if (!submission || String(submission.state || '').toUpperCase() !== 'CONTROLLER_REVIEW') return null;
-  const atomicBody = {
-    action: 'APPROVE_PAYROLL_AND_GENERATE_PI',
-    submissionId,
-    reviewConfirmed: body.reviewConfirmed,
-    reviewNote: body.reviewNote,
-  };
-  const guard = await guardSensitivePaymentActions(atomicBody, context.env);
-  if (guard) return secureJson(guard.data, guard.status, context.request, context.env, METHODS);
-  return handleD1OperatingModel(contextWithJsonBody(context, atomicBody), actor);
+
+  return handleD1OperatingModel(contextWithJsonBody(context, {
+    ...body,
+    toState:'CLIENT_APPROVAL_PENDING',
+  }), actor);
 }
 
 export async function onRequest(context) {
@@ -261,8 +264,8 @@ export async function onRequest(context) {
   if (limited) return limited;
   if (!hasD1(env)) return secureJson({ error: 'Cloudflare D1 binding unavailable', code: 'D1_REQUIRED' }, 503, request, env, METHODS);
   const body = await readPostBody(request);
-  const controllerAutoPI = await completeControllerApprovalToPI(context, authorization.actor, body);
-  if (controllerAutoPI) return controllerAutoPI;
+  const legacyControllerApproval = await normalizeLegacyControllerApproval(context, authorization.actor, body);
+  if (legacyControllerApproval) return legacyControllerApproval;
   const businessGuard = await guardBusinessProcessActions(body, authorization.actor, env);
   if (businessGuard) return secureJson(businessGuard.data, businessGuard.status, request, env, METHODS);
   const guarded = await guardSensitivePaymentActions(body, env);

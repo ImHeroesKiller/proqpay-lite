@@ -23,11 +23,15 @@ test('Controller action starts only at approval checkpoints', () => {
   action=derivePayrollNextAction({...controller,state:'CONTROLLER_REVIEW'});
   assert.equal(action.code,'REVIEW_APPROVE_PAYROLL');
   assert.equal(action.actionable,true);
-  assert.equal(action.workflowCommand,'DATA_APPROVED');
+  assert.equal(action.workflowCommand,'CLIENT_APPROVAL_PENDING');
 
-  action=derivePayrollNextAction({...controller,state:'DATA_APPROVED'});
-  assert.equal(action.code,'PREPARE_PAYMENT');
-  assert.equal(action.workflowCommand,'PAYMENT_INSTRUCTION_READY');
+  action=derivePayrollNextAction({...controller,state:'CLIENT_APPROVAL_PENDING'});
+  assert.equal(action.code,'WAIT_CLIENT_APPROVAL');
+  assert.equal(action.actionable,false);
+
+  action=derivePayrollNextAction({...processor,state:'CLIENT_APPROVED'});
+  assert.equal(action.code,'GENERATE_PAYMENT_INSTRUCTION');
+  assert.equal(action.workflowCommand,'GENERATE_PAYMENT_INSTRUCTION');
 });
 
 test('PI generation and PI submission are not confused', () => {

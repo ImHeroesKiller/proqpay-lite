@@ -53,8 +53,8 @@ test('client exception correction is scoped, resumable, and returns Pay Run to C
 test('new PI freezes billing terms so later client profile changes cannot alter invoice amount', async()=>{
   const DB=new D1Mock(); seedCore(DB);
   DB.sqlite.exec(`
-    INSERT INTO payroll_submissions(id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,state,input_status,created_by)
-      VALUES('SUB-BILL','ORG-OTSINDO','CLI-CRIT','PRJ-CRIT','SP-CRIT','TIER_2_MANAGED_PAYROLL','2026-09','2026-09','PAYMENT_INSTRUCTION_READY','READY','seed');
+    INSERT INTO payroll_submissions(id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,state,input_status,created_by,client_reviewed_by,client_review_decision)
+      VALUES('SUB-BILL','ORG-OTSINDO','CLI-CRIT','PRJ-CRIT','SP-CRIT','TIER_2_MANAGED_PAYROLL','2026-09','2026-09','CLIENT_APPROVED','READY','seed','client@proqpay.test','APPROVED');
     INSERT INTO employees(id,org_id,client_id,project_id,employee_code,name,status_aktif)
       VALUES('EMP-BILL','ORG-OTSINDO','CLI-CRIT','PRJ-CRIT','E-1','Ani','ACTIVE');
     INSERT INTO employee_bank_accounts(id,employee_id,bank_name,account_no,is_primary)

@@ -55,12 +55,22 @@ test('Processor finalization stops at Controller review before PI creation',asyn
   assert.equal(DB.sqlite.prepare('SELECT COUNT(*) count FROM payment_instructions WHERE submission_id=?').get(id).count,0);
 
   const sameReviewerAdmin={id:'USR-SA',email:processor.email,role:'SUPER_ADMIN',permissions:['payment:prepare','payment:approve']};
-  const sod=await direct(DB,sameReviewerAdmin,{action:'APPROVE_PAYROLL_AND_GENERATE_PI',submissionId:id,reviewConfirmed:true,reviewNote:'Attempted self approval'});
+  const sod=await direct(DB,sameReviewerAdmin,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'CLIENT_APPROVAL_PENDING',reviewConfirmed:true,reviewNote:'Attempted self approval'});
   assert.equal(sod.response.status,409);
   assert.equal(sod.payload.code,'PAYROLL_REVIEW_SOD');
   assert.equal(DB.sqlite.prepare('SELECT COUNT(*) count FROM payment_instructions WHERE submission_id=?').get(id).count,0);
 
-  const approved=await direct(DB,controller,{action:'APPROVE_PAYROLL_AND_GENERATE_PI',submissionId:id,reviewConfirmed:true,reviewNote:'Controller verified payroll and beneficiary controls'});
+  const controllerApproved=await direct(DB,controller,{action:'TRANSITION_SUBMISSION',submissionId:id,toState:'CLIENT_APPROVAL_PENDING',reviewConfirmed:true,reviewNote:'Controller verified payroll and beneficiary controls'});
+  assert.equal(controllerApproved.response.status,200,JSON.stringify(controllerApproved.payload));
+  assert.equal(controllerApproved.payload.submission.state,'CLIENT_APPROVAL_PENDING');
+  assert.equal(DB.sqlite.prepare('SELECT COUNT(*) count FROM payment_instructions WHERE submission_id=?').get(id).count,0);
+
+  const client={id:'USR-CL',email:'client@proqpay.test',role:'CLIENT_USER',permissions:['read'],clientIds:['CLI-CRIT'],projectIds:['PRJ-CRIT']};
+  const clientApproved=await direct(DB,client,{action:'CLIENT_APPROVE_PAYROLL',submissionId:id,reviewConfirmed:true,reviewNote:'Client sign-off complete',confirmation:'SETUJUI PAYROLL'});
+  assert.equal(clientApproved.response.status,200,JSON.stringify(clientApproved.payload));
+  assert.equal(clientApproved.payload.submission.state,'CLIENT_APPROVED');
+
+  const approved=await direct(DB,processor,{action:'GENERATE_PAYMENT_INSTRUCTION',submissionId:id});
   assert.equal(approved.response.status,201,JSON.stringify(approved.payload));
   assert.equal(approved.payload.paymentInstruction.status,'PAYMENT_INSTRUCTION_READY');
   assert.equal(DB.sqlite.prepare('SELECT state FROM payroll_submissions WHERE id=?').get(id).state,'PAYMENT_INSTRUCTION_READY');

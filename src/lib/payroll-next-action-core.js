@@ -37,6 +37,8 @@ const MONITOR = {
   payroll: () => result('TRACK_PAYROLL','View Payroll Status','No action is required from you right now.','operations',{actionable:false,tone:'info',priority:5,category:'MONITOR'}),
   controller: () => result('WAIT_CONTROLLER','Waiting for Controller','Payroll is waiting for Controller review.','operations',{actionable:false,tone:'info',priority:5,category:'WAIT',owner:'PAYROLL_CONTROLLER'}),
   client: () => result('WAIT_CLIENT_CORRECTION','Waiting for Client','Client correction is required before payroll can continue.','operations',{actionable:false,tone:'warning',priority:4,category:'WAIT',owner:'CLIENT_USER'}),
+  clientApproval: () => result('WAIT_CLIENT_APPROVAL','Waiting for Client Approval','Payroll has passed internal review and is waiting for client sign-off.','operations',{actionable:false,tone:'warning',priority:4,category:'WAIT',owner:'CLIENT_USER'}),
+  clientApproved: () => result('CLIENT_APPROVAL_RECORDED','Client Approval Recorded','Client approval is complete. Payment Instruction preparation can continue.','operations',{actionable:false,tone:'success',priority:4,category:'WAIT',owner:'PAYROLL_PROCESSOR'}),
   processor: () => result('WAIT_PROCESSOR','Waiting for Processor','Payroll preparation must be completed by the Processor.','operations',{actionable:false,tone:'info',priority:5,category:'WAIT',owner:'PAYROLL_PROCESSOR'}),
   paymentApproval: () => result('WAIT_PAYMENT_APPROVAL','Waiting for Payment Approval','Payment Instruction is waiting for Controller approval.','payments',{actionable:false,tone:'warning',priority:4,category:'WAIT',owner:'PAYROLL_CONTROLLER'}),
   paymentExecution: () => result('WAIT_PAYMENT_EXECUTION','Waiting for Payment Execution','Payment is approved and waiting for execution.','payments',{actionable:false,tone:'info',priority:4,category:'WAIT',owner:'PAYROLL_PROCESSOR'}),
@@ -56,10 +58,11 @@ function clientAction(context, stage) {
     });
   }
   if (state === 'CLIENT_REVISION_REQUESTED') {
-    return result('REVIEW_PAYROLL_REVISION','Review Payroll Revision','A payroll revision requires your attention.','exceptions',{
-      actionable:true,tone:'warning',priority:2,category:'EXCEPTION',owner:'CLIENT_USER',
+    return result('WAIT_PAYROLL_REVISION','Revision Requested','Your revision request has been sent to the payroll team.','operations',{
+      actionable:false,tone:'warning',priority:4,category:'WAIT',owner:'PAYROLL_PROCESSOR',
     });
   }
+  if (state === 'CLIENT_APPROVED') return MONITOR.clientApproved();
   if (stage.stage === 'PAY') return MONITOR.payment();
   if (stage.stage === 'CLOSE') {
     return result('VIEW_RESULTS','View Results','Payroll result, payment status and documents are available.','billing',{
@@ -77,6 +80,12 @@ function processorAction(context, stage) {
   const sourceMode = normalize(context.sourceMode);
 
   if (state === 'CLIENT_ACTION_REQUIRED') return MONITOR.client();
+  if (state === 'CLIENT_APPROVAL_PENDING') return MONITOR.clientApproval();
+  if (state === 'CLIENT_APPROVED') {
+    return result('GENERATE_PAYMENT_INSTRUCTION','Generate Payment Instruction','Client approval is complete. Create the immutable Payment Instruction.','operations',{
+      actionable:true,tone:'warning',priority:2,category:'PAYMENT',workflowCommand:'GENERATE_PAYMENT_INSTRUCTION',owner:'PAYROLL_PROCESSOR',
+    });
+  }
 
   if (Number(context.blockingCount || 0) > 0 || state === 'EXCEPTION_FOUND') {
     return result('RESOLVE_PAYROLL_ISSUES','Resolve Payroll Issues','Critical payroll findings must be resolved before approval.','exceptions',{
@@ -95,7 +104,7 @@ function processorAction(context, stage) {
     });
   }
 
-  if (['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(state)) {
+  if (['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','CLIENT_RESUBMITTED','REVISION_REQUIRED','CLIENT_REVISION_REQUESTED'].includes(state)) {
     return result('VALIDATE_PAYROLL','Validate Payroll','Run payroll validation and continue the review cycle.','operations',{
       actionable:true,tone:'info',priority:3,category:'REVIEW',workflowCommand:'ADVANCE_VALIDATE',owner:'PAYROLL_PROCESSOR',
     });
@@ -186,14 +195,20 @@ function controllerAction(context, stage) {
   }
 
   if (state === 'CONTROLLER_REVIEW') {
-    return result('REVIEW_APPROVE_PAYROLL','Review & Approve Payroll','Payroll is ready for Controller review and approval.','operations',{
-      actionable:true,tone:'warning',priority:2,category:'APPROVAL',workflowCommand:'DATA_APPROVED',owner:'PAYROLL_CONTROLLER',
+    return result('REVIEW_APPROVE_PAYROLL','Approve & Send to Client','Payroll is ready for Controller review before client sign-off.','operations',{
+      actionable:true,tone:'warning',priority:2,category:'APPROVAL',workflowCommand:'CLIENT_APPROVAL_PENDING',owner:'PAYROLL_CONTROLLER',
     });
   }
 
   if (['DATA_APPROVED','PAYROLL_FINALIZED'].includes(state)) {
-    return result('PREPARE_PAYMENT','Prepare Payment','Open the approved payroll for Payment Instruction preparation.','operations',{
-      actionable:true,tone:'info',priority:3,category:'PAYMENT',workflowCommand:'PAYMENT_INSTRUCTION_READY',owner:'PAYROLL_CONTROLLER',
+    return result('SEND_TO_CLIENT_APPROVAL','Send to Client Approval','Internal review is complete. Send payroll to the client for final sign-off.','operations',{
+      actionable:true,tone:'warning',priority:2,category:'APPROVAL',workflowCommand:'CLIENT_APPROVAL_PENDING',owner:'PAYROLL_CONTROLLER',
+    });
+  }
+  if (state === 'CLIENT_APPROVAL_PENDING') return MONITOR.clientApproval();
+  if (state === 'CLIENT_APPROVED') {
+    return result('WAIT_PI_GENERATION','Waiting for PI Generation','Client approval is complete. Processor must generate the Payment Instruction.','operations',{
+      actionable:false,tone:'info',priority:5,category:'WAIT',owner:'PAYROLL_PROCESSOR',
     });
   }
 

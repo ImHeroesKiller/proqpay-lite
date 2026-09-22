@@ -22,7 +22,7 @@ type Props = {
 function actionLabel(code:string,label:string) {
   if (code === 'CORRECT_PAYROLL_DATA') return 'Perbaiki data payroll';
   if (code === 'REVIEW_PAYROLL_REVISION') return 'Tinjau revisi payroll';
-  if (code === 'APPROVE_PAYROLL') return 'Review payroll';
+  if (code === 'APPROVE_PAYROLL') return 'Review & approve';
   if (code === 'VIEW_RESULTS') return 'Lihat dokumen';
   if (code === 'TRACK_PAYROLL') return 'Lihat status payroll';
   return label;

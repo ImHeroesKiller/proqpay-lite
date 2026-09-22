@@ -22,14 +22,15 @@ test('Payment Control filters PI status and hides stale rejection reasons', () =
   assert.match(ui, /r\.status === 'REVISION_REQUIRED' && r\.rejection_reason/);
 });
 
-test('Controller can approve or return CONTROLLER_REVIEW pay run', () => {
+test('Controller hands payroll to Client approval and can return CONTROLLER_REVIEW for revision', () => {
   assert.match(nextAction, /state === 'CONTROLLER_REVIEW'/);
   assert.match(nextAction, /REVIEW_APPROVE_PAYROLL/);
-  assert.match(nextAction, /workflowCommand:'DATA_APPROVED'/);
-  assert.match(nextAction, /\['DATA_APPROVED','PAYROLL_FINALIZED'\]/);
-  assert.match(nextAction, /workflowCommand:'PAYMENT_INSTRUCTION_READY'/);
+  assert.match(nextAction, /workflowCommand:'CLIENT_APPROVAL_PENDING'/);
+  assert.match(nextAction, /state === 'CLIENT_APPROVED'/);
+  assert.match(nextAction, /GENERATE_PAYMENT_INSTRUCTION/);
   assert.match(ui, /toState:'REVISION_REQUIRED'/);
   assert.match(ui, /Minta revisi/);
+  assert.match(ui, /CLIENT_APPROVE_PAYROLL/);
   assert.match(ui, /const next=nextAction\.workflowCommand/);
   assert.match(ui, /reviewConfirmed:true/);
 });

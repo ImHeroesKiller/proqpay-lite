@@ -23,12 +23,15 @@ test('submission transition registry rejects skipped workflow states', () => {
   assert.equal(canTransition('DRAFT', 'DATA_APPROVED'), false);
   assert.equal(canTransition('CLIENT_ACTION_REQUIRED', 'CLIENT_RESUBMITTED'), true);
   assert.equal(canTransition('SUBMITTED', 'AI_VALIDATING'), true);
-  assert.equal(canTransition('DATA_APPROVED', 'PAYMENT_INSTRUCTION_READY'), true);
+  assert.equal(canTransition('DATA_APPROVED', 'PAYMENT_INSTRUCTION_READY'), false);
+  assert.equal(canTransition('DATA_APPROVED', 'CLIENT_APPROVAL_PENDING'), true);
+  assert.equal(canTransition('CLIENT_APPROVAL_PENDING', 'CLIENT_APPROVED'), true);
+  assert.equal(canTransition('CLIENT_APPROVED', 'PAYMENT_INSTRUCTION_READY'), true);
   assert.equal(validateOperatingAction({ action: 'TRANSITION_SUBMISSION', submissionId: 'SUB-1', toState: 'CONTROLLER_REVIEW', reviewConfirmed: true, reviewNote: 'Sudah diperiksa' }).ok, true);
   assert.equal(validateOperatingAction({ action: 'UPDATE_SUBMISSION_PERIODS', submissionId: 'SUB-1', paymentPeriod: '2026-08', arrearsPeriods: ['2026-05','2026-06'] }).ok, true);
   assert.equal(validateOperatingAction({ action: 'UPDATE_SUBMISSION_PERIODS', submissionId: 'SUB-1', paymentPeriod: 'Agustus', arrearsPeriods: [] }).ok, false);
   assert.equal(resolveTierTransition('TIER_1_PAYMENT_PROCESSING', 'SUBMITTED', 'INGESTING'), 'AI_VALIDATING');
-  assert.equal(resolveTierTransition('TIER_1_PAYMENT_PROCESSING', 'DATA_APPROVED', 'PAYROLL_FINALIZED'), 'PAYMENT_INSTRUCTION_READY');
+  assert.equal(resolveTierTransition('TIER_1_PAYMENT_PROCESSING', 'DATA_APPROVED', 'PAYROLL_FINALIZED'), 'CLIENT_APPROVAL_PENDING');
   assert.equal(resolveTierTransition('TIER_2_MANAGED_PAYROLL', 'DATA_APPROVED', 'PAYROLL_FINALIZED'), 'PAYROLL_FINALIZED');
   assert.equal(validateOperatingAction({ action: 'GENERATE_PAYMENT_INSTRUCTION', submissionId: 'SUB-1' }).ok, true);
 });
