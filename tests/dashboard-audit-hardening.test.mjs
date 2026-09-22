@@ -103,12 +103,14 @@ test('dashboard period resource comes from canonical submissions and respects cl
 });
 
 test('dashboard UI contracts implement audited P1 and P2 fixes',async()=>{
-  const [page,clientHome,tower,header,workspace,api,css,indexes]=await Promise.all([
+  const [page,clientHome,tower,header,workspace,billingWorkspace,billingApi,api,css,indexes]=await Promise.all([
     readFile(new URL('../src/app/page.tsx',import.meta.url),'utf8'),
     readFile(new URL('../src/components/ClientHome.tsx',import.meta.url),'utf8'),
     readFile(new URL('../src/components/PayrollControlTower.tsx',import.meta.url),'utf8'),
     readFile(new URL('../src/components/AppHeader.tsx',import.meta.url),'utf8'),
     readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8'),
+    readFile(new URL('../src/components/BillingWorkspace.tsx',import.meta.url),'utf8'),
+    readFile(new URL('../functions/api/billing.js',import.meta.url),'utf8'),
     readFile(new URL('../src/lib/operating-model-api.ts',import.meta.url),'utf8'),
     readFile(new URL('../src/app/polish.css',import.meta.url),'utf8'),
     readFile(new URL('../migrations/0031_dashboard_query_indexes.sql',import.meta.url),'utf8'),
@@ -130,6 +132,13 @@ test('dashboard UI contracts implement audited P1 and P2 fixes',async()=>{
   assert.match(header,/invoiceApprovals/);
   assert.match(workspace,/focusSubmissionId/);
   assert.match(workspace,/dashboardStage/);
+  assert.match(workspace,/focusSubmissionId=\{focusSubmissionId\}/);
+  assert.match(workspace,/focusSection=\{dashboardStage === 'CLOSE' \? 'close' : undefined\}/);
+  assert.match(billingWorkspace,/focusSubmissionId/);
+  assert.match(billingWorkspace,/focusedData/);
+  assert.match(billingWorkspace,/submission\.period_status === "CLOSED" \|\| closingInvoice \? "close" : "invoice"/);
+  assert.match(billingWorkspace,/rows=\{focusedData\.submissions\}/);
+  assert.match(billingApi,/s\.id AS submission_id/);
   assert.match(api,/dashboard-periods/);
   assert.match(css,/theme-dark \.control-kpi/);
   assert.match(css,/dashboard-focus-banner/);
