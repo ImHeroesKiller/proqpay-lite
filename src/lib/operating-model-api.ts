@@ -1,5 +1,6 @@
 export type OperatingResource =
   | 'dashboard'
+  | 'dashboard-periods'
   | 'service-plans'
   | 'pay-run-setup'
   | 'pay-run-detail'
@@ -43,12 +44,35 @@ export async function listOperatingResource(resource: OperatingResource, clientI
   return request;
 }
 
-export function listOperatingDashboard(clientId?: string) {
-  return listOperatingResource('dashboard', clientId);
+export function listOperatingDashboard(clientId?: string, period?: string) {
+  const params = new URLSearchParams({ resource:'dashboard' });
+  if (clientId) params.set('clientId', clientId);
+  if (period && period !== 'ALL') params.set('period', period);
+  const url = `/api/operating-model?${params}`;
+  const cached = responseCache.get(url);
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.data);
+  const pending = inflightRequests.get(url);
+  if (pending) return pending;
+  const request = fetch(url, { headers:{ Accept:'application/json' } })
+    .then(parseResponse)
+    .then((data) => {
+      responseCache.set(url, { data, expiresAt:Date.now() + CACHE_TTL_MS });
+      return data;
+    })
+    .finally(() => inflightRequests.delete(url));
+  inflightRequests.set(url, request);
+  return request;
+}
+
+export function listOperatingPeriods(clientId?: string) {
+  return listOperatingResource('dashboard-periods', clientId);
 }
 
 export function invalidateOperatingCache() {
   responseCache.clear();
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('proqpay:operating-cache-invalidated'));
+  }
 }
 
 export async function getPaymentInstructionDetail(paymentInstructionId: string) {
