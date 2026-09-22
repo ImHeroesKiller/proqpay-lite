@@ -93,3 +93,12 @@ test('blocked Pay Run UI no longer routes EXCEPTION_FOUND back into validation',
   assert.match(source,/Buka Exception Center/);
   assert.doesNotMatch(source,/validationStates\.has\(row\.state\).*EXCEPTION_FOUND/s);
 });
+
+
+test('reconciliation remains visible as unfinished work until MATCHED or COMPLETED', async()=>{
+  const fs=await import('node:fs/promises');
+  const tower=await fs.readFile(new URL('../src/components/PayrollControlTower.tsx',import.meta.url),'utf8');
+  const payments=await fs.readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
+  assert.doesNotMatch(tower,/DONE_STATES = new Set\(\[[^\]]*'RECONCILIATION'/);
+  assert.match(payments,/\['PROOF_UPLOADED','RECONCILIATION'\]\.includes\(r\.status\)/);
+});
