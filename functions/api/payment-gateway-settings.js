@@ -6,6 +6,7 @@ import {
   readGatewaySecureSettings,
   writeGatewaySecureSettings,
 } from './payment-gateway-settings-store.js';
+import { gatewayReadiness } from './payment-gateway-core.js';
 import {
   e2payAuthorize,
   e2payBankList,
@@ -79,7 +80,7 @@ export async function onRequest({ request, env }) {
       return secureJson({
         ok:true,
         settings:publicGatewaySettings(stored),
-        readiness:e2payReadiness(runtimeEnv),
+        readiness:gatewayReadiness(runtimeEnv),
       }, 200, request, env, METHODS);
     }
 
@@ -150,7 +151,7 @@ export async function onRequest({ request, env }) {
     return secureJson({
       ok:true,
       settings:publicGatewaySettings(stored),
-      readiness:e2payReadiness(runtimeEnv),
+      readiness:gatewayReadiness(runtimeEnv),
     }, 200, request, env, METHODS);
   } catch (error) {
     const requestId = crypto.randomUUID();
