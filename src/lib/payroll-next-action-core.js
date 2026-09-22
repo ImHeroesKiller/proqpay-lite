@@ -46,7 +46,7 @@ const MONITOR = {
 function clientAction(context, stage) {
   const state = normalize(context.state ?? context.submissionState);
   if (state === 'CLIENT_ACTION_REQUIRED') {
-    return result('CORRECT_PAYROLL_DATA','Correct Payroll Data','Payroll has items that require client correction.','operations',{
+    return result('CORRECT_PAYROLL_DATA','Correct Payroll Data','Payroll has items that require client correction.','exceptions',{
       actionable:true,tone:'danger',priority:1,category:'EXCEPTION',owner:'CLIENT_USER',
     });
   }
@@ -56,7 +56,7 @@ function clientAction(context, stage) {
     });
   }
   if (state === 'CLIENT_REVISION_REQUESTED') {
-    return result('REVIEW_PAYROLL_REVISION','Review Payroll Revision','A payroll revision requires your attention.','operations',{
+    return result('REVIEW_PAYROLL_REVISION','Review Payroll Revision','A payroll revision requires your attention.','exceptions',{
       actionable:true,tone:'warning',priority:2,category:'EXCEPTION',owner:'CLIENT_USER',
     });
   }
