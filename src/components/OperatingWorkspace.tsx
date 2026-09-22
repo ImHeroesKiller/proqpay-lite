@@ -100,16 +100,25 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
     return periodMatches && clientMatches && statusMatches && queryMatches;
   }), [data.paymentInstructions, periodFilter, clientFilter, statusFilter, query]);
   const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
+  const instructionBySubmission = useMemo(() => new Map((data.paymentInstructions || []).map((row) => [row.submission_id,row])), [data.paymentInstructions]);
   const visibleExceptions = useMemo(() => (data.exceptions || []).filter((row) => visibleSubmissionIds.has(row.submission_id)), [data.exceptions, visibleSubmissionIds]);
   const visibleProofs = useMemo(() => (data.paymentProofs || []).filter((row) => visibleInstructionIds.has(row.payment_instruction_id)), [data.paymentProofs, visibleInstructionIds]);
   const visibleReconciliations = useMemo(() => (data.reconciliations || []).filter((row) => visibleInstructionIds.has(row.payment_instruction_id)), [data.reconciliations, visibleInstructionIds]);
   const totalNet = visibleSubmissions.reduce((sum, row) => sum + Number(row.total_net || 0), 0);
   const blockers = visibleSubmissions.reduce((sum, row) => sum + Number(row.blocking_count || 0), 0);
-  const pendingActions = visibleSubmissions.filter((row) => !['COMPLETED','RECONCILIATION'].includes(row.state)).length;
+  const pendingActions = visibleSubmissions.filter((row) => {
+    const instruction=instructionBySubmission.get(row.id);
+    return !derivePayrollBusinessStage({
+      state:row.state,
+      paymentInstructionStatus:instruction?.status,
+      invoiceStatus:row.invoice_status,
+      arStatus:row.ar_status,
+    }).isTerminal;
+  }).length;
   const openExceptions = visibleExceptions.filter((row) => !['RESOLVED','ACCEPTED','AUTO_NORMALIZED'].includes(row.status));
   const criticalExceptions = openExceptions.filter((row) => row.severity === 'CRITICAL');
   const affectedRuns = new Set(openExceptions.map((row) => row.submission_id)).size;
-  const awaitingApproval = visibleInstructions.filter((row) => ['PAYMENT_INSTRUCTION_READY','PAYMENT_APPROVAL_PENDING'].includes(row.status)).length;
+  const awaitingApproval = visibleInstructions.filter((row) => row.status === 'PAYMENT_APPROVAL_PENDING').length;
   const approvedPayments = visibleInstructions.filter((row) => ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(row.status)).length;
   const matchedPayments = visibleReconciliations.filter((row) => row.status === 'MATCHED').length;
   const profile = profiles[mode];
@@ -239,6 +248,8 @@ function Submissions({ rows, instructions, role, permissions, act }: { rows: any
       blockingCount:row.blocking_count,
       exceptionCount:row.exception_count,
       paymentInstructionStatus:instruction?.status,
+      invoiceStatus:row.invoice_status,
+      arStatus:row.ar_status,
       hasPaymentInstruction:Boolean(instruction),
       paymentInstructionId:instruction?.id,
     });
@@ -287,7 +298,7 @@ function Submissions({ rows, instructions, role, permissions, act }: { rows: any
       {runDetail?<PayRunLineTable detail={runDetail} editable={['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)&&selected.period_status!=='CLOSED'&&['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'].includes(selected.state)} onEdit={async(line,gross,deduction,included)=>{await act({action:'UPDATE_PAY_RUN_LINE',submissionId:selected.id,employeeId:line.employee_id,grossAmount:gross,deductionAmount:deduction,netAmount:gross-deduction,included},'Data bulanan karyawan diperbarui');setSelected(null);}}/>:null}
       {selected.source_mode==='UPLOAD_FINAL'&&selected.state==='DRAFT'&&selected.period_status!=='CLOSED'?<PayRunUpload submission={selected} onImported={async(total)=>{await act({},`File payroll final berhasil dimuat: ${total} penerima`);setSelected(null);}}/>:null}
       <div className="payroll-review-alert"><strong>{Number(selected.blocking_count || 0)} blocker · {Number(selected.exception_count || 0)} total temuan</strong><span>{Number(selected.blocking_count || 0) ? 'Temuan kritis harus diselesaikan sebelum approval.' : 'Tidak ada temuan kritis yang memblokir tahap berikutnya.'}</span></div>
-      {selected.state==='EXCEPTION_FOUND' && ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) ? <div className="directory-hint"><strong>Perbaikan wajib diproses per temuan.</strong> <a className="btn" href="?view=actions">Buka Exception Center</a></div> : null}
+      {selected.state==='EXCEPTION_FOUND' && ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) ? <div className="directory-hint"><strong>Perbaikan wajib diproses per temuan.</strong> <a className="btn" href="?view=exceptions">Buka Exception Center</a></div> : null}
       <div className="directory-form-grid"><label>Periode payroll<input type="month" value={selected.period} readOnly /></label><label>Periode pembayaran<input type="month" value={paymentPeriod} readOnly={role==='CLIENT_USER'} onChange={(event) => setPaymentPeriod(event.target.value)} /></label></div>
       <label>Periode rapel (opsional)<input value={arrearsText} placeholder="Contoh: 2026-05, 2026-06" onChange={(event) => setArrearsText(event.target.value)} /></label>
       <p className="directory-hint">Periode payroll mengikuti sumber data. Periode pembayaran menentukan bulan pencairan; rapel mencatat periode tambahan yang dibayarkan bersamaan.</p>
