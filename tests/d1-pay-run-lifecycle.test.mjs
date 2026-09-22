@@ -62,7 +62,7 @@ test('Pay Run snapshots monthly data, compares variance, and controls period lif
   assert.equal(validated.payload.submission.state,'VALIDATED','status teknis harus diringkas menjadi satu checkpoint validasi');
   const finalizedPayroll=await action(DB,{action:'ADVANCE_PAY_RUN',submissionId:firstId,command:'FINALIZE_PAYROLL',reviewConfirmed:true,reviewNote:'Control total dan variance telah diperiksa'});
   assert.equal(finalizedPayroll.response.status,200,JSON.stringify(finalizedPayroll.payload));
-  assert.equal(finalizedPayroll.payload.submission.state,'PAYMENT_INSTRUCTION_READY','Processor memfinalisasi payroll langsung menuju persiapan PI');
+  assert.equal(finalizedPayroll.payload.submission.state,'CONTROLLER_REVIEW','Processor wajib berhenti di checkpoint Controller sebelum PI');
 
   const duplicate=await action(DB,{action:'CREATE_PAY_RUN',clientId:'CLI-RUN',projectId:'PRJ-RUN',servicePlanId:'SP-RUN',period:'2026-07',paymentPeriod:'2026-07',paymentDate:'2026-07-25',runType:'REGULAR',sourceMode:'MASTER_CURRENT'});
   assert.equal(duplicate.response.status,409);
