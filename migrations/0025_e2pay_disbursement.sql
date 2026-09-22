@@ -13,6 +13,7 @@ CREATE TABLE payment_gateway_items (
   client_ref TEXT NOT NULL,
   bank_id TEXT,
   beneficiary_name TEXT NOT NULL,
+  provider_beneficiary_name TEXT,
   account_last4 TEXT NOT NULL,
   amount INTEGER NOT NULL CHECK (amount > 0),
   fee_amount INTEGER NOT NULL DEFAULT 0 CHECK (fee_amount >= 0),
