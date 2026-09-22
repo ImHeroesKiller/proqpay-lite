@@ -261,8 +261,19 @@ async function readResource(database, params, actor, env, organizationId) {
     const rows = await d1All(database, `SELECT pi.id,pi.client_id,c.name AS client_name,s.project_id,p.name AS project_name,
       s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,
       COALESCE(s.arrears_periods,'[]') AS arrears_periods,pi.status,pi.expected_total,
-      COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0) AS paid_total,
-      (SELECT MAX(pp.transaction_date) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id) AS payment_date,
+      COALESCE(
+        NULLIF((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0),
+        (SELECT pgt.amount FROM payment_gateway_transactions pgt
+          WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
+          ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC LIMIT 1),
+        0
+      ) AS paid_total,
+      COALESCE(
+        (SELECT MAX(pp.transaction_date) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),
+        (SELECT substr(COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at),1,10) FROM payment_gateway_transactions pgt
+          WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
+          ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC LIMIT 1)
+      ) AS payment_date,
       (SELECT pp.id FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id ORDER BY pp.created_at DESC LIMIT 1) AS proof_id,
       (SELECT r.status FROM reconciliations r WHERE r.payment_instruction_id=pi.id LIMIT 1) AS reconciliation_status,
       (SELECT r.difference FROM reconciliations r WHERE r.payment_instruction_id=pi.id LIMIT 1) AS difference,
@@ -852,10 +863,17 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (!PROCESSOR_ROLES.has(actor.role) && !CONTROLLER_ROLES.has(actor.role)) return { status: 403, data: { error: 'Role tidak dapat melakukan rekonsiliasi' } };
     const payment = await d1First(database, `SELECT pi.id,pi.submission_id,pi.expected_total,
       COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total,
-      COALESCE((SELECT SUM(amount) FROM payment_proofs WHERE payment_instruction_id=pi.id),0) AS proof_total
+      COALESCE((SELECT SUM(amount) FROM payment_proofs WHERE payment_instruction_id=pi.id),0) AS manual_proof_total,
+      COALESCE((SELECT amount FROM payment_gateway_transactions
+        WHERE payment_instruction_id=pi.id AND status='SUCCEEDED'
+        ORDER BY COALESCE(paid_at,updated_at,created_at) DESC LIMIT 1),0) AS gateway_total
       FROM payment_instructions pi WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
     if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
-    const difference = Number(payment.proof_total) - Number(payment.expected_total);
+    const settlementTotal = Number(payment.manual_proof_total || 0) > 0
+      ? Number(payment.manual_proof_total)
+      : Number(payment.gateway_total || 0);
+    const settlementSource = Number(payment.manual_proof_total || 0) > 0 ? 'MANUAL_PROOF' : 'PAYMENT_GATEWAY';
+    const difference = settlementTotal - Number(payment.expected_total);
     const status = difference === 0 && Number(payment.instruction_total) === Number(payment.expected_total) ? 'MATCHED' : 'EXCEPTION';
     const id = `REC-${crypto.randomUUID()}`;
     await d1Batch(database, [
@@ -864,12 +882,12 @@ async function executeAction(database, body, actor, env, organizationId) {
         VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(payment_instruction_id) DO UPDATE SET
         expected_total=excluded.expected_total,instruction_total=excluded.instruction_total,proof_total=excluded.proof_total,
         difference=excluded.difference,status=excluded.status,reviewed_by=excluded.reviewed_by,created_at=${NOW}`,
-        bindings: [id, payment.id, payment.expected_total, payment.instruction_total, payment.proof_total, difference, status, actor.email] },
+        bindings: [id, payment.id, payment.expected_total, payment.instruction_total, settlementTotal, difference, status, actor.email] },
       { statement: `UPDATE payment_instructions SET status=?,updated_at=${NOW} WHERE id=?`,
         bindings: [status === 'MATCHED' ? 'COMPLETED' : 'PAYMENT_EXCEPTION', payment.id] },
       { statement: `UPDATE payroll_submissions SET state=?,updated_at=${NOW} WHERE id=?`,
         bindings: [status === 'MATCHED' ? 'COMPLETED' : 'PAYMENT_EXCEPTION', payment.submission_id] },
-      auditOperation(organizationId, actor, 'PAYMENT_RECONCILED', `${status} · difference ${difference}`, 'payment_instruction', payment.id),
+      auditOperation(organizationId, actor, 'PAYMENT_RECONCILED', `${status} · ${settlementSource} · settled ${settlementTotal} · difference ${difference}`, 'payment_instruction', payment.id),
     ]);
     if (status === 'MATCHED') {
       try { await markEwaRepaid(database, payment.submission_id); }
