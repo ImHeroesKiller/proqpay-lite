@@ -52,7 +52,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
     setLoading(true);
     setMessage('');
     try {
-      const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup','payment-instructions']
+      const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup','payment-instructions','exceptions']
         : mode === 'actions' ? ['submissions','exceptions']
         : mode === 'payments' ? ['submissions','payment-instructions','payment-proofs','reconciliations'] : [];
       const meResponse = await fetch('/api/me');
@@ -88,6 +88,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
 
   const role = actor?.role || 'UNKNOWN';
   const simplifiedInternal = ['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role);
+  const clientExperience = role === 'CLIENT_USER';
+  const simplifiedWorkspace = simplifiedInternal || clientExperience;
   const isProcessor = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role);
   const isController = ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role);
   const isClient = role === 'CLIENT_USER';
@@ -125,14 +127,14 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       paymentInstructionId:instruction?.id,
     });
     const haystack = [row.client_name,row.project_name,row.id,row.period,row.payment_period,row.state,business.label,nextAction.label].join(' ').toLowerCase();
-    const workflowMatches=simplifiedInternal
+    const workflowMatches=simplifiedWorkspace
       ? (statusFilter === 'ALL' || business.stage === statusFilter)
       : (statusFilter === 'ALL' || row.state === statusFilter);
     return (periodFilter === 'ALL' || row.period === periodFilter || row.payment_period === periodFilter)
       && (clientFilter === 'ALL' || row.client_id === clientFilter)
       && workflowMatches
       && (!query.trim() || haystack.includes(query.trim().toLowerCase()));
-  }), [submissions, instructionBySubmission, periodFilter, clientFilter, statusFilter, query, simplifiedInternal, role, actor?.permissions]);
+  }), [submissions, instructionBySubmission, periodFilter, clientFilter, statusFilter, query, simplifiedWorkspace, role, actor?.permissions]);
   const visibleSubmissionIds = useMemo(() => new Set(visibleSubmissions.map((row) => row.id)), [visibleSubmissions]);
   const visibleInstructions = useMemo(() => (data.paymentInstructions || []).filter((row) => {
     const periodMatches = periodFilter === 'ALL' || row.payroll_period === periodFilter || row.payment_period === periodFilter;
@@ -184,7 +186,9 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   const myAttention=myWork.filter((action)=>action.tone==='danger');
   const myApprovals=myWork.filter((action)=>action.category==='APPROVAL');
   const baseProfile = profiles[mode];
-  const profile = simplifiedInternal ? ({
+  const profile = clientExperience && mode === 'payruns'
+    ? {...baseProfile,title:'Payroll',eyebrow:'YOUR PAYROLL',description:'Kirim data payroll, tindak lanjuti koreksi, dan pantau status proses dalam satu halaman.'}
+    : simplifiedInternal ? ({
     payruns:{...baseProfile,title:'Payroll',eyebrow:'MY PAYROLL WORK',description:'Lihat payroll berdasarkan stage dan kerjakan satu next action yang tersedia.'},
     actions:{...baseProfile,title:'Issues',eyebrow:'ACTION REQUIRED',description:'Tindak lanjuti hanya issue yang membutuhkan koreksi atau keputusan.'},
     payments:{...baseProfile,title:'Payments',eyebrow:'PAYMENT WORK',description:'Review approval, execution, dan reconciliation tanpa melihat state teknis yang tidak perlu.'},
@@ -192,7 +196,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   } as Record<WorkspaceMode, typeof baseProfile>)[mode] : baseProfile;
   const statusOptions = mode === 'payments'
     ? [...new Set((data.paymentInstructions || []).map((row) => row.status))].sort()
-    : simplifiedInternal && mode === 'payruns'
+    : simplifiedWorkspace && mode === 'payruns'
       ? [...PAYROLL_BUSINESS_STAGE_ORDER]
       : [...new Set(submissions.map((row) => row.state))].sort();
 
@@ -204,13 +208,13 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           <h2 style={{ fontSize: 22, fontWeight: 720, margin: '4px 0 0' }}>{profile.title}</h2>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>{profile.description}</p>
         </div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div></div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&clientExperience?<a className="btn btn-primary" href="/data-intake">Kirim data payroll</a>:mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}{!clientExperience?<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div>:null}</div>
       </div>
 
       {mode !== 'billing' ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((period) => <option key={period} value={period}>{period}</option>)}</select></label>
         <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        <label><span>{mode === 'payments' ? 'Status PI' : simplifiedInternal && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedInternal&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedInternal&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:String(state).replaceAll('_', ' ')}</option>)}</select></label>
+        <label><span>{mode === 'payments' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:String(state).replaceAll('_', ' ')}</option>)}</select></label>
         <label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>
       </div> : null}
 
