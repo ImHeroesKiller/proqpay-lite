@@ -54,9 +54,8 @@ export default function ClientHome({actor,period,onNavigate}:Props) {
   const load = useCallback(async()=>{
     setLoading(true); setError(''); setData({}); setInvoices([]);
     try {
-      const clientIds = actor.clientIds || [];
       const [dashboards,billingResponse] = await Promise.all([
-        Promise.all(clientIds.map((clientId)=>listOperatingDashboard(clientId,period))),
+        Promise.all([listOperatingDashboard(undefined,period)]),
         fetch('/api/billing',{credentials:'same-origin',cache:'no-store'}),
       ]);
       const merged:Record<string,any[]> = {};
