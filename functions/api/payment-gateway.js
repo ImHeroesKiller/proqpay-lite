@@ -117,7 +117,7 @@ export async function onRequest(context) {
     const paymentMethod = String(body.paymentMethod || '').trim().slice(0, 60);
     const action = String(body.action || 'EXECUTE').trim().toUpperCase();
     if (!paymentInstructionId) return secureJson({ error: 'paymentInstructionId wajib diisi' }, 422, request, env, METHODS);
-    if (!['EXECUTE','RECONCILE'].includes(action)) return secureJson({ error: 'action gateway tidak valid' }, 422, request, env, METHODS);
+    if (!['EXECUTE','RECONCILE','RETRY_FAILED'].includes(action)) return secureJson({ error: 'action gateway tidak valid' }, 422, request, env, METHODS);
 
     const payment = await approvedInstruction(database, organizationId, paymentInstructionId);
     const validation = validateInstruction(payment);
@@ -137,6 +137,17 @@ export async function onRequest(context) {
         result.parentStatus + ' · ' + result.summary.succeeded + '/' + result.summary.total, payment.id)]);
       return secureJson({ ...result, transaction, gateway:readiness }, result.statusCode, request, env, METHODS);
     }
+    if (action === 'RETRY_FAILED') {
+      if (readiness.provider !== 'E2PAY') return secureJson({ error: 'Retry beneficiary hanya tersedia untuk adapter E2Pay' }, 422, request, env, METHODS);
+      if (!transaction) return secureJson({ error: 'Execution ledger E2Pay belum tersedia' }, 404, request, env, METHODS);
+      const retryable = await d1First(database, `SELECT COUNT(*) AS count FROM payment_gateway_items
+        WHERE payment_gateway_transaction_id=? AND status='FAILED'
+          AND (attempt_count=0 OR TRIM(COALESCE(response_code,''))='99')`, [transaction.id]);
+      if (Number(retryable?.count || 0) <= 0) {
+        return secureJson({ error:'Tidak ada beneficiary gagal yang aman untuk di-retry', code:'E2PAY_NO_RETRYABLE_FAILURES' }, 409, request, env, METHODS);
+      }
+    }
+
     if (transaction?.status === 'SUCCEEDED') {
       return secureJson({ ok: true, transaction, idempotentReplay: true, gateway: readiness }, 200, request, env, METHODS);
     }
@@ -181,9 +192,9 @@ export async function onRequest(context) {
 
     if (readiness.provider === 'E2PAY') {
       try {
-        const result = await executeE2PayBatch({ database, env:runtimeEnv, transactionId, payment, beneficiaries });
+        const result = await executeE2PayBatch({ database, env:runtimeEnv, transactionId, payment, beneficiaries, retryFailed:action === 'RETRY_FAILED' });
         transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transactionId]);
-        await d1Batch(database, [auditOperation(organizationId, authorization.actor, 'E2PAY_EXECUTION',
+        await d1Batch(database, [auditOperation(organizationId, authorization.actor, action === 'RETRY_FAILED' ? 'E2PAY_FAILED_ITEMS_RETRIED' : 'E2PAY_EXECUTION',
           `${result.parentStatus || result.code || 'UNKNOWN'} · ${result.summary?.succeeded || 0}/${result.summary?.total || beneficiaries.length}`, payment.id)]);
         return secureJson({ ...result, transaction, gateway:readiness }, result.statusCode, request, env, METHODS);
       } catch (error) {
