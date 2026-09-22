@@ -234,7 +234,7 @@ export default function Home() {
       </div>
       {actor.mustChangePassword && ['database', 'session', 'd1'].includes(actor.authMode || '') ? <ChangePasswordModal forced /> : null}
 
-      <SystemHealthBubble />
+      {actor.role === 'SUPER_ADMIN' ? <SystemHealthBubble /> : null}
       {idaMounted ? <IdaFab openSignal={idaOpenSignal} /> : null}
       {helpOpen ? <HelpModal open onClose={() => setHelpOpen(false)} /> : null}
     </div>
