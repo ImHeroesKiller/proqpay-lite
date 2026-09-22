@@ -74,6 +74,26 @@ async function findTransaction(database, organizationId, paymentInstructionId) {
     WHERE org_id=? AND payment_instruction_id=? ORDER BY created_at DESC LIMIT 1`, [organizationId, paymentInstructionId]);
 }
 
+async function acquireExecutionLease(database, transactionId) {
+  const token = crypto.randomUUID();
+  const locked = await d1First(database, `UPDATE payment_gateway_transactions
+    SET execution_lock_token=?,execution_lock_until=datetime('now','+10 minutes'),updated_at=${NOW}
+    WHERE id=? AND (execution_lock_until IS NULL OR datetime(execution_lock_until)<=datetime('now'))
+    RETURNING id`, [token, transactionId]);
+  return locked ? token : null;
+}
+
+async function releaseExecutionLease(database, transactionId, token) {
+  if (!token) return;
+  try {
+    await d1Batch(database, [{ statement:`UPDATE payment_gateway_transactions
+      SET execution_lock_token=NULL,execution_lock_until=NULL,updated_at=${NOW}
+      WHERE id=? AND execution_lock_token=?`, bindings:[transactionId,token] }]);
+  } catch {
+    // Lease expires automatically; release failure must never trigger a second financial attempt.
+  }
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
@@ -187,6 +207,13 @@ export async function onRequest(context) {
     }
 
     if (readiness.provider === 'E2PAY') {
+      const leaseToken = await acquireExecutionLease(database, transactionId);
+      if (!leaseToken) {
+        return secureJson({
+          error:'PI E2Pay sedang diproses oleh request lain. Muat ulang status sebelum mencoba kembali.',
+          code:'PAYMENT_GATEWAY_EXECUTION_BUSY',
+        }, 409, request, env, METHODS);
+      }
       try {
         const result = await executeE2PayBatch({ database, env:runtimeEnv, transactionId, payment, beneficiaries, retryFailed:action === 'RETRY_FAILED' });
         transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transactionId]);
@@ -197,6 +224,8 @@ export async function onRequest(context) {
         await d1Batch(database, [{ statement: `UPDATE payment_gateway_transactions SET status='FAILED',error_code=?,error_message=?,updated_at=${NOW} WHERE id=?`,
           bindings: ['E2PAY_EXECUTION_FAILED', String(error?.message || error).slice(0, 500), transactionId] }]);
         return secureJson({ error:'Eksekusi E2Pay gagal sebelum status final dapat ditentukan', code:'E2PAY_EXECUTION_FAILED', transactionId }, 502, request, env, METHODS);
+      } finally {
+        await releaseExecutionLease(database, transactionId, leaseToken);
       }
     }
 
