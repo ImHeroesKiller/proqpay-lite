@@ -112,6 +112,8 @@ test('E2Pay migration and gateway endpoint keep beneficiary-level ledger and saf
   assert.doesNotMatch(endpoint, /E2PAY_BATCH_REQUIRES_QUEUE/);
   assert.match(service, /selectE2PayExecutionChunk/);
   assert.match(service, /hasMore/);
+  assert.match(service, /blockedByUnresolved:true/);
+  assert.match(service, /AWAITING_RECONCILIATION/);
   assert.match(service, /E2PAY_INSUFFICIENT_BALANCE/);
   assert.match(service, /E2PAY_INQUIRY_CONTROL_MISMATCH/);
   assert.match(service, /UNKNOWN/);
