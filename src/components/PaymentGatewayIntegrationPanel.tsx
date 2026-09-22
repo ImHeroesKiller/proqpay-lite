@@ -88,6 +88,9 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
         <p style={{ color:'var(--text3)', fontSize:12, margin:'6px 0 0', maxWidth:620 }}>
           Eksekusi payment setelah Payment Instruction lolos maker-checker. Secret tetap tersimpan server-side dan tidak pernah ditampilkan di browser.
         </p>
+        {isE2Pay ? <p style={{ color:'var(--text3)', fontSize:11.5, margin:'5px 0 0' }}>
+          Credential E2Pay dikelola oleh Super Admin melalui Settings → Payment Gateway.
+        </p> : null}
       </div>
       <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
         <span style={{ border:`1px solid ${tone(runtime.seamless)}44`, color:tone(runtime.seamless), borderRadius:999, padding:'5px 9px', fontSize:10.5, fontWeight:700 }}>

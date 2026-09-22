@@ -11,6 +11,7 @@ import { saveDatabase, seedDatabase } from "@/lib/database";
 import { emitDbChange } from "@/lib/events";
 import { writeSystemLog } from "@/lib/system-log";
 import AccountManagement from "@/components/AccountManagement";
+import PaymentGatewaySettings from "@/components/PaymentGatewaySettings";
 
 type Tab =
   | "general"
@@ -18,6 +19,7 @@ type Tab =
   | "appearance"
   | "ida"
   | "billing"
+  | "paymentGateway"
   | "users"
   | "data";
 const RESET_CONFIRMATION = "HAPUS SEMUA DATA";
@@ -59,6 +61,12 @@ const TABS: Array<{
     description: "Variabel invoice dan margin",
   },
   {
+    id: "paymentGateway",
+    label: "Payment Gateway",
+    icon: "↗",
+    description: "Provider dan credential E2Pay",
+  },
+  {
     id: "users",
     label: "User Management",
     icon: "◎",
@@ -75,9 +83,11 @@ const TABS: Array<{
 export default function SettingsModal({
   open,
   onClose,
+  role,
 }: {
   open: boolean;
   onClose: () => void;
+  role?: string;
 }) {
   const [tab, setTab] = useState<Tab>("general");
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -128,7 +138,8 @@ export default function SettingsModal({
   }, [open, onClose]);
 
   if (!open || !settings) return null;
-  const activeTab = TABS.find((item) => item.id === tab) || TABS[0];
+  const visibleTabs = TABS.filter((item) => item.id !== "paymentGateway" || role === "SUPER_ADMIN");
+  const activeTab = visibleTabs.find((item) => item.id === tab) || visibleTabs[0] || TABS[0];
 
   function patch(values: Partial<AppSettings>) {
     setSettings((current) => (current ? { ...current, ...values } : current));
@@ -273,7 +284,7 @@ export default function SettingsModal({
 
         <div className="settings-layout">
           <nav className="settings-nav" aria-label="Kategori pengaturan">
-            {TABS.map((item) => (
+            {visibleTabs.map((item) => (
               <button
                 type="button"
                 key={item.id}
@@ -676,6 +687,15 @@ export default function SettingsModal({
               </SettingsSection>
             ) : null}
 
+            {tab === "paymentGateway" && role === "SUPER_ADMIN" ? (
+              <SettingsSection
+                title="E2Pay B2B Disbursement"
+                description="Konfigurasi provider dan credential payment gateway. Hanya Super Admin yang dapat membuka dan mengubah bagian ini."
+              >
+                <PaymentGatewaySettings />
+              </SettingsSection>
+            ) : null}
+
             {tab === "users" ? (
               <SettingsSection
                 title="User Management"
@@ -784,7 +804,7 @@ export default function SettingsModal({
         </div>
 
         <footer className="settings-footer">
-          {tab !== "users" ? (
+          {tab !== "users" && tab !== "paymentGateway" ? (
             <>
               <button
                 type="button"
@@ -803,14 +823,16 @@ export default function SettingsModal({
             </>
           ) : (
             <span>
-              Perubahan user disimpan melalui tombol pada masing-masing kartu.
+              {tab === "paymentGateway"
+                ? "Credential gateway disimpan melalui tombol pada panel E2Pay."
+                : "Perubahan user disimpan melalui tombol pada masing-masing kartu."}
             </span>
           )}
           <div>
             <button type="button" className="btn" onClick={onClose}>
-              {tab === "users" ? "Tutup" : "Batal"}
+              {tab === "users" || tab === "paymentGateway" ? "Tutup" : "Batal"}
             </button>
-            {tab !== "users" ? (
+            {tab !== "users" && tab !== "paymentGateway" ? (
               <button
                 type="button"
                 className="btn btn-primary"

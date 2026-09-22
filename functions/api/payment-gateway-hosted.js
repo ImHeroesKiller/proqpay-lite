@@ -9,6 +9,7 @@ import {
   hostedSessionTtlSeconds,
   hostedStateHash,
 } from './payment-gateway-hosted-core.js';
+import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER'];
@@ -78,7 +79,8 @@ export async function onRequest(context) {
 
   const database = env.DB;
   const organizationId = orgId(env);
-  const readiness = hostedReadiness(env);
+  const runtimeEnv = await gatewayRuntimeEnv(database, env, organizationId);
+  const readiness = hostedReadiness(runtimeEnv);
 
   try {
     if (request.method === 'GET') {
@@ -152,7 +154,7 @@ export async function onRequest(context) {
     }
 
     try {
-      const provider = await createHostedCheckout(env, {
+      const provider = await createHostedCheckout(runtimeEnv, {
         sessionId,
         paymentInstructionId:payment.id,
         documentNo:payment.document_no,

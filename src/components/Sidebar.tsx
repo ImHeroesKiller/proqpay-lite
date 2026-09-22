@@ -52,7 +52,6 @@ const ROLE_VIEWS: Record<string, AppView[]> = {
     "exceptions",
     "payments",
     "billing",
-    "integrations",
     "employees",
     "clients",
     "reports",
@@ -323,6 +322,7 @@ export default function Sidebar({
       <SettingsModal
         open={settingsOpen}
         onClose={() => onSettingsOpen(false)}
+        role={role}
       />
     </>
   );
