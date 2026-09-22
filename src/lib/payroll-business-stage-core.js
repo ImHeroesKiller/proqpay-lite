@@ -87,6 +87,8 @@ const STAGE_BY_PI_STATUS = Object.freeze({
   PAYMENT_EXCEPTION:'CLOSE',
   COMPLETED:'CLOSE',
   MATCHED:'CLOSE',
+  PAID:'CLOSE',
+  RECONCILED:'CLOSE',
 });
 
 function normalize(value) {
