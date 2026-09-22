@@ -104,6 +104,7 @@ production; key dibentuk dari identitas Access dan nama resource.
 npm test
 npm run build
 curl https://proqpay-lite.pages.dev/api/health
+node scripts/production-smoke.mjs https://proqpay-lite.pages.dev
 ```
 
 Inisialisasi schema hanya melalui request POST yang sudah terautentikasi:
@@ -118,9 +119,9 @@ untuk endpoint yang dilindungi.
 ## Quality gate dan header
 
 GitHub Actions menjalankan tes, typecheck, lint, dan production build pada setiap
-push ke `main` dan pull request. Deployment production tetap dilakukan oleh
-integrasi Git Cloudflare Pages; workflow GitHub Pages lama telah dihapus agar tidak
-ada dua jalur deployment yang saling tumpang tindih.
+push ke `main` dan pull request. Deployment production dilakukan oleh workflow `.github/workflows/cloudflare-deploy.yml` setelah quality gate,
+backup D1, migration, dan payment-invariant checks. Setelah publish, workflow wajib menjalankan health check,
+`scripts/production-smoke.mjs`, serta Access split assertion. Jangan melewati urutan ini untuk release normal.
 
 File `public/_headers` menetapkan anti-framing, MIME sniffing protection,
 referrer policy, permissions policy, HSTS, dan immutable cache untuk aset build.
