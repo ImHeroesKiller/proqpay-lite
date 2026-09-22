@@ -11,6 +11,7 @@ import {
   e2paySyncBeneficiaryLimit,
   resolveE2PayBank,
 } from '../functions/api/payment-gateway-e2pay.js';
+import { isRetryableE2PayFailure } from '../functions/api/payment-gateway-e2pay-service.js';
 
 const baseEnv = {
   E2PAY_ENV:'UAT',
@@ -60,14 +61,22 @@ test('E2Pay inquiry signature is HMAC-SHA256 Base64 and bank mapping prefers pro
   assert.equal(resolveE2PayBank(banks, { bankCode:'unknown' }), null);
 });
 
-test('E2Pay response codes map conservatively and sync batch limit is bounded', () => {
+test('E2Pay response codes are fail-closed and sync batch limit is bounded', () => {
   assert.equal(e2payResponseStatus('00'), 'SUCCEEDED');
   assert.equal(e2payResponseStatus('96'), 'PROCESSING');
   assert.equal(e2payResponseStatus('99'), 'FAILED');
   assert.equal(e2payResponseStatus(''), 'PENDING');
-  assert.equal(e2payResponseStatus('', { emptyIsSuccess:true }), 'SUCCEEDED');
+  assert.equal(e2payResponseStatus('UNKNOWN'), 'PENDING');
   assert.equal(e2paySyncBeneficiaryLimit({}), 25);
   assert.equal(e2paySyncBeneficiaryLimit({ E2PAY_MAX_SYNC_BENEFICIARIES:'500' }), 100);
+});
+
+test('E2Pay retry policy permits only preflight failures or provider-confirmed code 99', () => {
+  assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:0, response_code:null }), true);
+  assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:1, response_code:'99' }), true);
+  assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:1, response_code:null }), false);
+  assert.equal(isRetryableE2PayFailure({ status:'UNKNOWN', attempt_count:1, response_code:null }), false);
+  assert.equal(isRetryableE2PayFailure({ status:'SUCCEEDED', attempt_count:1, response_code:'00' }), false);
 });
 
 test('financial POST is attempted once; ambiguous network failure is not auto-retried', async () => {
@@ -87,7 +96,7 @@ test('financial POST is attempted once; ambiguous network failure is not auto-re
   assert.equal(calls, 1);
 });
 
-test('E2Pay migration and gateway endpoint keep beneficiary-level ledger and polling reconciliation', async () => {
+test('E2Pay migration and gateway endpoint keep beneficiary-level ledger and safe recovery', async () => {
   const migration = await readFile(new URL('../migrations/0025_e2pay_disbursement.sql', import.meta.url), 'utf8');
   const endpoint = await readFile(new URL('../functions/api/payment-gateway.js', import.meta.url), 'utf8');
   const service = await readFile(new URL('../functions/api/payment-gateway-e2pay-service.js', import.meta.url), 'utf8');
@@ -95,9 +104,13 @@ test('E2Pay migration and gateway endpoint keep beneficiary-level ledger and pol
   assert.match(migration, /UNIQUE \(provider, client_ref\)/);
   assert.match(migration, /provider_beneficiary_name/);
   assert.match(endpoint, /RECONCILE/);
+  assert.match(endpoint, /RETRY_FAILED/);
+  assert.match(endpoint, /E2PAY_NO_RETRYABLE_FAILURES/);
   assert.match(endpoint, /E2PAY_BATCH_REQUIRES_QUEUE/);
   assert.match(service, /E2PAY_INSUFFICIENT_BALANCE/);
   assert.match(service, /E2PAY_INQUIRY_CONTROL_MISMATCH/);
   assert.match(service, /UNKNOWN/);
   assert.match(service, /e2payTransactionHistory/);
+  assert.match(service, /Number\(error\.httpStatus\) >= 500/);
+  assert.doesNotMatch(service, /emptyIsSuccess:true/);
 });
