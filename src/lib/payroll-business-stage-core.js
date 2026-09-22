@@ -116,6 +116,7 @@ function deriveBusinessStatus(stage, context, technicalState, piStatus, recStatu
   }
   if (stage === 'APPROVE') {
     if (technicalState === 'CLIENT_REVISION_REQUESTED') return 'ACTION_REQUIRED';
+    if (technicalState === 'CLIENT_APPROVED') return 'IN_PROGRESS';
     return 'FOR_APPROVAL';
   }
   if (stage === 'PAY') {
@@ -134,7 +135,9 @@ function reasonFor(stage, status, context, technicalState, piStatus, recStatus) 
   if (status === 'ACTION_REQUIRED' && blocking > 0) return `${blocking} critical payroll issue${blocking === 1 ? '' : 's'} require resolution`;
   if (technicalState === 'CLIENT_ACTION_REQUIRED') return 'Client correction is required before payroll can continue';
   if (technicalState === 'CLIENT_REVISION_REQUESTED') return 'Payroll revision was requested during approval';
-  if (status === 'FOR_APPROVAL' && (technicalState === 'CONTROLLER_REVIEW' || technicalState === 'DATA_APPROVED')) return 'Payroll is waiting for approval';
+  if (technicalState === 'CLIENT_APPROVAL_PENDING') return 'Payroll is waiting for client approval';
+  if (technicalState === 'CLIENT_APPROVED') return 'Client approval is complete; payment preparation can continue';
+  if (status === 'FOR_APPROVAL' && (technicalState === 'CONTROLLER_REVIEW' || technicalState === 'DATA_APPROVED')) return 'Payroll is waiting for internal approval';
   if (status === 'FOR_APPROVAL' && (piStatus === 'PAYMENT_APPROVAL_PENDING' || technicalState === 'PAYMENT_APPROVAL_PENDING')) return 'Payment instruction is waiting for approval';
   if (stage === 'PAY' && status === 'PROCESSING') return 'Payment is being prepared or processed';
   if (stage === 'CLOSE' && recStatus === 'MATCHED') return 'Payment is reconciled; billing and closing can continue';
