@@ -540,8 +540,8 @@ async function applyEmployee(db, orgId, submission, batchId, rowRecord, actor) {
   const after = incomingMaster(row);
   const employee = await d1First(
     db,
-    "SELECT * FROM employees WHERE org_id=? AND UPPER(COALESCE(employee_code,id))=UPPER(?) LIMIT 1",
-    [orgId, code],
+    "SELECT * FROM employees WHERE org_id=? AND client_id=? AND UPPER(COALESCE(employee_code,id))=UPPER(?) LIMIT 1",
+    [orgId, submission.client_id, code],
   );
   const existingHistory = employee
     ? await d1First(
