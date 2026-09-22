@@ -10,6 +10,7 @@ import {
 } from './payment-gateway-core.js';
 import { e2paySyncBeneficiaryLimit } from './payment-gateway-e2pay.js';
 import { executeE2PayBatch, reconcileE2PayBatch } from './payment-gateway-e2pay-service.js';
+import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER'];
@@ -87,7 +88,8 @@ export async function onRequest(context) {
 
   const database = env.DB;
   const organizationId = orgId(env);
-  const readiness = gatewayReadiness(env);
+  const runtimeEnv = await gatewayRuntimeEnv(database, env, organizationId);
+  const readiness = gatewayReadiness(runtimeEnv);
 
   try {
     if (request.method === 'GET') {
@@ -129,7 +131,7 @@ export async function onRequest(context) {
     if (action === 'RECONCILE') {
       if (readiness.provider !== 'E2PAY') return secureJson({ error: 'Reconcile polling hanya tersedia untuk adapter E2Pay' }, 422, request, env, METHODS);
       if (!transaction) return secureJson({ error: 'Execution ledger E2Pay belum tersedia' }, 404, request, env, METHODS);
-      const result = await reconcileE2PayBatch({ database, env, transactionId:transaction.id, payment });
+      const result = await reconcileE2PayBatch({ database, env:runtimeEnv, transactionId:transaction.id, payment });
       transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transaction.id]);
       await d1Batch(database, [auditOperation(organizationId, authorization.actor, 'E2PAY_RECONCILED',
         result.parentStatus + ' · ' + result.summary.succeeded + '/' + result.summary.total, payment.id)]);
@@ -142,11 +144,11 @@ export async function onRequest(context) {
       return secureJson({ ok: true, transaction, idempotentReplay: true, gateway: readiness }, 200, request, env, METHODS);
     }
 
-    const beneficiaries = await beneficiarySnapshot(database, payment.id, env.PI_ENCRYPTION_KEY);
+    const beneficiaries = await beneficiarySnapshot(database, payment.id, runtimeEnv.PI_ENCRYPTION_KEY);
     const requestHash = await gatewayRequestHash(payment, beneficiaries.map((row) => row.lineHash), paymentMethod);
     if (!beneficiaries.length) return secureJson({ error: 'Payment Instruction tidak memiliki beneficiary' }, 409, request, env, METHODS);
-    if (readiness.provider === 'E2PAY' && beneficiaries.length > e2paySyncBeneficiaryLimit(env)) {
-      return secureJson({ error: `Batch ${beneficiaries.length} beneficiary memerlukan E2Pay queue worker`, code:'E2PAY_BATCH_REQUIRES_QUEUE', maxSyncBeneficiaries:e2paySyncBeneficiaryLimit(env) }, 409, request, env, METHODS);
+    if (readiness.provider === 'E2PAY' && beneficiaries.length > e2paySyncBeneficiaryLimit(runtimeEnv)) {
+      return secureJson({ error: `Batch ${beneficiaries.length} beneficiary memerlukan E2Pay queue worker`, code:'E2PAY_BATCH_REQUIRES_QUEUE', maxSyncBeneficiaries:e2paySyncBeneficiaryLimit(runtimeEnv) }, 409, request, env, METHODS);
     }
     if (beneficiaries.reduce((sum, row) => sum + row.amount, 0) !== Number(payment.expected_total)) {
       return secureJson({ error: 'Beneficiary snapshot tidak sesuai control total', code: 'PAYMENT_BENEFICIARY_TOTAL_MISMATCH' }, 409, request, env, METHODS);
@@ -179,7 +181,7 @@ export async function onRequest(context) {
 
     if (readiness.provider === 'E2PAY') {
       try {
-        const result = await executeE2PayBatch({ database, env, transactionId, payment, beneficiaries });
+        const result = await executeE2PayBatch({ database, env:runtimeEnv, transactionId, payment, beneficiaries });
         transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transactionId]);
         await d1Batch(database, [auditOperation(organizationId, authorization.actor, 'E2PAY_EXECUTION',
           `${result.parentStatus || result.code || 'UNKNOWN'} · ${result.summary?.succeeded || 0}/${result.summary?.total || beneficiaries.length}`, payment.id)]);
@@ -192,7 +194,7 @@ export async function onRequest(context) {
     }
 
     try {
-      const providerResult = await createGatewayPayment(env, {
+      const providerResult = await createGatewayPayment(runtimeEnv, {
         paymentInstructionId: payment.id,
         documentNo: payment.document_no,
         contentHash: payment.content_hash,
