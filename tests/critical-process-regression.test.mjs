@@ -86,14 +86,15 @@ test('new PI freezes billing terms so later client profile changes cannot alter 
   assert.equal(JSON.parse(invoice.billing_snapshot).rate,3);
 });
 
-test('blocked Pay Run UI no longer routes EXCEPTION_FOUND back into validation', async()=>{
+test('blocked Pay Run UI delegates EXCEPTION_FOUND routing to the Next Action Engine', async()=>{
   const fs=await import('node:fs/promises');
   const source=await fs.readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
-  assert.match(source,/row\.state === 'EXCEPTION_FOUND'\) return undefined/);
+  const engine=await fs.readFile(new URL('../src/lib/payroll-next-action-core.js',import.meta.url),'utf8');
+  assert.match(source,/derivePayrollNextAction/);
   assert.match(source,/Buka Exception Center/);
-  const explicit=source.indexOf("row.state === 'EXCEPTION_FOUND') return undefined");
-  const generic=source.indexOf('validationStates.has(row.state)');
-  assert.ok(explicit >= 0 && generic >= 0 && explicit < generic,'EXCEPTION_FOUND must short-circuit before generic validation routing');
+  assert.doesNotMatch(source,/function nextFor\(/);
+  assert.match(engine,/state === 'EXCEPTION_FOUND'/);
+  assert.match(engine,/RESOLVE_PAYROLL_ISSUES/);
 });
 
 
