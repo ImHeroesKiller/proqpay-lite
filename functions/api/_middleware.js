@@ -80,8 +80,8 @@ export async function onRequest(context) {
   const identity = appIdentity(context.request);
   const response = await context.next();
 
-  // Monitoring headers are metadata only. The underlying endpoint continues to
-  // enforce its normal session/Access authorization before any data is returned.
+  // Monitoring headers are metadata only: they do not grant access and do not
+  // bypass normal ProQPay authentication. The underlying endpoint stays authoritative.
   if (identity && context.env?.DB?.prepare && context.env?.DB?.batch) {
     const task = persist(context.env.DB, context.env, context.request, response, startedAt, identity)
       .catch((error) => console.error(JSON.stringify({
