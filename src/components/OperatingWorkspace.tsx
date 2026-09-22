@@ -18,8 +18,24 @@ const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; descriptio
   billing: { title:'Billing & AR', eyebrow:'FINANCE OPERATIONS', description:'Kelola invoice layanan, jatuh tempo, dan pelunasan piutang.', search:'Invoice, klien, periode…' },
 };
 
-const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') ? '#dc2626'
+const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') || state.includes('REVISION') ? '#dc2626'
   : state.includes('APPROVED') || state === 'COMPLETED' || state === 'MATCHED' ? '#059669' : 'var(--accent)';
+
+function paymentBusinessLabel(status:string) {
+  const labels:Record<string,string>={
+    PAYMENT_INSTRUCTION_READY:'Prepared',
+    PAYMENT_APPROVAL_PENDING:'For Approval',
+    APPROVED_FOR_PAYMENT:'Ready to Pay',
+    DISBURSEMENT_PROCESSING:'Processing',
+    PAYMENT_CONFIRMED:'Processing',
+    PROOF_UPLOADED:'Reconcile',
+    RECONCILIATION:'Reconcile',
+    PAYMENT_EXCEPTION:'Action Required',
+    REVISION_REQUIRED:'Revision Required',
+    COMPLETED:'Completed',
+  };
+  return labels[String(status||'')] || String(status||'-').replaceAll('_',' ');
+}
 
 export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: WorkspaceMode }) {
   const [actor, setActor] = useState<Actor | null>(null);
@@ -213,6 +229,11 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           <div><span>Critical blockers</span><strong>{criticalExceptions.length}</strong><small>Harus diselesaikan</small></div>
           <div><span>Affected pay runs</span><strong>{affectedRuns}</strong><small>Dari {visibleSubmissions.length} pay run</small></div>
           <div><span>Client action</span><strong>{openExceptions.filter((row)=>row.status==='CLIENT_ACTION_REQUIRED').length}</strong><small>Menunggu perbaikan</small></div>
+        </> : simplifiedInternal ? <>
+          <div><span>Payments</span><strong>{visibleInstructions.length}</strong><small>{visibleInstructions.reduce((sum,row)=>sum+Number(row.recipient_count||0),0).toLocaleString('id-ID')} penerima</small></div>
+          <div><span>{role==='PAYROLL_CONTROLLER'?'For approval':'Ready to pay'}</span><strong>{role==='PAYROLL_CONTROLLER'?awaitingApproval:visibleInstructions.filter((row)=>row.status==='APPROVED_FOR_PAYMENT').length}</strong><small>{role==='PAYROLL_CONTROLLER'?'Menunggu keputusan Anda':'Siap dieksekusi'}</small></div>
+          <div><span>Processing</span><strong>{visibleInstructions.filter((row)=>['DISBURSEMENT_PROCESSING','PAYMENT_CONFIRMED'].includes(row.status)).length}</strong><small>{formatIDR(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</small></div>
+          <div><span>Reconciled</span><strong>{matchedPayments}</strong><small>{visibleReconciliations.length-matchedPayments} belum match</small></div>
         </> : <>
           <div><span>Payment Instructions</span><strong>{visibleInstructions.length}</strong><small>{visibleInstructions.reduce((sum,row)=>sum+Number(row.recipient_count||0),0).toLocaleString('id-ID')} penerima</small></div>
           <div><span>PI value</span><strong>{formatIDR(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</strong><small>Control total</small></div>
@@ -226,7 +247,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
         <>
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedInternal} act={act} />}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
-          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
+          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace actor={actor} />}
         </>
       )}
@@ -424,7 +445,7 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
       <div key="finding"><strong>{r.category}</strong><small style={small}>{r.employee_id || 'Submission'} · {r.reason || r.field || '-'}</small></div>,
       <div key="scope"><strong>{r.client_name || r.client_id || '-'}</strong><small style={small}>{r.project_name || r.period || '-'}</small></div>,
       <Badge key="severity" text={r.severity} />,
-      <Badge key="status" text={r.status} />,
+      <Badge key="status" text={simplified?paymentBusinessLabel(r.status):r.status} />,
       <button key="detail" style={actionButton} onClick={() => setSelected(r)}>Tindak lanjut</button>,
     ])} />
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={small}>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div style={{display:'flex',gap:6}}><button className="btn" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>←</button><button className="btn" disabled={page>=pageCount} onClick={()=>setPage(p=>p+1)}>→</button></div></div>
@@ -442,7 +463,7 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
   </div>;
 }
 
-function Payments({ instructions, proofs, reconciliations, role, canReview, canApprove, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; role:string; canReview:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
+function Payments({ instructions, proofs, reconciliations, role, simplified, canReview, canApprove, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; role:string; simplified:boolean; canReview:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
   const [proofFor, setProofFor] = useState<string | null>(null);
   const [proof, setProof] = useState({ bank:'BCA', reference:'', transactionDate:new Date().toISOString().slice(0,10), amount:'' });
   const [file, setFile] = useState<File | null>(null);
