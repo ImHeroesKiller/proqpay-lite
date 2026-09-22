@@ -25,30 +25,7 @@ async function parseResponse(response: Response) {
   return data;
 }
 
-export async function listOperatingResource(resource: OperatingResource, clientId?: string) {
-  const params = new URLSearchParams({ resource });
-  if (clientId) params.set('clientId', clientId);
-  const url = `/api/operating-model?${params}`;
-  const cached = responseCache.get(url);
-  if (cached && cached.expiresAt > Date.now()) return cached.data;
-  const pending = inflightRequests.get(url);
-  if (pending) return pending;
-  const request = fetch(url, { headers: { Accept: 'application/json' } })
-    .then(parseResponse)
-    .then((data) => {
-      responseCache.set(url, { data, expiresAt: Date.now() + CACHE_TTL_MS });
-      return data;
-    })
-    .finally(() => inflightRequests.delete(url));
-  inflightRequests.set(url, request);
-  return request;
-}
-
-export function listOperatingDashboard(clientId?: string, period?: string) {
-  const params = new URLSearchParams({ resource:'dashboard' });
-  if (clientId) params.set('clientId', clientId);
-  if (period && period !== 'ALL') params.set('period', period);
-  const url = `/api/operating-model?${params}`;
+function cachedOperatingGet(url: string) {
   const cached = responseCache.get(url);
   if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.data);
   const pending = inflightRequests.get(url);
@@ -61,6 +38,55 @@ export function listOperatingDashboard(clientId?: string, period?: string) {
     })
     .finally(() => inflightRequests.delete(url));
   inflightRequests.set(url, request);
+  return request;
+}
+
+export async function listOperatingResource(resource: OperatingResource, clientId?: string) {
+  const params = new URLSearchParams({ resource });
+  if (clientId) params.set('clientId', clientId);
+  return cachedOperatingGet(`/api/operating-model?${params}`);
+}
+
+export function listOperatingDashboard(clientId?: string, period?: string) {
+  const baseParams = new URLSearchParams({ resource:'dashboard' });
+  if (clientId) baseParams.set('clientId', clientId);
+  if (period && period !== 'ALL') baseParams.set('period', period);
+  const aggregateKey = `/api/operating-model?${baseParams}&aggregate=all`;
+  const cached = responseCache.get(aggregateKey);
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.data);
+  const pending = inflightRequests.get(aggregateKey);
+  if (pending) return pending;
+
+  const request = (async()=>{
+    const merged:any = { submissions:[], paymentInstructions:[] };
+    let offset = 0;
+    let first:any = null;
+    while (true) {
+      const pageParams = new URLSearchParams(baseParams);
+      if (offset) pageParams.set('offset', String(offset));
+      const page = await cachedOperatingGet(`/api/operating-model?${pageParams}`);
+      if (!first) first = page;
+      merged.submissions.push(...(page.submissions || []));
+      merged.paymentInstructions.push(...(page.paymentInstructions || []));
+      const nextOffset = page.dashboardMeta?.nextOffset;
+      if (nextOffset == null) break;
+      offset = Number(nextOffset);
+    }
+    const result = {
+      ...first,
+      ...merged,
+      dashboardMeta:{
+        ...(first?.dashboardMeta || {}),
+        submissionsReturned:merged.submissions.length,
+        nextOffset:null,
+        truncated:false,
+      },
+    };
+    responseCache.set(aggregateKey,{data:result,expiresAt:Date.now()+CACHE_TTL_MS});
+    return result;
+  })().finally(()=>inflightRequests.delete(aggregateKey));
+
+  inflightRequests.set(aggregateKey,request);
   return request;
 }
 
