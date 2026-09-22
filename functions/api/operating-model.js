@@ -199,7 +199,9 @@ async function guardSensitivePaymentActions(body, env) {
   const paymentInstructionId = String(body.paymentInstructionId || '').trim();
   if (!paymentInstructionId) return { status: 422, data: { error: 'paymentInstructionId wajib diisi' } };
   const payment = await d1First(env.DB, `SELECT pi.id,pi.status,pi.submission_id,
-    COALESCE((SELECT COUNT(*) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0) AS proof_count
+    COALESCE((SELECT COUNT(*) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0) AS proof_count,
+    COALESCE((SELECT COUNT(*) FROM payment_gateway_transactions pgt
+      WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'),0) AS gateway_success_count
     FROM payment_instructions pi WHERE pi.id=? AND pi.org_id=? LIMIT 1`,
   [paymentInstructionId, String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO')]);
   if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
@@ -211,7 +213,7 @@ async function guardSensitivePaymentActions(body, env) {
   if (!RECONCILIABLE_STATUSES.has(String(payment.status || '').toUpperCase())) {
     return { status: 409, data: { error: `PI berstatus ${payment.status || 'UNKNOWN'} belum dapat direkonsiliasi` } };
   }
-  if (Number(payment.proof_count || 0) <= 0) return { status: 409, data: { error: 'Bukti pembayaran belum tersedia untuk rekonsiliasi' } };
+  if (Number(payment.proof_count || 0) <= 0 && Number(payment.gateway_success_count || 0) <= 0) return { status: 409, data: { error: 'Bukti pembayaran atau settlement gateway belum tersedia untuk rekonsiliasi' } };
   return null;
 }
 
