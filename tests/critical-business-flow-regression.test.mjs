@@ -160,3 +160,24 @@ test('VALIDATE detects corrupted payroll control totals instead of only changing
   assert.equal(valid.payload.submission.state,'VALIDATED');
   assert.equal(DB.sqlite.prepare("SELECT COUNT(*) count FROM payroll_exceptions WHERE submission_id=? AND category LIKE 'SYSTEM_%' AND status='OPEN'").get(id).count,0);
 });
+
+
+test('Controller review locks canonical payroll snapshot until revision is requested',async()=>{
+  const DB=new D1Mock(); seedPayroll(DB);
+  const processor={id:'USR-LP',email:'lock.processor@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:[]};
+  const created=await direct(DB,processor,{action:'CREATE_PAY_RUN',clientId:'CLI-CRIT',projectId:'PRJ-CRIT',servicePlanId:'SP-CRIT',period:'2026-11',paymentPeriod:'2026-11',paymentDate:'2026-11-25',runType:'REGULAR',sourceMode:'MASTER_CURRENT'});
+  assert.equal(created.response.status,201,JSON.stringify(created.payload));
+  const id=created.payload.submission.id;
+  assert.equal((await direct(DB,processor,{action:'FINALIZE_PAY_RUN_INPUT',submissionId:id,confirmation:'DATA PAYROLL FINAL'})).response.status,200);
+  assert.equal((await direct(DB,processor,{action:'ADVANCE_PAY_RUN',submissionId:id,command:'VALIDATE',reviewConfirmed:true})).payload.submission.state,'VALIDATED');
+  const handedOff=await direct(DB,processor,{action:'ADVANCE_PAY_RUN',submissionId:id,command:'FINALIZE_PAYROLL',reviewConfirmed:true,reviewNote:'Hand off to Controller'});
+  assert.equal(handedOff.payload.submission.state,'CONTROLLER_REVIEW');
+
+  const refinalize=await direct(DB,processor,{action:'FINALIZE_PAY_RUN_INPUT',submissionId:id,confirmation:'DATA PAYROLL FINAL'});
+  assert.equal(refinalize.response.status,409);
+  assert.equal(refinalize.payload.code,'PAY_RUN_INPUT_LOCKED_FOR_REVIEW');
+  assert.throws(
+    ()=>DB.sqlite.prepare('UPDATE payroll_run_lines SET net_amount=net_amount-1 WHERE submission_id=?').run(id),
+    /payroll run snapshot is locked/,
+  );
+});
