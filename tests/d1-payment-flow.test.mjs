@@ -31,8 +31,8 @@ function seed396(DB) {
     INSERT INTO projects(id,org_id,client_id,code,name,created_by) VALUES('PRJ-UAT','ORG-OTSINDO','CLI-UAT','PRJ-UAT','Payroll UAT','seed');
     INSERT INTO client_service_plans(id,client_id,tier,effective_from,created_by,status)
       VALUES('SP-UAT','CLI-UAT','TIER_1_PAYMENT_PROCESSING','2026-01-01','seed','ACTIVE');
-    INSERT INTO payroll_submissions(id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,state,created_by)
-      VALUES('SUB-UAT','ORG-OTSINDO','CLI-UAT','PRJ-UAT','SP-UAT','TIER_1_PAYMENT_PROCESSING','2026-08','2026-08','PAYMENT_INSTRUCTION_READY','seed');
+    INSERT INTO payroll_submissions(id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,state,created_by,client_reviewed_by,client_review_decision)
+      VALUES('SUB-UAT','ORG-OTSINDO','CLI-UAT','PRJ-UAT','SP-UAT','TIER_1_PAYMENT_PROCESSING','2026-08','2026-08','CLIENT_APPROVED','seed','client@proqpay.test','APPROVED');
   `);
   const employee = sql.prepare(`INSERT INTO employees(id,org_id,client_id,project_id,employee_code,name,status_aktif)
     VALUES(?,?,?,?,?,?,'ACTIVE')`);
@@ -114,25 +114,38 @@ test('D1 processes 396 recipients through PI approval, proof, and reconciliation
   assert.throws(() => DB.sqlite.prepare('UPDATE payment_instruction_lines SET amount=1 WHERE payment_instruction_id=?').run(pi.id), /immutable/);
 });
 
-test('Controller approval publishes exactly one PI atomically and retries idempotently', async () => {
+test('Controller and Client approvals precede exactly one idempotent PI', async () => {
   const DB = new D1Mock();
   seed396(DB);
-  DB.sqlite.prepare(`UPDATE payroll_submissions SET state='CONTROLLER_REVIEW' WHERE id='SUB-UAT'`).run();
+  DB.sqlite.prepare(`UPDATE payroll_submissions SET state='CONTROLLER_REVIEW',processor_reviewed_by='processor@proqpay.test',
+    client_reviewed_by=NULL,client_review_decision=NULL WHERE id='SUB-UAT'`).run();
   const env = { DB, DEFAULT_ORG_ID:'ORG-OTSINDO', PI_ENCRYPTION_KEY:'uat-native-cloudflare-key-32-bytes-minimum' };
   const controller = { id:'USR-CONTROLLER', email:'controller@proqpay.test', role:'PAYROLL_CONTROLLER', permissions:['payment:approve'] };
-  const payload = { action:'APPROVE_PAYROLL_AND_GENERATE_PI', submissionId:'SUB-UAT', reviewConfirmed:true,
-    reviewNote:'Control total, daftar penerima, dan rekening telah diverifikasi.' };
+  const client = { id:'USR-CLIENT', email:'client@proqpay.test', role:'CLIENT_USER', permissions:[], clientIds:['CLI-UAT'], projectIds:['PRJ-UAT'] };
+  const maker = { id:'USR-MAKER', email:'maker@proqpay.test', role:'PAYROLL_PROCESSOR', permissions:['payment:prepare'] };
 
-  const approved = await handleD1OperatingModel({ request:post(payload), env }, controller);
-  assert.equal(approved.status,201,await approved.clone().text());
-  const first = (await approved.json()).paymentInstruction;
+  const handedOff = await handleD1OperatingModel({ request:post({
+    action:'TRANSITION_SUBMISSION',submissionId:'SUB-UAT',toState:'CLIENT_APPROVAL_PENDING',
+    reviewConfirmed:true,reviewNote:'Controller verified payroll totals and variance.',
+  }), env }, controller);
+  assert.equal(handedOff.status,200,await handedOff.clone().text());
+  assert.equal(DB.sqlite.prepare(`SELECT state FROM payroll_submissions WHERE id='SUB-UAT'`).get().state,'CLIENT_APPROVAL_PENDING');
+  assert.equal(DB.sqlite.prepare(`SELECT COUNT(*) AS count FROM payment_instructions WHERE submission_id='SUB-UAT'`).get().count,0);
+
+  const clientApproved = await handleD1OperatingModel({ request:post({
+    action:'CLIENT_APPROVE_PAYROLL',submissionId:'SUB-UAT',reviewConfirmed:true,
+    confirmation:'SETUJUI PAYROLL',reviewNote:'Client payroll sign-off complete',
+  }), env }, client);
+  assert.equal(clientApproved.status,200,await clientApproved.clone().text());
+
+  const generated = await handleD1OperatingModel({ request:post({action:'GENERATE_PAYMENT_INSTRUCTION',submissionId:'SUB-UAT'}), env }, maker);
+  assert.equal(generated.status,201,await generated.clone().text());
+  const first=(await generated.json()).paymentInstruction;
   assert.equal(first.status,'PAYMENT_INSTRUCTION_READY');
-  assert.equal(DB.sqlite.prepare(`SELECT state FROM payroll_submissions WHERE id='SUB-UAT'`).get().state,'PAYMENT_INSTRUCTION_READY');
-  assert.equal(DB.sqlite.prepare(`SELECT COUNT(*) AS count FROM payment_instructions WHERE submission_id='SUB-UAT' AND status<>'REJECTED'`).get().count,1);
 
-  const replay = await handleD1OperatingModel({ request:post(payload), env }, controller);
+  const replay = await handleD1OperatingModel({ request:post({action:'GENERATE_PAYMENT_INSTRUCTION',submissionId:'SUB-UAT'}), env }, maker);
   assert.equal(replay.status,200,await replay.clone().text());
-  const replayPayload = await replay.json();
+  const replayPayload=await replay.json();
   assert.equal(replayPayload.idempotentReplay,true);
   assert.equal(replayPayload.paymentInstruction.id,first.id);
   assert.equal(DB.sqlite.prepare(`SELECT COUNT(*) AS count FROM payment_instructions WHERE submission_id='SUB-UAT' AND status<>'REJECTED'`).get().count,1);
