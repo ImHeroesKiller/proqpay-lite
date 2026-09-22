@@ -218,6 +218,30 @@ export function selectE2PayExecutionChunk(items = [], limit = 25, retryFailed = 
 export async function executeE2PayBatch({ database, env, transactionId, payment, beneficiaries, retryFailed = false }) {
   const limit = e2paySyncBeneficiaryLimit(env);
   const allItems = await ensureItems(database, transactionId, payment, beneficiaries);
+  const unresolved = allItems.filter((item) => ['PENDING','PROCESSING','UNKNOWN'].includes(item.status));
+  if (!retryFailed && unresolved.length) {
+    const outcome = parentOutcome(allItems);
+    const remaining = allItems.filter((item) => item.status === 'CREATED'
+      || (item.status === 'INQUIRY_READY' && Number(item.attempt_count || 0) === 0)).length;
+    await updateParent(database, transactionId, {
+      status:'PROCESSING',
+      provider_status:'AWAITING_RECONCILIATION',
+      error_code:null,
+      error_message:null,
+    });
+    await transitionPaymentState(database, payment, 'PROCESSING', outcome.summary);
+    return {
+      ok:true,
+      statusCode:200,
+      summary:outcome.summary,
+      items:allItems,
+      parentStatus:'PROCESSING',
+      hasMore:false,
+      remaining,
+      processedThisCall:0,
+      blockedByUnresolved:true,
+    };
+  }
   const chunkItems = selectE2PayExecutionChunk(allItems, limit, retryFailed);
   if (!chunkItems.length) {
     const outcome = parentOutcome(allItems);
