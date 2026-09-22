@@ -213,7 +213,7 @@ async function guardSensitivePaymentActions(body, env) {
   if (!RECONCILIABLE_STATUSES.has(String(payment.status || '').toUpperCase())) {
     return { status: 409, data: { error: `PI berstatus ${payment.status || 'UNKNOWN'} belum dapat direkonsiliasi` } };
   }
-  if (Number(payment.proof_count || 0) <= 0 && Number(payment.gateway_success_count || 0) <= 0) return { status: 409, data: { error: 'Bukti pembayaran atau settlement gateway belum tersedia untuk rekonsiliasi' } };
+  if (Number(payment.proof_count || 0) <= 0 && Number(payment.gateway_success_count || 0) <= 0) return { status: 409, data: { error: 'Bukti pembayaran belum tersedia dan settlement gateway belum berhasil untuk rekonsiliasi' } };
   return null;
 }
 
