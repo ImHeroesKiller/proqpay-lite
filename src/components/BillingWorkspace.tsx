@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatIDR } from "@/lib/format";
-import { executeOperatingAction, listOperatingResource } from "@/lib/operating-model-api";
+import { executeOperatingAction, getPayRunDetail, listOperatingResource } from "@/lib/operating-model-api";
 
 type Actor = { email: string; role: string };
 type Section = "invoice" | "tax" | "ar" | "close" | "setup";
@@ -58,14 +58,27 @@ export default function BillingWorkspace({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [response, operating] = await Promise.all([
-        fetch("/api/billing", { credentials: "same-origin" }),
+      const billingUrl = focusSubmissionId
+        ? `/api/billing?submissionId=${encodeURIComponent(focusSubmissionId)}`
+        : "/api/billing";
+      const [response, operating, focused] = await Promise.all([
+        fetch(billingUrl, { credentials: "same-origin" }),
         listOperatingResource("submissions"),
+        focusSubmissionId
+          ? getPayRunDetail(focusSubmissionId).catch(() => null)
+          : Promise.resolve(null),
       ]);
       const body = await response.json();
       if (!response.ok)
         throw new Error(body.error || `HTTP ${response.status}`);
-      setData({ ...initialData, ...body, submissions: operating.submissions || [] });
+      const submissions = [...(operating.submissions || [])];
+      if (
+        focused?.submission &&
+        !submissions.some((row: any) => String(row.id) === String(focused.submission.id))
+      ) {
+        submissions.unshift(focused.submission);
+      }
+      setData({ ...initialData, ...body, submissions });
     } catch (error) {
       setNotice(
         error instanceof Error ? error.message : "Gagal memuat Billing & AR",
@@ -73,7 +86,7 @@ export default function BillingWorkspace({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [focusSubmissionId]);
 
   useEffect(() => {
     void load();
