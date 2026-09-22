@@ -799,6 +799,20 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (changedAccounts.length) return { status:409, data:{ error:`${changedAccounts.length} rekening berubah setelah snapshot; review dan finalisasi ulang Pay Run diperlukan` } };
     if (!env.PI_ENCRYPTION_KEY || String(env.PI_ENCRYPTION_KEY).length < 32) return { status: 503, data: { error: 'PI_ENCRYPTION_KEY belum dikonfigurasi dengan aman' } };
     const expectedTotal = source.reduce((sum, row) => sum + Number(row.amount), 0);
+    const billingProfile = await d1First(database, `SELECT billing_method,billing_rate,billing_admin_fee,billing_tax_rate,
+      tax_status,payment_terms_days,purchase_order FROM clients WHERE id=? AND org_id=? LIMIT 1`,
+      [submission.client_id, organizationId]);
+    if (!billingProfile) return { status:404, data:{ error:'Client billing profile tidak ditemukan' } };
+    const billingSnapshot = JSON.stringify({
+      method:String(billingProfile.billing_method || 'PER_EMPLOYEE'),
+      rate:Number(billingProfile.billing_rate || 0),
+      adminFee:Number(billingProfile.billing_admin_fee || 0),
+      taxRate:Number(billingProfile.billing_tax_rate || 0),
+      taxStatus:String(billingProfile.tax_status || 'NON_PKP'),
+      paymentTermsDays:Number(billingProfile.payment_terms_days || 0),
+      purchaseOrder:billingProfile.purchase_order || null,
+      capturedAt:new Date().toISOString(),
+    });
     const id = `PI-${crypto.randomUUID()}`;
     const paymentPeriod = submission.payment_period || submission.period;
     const snapshotLines = await Promise.all(source.map(async (row) => {
@@ -830,10 +844,10 @@ async function executeAction(database, body, actor, env, organizationId) {
       ...(existing ? [{ statement:`UPDATE payment_instructions SET status='REJECTED',updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[existing.id] }] : []),
       { statement: `INSERT INTO payment_instructions
         (id,org_id,client_id,submission_id,status,expected_total,creator_user_id,idempotency_key,
-         document_no,content_hash,currency,execution_date,recipient_count)
-        VALUES (?,?,?,?,'PAYMENT_INSTRUCTION_READY',?,?,?,?,?,'IDR',?,?)`,
+         document_no,content_hash,currency,execution_date,recipient_count,billing_snapshot)
+        VALUES (?,?,?,?,'PAYMENT_INSTRUCTION_READY',?,?,?,?,?,'IDR',?,?,?)`,
         bindings: [id, organizationId, submission.client_id, submission.id, expectedTotal, actor.id, idempotencyKey,
-          documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length] },
+          documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length, billingSnapshot] },
       ...lineInsertOperations(id, snapshotLines),
       { statement: atomicControllerApproval
         ? `UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',controller_reviewed_at=${NOW},controller_reviewed_by=?,controller_review_note=?,updated_at=${NOW} WHERE id=? AND state='CONTROLLER_REVIEW'`
