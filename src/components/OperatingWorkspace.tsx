@@ -185,6 +185,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   const myWork=visibleNextActions.filter((action)=>action.actionable);
   const myAttention=myWork.filter((action)=>action.tone==='danger');
   const myApprovals=myWork.filter((action)=>action.category==='APPROVAL');
+  const clientCorrections=openExceptions.filter((row)=>row.status==='CLIENT_ACTION_REQUIRED');
+  const clientPaymentProcessing=visibleInstructions.filter((row)=>!['COMPLETED','REJECTED'].includes(row.status)).length;
   const baseProfile = profiles[mode];
   const profile = clientExperience && mode === 'payruns'
     ? {...baseProfile,title:'Payroll',eyebrow:'YOUR PAYROLL',description:'Kirim data payroll, tindak lanjuti koreksi, dan pantau status proses dalam satu halaman.'}
@@ -219,7 +221,12 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       </div> : null}
 
       {mode !== 'billing' ? <div className="operations-summary-grid">
-        {mode === 'payruns' ? simplifiedInternal ? <>
+        {mode === 'payruns' ? clientExperience ? <>
+          <div><span>Payroll</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
+          <div><span>Needs attention</span><strong>{clientCorrections.length}</strong><small>Perlu koreksi atau konfirmasi</small></div>
+          <div><span>For approval</span><strong>{myApprovals.length}</strong><small>Payroll siap direview</small></div>
+          <div><span>Payment status</span><strong>{clientPaymentProcessing}</strong><small>{visibleInstructions.filter((row)=>row.status==='COMPLETED').length} selesai</small></div>
+        </> : simplifiedInternal ? <>
           <div><span>Payroll</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
           <div><span>My work</span><strong>{myWork.length}</strong><small>Tindakan untuk role Anda</small></div>
           <div><span>{role==='PAYROLL_CONTROLLER'?'For approval':'Need attention'}</span><strong>{role==='PAYROLL_CONTROLLER'?myApprovals.length:myAttention.length}</strong><small>{role==='PAYROLL_CONTROLLER'?'Menunggu keputusan Anda':`${blockers} blocker aktif`}</small></div>
@@ -250,7 +257,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
       {loading ? <Empty title="Memuat data operasional…" /> : (
         <>
-          {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedInternal} act={act} />}
+          {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
+          {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
           {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace actor={actor} />}
