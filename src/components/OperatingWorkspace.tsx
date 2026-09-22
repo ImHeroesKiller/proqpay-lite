@@ -95,6 +95,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   // permission payload from hiding the Controller approval workflow.
   const canApprovePayment = isController || actor?.permissions?.includes('payment:approve') || false;
   const submissions = useMemo(() => data.submissions || [], [data.submissions]);
+  const instructionBySubmission = useMemo(() => new Map((data.paymentInstructions || []).map((row) => [row.submission_id,row])), [data.paymentInstructions]);
   const periods = useMemo(() => [...new Set(submissions.map((row) => String(row.period || '')).filter(Boolean))].sort((a, b) => b.localeCompare(a)), [submissions]);
   const clients = useMemo(() => {
     const map = new Map<string, string>();
@@ -141,7 +142,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
     return periodMatches && clientMatches && statusMatches && queryMatches;
   }), [data.paymentInstructions, periodFilter, clientFilter, statusFilter, query]);
   const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
-  const instructionBySubmission = useMemo(() => new Map((data.paymentInstructions || []).map((row) => [row.submission_id,row])), [data.paymentInstructions]);
+
   const visibleExceptions = useMemo(() => (data.exceptions || []).filter((row) => visibleSubmissionIds.has(row.submission_id)), [data.exceptions, visibleSubmissionIds]);
   const visibleProofs = useMemo(() => (data.paymentProofs || []).filter((row) => visibleInstructionIds.has(row.payment_instruction_id)), [data.paymentProofs, visibleInstructionIds]);
   const visibleReconciliations = useMemo(() => (data.reconciliations || []).filter((row) => visibleInstructionIds.has(row.payment_instruction_id)), [data.reconciliations, visibleInstructionIds]);
