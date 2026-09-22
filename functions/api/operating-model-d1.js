@@ -103,7 +103,16 @@ const SUBMISSION_SELECT = `SELECT s.*, c.name AS client_name, p.name AS project_
       AND ec.payroll_source_period=s.period),0) END AS total_net,
   (SELECT COUNT(*) FROM payroll_exceptions pe WHERE pe.submission_id=s.id) AS exception_count,
   (SELECT COUNT(*) FROM payroll_exceptions pe WHERE pe.submission_id=s.id AND pe.severity='CRITICAL'
-    AND pe.status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')) AS blocking_count
+    AND pe.status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')) AS blocking_count,
+  (SELECT i.status FROM invoices i
+    JOIN payment_instructions pi_invoice ON pi_invoice.id=i.payment_instruction_id
+    WHERE pi_invoice.submission_id=s.id AND i.org_id=s.org_id
+    ORDER BY i.updated_at DESC LIMIT 1) AS invoice_status,
+  (SELECT ar.status FROM ar_monitor ar
+    JOIN invoices i_ar ON i_ar.id=ar.invoice_id
+    JOIN payment_instructions pi_ar ON pi_ar.id=i_ar.payment_instruction_id
+    WHERE pi_ar.submission_id=s.id AND ar.org_id=s.org_id
+    ORDER BY ar.updated_at DESC LIMIT 1) AS ar_status
   FROM payroll_submissions s JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id`;
 
 const PI_SELECT = `SELECT pi.*, s.period AS payroll_period, COALESCE(s.payment_period,s.period) AS payment_period,
@@ -204,7 +213,7 @@ async function readResource(database, params, actor, env, organizationId) {
   if (resource === 'payment-instruction-detail') {
     const paymentInstructionId = params.get('paymentInstructionId');
     if (!paymentInstructionId) return { status: 422, data: { error: 'paymentInstructionId wajib diisi' } };
-    const instruction = await d1First(database, `SELECT pi.*, s.period AS payroll_period,
+    const instruction = await d1First(database, `SELECT pi.*, s.project_id AS project_id, s.period AS payroll_period,
       COALESCE(s.payment_period,s.period) AS payment_period, c.name AS client_name, p.name AS project_name,
       maker.email AS creator_email,
       (SELECT al.detail FROM audit_logs al WHERE al.entity='payment_instruction' AND al.entity_id=pi.id
@@ -218,7 +227,9 @@ async function readResource(database, params, actor, env, organizationId) {
       LEFT JOIN projects p ON p.id=s.project_id LEFT JOIN app_users maker ON maker.id=pi.creator_user_id
       WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [paymentInstructionId, organizationId]);
     if (!instruction) return { status: 404, data: { error: 'Payment instruction tidak ditemukan' } };
-    if (!assertClientScope(actor, env, instruction.client_id)) return { status: 403, data: { error: 'Client scope denied' } };
+    if (!assertClientScope(actor, env, instruction.client_id) || !assertProjectScope(actor, instruction.project_id)) {
+      return { status: 403, data: { error: 'Payment instruction scope denied' } };
+    }
     const [lines, approvals] = await Promise.all([
       d1All(database, `SELECT id,employee_id,beneficiary_name,bank_name,bank_code,
         COALESCE(account_last4,substr(masked_account,-4)) AS account_last4,masked_account,amount,line_hash
@@ -233,19 +244,21 @@ async function readResource(database, params, actor, env, organizationId) {
   }
 
   if (resource === 'payment-proofs') {
-    const scope = scopeWhere({ organizationId, clientId, orgColumn: 'pi.org_id', clientColumn: 'pi.client_id' });
+    const scope = scopeWhere({ organizationId, clientId, projectIds, orgColumn: 'pi.org_id', clientColumn: 'pi.client_id', projectColumn: 's.project_id' });
     const rows = await d1All(database, `SELECT pp.id,pp.payment_instruction_id,pp.bank,pp.reference,
       pp.transaction_date,pp.amount,pp.created_at FROM payment_proofs pp
-      JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id WHERE ${scope.sql}
-      ORDER BY pp.created_at DESC LIMIT 200`, scope.bindings);
+      JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id
+      JOIN payroll_submissions s ON s.id=pi.submission_id
+      WHERE ${scope.sql} ORDER BY pp.created_at DESC LIMIT 200`, scope.bindings);
     return { data: { ok: true, paymentProofs: rows } };
   }
 
   if (resource === 'reconciliations') {
-    const scope = scopeWhere({ organizationId, clientId, orgColumn: 'pi.org_id', clientColumn: 'pi.client_id' });
+    const scope = scopeWhere({ organizationId, clientId, projectIds, orgColumn: 'pi.org_id', clientColumn: 'pi.client_id', projectColumn: 's.project_id' });
     const rows = await d1All(database, `SELECT r.* FROM reconciliations r
-      JOIN payment_instructions pi ON pi.id=r.payment_instruction_id WHERE ${scope.sql}
-      ORDER BY r.created_at DESC LIMIT 200`, scope.bindings);
+      JOIN payment_instructions pi ON pi.id=r.payment_instruction_id
+      JOIN payroll_submissions s ON s.id=pi.submission_id
+      WHERE ${scope.sql} ORDER BY r.created_at DESC LIMIT 200`, scope.bindings);
     return { data: { ok: true, reconciliations: rows } };
   }
 
@@ -299,7 +312,7 @@ async function readResource(database, params, actor, env, organizationId) {
     d1First(database, `SELECT COUNT(*) AS total FROM clients c WHERE ${clientScope.sql}`, clientScope.bindings),
     d1First(database, `SELECT COUNT(*) AS total FROM projects p WHERE ${projectScope.sql}`, projectScope.bindings),
     d1First(database, `SELECT COUNT(*) AS total,
-      SUM(CASE WHEN UPPER(COALESCE(e.status_aktif,'ACTIVE'))='ACTIVE' THEN 1 ELSE 0 END) AS active
+      SUM(CASE WHEN ${ACTIVE_EMPLOYEE} THEN 1 ELSE 0 END) AS active
       FROM employees e WHERE ${employeeScope.sql}`, employeeScope.bindings),
     d1First(database, `SELECT COUNT(DISTINCT e.id) AS total FROM employees e
       JOIN employee_bank_accounts eba ON eba.employee_id=e.id AND eba.is_primary=1
