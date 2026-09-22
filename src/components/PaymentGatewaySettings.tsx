@@ -2,11 +2,17 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+type CredentialSummary = {
+  stored: Record<string, boolean>;
+  masked: Record<string, string | null>;
+};
+
 type GatewaySettings = {
   provider: 'UNCONFIGURED' | 'E2PAY';
   environment: 'UAT' | 'PRODUCTION';
   stored: Record<string, boolean>;
   masked: Record<string, string | null>;
+  profiles?: Record<'UAT' | 'PRODUCTION', CredentialSummary>;
   updatedBy?: string | null;
   updatedAt?: string | null;
 };
@@ -33,8 +39,15 @@ const EMPTY: FormState = {
   sourceId:'',
 };
 
-function fieldHint(settings: GatewaySettings | null, key: string) {
-  const masked = settings?.masked?.[key];
+function profileSummary(settings: GatewaySettings | null, environment: FormState['environment']) {
+  return settings?.profiles?.[environment] || {
+    stored: settings?.environment === environment ? settings.stored : {},
+    masked: settings?.environment === environment ? settings.masked : {},
+  };
+}
+
+function fieldHint(settings: GatewaySettings | null, environment: FormState['environment'], key: string) {
+  const masked = profileSummary(settings, environment).masked?.[key];
   return masked ? 'Tersimpan · ' + masked : 'Belum diisi';
 }
 
@@ -120,7 +133,7 @@ export default function PaymentGatewaySettings() {
       const response = await fetch('/api/payment-gateway-settings', {
         method:'POST',
         headers:{ 'Content-Type':'application/json' },
-        body:JSON.stringify({ action:'TEST' }),
+        body:JSON.stringify({ action:'TEST', ...form }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || data.message || 'Test E2Pay gagal');
@@ -162,7 +175,7 @@ export default function PaymentGatewaySettings() {
 
     {form.environment === 'PRODUCTION' ? <div className="app-notice-bubble app-notice-error" role="alert">
       <strong>Production environment</strong>
-      <span>Pastikan UAT dan rekonsiliasi beneficiary sudah selesai sebelum menyimpan credential production.</span>
+      <span>Credential Production disimpan terpisah dari UAT. Pastikan UAT dan rekonsiliasi beneficiary sudah selesai sebelum mengaktifkan Production.</span>
     </div> : null}
 
     <div className="settings-form-grid">
@@ -177,8 +190,8 @@ export default function PaymentGatewaySettings() {
           onChange={(event) => patch({ [item.key]:event.target.value } as Partial<FormState>)}
         />
         <small style={{ color:'var(--text3)', fontSize:10.5 }}>
-          {fieldHint(server, item.key)}
-          {server?.stored?.[item.key] ? ' · kosongkan input jika tidak ingin mengganti' : ''}
+          {fieldHint(server, form.environment, item.key)}
+          {profileSummary(server, form.environment).stored?.[item.key] ? ' · kosongkan input jika tidak ingin mengganti' : ''}
         </small>
       </label>)}
     </div>
