@@ -29,7 +29,7 @@ test('Client Home exposes business-facing priorities without adding approval mut
   assert.match(home,/Needs Your Attention/);
   assert.match(home,/For Approval/);
   assert.match(home,/Payment Status/);
-  assert.match(home,/Documents/);
+  assert.match(home,/Invoices/);
   assert.match(home,/CLIENT_APPROVAL_PENDING|category==='APPROVAL'/);
   assert.doesNotMatch(home,/executeOperatingAction/);
   assert.doesNotMatch(home,/executeOperatingAction|TRANSITION_SUBMISSION|ADVANCE_PAY_RUN/);
