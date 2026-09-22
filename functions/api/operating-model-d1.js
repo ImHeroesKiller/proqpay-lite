@@ -589,6 +589,11 @@ async function executeAction(database, body, actor, env, organizationId) {
   if (body.action === 'FINALIZE_PAY_RUN_INPUT') {
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId, organizationId]);
     if (!submission || submission.period_status==='CLOSED') return { status:409, data:{ error:'Pay Run tidak tersedia untuk finalisasi input' } };
+    const inputMutableStates = ['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED'];
+    if (!inputMutableStates.includes(String(submission.state || ''))) return { status:409, data:{
+      error:`Input payroll sudah terkunci pada tahap ${submission.state}; Controller harus meminta revisi sebelum snapshot dapat berubah`,
+      code:'PAY_RUN_INPUT_LOCKED_FOR_REVIEW',
+    } };
     if (!PROCESSOR_ROLES.has(actor.role) && !CLIENT_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
     if (!assertClientScope(actor, env, submission.client_id) || !assertProjectScope(actor, submission.project_id)) return { status:403, data:{ error:'Scope denied' } };
     try { await applyEwaRepayments(database, submission.id); }
