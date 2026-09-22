@@ -21,6 +21,18 @@ const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; descriptio
 const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') || state.includes('REVISION') ? '#dc2626'
   : state.includes('APPROVED') || state === 'COMPLETED' || state === 'MATCHED' ? '#059669' : 'var(--accent)';
 
+function clientActionLabel(code:string,label:string) {
+  const labels:Record<string,string>={
+    CORRECT_PAYROLL_DATA:'Perbaiki data payroll',
+    REVIEW_PAYROLL_REVISION:'Tinjau revisi payroll',
+    APPROVE_PAYROLL:'Review payroll',
+    VIEW_RESULTS:'Lihat dokumen',
+    TRACK_PAYROLL:'Lihat status',
+    MONITOR_PAYMENT:'Pantau pembayaran',
+  };
+  return labels[code] || label;
+}
+
 function paymentBusinessLabel(status:string) {
   const labels:Record<string,string>={
     PAYMENT_INSTRUCTION_READY:'Prepared',
@@ -361,15 +373,17 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
       invoiceStatus:r.invoice_status,
       arStatus:r.ar_status,
     });
-    const label=nextAction.actionable||nextAction.category==='MONITOR'?nextAction.label:'View Status';
+    const rawLabel=nextAction.actionable||nextAction.category==='MONITOR'?nextAction.label:'View Status';
+    const label=role==='CLIENT_USER'?clientActionLabel(nextAction.code,rawLabel):rawLabel;
+    const targetView=role==='CLIENT_USER'&&nextAction.view==='billing'?'reports':nextAction.view;
     const actionCell=nextAction.view==='operations'||nextAction.view==='exceptions'
       ? <button key="action" style={actionButton} onClick={() => openReview(r)}>{label}</button>
-      : <a key="action" className="btn" href={`?view=${nextAction.view}`}>{label}</a>;
+      : <a key="action" className="btn" href={`?view=${targetView}`}>{label}</a>;
     return simplified ? [
       <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id}</small></div>,
-      <div key="stage"><span className="stage-pill">{business.label}</span><small style={small}>{String(business.status).replaceAll('_',' ')}</small></div>,
+      <div key="stage"><span className="stage-pill">{business.label}</span><small style={small}>{role==='CLIENT_USER'?business.description:String(business.status).replaceAll('_',' ')}</small></div>,
       <div key="summary"><strong>{formatIDR(Number(r.total_net || 0))}</strong><small style={small}>{Number(r.employee_count || 0)} karyawan{Number(r.blocking_count||0)?` · ${r.blocking_count} blocker`:''}</small></div>,
-      <div key="next">{actionCell}<small style={small}>{nextAction.actionable?'Action required':'Monitor only'}</small></div>,
+      <div key="next">{actionCell}<small style={small}>{role==='CLIENT_USER'?(nextAction.actionable?'Perlu tindakan':'Pantau status'):(nextAction.actionable?'Action required':'Monitor only')}</small></div>,
     ] : [
       <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id} · {String(r.run_type||'REGULAR').replaceAll('_',' ')}</small></div>,
       String(r.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' '),
