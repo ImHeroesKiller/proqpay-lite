@@ -12,7 +12,7 @@ type Tone = 'danger'|'warning'|'info'|'success';
 type PortfolioSummary = { clients:number;projects:number;employees:number;activeEmployees:number;primaryAccounts:number;bankCoveragePercent:number };
 type DashboardData = { submissions?:any[];exceptions?:any[];paymentInstructions?:any[];paymentProofs?:any[];reconciliations?:any[];portfolioSummary?:Partial<PortfolioSummary> };
 
-const DONE_STATES = new Set(['COMPLETED','RECONCILIATION','MATCHED','CLOSED']);
+const DONE_STATES = new Set(['COMPLETED','MATCHED','CLOSED']);
 const PIPELINE:Array<{label:string;description:string;states:string[];view:AppView}> = [
   {
     label:'Data Readiness',
