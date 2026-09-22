@@ -848,6 +848,10 @@ async function executeAction(database, body, actor, env, organizationId) {
       error:'Submission belum memiliki approval Client atau belum siap dibuatkan payment instruction',
       code:'CLIENT_PAYROLL_APPROVAL_REQUIRED',
     } };
+    if (submission.state === 'PAYMENT_INSTRUCTION_READY' && !existing) return { status:409, data:{
+      error:'Payment Instruction baru hanya dapat dibuat dari payroll yang memiliki approval Client',
+      code:'CLIENT_PAYROLL_APPROVAL_REQUIRED',
+    } };
     if (submission.state === 'CLIENT_APPROVED'
       && (submission.client_review_decision !== 'APPROVED' || !submission.client_reviewed_by)) {
       return { status:409, data:{
