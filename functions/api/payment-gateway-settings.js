@@ -47,7 +47,7 @@ function auditOperation(organizationId, actor, action, detail) {
 }
 
 function parseCredentials(body) {
-  const password=clean(body.password, 200);
+  const password=String(body.password ?? '').slice(0, 200);
   const values = {
     merchantName:clean(body.merchantName, 200),
     clientId:clean(body.clientId, 300),
