@@ -135,7 +135,11 @@ export async function onRequest({ request, env }) {
           e2payMerchantAccount(runtimeEnv, userAuth.accessToken),
           e2payBankList(runtimeEnv, userAuth.accessToken),
         ]);
-        accountSrc = clean(account?.accountId || accountSrc, 200);
+        const accountFromLogin = clean(account?.accountId || '', 200);
+        if (accountFromLogin && accountSrc && accountFromLogin !== accountSrc) {
+          return secureJson({ error:'accountId verifyUsername berbeda dengan Merchant Account', code:'E2PAY_ACCOUNT_MISMATCH' }, 409, request, env, METHODS);
+        }
+        accountSrc = accountFromLogin || accountSrc;
         if (!accountSrc) {
           return secureJson({ error:'accountId/source account tidak ditemukan dari E2Pay', code:'E2PAY_ACCOUNT_SRC_MISSING' }, 409, request, env, METHODS);
         }
