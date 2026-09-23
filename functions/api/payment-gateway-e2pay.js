@@ -24,21 +24,36 @@ function required(env, key) {
   return String(env?.[key] || '').trim();
 }
 
+export function e2payHostReadiness(env = {}) {
+  const mode = String(env.E2PAY_ENV || 'UAT').trim().toUpperCase();
+  const missing = ['E2PAY_CLIENT_ID','E2PAY_CLIENT_SECRET'].filter((key) => !required(env, key));
+  if (!['UAT','PRODUCTION'].includes(mode)) {
+    return { configured:false, provider:'E2PAY', reason:'E2PAY_ENV wajib UAT atau PRODUCTION.' };
+  }
+  if (missing.length) {
+    return { configured:false, provider:'E2PAY', reason:`Credential host E2Pay belum lengkap: ${missing.join(', ')}.`, environment:mode };
+  }
+  return { configured:true, provider:'E2PAY', reason:null, environment:mode };
+}
+
 export function e2payReadiness(env = {}) {
+  const host = e2payHostReadiness(env);
   const mode = String(env.E2PAY_ENV || 'UAT').trim().toUpperCase();
   const missing = [
-    'E2PAY_CLIENT_ID',
-    'E2PAY_CLIENT_SECRET',
     'E2PAY_USERNAME',
     'E2PAY_PASSWORD_MD5',
     'E2PAY_ACCOUNT_SRC',
     'E2PAY_SOURCE_ID',
   ].filter((key) => !required(env, key));
-  if (!['UAT','PRODUCTION'].includes(mode)) {
-    return { configured:false, provider:'E2PAY', reason:'E2PAY_ENV wajib UAT atau PRODUCTION.' };
-  }
+  if (!host.configured) return host;
   if (missing.length) {
-    return { configured:false, provider:'E2PAY', reason:`Credential E2Pay belum lengkap: ${missing.join(', ')}.` };
+    return {
+      configured:false,
+      provider:'E2PAY',
+      environment:mode,
+      hostConfigured:true,
+      reason:`Host credential valid secara struktur, tetapi execution belum siap: ${missing.join(', ')} belum tersedia dari merchant registration/login.`,
+    };
   }
   if (!/^[A-F0-9]{32}$/.test(required(env, 'E2PAY_PASSWORD_MD5'))) {
     return { configured:false, provider:'E2PAY', reason:'E2PAY_PASSWORD_MD5 wajib berupa MD5 uppercase 32 karakter.' };
@@ -83,6 +98,29 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function e2payHostAuthorize(env, fetchImpl = fetch) {
+  const readiness = e2payHostReadiness(env);
+  if (!readiness.configured) throw new E2PayConfigurationError(readiness.reason);
+  const form = new URLSearchParams({
+    client_id:required(env, 'E2PAY_CLIENT_ID'),
+    client_secret:required(env, 'E2PAY_CLIENT_SECRET'),
+    grant_type:'client_credentials',
+  });
+  const token = await requestJson(env, '/rest/oauth/token', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+    body:form.toString(),
+  }, fetchImpl);
+  const accessToken = String(token?.access_token || '').trim();
+  if (!accessToken) throw new E2PayRequestError('Host access token E2Pay tidak tersedia', 'E2PAY_HOST_ACCESS_TOKEN_MISSING');
+  return {
+    accessToken,
+    tokenType:String(token?.token_type || 'Bearer'),
+    expiresIn:Number(token?.expires_in || 0) || null,
+    refreshToken:String(token?.refresh_token || '') || null,
+  };
 }
 
 export async function e2payAuthorize(env, fetchImpl = fetch) {
