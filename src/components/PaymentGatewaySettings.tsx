@@ -38,9 +38,9 @@ const EMPTY: FormState = {
   clientSecret:'',
   partnerId:'0041',
   sourceId:'MANDIRIS',
-  username:'6281510000006',
+  username:'',
   password:'',
-  merchantId:'00410187',
+  merchantId:'',
 };
 
 function profileSummary(settings: GatewaySettings | null, environment: FormState['environment']) {
@@ -158,9 +158,9 @@ export default function PaymentGatewaySettings() {
     { key:'clientSecret', label:'clientSecret', secret:true, placeholder:'Masukkan Client Secret UAT' },
     { key:'partnerId', label:'partnerId', placeholder:'0041' },
     { key:'sourceId', label:'sourceId', placeholder:'MANDIRIS' },
-    { key:'username', label:'username', placeholder:'6281510000006' },
+    { key:'username', label:'username', placeholder:'Masukkan username merchant UAT' },
     { key:'password', label:'password', secret:true, placeholder:'Masukkan password merchant UAT' },
-    { key:'merchantId', label:'merchantId', placeholder:'00410187' },
+    { key:'merchantId', label:'merchantId', placeholder:'Masukkan Merchant ID UAT' },
   ];
 
   return <div style={{ display:'grid', gap:16 }}>
