@@ -97,6 +97,7 @@ export async function executeSeamlessPayment(paymentInstructionId: string, payme
     processedThisCall?: number;
     chunkLimit?: number;
     blockedByUnresolved?: boolean;
+    preflightOnly?: boolean;
     parentStatus?: string;
     items?: PaymentGatewayItem[];
     summary?: {
