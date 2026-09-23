@@ -124,3 +124,53 @@ test('migration stores ciphertext instead of plaintext credential columns', asyn
   assert.match(migration, /credentials_iv TEXT/);
   assert.doesNotMatch(migration, /client_secret TEXT|password_md5 TEXT|account_src TEXT/);
 });
+
+
+test('UAT bootstrap profile stores only the supplied merchant bootstrap credential set', async () => {
+  const DB = new D1Mock();
+  await writeGatewaySecureSettings(DB, env, 'ORG-OTSINDO', 'admin@proqpay.test', {
+    provider:'E2PAY',
+    environment:'UAT',
+    credentials:{
+      merchantName:'PT Mandiri Semesta Gemilang',
+      clientId:'uat-client',
+      clientSecret:'uat-secret',
+      partnerId:'0041',
+      sourceId:'MANDIRIS',
+    },
+  });
+  const runtime = await gatewayRuntimeEnv(DB, { ...env, DB }, 'ORG-OTSINDO', 'UAT');
+  assert.equal(runtime.E2PAY_MERCHANT_NAME, 'PT Mandiri Semesta Gemilang');
+  assert.equal(runtime.E2PAY_CLIENT_ID, 'uat-client');
+  assert.equal(runtime.E2PAY_CLIENT_SECRET, 'uat-secret');
+  assert.equal(runtime.E2PAY_PARTNER_ID, '0041');
+  assert.equal(runtime.E2PAY_SOURCE_ID, 'MANDIRIS');
+  assert.equal(runtime.E2PAY_USERNAME, '');
+  assert.equal(runtime.E2PAY_PASSWORD_MD5, '');
+  assert.equal(runtime.E2PAY_ACCOUNT_SRC, '');
+
+  const stored = await readGatewaySecureSettings(DB, env, 'ORG-OTSINDO');
+  const browserSafe = publicGatewaySettings(stored);
+  assert.equal(browserSafe.stored.merchantName, true);
+  assert.equal(browserSafe.stored.partnerId, true);
+  assert.equal(browserSafe.stored.sourceId, true);
+  assert.equal(browserSafe.stored.username, false);
+  assert.equal(browserSafe.masked.merchantName, 'PT Mandiri Semesta Gemilang');
+  assert.doesNotMatch(JSON.stringify(browserSafe), /uat-secret/);
+  DB.sqlite.close();
+});
+
+test('Payment Gateway settings UI only asks for the five supplied UAT bootstrap fields', async () => {
+  const ui = await readFile(new URL('../src/components/PaymentGatewaySettings.tsx', import.meta.url), 'utf8');
+  assert.match(ui, /key:'merchantName', label:'Name'/);
+  assert.match(ui, /key:'clientId', label:'clientId'/);
+  assert.match(ui, /key:'clientSecret', label:'clientSecret'/);
+  assert.match(ui, /key:'partnerId', label:'partnerId'/);
+  assert.match(ui, /key:'sourceId', label:'sourceId'/);
+  assert.doesNotMatch(ui, /key:'username'/);
+  assert.doesNotMatch(ui, /key:'passwordMd5'/);
+  assert.doesNotMatch(ui, /key:'accountSrc'/);
+  assert.match(ui, /PT Mandiri Semesta Gemilang/);
+  assert.match(ui, /0041/);
+  assert.match(ui, /MANDIRIS/);
+});
