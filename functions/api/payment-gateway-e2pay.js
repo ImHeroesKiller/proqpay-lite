@@ -64,9 +64,10 @@ export function e2payPasswordMd5(value) {
 }
 
 export function normalizeE2PayPassword(value) {
-  const text=String(value ?? '').trim();
-  if (!text) return '';
-  return /^[A-Fa-f0-9]{32}$/.test(text) ? text.toUpperCase() : e2payPasswordMd5(text);
+  const raw=String(value ?? '');
+  if (!raw) return '';
+  const maybeHash=raw.trim();
+  return /^[A-Fa-f0-9]{32}$/.test(maybeHash) ? maybeHash.toUpperCase() : e2payPasswordMd5(raw);
 }
 
 export function e2payHostReadiness(env = {}) {
