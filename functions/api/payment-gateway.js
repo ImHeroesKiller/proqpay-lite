@@ -74,6 +74,17 @@ async function findTransaction(database, organizationId, paymentInstructionId) {
     WHERE org_id=? AND payment_instruction_id=? ORDER BY created_at DESC LIMIT 1`, [organizationId, paymentInstructionId]);
 }
 
+function publicTransaction(row) {
+  if (!row) return null;
+  const {
+    execution_lock_token,
+    request_hash,
+    idempotency_key,
+    ...safe
+  } = row;
+  return safe;
+}
+
 export async function acquireExecutionLease(database, transactionId) {
   const token = crypto.randomUUID();
   const locked = await d1First(database, `UPDATE payment_gateway_transactions
@@ -121,7 +132,7 @@ export async function onRequest(context) {
         ? await d1All(database, `SELECT id,payment_instruction_line_id,employee_id,provider,client_ref,bank_id,beneficiary_name,provider_beneficiary_name,account_last4,amount,fee_amount,journal_id,correlation_id,response_code,response_message,status,attempt_count,last_checked_at,error_code,error_message,created_at,updated_at
             FROM payment_gateway_items WHERE payment_gateway_transaction_id=? ORDER BY created_at,id`, [transaction.id])
         : [];
-      return secureJson({ ok: true, gateway: readiness, transaction, items }, 200, request, env, METHODS);
+      return secureJson({ ok: true, gateway: readiness, transaction:publicTransaction(transaction), items }, 200, request, env, METHODS);
     }
 
     if (!authorization.actor.permissions?.includes('payment:prepare')) {
@@ -154,7 +165,7 @@ export async function onRequest(context) {
       transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transaction.id]);
       await d1Batch(database, [auditOperation(organizationId, authorization.actor, 'E2PAY_RECONCILED',
         result.parentStatus + ' · ' + result.summary.succeeded + '/' + result.summary.total, payment.id)]);
-      return secureJson({ ...result, transaction, gateway:readiness }, result.statusCode, request, env, METHODS);
+      return secureJson({ ...result, transaction:publicTransaction(transaction), gateway:readiness }, result.statusCode, request, env, METHODS);
     }
     if (action === 'RETRY_FAILED') {
       if (readiness.provider !== 'E2PAY') return secureJson({ error: 'Retry beneficiary hanya tersedia untuk adapter E2Pay' }, 422, request, env, METHODS);
@@ -168,10 +179,10 @@ export async function onRequest(context) {
     }
 
     if (transaction?.status === 'SUCCEEDED') {
-      return secureJson({ ok: true, transaction, idempotentReplay: true, gateway: readiness }, 200, request, env, METHODS);
+      return secureJson({ ok: true, transaction:publicTransaction(transaction), idempotentReplay: true, gateway: readiness }, 200, request, env, METHODS);
     }
     if (transaction && readiness.provider !== 'E2PAY' && ['CREATED','PENDING','PROCESSING'].includes(transaction.status)) {
-      return secureJson({ ok: true, transaction, idempotentReplay: true, gateway: readiness }, 200, request, env, METHODS);
+      return secureJson({ ok: true, transaction:publicTransaction(transaction), idempotentReplay: true, gateway: readiness }, 200, request, env, METHODS);
     }
 
     const beneficiaries = await beneficiarySnapshot(database, payment.id, runtimeEnv.PI_ENCRYPTION_KEY);
@@ -195,7 +206,7 @@ export async function onRequest(context) {
         if (!/UNIQUE constraint failed|idx_one_active_gateway_transaction/i.test(String(error?.message || error))) throw error;
         transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE idempotency_key=? LIMIT 1', [idempotencyKey]);
         if (transaction) transactionId = transaction.id;
-        if (transaction && (readiness.provider !== 'E2PAY' || transaction.status === 'SUCCEEDED')) return secureJson({ ok: true, transaction, idempotentReplay: true, gateway: readiness }, 200, request, env, METHODS);
+        if (transaction && (readiness.provider !== 'E2PAY' || transaction.status === 'SUCCEEDED')) return secureJson({ ok: true, transaction:publicTransaction(transaction), idempotentReplay: true, gateway: readiness }, 200, request, env, METHODS);
         if (!transaction) throw error;
       }
     } else if (!['CREATED','PENDING','PROCESSING'].includes(transaction.status)) {
@@ -219,11 +230,26 @@ export async function onRequest(context) {
         transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transactionId]);
         await d1Batch(database, [auditOperation(organizationId, authorization.actor, action === 'RETRY_FAILED' ? 'E2PAY_FAILED_ITEMS_RETRIED' : 'E2PAY_EXECUTION',
           `${result.parentStatus || result.code || 'UNKNOWN'} · ${result.summary?.succeeded || 0}/${result.summary?.total || beneficiaries.length}`, payment.id)]);
-        return secureJson({ ...result, transaction, gateway:readiness }, result.statusCode, request, env, METHODS);
+        return secureJson({ ...result, transaction:publicTransaction(transaction), gateway:readiness }, result.statusCode, request, env, METHODS);
       } catch (error) {
-        await d1Batch(database, [{ statement: `UPDATE payment_gateway_transactions SET status='FAILED',error_code=?,error_message=?,updated_at=${NOW} WHERE id=?`,
-          bindings: ['E2PAY_EXECUTION_FAILED', String(error?.message || error).slice(0, 500), transactionId] }]);
-        return secureJson({ error:'Eksekusi E2Pay gagal sebelum status final dapat ditentukan', code:'E2PAY_EXECUTION_FAILED', transactionId }, 502, request, env, METHODS);
+        const unresolved = await d1First(database, `SELECT COUNT(*) AS count FROM payment_gateway_items
+          WHERE payment_gateway_transaction_id=? AND status IN ('PENDING','PROCESSING','UNKNOWN')`, [transactionId]);
+        const hasUnresolved = Number(unresolved?.count || 0) > 0;
+        await d1Batch(database, [{ statement: `UPDATE payment_gateway_transactions SET status=?,provider_status=?,error_code=?,error_message=?,updated_at=${NOW} WHERE id=?`,
+          bindings: [
+            hasUnresolved ? 'PROCESSING' : 'FAILED',
+            hasUnresolved ? 'AWAITING_RECONCILIATION' : 'FAILED',
+            hasUnresolved ? 'E2PAY_EXECUTION_UNKNOWN' : 'E2PAY_EXECUTION_FAILED',
+            String(error?.message || error).slice(0, 500),
+            transactionId,
+          ] }]);
+        return secureJson({
+          error:hasUnresolved
+            ? 'Status provider belum pasti. Lakukan reconciliation sebelum retry.'
+            : 'Eksekusi E2Pay gagal sebelum provider menerima transaksi.',
+          code:hasUnresolved ? 'E2PAY_EXECUTION_UNKNOWN' : 'E2PAY_EXECUTION_FAILED',
+          transactionId,
+        }, hasUnresolved ? 409 : 502, request, env, METHODS);
       } finally {
         await releaseExecutionLease(database, transactionId, leaseToken);
       }
@@ -254,7 +280,7 @@ export async function onRequest(context) {
         auditOperation(organizationId, authorization.actor, 'GATEWAY_PAYMENT_STARTED', `${readiness.provider} · ${transactionId} · ${payment.document_no || payment.id}`, payment.id),
       ]);
       transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transactionId]);
-      return secureJson({ ok: true, transaction, gateway: readiness }, 201, request, env, METHODS);
+      return secureJson({ ok: true, transaction:publicTransaction(transaction), gateway: readiness }, 201, request, env, METHODS);
     } catch (error) {
       await d1Batch(database, [{ statement: `UPDATE payment_gateway_transactions SET status='FAILED',error_code=?,error_message=?,updated_at=${NOW} WHERE id=?`,
         bindings: [error instanceof PaymentGatewayConfigurationError ? 'GATEWAY_CONFIGURATION' : 'GATEWAY_REQUEST_FAILED', String(error?.message || error).slice(0, 500), transactionId] }]);
