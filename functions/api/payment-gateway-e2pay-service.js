@@ -272,14 +272,25 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
   let items = await prepareBeneficiaries(database, env, transactionId, payment, chunkBeneficiaries, auth.accessToken, banks, { retryFailed });
   let summary = summarizeE2PayItems(items);
 
-  if (summary.failed > 0 && summary.succeeded === 0 && summary.processing === 0 && summary.ready === 0) {
+  // Never start moving money while any beneficiary in the current batch has
+  // failed preflight and no provider-side payment activity has happened yet.
+  // This prevents avoidable partial payroll caused by bank mapping/inquiry errors.
+  if (summary.failed > 0 && summary.succeeded === 0 && summary.processing === 0) {
     await updateParent(database, transactionId, {
       status:'FAILED',
       provider_status:'PREFLIGHT_FAILED',
       error_code:'E2PAY_PREFLIGHT_FAILED',
       error_message:summary.failed + ' beneficiary gagal preflight E2Pay',
     });
-    return { ok:false, statusCode:409, code:'E2PAY_PREFLIGHT_FAILED', error:'Preflight beneficiary E2Pay belum lolos', merchantBalance, summary, items };
+    return {
+      ok:false,
+      statusCode:409,
+      code:'E2PAY_PREFLIGHT_FAILED',
+      error:'Preflight seluruh beneficiary harus lolos sebelum disbursement pertama',
+      merchantBalance,
+      summary,
+      items,
+    };
   }
 
   // Only funds for beneficiaries that have not yet been sent may be reserved here.
@@ -317,24 +328,12 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
       attempt_count:Number(item.attempt_count || 0) + 1,
       status:'PENDING',
     });
+    let result;
     try {
-      const result = await e2payDisburse(env, auth.accessToken, {
+      result = await e2payDisburse(env, auth.accessToken, {
         clientRef:item.client_ref,
         description:(payment.document_no || payment.id) + ' · ' + beneficiary.beneficiaryName,
         inquiryId:item.inquiry_id,
-      });
-      const providerStatus = e2payResponseStatus(result?.responseCode);
-      const itemStatus = providerStatus === 'PENDING' ? 'UNKNOWN' : providerStatus;
-      await updateItem(database, item.id, {
-        status:itemStatus,
-        provider_transaction_id:String(result?.journalId || '') || null,
-        journal_id:String(result?.journalId || '') || null,
-        correlation_id:String(result?.correlationId || '') || null,
-        response_code:String(result?.responseCode ?? ''),
-        response_message:String(result?.responseMessage || '').slice(0, 300) || null,
-        last_checked_at:new Date().toISOString(),
-        error_code:itemStatus === 'FAILED' ? 'E2PAY_PROVIDER_REJECTED' : null,
-        error_message:itemStatus === 'FAILED' ? String(result?.responseMessage || 'E2Pay transaction failed').slice(0, 300) : null,
       });
     } catch (error) {
       const ambiguous = error instanceof E2PayRequestError && (['E2PAY_TIMEOUT','E2PAY_NETWORK_ERROR'].includes(error.code)
@@ -346,6 +345,38 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
         error_message:String(error?.message || 'Transaksi E2Pay gagal').slice(0, 300),
       });
       if (ambiguous) break;
+      continue;
+    }
+
+    const providerStatus = e2payResponseStatus(result?.responseCode);
+    const itemStatus = providerStatus === 'PENDING' ? 'UNKNOWN' : providerStatus;
+    try {
+      await updateItem(database, item.id, {
+        status:itemStatus,
+        provider_transaction_id:String(result?.journalId || '') || null,
+        journal_id:String(result?.journalId || '') || null,
+        correlation_id:String(result?.correlationId || '') || null,
+        response_code:String(result?.responseCode ?? ''),
+        response_message:String(result?.responseMessage || '').slice(0, 300) || null,
+        last_checked_at:new Date().toISOString(),
+        error_code:itemStatus === 'FAILED' ? 'E2PAY_PROVIDER_REJECTED' : null,
+        error_message:itemStatus === 'FAILED' ? String(result?.responseMessage || 'E2Pay transaction failed').slice(0, 300) : null,
+      });
+    } catch {
+      // The provider call already returned. If its result cannot be persisted,
+      // the durable PENDING state must be treated as unresolved, never FAILED
+      // and never automatically retried.
+      try {
+        await updateItem(database, item.id, {
+          status:'UNKNOWN',
+          last_checked_at:new Date().toISOString(),
+          error_code:'E2PAY_RESULT_PERSISTENCE_UNKNOWN',
+          error_message:'Provider merespons tetapi hasil belum dapat dipersist; wajib reconcile sebelum retry',
+        });
+      } catch {
+        // The pre-call PENDING marker remains the durable fail-closed state.
+      }
+      break;
     }
   }
 
