@@ -9,6 +9,7 @@ import {
   gatewayRequestHash,
 } from './payment-gateway-core.js';
 import { executeE2PayBatch, reconcileE2PayBatch } from './payment-gateway-e2pay-service.js';
+import { e2payLoginReadiness } from './payment-gateway-e2pay.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 
 const METHODS = 'GET, POST, OPTIONS';
@@ -138,9 +139,6 @@ export async function onRequest(context) {
     if (!authorization.actor.permissions?.includes('payment:prepare')) {
       return secureJson({ error: 'Role tidak memiliki izin mengeksekusi pembayaran' }, 403, request, env, METHODS);
     }
-    if (!readiness.configured) {
-      return secureJson({ error: readiness.reason, code: 'PAYMENT_GATEWAY_NOT_READY', gateway: readiness }, 503, request, env, METHODS);
-    }
 
     const body = await readBody(request);
     const paymentInstructionId = String(body.paymentInstructionId || '').trim();
@@ -148,6 +146,13 @@ export async function onRequest(context) {
     const action = String(body.action || 'EXECUTE').trim().toUpperCase();
     if (!paymentInstructionId) return secureJson({ error: 'paymentInstructionId wajib diisi' }, 422, request, env, METHODS);
     if (!['EXECUTE','RECONCILE','RETRY_FAILED'].includes(action)) return secureJson({ error: 'action gateway tidak valid' }, 422, request, env, METHODS);
+
+    const actionReadiness = action === 'RECONCILE' && readiness.provider === 'E2PAY'
+      ? e2payLoginReadiness(runtimeEnv)
+      : readiness;
+    if (!actionReadiness.configured) {
+      return secureJson({ error: actionReadiness.reason, code: action === 'RECONCILE' ? 'E2PAY_RECONCILE_NOT_READY' : 'PAYMENT_GATEWAY_NOT_READY', gateway: readiness }, 503, request, env, METHODS);
+    }
 
     const payment = await approvedInstruction(database, organizationId, paymentInstructionId);
     const validation = validateInstruction(payment);
@@ -161,11 +166,22 @@ export async function onRequest(context) {
     if (action === 'RECONCILE') {
       if (readiness.provider !== 'E2PAY') return secureJson({ error: 'Reconcile polling hanya tersedia untuk adapter E2Pay' }, 422, request, env, METHODS);
       if (!transaction) return secureJson({ error: 'Execution ledger E2Pay belum tersedia' }, 404, request, env, METHODS);
-      const result = await reconcileE2PayBatch({ database, env:runtimeEnv, transactionId:transaction.id, payment });
-      transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transaction.id]);
-      await d1Batch(database, [auditOperation(organizationId, authorization.actor, 'E2PAY_RECONCILED',
-        result.parentStatus + ' · ' + result.summary.succeeded + '/' + result.summary.total, payment.id)]);
-      return secureJson({ ...result, transaction:publicTransaction(transaction), gateway:readiness }, result.statusCode, request, env, METHODS);
+      const reconcileLease = await acquireExecutionLease(database, transaction.id);
+      if (!reconcileLease) {
+        return secureJson({
+          error:'PI E2Pay sedang dieksekusi atau direkonsiliasi oleh request lain.',
+          code:'PAYMENT_GATEWAY_EXECUTION_BUSY',
+        }, 409, request, env, METHODS);
+      }
+      try {
+        const result = await reconcileE2PayBatch({ database, env:runtimeEnv, transactionId:transaction.id, payment });
+        transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transaction.id]);
+        await d1Batch(database, [auditOperation(organizationId, authorization.actor, 'E2PAY_RECONCILED',
+          result.parentStatus + ' · ' + result.summary.succeeded + '/' + result.summary.total, payment.id)]);
+        return secureJson({ ...result, transaction:publicTransaction(transaction), gateway:readiness }, result.statusCode, request, env, METHODS);
+      } finally {
+        await releaseExecutionLease(database, transaction.id, reconcileLease);
+      }
     }
     if (action === 'RETRY_FAILED') {
       if (readiness.provider !== 'E2PAY') return secureJson({ error: 'Retry beneficiary hanya tersedia untuk adapter E2Pay' }, 422, request, env, METHODS);
@@ -187,6 +203,12 @@ export async function onRequest(context) {
 
     const beneficiaries = await beneficiarySnapshot(database, payment.id, runtimeEnv.PI_ENCRYPTION_KEY);
     const requestHash = await gatewayRequestHash(payment, beneficiaries.map((row) => row.lineHash), paymentMethod);
+    if (transaction?.request_hash && transaction.request_hash !== requestHash) {
+      return secureJson({
+        error:'Execution request berbeda dari ledger gateway yang sudah tercatat.',
+        code:'PAYMENT_GATEWAY_REQUEST_MISMATCH',
+      }, 409, request, env, METHODS);
+    }
     if (!beneficiaries.length) return secureJson({ error: 'Payment Instruction tidak memiliki beneficiary' }, 409, request, env, METHODS);
     if (beneficiaries.reduce((sum, row) => sum + row.amount, 0) !== Number(payment.expected_total)) {
       return secureJson({ error: 'Beneficiary snapshot tidak sesuai control total', code: 'PAYMENT_BENEFICIARY_TOTAL_MISMATCH' }, 409, request, env, METHODS);
