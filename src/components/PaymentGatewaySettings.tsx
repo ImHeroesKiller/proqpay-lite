@@ -25,6 +25,9 @@ type FormState = {
   clientSecret: string;
   partnerId: string;
   sourceId: string;
+  username: string;
+  password: string;
+  merchantId: string;
 };
 
 const EMPTY: FormState = {
@@ -35,6 +38,9 @@ const EMPTY: FormState = {
   clientSecret:'',
   partnerId:'0041',
   sourceId:'MANDIRIS',
+  username:'',
+  password:'',
+  merchantId:'',
 };
 
 function profileSummary(settings: GatewaySettings | null, environment: FormState['environment']) {
@@ -55,7 +61,7 @@ export default function PaymentGatewaySettings() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState<{ type:'success' | 'error' | 'info'; text:string } | null>(null);
-  const [connection, setConnection] = useState<{ hostAuthorized:boolean; tokenType:string; expiresIn:number|null; merchantName:string; partnerId:string; sourceId:string; nextStep:string } | null>(null);
+  const [connection, setConnection] = useState<{ hostAuthorized:boolean; merchantLoginAuthorized:boolean; tokenType:string; expiresIn:number|null; merchantName:string; merchantStatus:string; merchantId:string; partnerId:string; sourceId:string; accountSrcMasked:string; bankCount:number; nextStep:string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,6 +114,9 @@ export default function PaymentGatewaySettings() {
         clientSecret:'',
         partnerId:'',
         sourceId:'',
+        username:'',
+        password:'',
+        merchantId:'',
       });
       setMessage({
         type:'success',
@@ -149,12 +158,15 @@ export default function PaymentGatewaySettings() {
     { key:'clientSecret', label:'clientSecret', secret:true, placeholder:'Masukkan Client Secret UAT' },
     { key:'partnerId', label:'partnerId', placeholder:'0041' },
     { key:'sourceId', label:'sourceId', placeholder:'MANDIRIS' },
+    { key:'username', label:'username', placeholder:'Masukkan username merchant UAT' },
+    { key:'password', label:'password', secret:true, placeholder:'Masukkan password merchant UAT' },
+    { key:'merchantId', label:'merchantId', placeholder:'Masukkan Merchant ID UAT' },
   ];
 
   return <div style={{ display:'grid', gap:16 }}>
     <div className="app-notice-bubble" role="note">
       <strong>Credential UAT yang diberikan E2Pay</strong>
-      <span>ProQPay hanya meminta Name, clientId, clientSecret, partnerId, dan sourceId. Username, password merchant, merchantId, accountId/source account, access token, dan refresh token bukan credential awal.</span>
+      <span>Bootstrap credential tetap Name, clientId, clientSecret, partnerId, dan sourceId. Karena username/password/merchantId sudah tersedia, ProQPay juga dapat memvalidasi merchant login dan menemukan accountId/source account otomatis. Access token dan refresh token tetap tidak perlu diinput manual.</span>
     </div>
 
     <div className="settings-form-grid">
@@ -212,17 +224,21 @@ export default function PaymentGatewaySettings() {
     {message ? <div className={'settings-status ' + message.type} role="status">{message.text}</div> : null}
 
     {connection ? <div className="card" style={{ padding:14, display:'grid', gap:6 }}>
-      <strong style={{ fontSize:12 }}>E2Pay UAT Host Connection</strong>
+      <strong style={{ fontSize:12 }}>E2Pay UAT Connection</strong>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Host authorization: {connection.hostAuthorized ? 'SUCCESS' : 'FAILED'}</span>
-      <span style={{ fontSize:11.5, color:'var(--text3)' }}>Merchant name: {connection.merchantName || '-'}</span>
+      <span style={{ fontSize:11.5, color:'var(--text3)' }}>Merchant login: {connection.merchantLoginAuthorized ? 'SUCCESS' : 'NOT TESTED'}</span>
+      <span style={{ fontSize:11.5, color:'var(--text3)' }}>Merchant: {connection.merchantName || '-'} {connection.merchantStatus ? '· ' + connection.merchantStatus : ''}</span>
+      <span style={{ fontSize:11.5, color:'var(--text3)' }}>Merchant ID: {connection.merchantId || '-'}</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Partner ID: {connection.partnerId || '-'}</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Source ID: {connection.sourceId || '-'}</span>
+      <span style={{ fontSize:11.5, color:'var(--text3)' }}>Source account: {connection.accountSrcMasked || 'belum ditemukan'}</span>
+      <span style={{ fontSize:11.5, color:'var(--text3)' }}>Bank directory: {connection.bankCount || 0} bank</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Token type: {connection.tokenType || 'Bearer'}{connection.expiresIn ? ' · expires ' + connection.expiresIn + 's' : ''}</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>{connection.nextStep}</span>
     </div> : null}
 
     <div style={{ borderTop:'1px solid var(--border-soft)', paddingTop:12, color:'var(--text3)', fontSize:11.5, lineHeight:1.6 }}>
-      Credential disimpan terenkripsi di server. Test Connection pada tahap ini hanya memvalidasi Client Host Authorization menggunakan clientId/clientSecret; transaksi tetap fail-closed sampai merchant registration/login menghasilkan identity dan source account yang dibutuhkan. Nilai secret tidak dikirim kembali ke browser.
+      Credential disimpan terenkripsi di server. Password merchant dinormalisasi menjadi MD5 uppercase di backend sesuai kontrak E2Pay dan tidak dikirim kembali ke browser. Test Connection memvalidasi host authorization, username, merchant login, lalu menemukan source account otomatis.
       {server?.updatedAt ? <div>Last update: {new Date(server.updatedAt).toLocaleString('id-ID')} · {server.updatedBy || '-'}</div> : null}
     </div>
   </div>;

@@ -138,7 +138,8 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
           <span><code>E2PAY_ENV</code> — UAT atau PRODUCTION; host dipilih server-side.</span>
           <span><code>Name / clientId / clientSecret / partnerId / sourceId</code> — credential awal UAT yang diberikan E2Pay dan disimpan terenkripsi.</span>
           <span><code>clientId / clientSecret</code> — digunakan untuk Client Host Authorization dengan grant_type=client_credentials.</span>
-          <span><code>username / password / accountSrc</code> — bukan credential awal; baru tersedia setelah merchant registration/login dan wajib ada sebelum eksekusi disbursement.</span>
+          <span><code>username / password / merchantId</code> — dapat ditambahkan bila diberikan terpisah untuk memvalidasi merchant login. Password dinormalisasi server-side menjadi MD5 uppercase.</span>
+          <span><code>accountSrc</code> — tidak perlu diinput manual; ProQPay mengambil accountId dari verifyUsername/Merchant Account setelah login berhasil.</span>
         </> : <span><code>PAYMENT_GATEWAY_WEBHOOK_SECRET</code> — secret signature callback, Cloudflare Secret only.</span>}
         <span><code>PAYMENT_GATEWAY_HOSTED_ENABLED</code> — aktifkan Hosted hanya jika adapter hosted tersedia.</span>
         <span><code>PAYMENT_GATEWAY_HOSTED_TTL_SECONDS</code> — TTL Hosted session, default 900 detik.</span>

@@ -144,8 +144,7 @@ export async function gatewayRuntimeEnv(database, env, organizationId, environme
     E2PAY_CLIENT_SECRET:String(credentials.clientSecret || ''),
     E2PAY_PARTNER_ID:String(credentials.partnerId || ''),
     E2PAY_SOURCE_ID:String(credentials.sourceId || ''),
-    // These fields are intentionally empty until merchant registration/login
-    // has produced the execution identity required by E2Pay.
+    E2PAY_MERCHANT_ID:String(credentials.merchantId || ''),
     E2PAY_USERNAME:String(credentials.username || ''),
     E2PAY_PASSWORD_MD5:String(credentials.passwordMd5 || ''),
     E2PAY_ACCOUNT_SRC:String(credentials.accountSrc || ''),
@@ -168,6 +167,7 @@ function profileSummary(credentials = {}) {
       clientSecret:Boolean(credentials.clientSecret),
       partnerId:Boolean(credentials.partnerId),
       sourceId:Boolean(credentials.sourceId),
+      merchantId:Boolean(credentials.merchantId),
       username:Boolean(credentials.username),
       passwordMd5:Boolean(credentials.passwordMd5),
       accountSrc:Boolean(credentials.accountSrc),
@@ -178,6 +178,7 @@ function profileSummary(credentials = {}) {
       clientSecret:credentials.clientSecret ? '••••••••' : null,
       partnerId:masked(credentials.partnerId),
       sourceId:masked(credentials.sourceId),
+      merchantId:masked(credentials.merchantId),
       username:masked(credentials.username),
       passwordMd5:credentials.passwordMd5 ? '••••••••' : null,
       accountSrc:masked(credentials.accountSrc),

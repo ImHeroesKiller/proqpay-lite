@@ -6,6 +6,9 @@ import {
   e2payBaseUrl,
   e2payHostAuthorize,
   e2payHostReadiness,
+  e2payLoginReadiness,
+  e2payPasswordMd5,
+  normalizeE2PayPassword,
   e2payDisburse,
   e2payInquirySignature,
   e2payReadiness,
@@ -65,6 +68,23 @@ test('E2Pay UAT bootstrap only requires client credentials and uses client_crede
   assert.equal(form.get('grant_type'), 'client_credentials');
   assert.equal(form.has('username'), false);
   assert.equal(form.has('password'), false);
+});
+
+test('merchant password is normalized to MD5 uppercase and login readiness is separate from execution readiness', () => {
+  assert.equal(e2payPasswordMd5('password'), '5F4DCC3B5AA765D61D8327DEB882CF99');
+  assert.equal(normalizeE2PayPassword('password'), '5F4DCC3B5AA765D61D8327DEB882CF99');
+  assert.equal(normalizeE2PayPassword('5f4dcc3b5aa765d61d8327deb882cf99'), '5F4DCC3B5AA765D61D8327DEB882CF99');
+  const loginEnv={
+    E2PAY_ENV:'UAT',
+    E2PAY_CLIENT_ID:'client-id',
+    E2PAY_CLIENT_SECRET:'client-secret',
+    E2PAY_USERNAME:'6281510000006',
+    E2PAY_PASSWORD_MD5:'5F4DCC3B5AA765D61D8327DEB882CF99',
+    E2PAY_SOURCE_ID:'MANDIRIS',
+  };
+  assert.equal(e2payLoginReadiness(loginEnv).configured,true);
+  assert.equal(e2payReadiness(loginEnv).configured,false,'source account must still be discovered before execution');
+  assert.equal(e2payReadiness({ ...loginEnv, E2PAY_ACCOUNT_SRC:'1234567890' }).configured,true);
 });
 
 test('E2Pay login uses authorization-code flow and pre-hashed merchant password', async () => {

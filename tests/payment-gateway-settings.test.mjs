@@ -160,17 +160,50 @@ test('UAT bootstrap profile stores only the supplied merchant bootstrap credenti
   DB.sqlite.close();
 });
 
-test('Payment Gateway settings UI only asks for the five supplied UAT bootstrap fields', async () => {
+test('Payment Gateway settings keeps bootstrap fields and accepts merchant login identity without accountSrc input', async () => {
   const ui = await readFile(new URL('../src/components/PaymentGatewaySettings.tsx', import.meta.url), 'utf8');
   assert.match(ui, /key:'merchantName', label:'Name'/);
   assert.match(ui, /key:'clientId', label:'clientId'/);
   assert.match(ui, /key:'clientSecret', label:'clientSecret'/);
   assert.match(ui, /key:'partnerId', label:'partnerId'/);
   assert.match(ui, /key:'sourceId', label:'sourceId'/);
-  assert.doesNotMatch(ui, /key:'username'/);
-  assert.doesNotMatch(ui, /key:'passwordMd5'/);
+  assert.match(ui, /key:'username', label:'username'/);
+  assert.match(ui, /key:'password', label:'password'/);
+  assert.match(ui, /key:'merchantId', label:'merchantId'/);
   assert.doesNotMatch(ui, /key:'accountSrc'/);
   assert.match(ui, /PT Mandiri Semesta Gemilang/);
   assert.match(ui, /0041/);
   assert.match(ui, /MANDIRIS/);
+  assert.doesNotMatch(ui, /6281510000006|00410187/);
+});
+
+
+test('merchant login metadata and discovered source account stay encrypted and browser-safe', async () => {
+  const DB = new D1Mock();
+  await writeGatewaySecureSettings(DB, env, 'ORG-OTSINDO', 'admin@proqpay.test', {
+    provider:'E2PAY',
+    environment:'UAT',
+    credentials:{
+      merchantName:'Merchant UAT',
+      clientId:'uat-client',
+      clientSecret:'uat-secret',
+      partnerId:'PARTNER-UAT',
+      sourceId:'SOURCE-UAT',
+      username:'6280000000000',
+      passwordMd5:'5F4DCC3B5AA765D61D8327DEB882CF99',
+      merchantId:'MERCHANT-UAT-001',
+      accountSrc:'701000001',
+    },
+  });
+  const runtime=await gatewayRuntimeEnv(DB,{...env,DB},'ORG-OTSINDO','UAT');
+  assert.equal(runtime.E2PAY_USERNAME,'6280000000000');
+  assert.equal(runtime.E2PAY_MERCHANT_ID,'MERCHANT-UAT-001');
+  assert.equal(runtime.E2PAY_ACCOUNT_SRC,'701000001');
+  const stored=await readGatewaySecureSettings(DB,env,'ORG-OTSINDO');
+  const safe=publicGatewaySettings(stored);
+  assert.equal(safe.stored.username,true);
+  assert.equal(safe.stored.merchantId,true);
+  assert.equal(safe.stored.accountSrc,true);
+  assert.doesNotMatch(JSON.stringify(safe),/6280000000000|5F4DCC3B5AA765D61D8327DEB882CF99|701000001/);
+  DB.sqlite.close();
 });
