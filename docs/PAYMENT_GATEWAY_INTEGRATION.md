@@ -168,10 +168,15 @@ For the current PT Mandiri Semesta Gemilang UAT onboarding, ProQPay treats the p
 The initial connection test uses only `clientId` + `clientSecret` against `/rest/oauth/token` with
 `grant_type=client_credentials`. A successful response proves Client Host Authorization only.
 
-Do not ask users to provide `username`, `passwordMd5`, `merchantId`, `accountSrc/accountId`,
-`access_token`, or `refresh_token` as initial UAT credentials. These values belong to the subsequent
-merchant registration/login lifecycle or are returned by the provider.
+The initial provider pack remains those five fields. If E2Pay separately supplies merchant login identity,
+ProQPay may additionally store `username`, raw `password`, and `merchantId` through the encrypted
+Super Admin settings form. The raw password is converted server-side to the MD5 uppercase form required by
+the authorization endpoint; plaintext password is not persisted.
 
-Disbursement execution remains fail-closed until merchant registration/login has produced the execution
-identity and source account required by the provider. Host authorization success must not be displayed as
-"payment execution ready".
+`accountSrc/accountId`, `access_token`, and `refresh_token` are not manual configuration fields.
+When username/password are available, Test Connection performs host authorization, verifyUsername,
+authorization-code merchant login, then Merchant Account lookup. The resulting accountId is persisted
+encrypted as accountSrc after consistency checks.
+
+Disbursement execution remains fail-closed until merchant login succeeds and a source account has been
+discovered. Host authorization success alone must not be displayed as "payment execution ready".
