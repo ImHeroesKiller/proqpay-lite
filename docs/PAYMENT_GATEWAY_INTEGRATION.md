@@ -153,3 +153,25 @@ The current UAT MOCK contract uses `X-Payment-Signature: sha256=<HMAC-SHA256(raw
 ## Production rule
 
 Do not set `PAYMENT_GATEWAY_PROVIDER` to a real provider name or enable Hosted Payment until the exact provider adapter and contract tests are merged. Unknown providers intentionally remain unavailable.
+
+
+## E2Pay UAT bootstrap credential contract
+
+For the current PT Mandiri Semesta Gemilang UAT onboarding, ProQPay treats the provider-issued bootstrap profile as exactly:
+
+- `Name` — merchant/company display name.
+- `clientId` — E2Pay client identifier.
+- `clientSecret` — E2Pay client secret.
+- `partnerId` — E2Pay Partner ID.
+- `sourceId` — E2Pay Source ID.
+
+The initial connection test uses only `clientId` + `clientSecret` against `/rest/oauth/token` with
+`grant_type=client_credentials`. A successful response proves Client Host Authorization only.
+
+Do not ask users to provide `username`, `passwordMd5`, `merchantId`, `accountSrc/accountId`,
+`access_token`, or `refresh_token` as initial UAT credentials. These values belong to the subsequent
+merchant registration/login lifecycle or are returned by the provider.
+
+Disbursement execution remains fail-closed until merchant registration/login has produced the execution
+identity and source account required by the provider. Host authorization success must not be displayed as
+"payment execution ready".

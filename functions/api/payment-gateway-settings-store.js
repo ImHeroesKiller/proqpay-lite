@@ -139,12 +139,16 @@ export async function gatewayRuntimeEnv(database, env, organizationId, environme
   const overrides = {
     PAYMENT_GATEWAY_PROVIDER:stored.provider,
     E2PAY_ENV:environment,
+    E2PAY_MERCHANT_NAME:String(credentials.merchantName || ''),
     E2PAY_CLIENT_ID:String(credentials.clientId || ''),
     E2PAY_CLIENT_SECRET:String(credentials.clientSecret || ''),
+    E2PAY_PARTNER_ID:String(credentials.partnerId || ''),
+    E2PAY_SOURCE_ID:String(credentials.sourceId || ''),
+    // These fields are intentionally empty until merchant registration/login
+    // has produced the execution identity required by E2Pay.
     E2PAY_USERNAME:String(credentials.username || ''),
     E2PAY_PASSWORD_MD5:String(credentials.passwordMd5 || ''),
     E2PAY_ACCOUNT_SRC:String(credentials.accountSrc || ''),
-    E2PAY_SOURCE_ID:String(credentials.sourceId || ''),
   };
   return Object.assign(Object.create(env || null), overrides);
 }
@@ -159,20 +163,24 @@ function masked(value) {
 function profileSummary(credentials = {}) {
   return {
     stored:{
+      merchantName:Boolean(credentials.merchantName),
       clientId:Boolean(credentials.clientId),
       clientSecret:Boolean(credentials.clientSecret),
+      partnerId:Boolean(credentials.partnerId),
+      sourceId:Boolean(credentials.sourceId),
       username:Boolean(credentials.username),
       passwordMd5:Boolean(credentials.passwordMd5),
       accountSrc:Boolean(credentials.accountSrc),
-      sourceId:Boolean(credentials.sourceId),
     },
     masked:{
+      merchantName:credentials.merchantName ? String(credentials.merchantName) : null,
       clientId:masked(credentials.clientId),
       clientSecret:credentials.clientSecret ? '••••••••' : null,
+      partnerId:masked(credentials.partnerId),
+      sourceId:masked(credentials.sourceId),
       username:masked(credentials.username),
       passwordMd5:credentials.passwordMd5 ? '••••••••' : null,
       accountSrc:masked(credentials.accountSrc),
-      sourceId:masked(credentials.sourceId),
     },
   };
 }

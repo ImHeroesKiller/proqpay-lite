@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   e2payAuthorize,
   e2payBaseUrl,
+  e2payHostAuthorize,
+  e2payHostReadiness,
   e2payDisburse,
   e2payInquirySignature,
   e2payReadiness,
@@ -29,6 +31,40 @@ test('E2Pay readiness is fail-closed and environment host is fixed', () => {
   assert.equal(e2payReadiness(baseEnv).configured, true);
   assert.equal(e2payBaseUrl(baseEnv), 'https://disbursementtest.mbayar.co.id/switching');
   assert.equal(e2payBaseUrl({ ...baseEnv, E2PAY_ENV:'PRODUCTION' }), 'https://disbursement.mbayar.co.id/switching');
+});
+
+test('E2Pay UAT bootstrap only requires client credentials and uses client_credentials grant', async () => {
+  const bootstrapEnv = {
+    E2PAY_ENV:'UAT',
+    E2PAY_MERCHANT_NAME:'PT Mandiri Semesta Gemilang',
+    E2PAY_CLIENT_ID:'uat-client',
+    E2PAY_CLIENT_SECRET:'uat-secret',
+    E2PAY_PARTNER_ID:'0041',
+    E2PAY_SOURCE_ID:'MANDIRIS',
+  };
+  assert.equal(e2payHostReadiness(bootstrapEnv).configured, true);
+  assert.equal(e2payReadiness(bootstrapEnv).configured, false, 'execution must remain fail-closed before merchant login');
+
+  const calls = [];
+  const fakeFetch = async (url, init) => {
+    calls.push({ url:String(url), init });
+    return new Response(JSON.stringify({
+      access_token:'HOST-ACCESS',
+      token_type:'Bearer',
+      expires_in:'3600',
+      refresh_token:'HOST-REFRESH',
+    }), { status:200 });
+  };
+  const auth = await e2payHostAuthorize(bootstrapEnv, fakeFetch);
+  assert.equal(auth.accessToken, 'HOST-ACCESS');
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/rest\/oauth\/token$/);
+  const form = new URLSearchParams(calls[0].init.body);
+  assert.equal(form.get('client_id'), 'uat-client');
+  assert.equal(form.get('client_secret'), 'uat-secret');
+  assert.equal(form.get('grant_type'), 'client_credentials');
+  assert.equal(form.has('username'), false);
+  assert.equal(form.has('password'), false);
 });
 
 test('E2Pay login uses authorization-code flow and pre-hashed merchant password', async () => {

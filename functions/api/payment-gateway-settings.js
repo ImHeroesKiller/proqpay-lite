@@ -8,9 +8,8 @@ import {
 } from './payment-gateway-settings-store.js';
 import { gatewayReadiness } from './payment-gateway-core.js';
 import {
-  e2payAuthorize,
-  e2payBankList,
-  e2payMerchantAccount,
+  e2payHostAuthorize,
+  e2payHostReadiness,
   e2payReadiness,
 } from './payment-gateway-e2pay.js';
 
@@ -44,11 +43,10 @@ function auditOperation(organizationId, actor, action, detail) {
 
 function parseCredentials(body) {
   const values = {
+    merchantName:clean(body.merchantName, 200),
     clientId:clean(body.clientId, 300),
     clientSecret:clean(body.clientSecret, 500),
-    username:clean(body.username, 200),
-    passwordMd5:clean(body.passwordMd5, 64).toUpperCase(),
-    accountSrc:clean(body.accountSrc, 200),
+    partnerId:clean(body.partnerId, 100),
     sourceId:clean(body.sourceId, 200),
   };
   return Object.fromEntries(Object.entries(values).filter(([, value]) => Boolean(value)));
@@ -97,36 +95,38 @@ export async function onRequest({ request, env }) {
       const runtimeEnv = Object.assign(Object.create(storedRuntime || null), {
         PAYMENT_GATEWAY_PROVIDER:'E2PAY',
         E2PAY_ENV:environment,
+        E2PAY_MERCHANT_NAME:draft.merchantName || storedRuntime.E2PAY_MERCHANT_NAME || '',
         E2PAY_CLIENT_ID:draft.clientId || storedRuntime.E2PAY_CLIENT_ID || '',
         E2PAY_CLIENT_SECRET:draft.clientSecret || storedRuntime.E2PAY_CLIENT_SECRET || '',
-        E2PAY_USERNAME:draft.username || storedRuntime.E2PAY_USERNAME || '',
-        E2PAY_PASSWORD_MD5:draft.passwordMd5 || storedRuntime.E2PAY_PASSWORD_MD5 || '',
-        E2PAY_ACCOUNT_SRC:draft.accountSrc || storedRuntime.E2PAY_ACCOUNT_SRC || '',
+        E2PAY_PARTNER_ID:draft.partnerId || storedRuntime.E2PAY_PARTNER_ID || '',
         E2PAY_SOURCE_ID:draft.sourceId || storedRuntime.E2PAY_SOURCE_ID || '',
       });
-      const readiness = e2payReadiness(runtimeEnv);
-      if (!readiness.configured) {
-        return secureJson({ error:readiness.reason, code:'E2PAY_NOT_READY', readiness }, 409, request, env, METHODS);
+      const hostReadiness = e2payHostReadiness(runtimeEnv);
+      if (!hostReadiness.configured) {
+        return secureJson({ error:hostReadiness.reason, code:'E2PAY_HOST_NOT_READY', readiness:hostReadiness }, 409, request, env, METHODS);
       }
-      const auth = await e2payAuthorize(runtimeEnv);
-      const [account, banks] = await Promise.all([
-        e2payMerchantAccount(runtimeEnv, auth.accessToken),
-        e2payBankList(runtimeEnv, auth.accessToken),
-      ]);
+      const auth = await e2payHostAuthorize(runtimeEnv);
+      const executionReadiness = e2payReadiness(runtimeEnv);
       await d1Batch(env.DB, [auditOperation(
         organizationId,
         authorization.actor,
-        'E2PAY_CONNECTION_TESTED',
-        'environment=' + readiness.environment + ' · banks=' + banks.length,
+        'E2PAY_HOST_CONNECTION_TESTED',
+        'environment=' + hostReadiness.environment + ' · merchant=' + clean(runtimeEnv.E2PAY_MERCHANT_NAME, 120),
       )]);
       return secureJson({
         ok:true,
-        readiness,
+        readiness:hostReadiness,
+        executionReadiness,
         connection:{
-          accountName:String(account?.accountName || ''),
-          merchantStatus:String(account?.merchantStatus || ''),
-          balance:Number(account?.balance || 0),
-          bankCount:banks.length,
+          hostAuthorized:true,
+          tokenType:auth.tokenType,
+          expiresIn:auth.expiresIn,
+          merchantName:clean(runtimeEnv.E2PAY_MERCHANT_NAME, 200),
+          partnerId:clean(runtimeEnv.E2PAY_PARTNER_ID, 100),
+          sourceId:clean(runtimeEnv.E2PAY_SOURCE_ID, 200),
+          nextStep:executionReadiness.configured
+            ? 'Disbursement execution ready.'
+            : 'Host credential valid. Merchant registration/login data is still required before disbursement execution.',
         },
       }, 200, request, env, METHODS);
     }
@@ -145,9 +145,6 @@ export async function onRequest({ request, env }) {
     }
 
     const credentials = parseCredentials(body);
-    if (credentials.passwordMd5 && !/^[A-F0-9]{32}$/.test(credentials.passwordMd5)) {
-      return secureJson({ error:'E2PAY_PASSWORD_MD5 harus MD5 uppercase 32 karakter' }, 422, request, env, METHODS);
-    }
 
     const stored = await writeGatewaySecureSettings(
       env.DB,
@@ -166,6 +163,7 @@ export async function onRequest({ request, env }) {
     return secureJson({
       ok:true,
       settings:publicGatewaySettings(stored),
+      hostReadiness:e2payHostReadiness(runtimeEnv),
       readiness:gatewayReadiness(runtimeEnv),
     }, 200, request, env, METHODS);
   } catch (error) {
