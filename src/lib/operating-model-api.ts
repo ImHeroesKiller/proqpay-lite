@@ -8,6 +8,7 @@ export type OperatingResource =
   | 'pay-run-detail'
   | 'submissions'
   | 'exceptions'
+  | 'exception-history'
   | 'payment-instructions'
   | 'payment-instruction-detail'
   | 'payment-proofs'
@@ -48,6 +49,25 @@ export async function listOperatingResource<T=any>(resource: OperatingResource, 
   const params = new URLSearchParams({ resource });
   if (clientId) params.set('clientId', clientId);
   return cachedOperatingGet<T>(`/api/operating-model?${params}`);
+}
+
+export async function listAllOperatingExceptions(clientId?:string):Promise<{exceptions:any[];exceptionsMeta:{returned:number;truncated:boolean}}> {
+  const exceptions:any[]=[];
+  let offset=0;
+  while(true){
+    const params=new URLSearchParams({resource:'exceptions',offset:String(offset),limit:'500'});
+    if(clientId) params.set('clientId',clientId);
+    const page=await cachedOperatingGet<any>(`/api/operating-model?${params}`);
+    exceptions.push(...(page.exceptions||[]));
+    if(page.exceptionsMeta?.nextOffset==null) break;
+    offset=Number(page.exceptionsMeta.nextOffset);
+  }
+  return {exceptions,exceptionsMeta:{returned:exceptions.length,truncated:false}};
+}
+
+export async function getExceptionHistory(exceptionId:string):Promise<{exceptionHistory:any[]}> {
+  const params=new URLSearchParams({resource:'exception-history',exceptionId});
+  return cachedOperatingGet<{exceptionHistory:any[]}>(`/api/operating-model?${params}`);
 }
 
 export function listOperatingDashboard(clientId?: string, period?: string):Promise<DashboardApiResponse> {

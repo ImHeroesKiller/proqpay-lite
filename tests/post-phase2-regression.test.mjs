@@ -139,6 +139,6 @@ test('client correction next action remains exception-owned while Phase 4 routes
   const workspace=await fs.readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
   assert.match(sidebar,/CLIENT_USER: \["dashboard", "operations", "reports"\]/);
   assert.match(sidebar,/title="Payroll"/);
-  assert.match(workspace,/role === 'CLIENT_USER' \? 'CLIENT_ACTION_REQUIRED' : 'OPEN'/);
+  assert.match(workspace,/role === 'CLIENT_USER' \? 'CLIENT_ACTION_REQUIRED' : 'ACTIVE'/);
   assert.match(workspace,/clientCorrections=openExceptions\.filter/);
 });

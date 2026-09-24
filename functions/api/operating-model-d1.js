@@ -238,6 +238,8 @@ async function readResource(database, params, actor, env, organizationId) {
   }
 
   if (resource === 'exceptions') {
+    const exceptionOffset = Math.max(0, Number.parseInt(params.get('offset') || '0', 10) || 0);
+    const exceptionLimit = Math.min(500, Math.max(50, Number.parseInt(params.get('limit') || '500', 10) || 500));
     const rows = await d1All(database, `SELECT e.*, s.client_id, s.project_id, s.period, s.service_tier,
       c.name AS client_name, p.name AS project_name, emp.name AS employee_name,
       (SELECT au.email FROM app_users au JOIN user_client_scopes ucs ON ucs.user_id=au.id
@@ -246,8 +248,26 @@ async function readResource(database, params, actor, env, organizationId) {
       FROM payroll_exceptions e JOIN payroll_submissions s ON s.id=e.submission_id
       JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id
       LEFT JOIN employees emp ON emp.id=e.employee_id
-      WHERE ${submissionScope.sql} ORDER BY e.created_at DESC LIMIT 2000`, submissionScope.bindings);
-    return { data: { ok: true, exceptions: parseJsonFields(rows, ['source_value','canonical_value','suggested_value']) } };
+      WHERE ${submissionScope.sql} ORDER BY e.created_at DESC LIMIT ? OFFSET ?`,
+      [...submissionScope.bindings, exceptionLimit + 1, exceptionOffset]);
+    const truncated = rows.length > exceptionLimit;
+    const page = rows.slice(0, exceptionLimit);
+    return { data: { ok: true, exceptions: parseJsonFields(page, ['source_value','canonical_value','suggested_value']),
+      exceptionsMeta:{ offset:exceptionOffset, limit:exceptionLimit, returned:page.length,
+        nextOffset:truncated ? exceptionOffset + exceptionLimit : null, truncated } } };
+  }
+
+  if (resource === 'exception-history') {
+    const exceptionId = params.get('exceptionId');
+    if (!exceptionId) return { status:422, data:{ error:'exceptionId wajib diisi' } };
+    const current = await d1First(database, `SELECT e.id,s.client_id,s.project_id FROM payroll_exceptions e
+      JOIN payroll_submissions s ON s.id=e.submission_id WHERE e.id=? AND s.org_id=? LIMIT 1`, [exceptionId,organizationId]);
+    if (!current) return { status:404, data:{ error:'Exception not found' } };
+    if (!assertClientScope(actor,env,current.client_id) || !assertProjectScope(actor,current.project_id)) return { status:403, data:{ error:'Scope denied' } };
+    const history = await d1All(database, `SELECT id,username,role,action,detail,timestamp
+      FROM audit_logs WHERE org_id=? AND entity='payroll_exception' AND entity_id=?
+      ORDER BY timestamp DESC LIMIT 100`, [organizationId,exceptionId]);
+    return { data:{ ok:true, exceptionHistory:history } };
   }
 
   if (resource === 'payment-instructions') {

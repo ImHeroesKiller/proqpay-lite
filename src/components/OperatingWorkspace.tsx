@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { executeOperatingAction, getPayRunDetail, getPaymentInstructionDetail, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
+import { executeOperatingAction, getExceptionHistory, getPayRunDetail, getPaymentInstructionDetail, listAllOperatingExceptions, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
@@ -76,7 +76,9 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       if (!meResponse.ok) throw new Error(me.error || `HTTP ${meResponse.status}`);
       setActor(me.user || null);
       const clientIds = me.user?.role === 'CLIENT_USER' ? (me.user.clientIds || []) : [undefined];
-      const results = await Promise.all(clientIds.flatMap((clientId: string | undefined) => resources.map((resource) => listOperatingResource(resource, clientId))));
+      const results = await Promise.all(clientIds.flatMap((clientId: string | undefined) => resources.map((resource) =>
+        resource === 'exceptions' ? listAllOperatingExceptions(clientId) : listOperatingResource(resource, clientId)
+      )));
       const merged: Record<string, any[]> = {};
       results.forEach((result: any) => Object.entries(result).forEach(([key, value]) => {
         if (Array.isArray(value)) merged[key] = [...(merged[key] || []), ...value];
@@ -147,7 +149,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       paymentInstructionId:instruction?.id,
     });
     const haystack = [row.client_name,row.project_name,row.id,row.period,row.payment_period,row.state,business.label,nextAction.label].join(' ').toLowerCase();
-    const workflowMatches=simplifiedWorkspace
+    const workflowMatches=mode==='actions' ? true : simplifiedWorkspace
       ? (statusFilter === 'ALL' || business.stage === statusFilter)
       : (statusFilter === 'ALL' || row.state === statusFilter);
     return (periodFilter === 'ALL' || row.period === periodFilter || row.payment_period === periodFilter)
@@ -155,7 +157,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       && workflowMatches
       && (!focusSubmissionId || String(row.id)===focusSubmissionId)
       && (!dashboardStage || business.stage===dashboardStage)
-      && (!query.trim() || haystack.includes(query.trim().toLowerCase()));
+      && (mode==='actions' || !query.trim() || haystack.includes(query.trim().toLowerCase()));
   }), [submissions, instructionBySubmission, periodFilter, clientFilter, statusFilter, query, simplifiedWorkspace, role, actor?.permissions, focusSubmissionId, dashboardStage]);
   const visibleSubmissionIds = useMemo(() => new Set(visibleSubmissions.map((row) => row.id)), [visibleSubmissions]);
   const visibleInstructions = useMemo(() => (data.paymentInstructions || []).filter((row) => {
@@ -254,8 +256,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       {mode !== 'billing' ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((period) => <option key={period} value={period}>{period}</option>)}</select></label>
         <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        <label><span>{mode === 'payments' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:String(state).replaceAll('_', ' ')}</option>)}</select></label>
-        <label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>
+        {mode!=='actions'?<label><span>{mode === 'payments' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:String(state).replaceAll('_', ' ')}</option>)}</select></label>:null}
+        {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>:null}
       </div> : null}
 
       {mode !== 'billing' ? <div className="operations-summary-grid">
@@ -521,37 +523,74 @@ function PayRunLineTable({detail,editable,onEdit}:{detail:any;editable:boolean;o
 function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string; canResolve: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
   const clientMode = role === 'CLIENT_USER';
   const [severity, setSeverity] = useState('ALL');
-  const [status, setStatus] = useState(role === 'CLIENT_USER' ? 'CLIENT_ACTION_REQUIRED' : 'OPEN');
+  const [status, setStatus] = useState(role === 'CLIENT_USER' ? 'CLIENT_ACTION_REQUIRED' : 'ACTIVE');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<any | null>(null);
   const [evidenceReviewed,setEvidenceReviewed] = useState(false);
   const [resolutionNote,setResolutionNote] = useState('');
+  const [actionMode,setActionMode] = useState<'CLIENT'|'NOTE'|null>(null);
+  const [actionMessage,setActionMessage] = useState('');
+  const [history,setHistory] = useState<any[]>([]);
+  const [historyLoading,setHistoryLoading] = useState(false);
+  const dialogRef=useRef<HTMLDivElement>(null);
+  const previousFocusRef=useRef<HTMLElement|null>(null);
+  const isClosed=(row:any)=>['RESOLVED','ACCEPTED','AUTO_NORMALIZED'].includes(row.status);
   const filtered = rows.filter((row) => (severity === 'ALL' || row.severity === severity)
-    && (status === 'ALL' || row.status === status)
-    && (!query || [row.category,row.employee_id,row.employee_name,row.reason,row.field,row.client_name,row.project_name].join(' ').toLowerCase().includes(query.toLowerCase())));
+    && (status === 'ALL' || (status==='ACTIVE' ? !isClosed(row) : row.status === status))
+    && (!query || [row.category,row.employee_id,row.employee_name,row.reason,row.field,row.client_name,row.project_name,row.period,row.status].join(' ').toLowerCase().includes(query.toLowerCase())));
   const pageCount = Math.max(1, Math.ceil(filtered.length / 20));
   const visible = filtered.slice((page - 1) * 20, page * 20);
 
+  useEffect(()=>setPage(1),[severity,status,query]);
   useEffect(()=>setPage((current)=>Math.min(current,pageCount)),[pageCount]);
   useEffect(()=>{
     if(!selected) return;
     setEvidenceReviewed(false);
+    setActionMode(null);
+    setActionMessage('');
     setResolutionNote(clientMode?'Data telah diperbaiki dan saya telah memeriksa evidence perubahan.':'Evidence sumber dan canonical telah diperiksa; exception telah diperbaiki dan diverifikasi.');
+    setHistoryLoading(true);
+    void getExceptionHistory(selected.id).then((result)=>setHistory(result.exceptionHistory||[])).catch(()=>setHistory([])).finally(()=>setHistoryLoading(false));
   },[selected,clientMode]);
+  useEffect(()=>{
+    if(!selected) return;
+    previousFocusRef.current=document.activeElement instanceof HTMLElement?document.activeElement:null;
+    const oldOverflow=document.body.style.overflow;
+    document.body.style.overflow='hidden';
+    const frame=requestAnimationFrame(()=>dialogRef.current?.querySelector<HTMLElement>('button,input,textarea,select')?.focus());
+    const onKey=(event:KeyboardEvent)=>{
+      if(event.key==='Escape'){event.preventDefault();setSelected(null);return;}
+      if(event.key!=='Tab'||!dialogRef.current) return;
+      const items=[...dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])')];
+      if(!items.length) return;
+      const first=items[0],last=items[items.length-1];
+      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+    };
+    document.addEventListener('keydown',onKey);
+    return()=>{cancelAnimationFrame(frame);document.removeEventListener('keydown',onKey);document.body.style.overflow=oldOverflow;previousFocusRef.current?.focus();};
+  },[selected]);
 
   const evidenceValue=(value:unknown)=>{
     if(value==null||value==='') return '-';
     if(typeof value==='object') return JSON.stringify(value);
     return String(value);
   };
+  const submitMessage=async()=>{
+    if(!selected||!actionMode||actionMessage.trim().length<3) return;
+    const clientRequest=actionMode==='CLIENT';
+    await act({action:clientRequest?'REQUEST_CLIENT_ACTION':'ADD_EXCEPTION_NOTE',exceptionId:selected.id,message:actionMessage.trim()},
+      clientRequest?'Permintaan perbaikan dikirim ke user klien':'Catatan tersimpan pada temuan');
+    setSelected(null);
+  };
 
   if (!rows.length) return <Empty title="Tidak ada exception operasional" detail="Temuan validasi akan masuk ke antrean ini dan diblokir berdasarkan tingkat severity." />;
   return <div style={{display:'grid',gap:12}}>
-    <div className="card" style={{padding:12,display:'flex',gap:8,flexWrap:'wrap'}}>
-      <input style={{...input,flex:'1 1 220px'}} value={query} placeholder={clientMode?"Cari payroll atau karyawan…":"Cari karyawan, temuan, klien…"} onChange={(e)=>{setQuery(e.target.value);setPage(1);}} />
-      {!clientMode?<><select style={input} value={severity} onChange={(e)=>{setSeverity(e.target.value);setPage(1);}}><option value="ALL">Semua severity</option><option>CRITICAL</option><option>WARNING</option><option>INFO</option></select>
-      <select style={input} value={status} onChange={(e)=>{setStatus(e.target.value);setPage(1);}}><option value="ALL">Semua status</option><option>OPEN</option><option>CLIENT_ACTION_REQUIRED</option><option>RESOLVED</option><option>ACCEPTED</option></select></>:null}
+    <div className="card readiness-filter-bar">
+      <input style={{...input,flex:'1 1 220px'}} value={query} placeholder={clientMode?"Cari payroll atau karyawan…":"Cari karyawan, alasan, field, klien, project…"} onChange={(e)=>setQuery(e.target.value)} />
+      {!clientMode?<><select style={input} value={severity} onChange={(e)=>setSeverity(e.target.value)}><option value="ALL">Semua severity</option><option>CRITICAL</option><option>WARNING</option><option>INFO</option></select>
+      <select style={input} value={status} onChange={(e)=>setStatus(e.target.value)}><option value="ACTIVE">Semua aktif</option><option value="ALL">Semua status</option><option>OPEN</option><option>CLIENT_ACTION_REQUIRED</option><option>RESOLVED</option><option>ACCEPTED</option><option>AUTO_NORMALIZED</option></select></>:null}
       <span style={{...small,margin:'auto 0'}}><strong>{filtered.length}</strong> {clientMode?'perlu diperbaiki':'temuan'}</span>
     </div>
     <CardTable headers={clientMode?['Perlu diperbaiki','Payroll','Aksi']:['Temuan','Klien / Project','Severity','Status','Aksi']} rows={visible.map((r) => clientMode ? [
@@ -565,8 +604,8 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
       <Badge key="status" text={r.status} />,
       <button key="detail" style={actionButton} onClick={() => setSelected(r)}>Tindak lanjut</button>,
     ])} />
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={small}>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div style={{display:'flex',gap:6}}><button className="btn" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>←</button><button className="btn" disabled={page>=pageCount} onClick={()=>setPage(p=>p+1)}>→</button></div></div>
-    {selected ? <div className="directory-modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)setSelected(null);}}><div className="directory-modal readiness-exception-modal" role="dialog" aria-modal="true" aria-label="Detail exception payroll">
+    <div className="readiness-pagination"><span>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div><button className="btn" aria-label="Halaman sebelumnya" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>←</button><button className="btn" aria-label="Halaman berikutnya" disabled={page>=pageCount} onClick={()=>setPage(p=>Math.min(pageCount,p+1))}>→</button></div></div>
+    {selected ? <div className="directory-modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)setSelected(null);}}><div ref={dialogRef} className="directory-modal readiness-exception-modal" role="dialog" aria-modal="true" aria-label="Detail exception payroll">
       <div className="directory-modal-title"><div><span>{clientMode?'PERBAIKAN PAYROLL':'DATA READINESS'}</span><h3>{clientMode?'Perlu diperbaiki':selected.category}</h3></div><button aria-label="Tutup detail exception" onClick={()=>setSelected(null)}>✕</button></div>
       <div className="readiness-exception-context">
         <div><span>Karyawan</span><strong>{selected.employee_name || selected.employee_id || 'Submission level'}</strong></div>
@@ -584,15 +623,24 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
           <div><span>Confidence</span><strong>{selected.confidence==null?'-':String(selected.confidence)}</strong></div>
         </div>
       </section>
-      {canResolve && !['RESOLVED','ACCEPTED'].includes(selected.status) ? <section className="readiness-resolution-panel">
+      <section className="readiness-history-panel">
+        <div className="readiness-evidence-heading"><span>HISTORY</span><strong>Audit timeline</strong></div>
+        {historyLoading?<small>Memuat riwayat…</small>:history.length?<div className="readiness-timeline">{history.map((item)=><div key={item.id}><i aria-hidden="true" /><div><strong>{String(item.action||'').replaceAll('_',' ')}</strong><span>{item.username || '-'} · {item.timestamp ? new Date(item.timestamp).toLocaleString('id-ID') : '-'}</span><small>{item.detail || '-'}</small></div></div>)}</div>:<small>Belum ada event audit untuk exception ini.</small>}
+      </section>
+      {canResolve && !isClosed(selected) ? <section className="readiness-resolution-panel">
         <label className="payroll-review-confirm"><input type="checkbox" checked={evidenceReviewed} onChange={(event)=>setEvidenceReviewed(event.target.checked)} /><span>Saya sudah memeriksa Source, Canonical, Suggested value, dan alasan exception.</span></label>
         <label><span>Catatan resolusi</span><textarea value={resolutionNote} onChange={(event)=>setResolutionNote(event.target.value)} rows={3} maxLength={1000} /></label>
       </section>:null}
-      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:16}}>
-        {['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && !['RESOLVED','ACCEPTED'].includes(selected.status) ? <button className="btn btn-primary" onClick={()=>{const message=window.prompt('Instruksi perbaikan untuk user klien:',selected.reason||'Mohon lengkapi dan validasi data ini.');if(message)void act({action:'REQUEST_CLIENT_ACTION',exceptionId:selected.id,message},'Permintaan perbaikan dikirim ke user klien').then(()=>setSelected(null));}}>Minta perbaikan klien</button> : null}
-        {!clientMode?<>{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button className="btn" onClick={()=>{const message=window.prompt('Tulis pesan pada temuan:');if(message)void act({action:'ADD_EXCEPTION_NOTE',exceptionId:selected.id,message},'Pesan tersimpan pada temuan').then(()=>setSelected(null));}}>Chat / catatan</button>:null}
+      {actionMode ? <section className="readiness-message-composer">
+        <div><strong>{actionMode==='CLIENT'?'Instruksi perbaikan klien':'Catatan internal'}</strong><button type="button" aria-label="Tutup form pesan" onClick={()=>{setActionMode(null);setActionMessage('');}}>✕</button></div>
+        <textarea autoFocus rows={4} maxLength={1000} value={actionMessage} onChange={(event)=>setActionMessage(event.target.value)} placeholder={actionMode==='CLIENT'?'Jelaskan data yang perlu diperbaiki dan evidence yang dibutuhkan…':'Tambahkan konteks atau catatan tindak lanjut…'} />
+        <div><small>{actionMessage.trim().length}/1000</small><button type="button" className="btn btn-primary" disabled={actionMessage.trim().length<3} onClick={()=>void submitMessage()}>Kirim</button></div>
+      </section>:null}
+      <div className="readiness-modal-actions">
+        {['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && !isClosed(selected) ? <button className="btn btn-primary" onClick={()=>{setActionMode('CLIENT');setActionMessage(selected.reason||'Mohon lengkapi dan validasi data ini.');}}>Minta perbaikan klien</button> : null}
+        {!clientMode?<>{['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button className="btn" onClick={()=>{setActionMode('NOTE');setActionMessage('');}}>Tambah catatan</button>:null}
         {selected.client_email ? <a className="btn" href={`mailto:${encodeURIComponent(selected.client_email)}?subject=${encodeURIComponent(`Perbaikan data payroll ${selected.period || ''}`)}&body=${encodeURIComponent(selected.reason || '')}`}>Email klien</a> : <span style={small}>Email akun klien belum dipasangkan</span>}</>:null}
-        {canResolve && !['RESOLVED','ACCEPTED'].includes(selected.status) ? <button className="btn" disabled={!evidenceReviewed || resolutionNote.trim().length<10} onClick={()=>void act({action:'RESOLVE_EXCEPTION',exceptionId:selected.id,status:clientMode?'ACCEPTED':'RESOLVED',resolutionNote:resolutionNote.trim()},clientMode?'Perbaikan dikonfirmasi':'Exception diselesaikan').then(()=>setSelected(null))}>{clientMode?'Konfirmasi sudah diperbaiki':'Tandai selesai'}</button> : null}
+        {canResolve && !isClosed(selected) ? <button className="btn" disabled={!evidenceReviewed || resolutionNote.trim().length<10} onClick={()=>void act({action:'RESOLVE_EXCEPTION',exceptionId:selected.id,status:clientMode?'ACCEPTED':'RESOLVED',resolutionNote:resolutionNote.trim()},clientMode?'Perbaikan dikonfirmasi':'Exception diselesaikan').then(()=>setSelected(null))}>{clientMode?'Konfirmasi sudah diperbaiki':'Tandai selesai'}</button> : null}
       </div>
       {selected.resolution_note ? <div className="directory-message" style={{marginTop:14,whiteSpace:'pre-wrap'}}>{selected.resolution_note}</div> : null}
     </div></div> : null}
