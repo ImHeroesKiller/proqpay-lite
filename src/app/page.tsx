@@ -188,8 +188,25 @@ export default function Home() {
     const url = new URL(window.location.href);
     url.searchParams.set('view', safeView);
     url.searchParams.set('period', period);
-    window.history.replaceState({}, '', url);
+    window.history.pushState({ view: safeView, period }, '', url);
   }
+
+  useEffect(() => {
+    if (!actor) return;
+    const onPopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const requestedView = (params.get('view') || 'dashboard') as AppView;
+      const normalizedView = normalizeViewForRole(actor.role, requestedView);
+      const safeView = allowedViewsForRole(actor.role).includes(normalizedView) ? normalizedView : 'dashboard';
+      const requestedPeriod = params.get('period');
+      setView(safeView);
+      if (requestedPeriod) setPeriod(requestedPeriod);
+      setSettingsOpen(false);
+      setMobileNavOpen(false);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [actor]);
 
   if (mounted && authChecked && authRequired) return <LoginScreen />;
 
@@ -233,7 +250,6 @@ export default function Home() {
         onMobileClose={() => setMobileNavOpen(false)}
         settingsOpen={settingsOpen}
         onSettingsOpen={setSettingsOpen}
-        lastSyncAt={db.meta?.lastCloudflareSyncAt}
         period={period}
       />
 
