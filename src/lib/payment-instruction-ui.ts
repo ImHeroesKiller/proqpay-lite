@@ -53,6 +53,50 @@ export type PaymentInstructionRecord = {
   rejected_by?: string | null;
 };
 
+export type PaymentProofRecord = {
+  id:string;
+  payment_instruction_id:string;
+  bank:string;
+  reference:string;
+  transaction_date:string;
+  amount:number;
+  file_sha256?:string|null;
+  file_size?:number|null;
+  mime_type?:string|null;
+  uploaded_by?:string|null;
+  created_at:string;
+};
+
+export type ReconciliationRecord = {
+  id:string;
+  payment_instruction_id:string;
+  expected_total:number;
+  instruction_total:number;
+  proof_total:number;
+  difference:number;
+  status:string;
+  reviewed_by?:string|null;
+  created_at:string;
+};
+
+export type ReconciliationAttempt = {
+  id:string;
+  expected_total:number;
+  instruction_total:number;
+  settlement_total:number;
+  difference:number;
+  settlement_source:string;
+  status:string;
+  reviewed_by:string;
+  created_at:string;
+};
+
+export type PaymentProofSummary = {
+  proof_count:number;
+  proof_total:number;
+  latest_proof_at?:string|null;
+};
+
 export type PaymentInstructionDetail = {
   ok: true;
   paymentInstruction: PaymentInstructionRecord;
@@ -60,6 +104,8 @@ export type PaymentInstructionDetail = {
   approvals: PaymentInstructionApproval[];
   activity: PaymentInstructionActivity[];
   control: PaymentInstructionControl;
+  proofSummary?:PaymentProofSummary|null;
+  reconciliationHistory?:ReconciliationAttempt[];
 };
 
 const PAYMENT_STATUS_LABELS:Record<string,string>={
@@ -149,4 +195,61 @@ export function shortPaymentHash(value:string|null|undefined) {
   const hash=String(value||'');
   if (hash.length<=20) return hash;
   return `${hash.slice(0,12)}…${hash.slice(-8)}`;
+}
+
+
+const SETTLEMENT_SOURCE_LABELS:Record<string,string>={
+  MANUAL_PROOF:'Manual payment evidence',
+  PAYMENT_GATEWAY:'Payment gateway',
+};
+
+export function settlementSourceLabel(source:string|null|undefined) {
+  return SETTLEMENT_SOURCE_LABELS[String(source||'')] || humanizePaymentToken(String(source||'-'));
+}
+
+export function paymentEvidenceCoverage(expectedTotal:number, proofTotal:number) {
+  const expected=Math.max(0,Number(expectedTotal||0));
+  const evidence=Math.max(0,Number(proofTotal||0));
+  const remaining=Math.max(0,expected-evidence);
+  const percent=expected>0?Math.min(100,Math.round((evidence/expected)*100)):0;
+  return {
+    expected,
+    evidence,
+    remaining,
+    percent,
+    complete:expected>0&&evidence===expected,
+    over:evidence>expected,
+  };
+}
+
+export function reconciliationControl(record:ReconciliationRecord|ReconciliationAttempt|null|undefined) {
+  if (!record) return null;
+  const settlementTotal='settlement_total' in record ? Number(record.settlement_total||0) : Number(record.proof_total||0);
+  const expectedTotal=Number(record.expected_total||0);
+  const difference=Number(record.difference||settlementTotal-expectedTotal);
+  return {
+    expectedTotal,
+    settlementTotal,
+    instructionTotal:Number(record.instruction_total||0),
+    difference,
+    matched:String(record.status||'').toUpperCase()==='MATCHED'&&difference===0,
+    source:'settlement_source' in record ? String(record.settlement_source||'') : '',
+    reviewer:String(record.reviewed_by||''),
+    createdAt:String(record.created_at||''),
+  };
+}
+
+export function shortEvidenceFingerprint(value:string|null|undefined) {
+  const fingerprint=String(value||'');
+  if (!fingerprint) return '-';
+  if (fingerprint.length<=18) return fingerprint;
+  return `${fingerprint.slice(0,10)}…${fingerprint.slice(-6)}`;
+}
+
+export function paymentProofFileLabel(mimeType:string|null|undefined) {
+  const value=String(mimeType||'').toLowerCase();
+  if (value==='application/pdf') return 'PDF';
+  if (value==='image/jpeg') return 'JPEG';
+  if (value==='image/png') return 'PNG';
+  return 'File';
 }
