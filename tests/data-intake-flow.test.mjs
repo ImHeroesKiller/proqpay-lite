@@ -52,7 +52,7 @@ test("confirmed intake creates immutable-period payroll snapshot separately from
 });
 
 test("Data Intake is visible from Payroll navigation for operational roles", () => {
-  assert.match(sidebar, /href="\/data-intake"/);
+  assert.match(sidebar, /href=\{period \? `\/data-intake\?period=/);
   assert.match(sidebar, /"SUPER_ADMIN"/);
   assert.match(sidebar, /"PAYROLL_PROCESSOR"/);
   assert.match(sidebar, /"CLIENT_USER"/);
