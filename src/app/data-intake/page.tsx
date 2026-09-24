@@ -79,6 +79,7 @@ export default function DataIntakePage() {
     Array<{ row?: number; field?: string; message: string }>
   >([]);
   const [dragging, setDragging] = useState(false);
+  const [reviewFilter,setReviewFilter] = useState<"ALL"|"CHANGED"|"NEW"|"TRANSFER"|"MISSING">("ALL");
 
   useEffect(() => {
     const requestedPeriod = new URLSearchParams(window.location.search).get("period");
@@ -150,6 +151,9 @@ export default function DataIntakePage() {
   const client = setup.clients.find((item) => item.id === form.clientId);
   const project = projects.find((item) => item.id === form.projectId);
   const contextReady = Boolean(client && project && plan && form.period);
+  const controlGross = parsed?.payrollSummary.gross || 0;
+  const controlDeduction = parsed?.payrollSummary.deductions || 0;
+  const controlNet = parsed?.payrollSummary.net || 0;
   const progress = preview?.confirmed ? 4 : preview ? 3 : parsed ? 2 : 1;
   const transfersComplete = (preview?.transfers || []).every((item)=>transferConfirmations[item.employeeId] === true);
   const notesComplete = (preview?.missing || []).every((item) => {
@@ -363,14 +367,16 @@ export default function DataIntakePage() {
               <li
                 key={label}
                 className={
-                  index + 1 < progress
+                  preview?.confirmed
                     ? "done"
-                    : index + 1 === progress
-                      ? "active"
-                      : ""
+                    : index + 1 < progress
+                      ? "done"
+                      : index + 1 === progress
+                        ? "active"
+                        : ""
                 }
               >
-                <span>{index + 1 < progress ? "✓" : index + 1}</span>
+                <span>{preview?.confirmed || index + 1 < progress ? "✓" : index + 1}</span>
                 <div>
                   <strong>{label}</strong>
                   <small>
@@ -387,6 +393,14 @@ export default function DataIntakePage() {
               </li>
             ))}
           </ol>
+          {contextReady ? (
+            <section className="intake-scope-summary" aria-label="Scope payroll aktif">
+              <div><span>Client</span><strong>{client?.name}</strong></div>
+              <div><span>Project</span><strong>{project?.name}</strong></div>
+              <div><span>Periode</span><strong>{form.period}</strong></div>
+              <div><span>Tier</span><strong>{plan?.tier.replaceAll("_"," ")}</strong></div>
+            </section>
+          ) : null}
           {message ? (
             <div
               role={messageTone==="error"?"alert":"status"}
@@ -538,7 +552,18 @@ export default function DataIntakePage() {
               </div>
               {parsed ? (
                 <>
-                  <div className="intake-metrics">
+                  <div className="intake-review-toolbar" aria-label="Filter review perubahan">
+                {[
+                  ["ALL","Semua"],
+                  ["CHANGED",`Berubah ${preview.comparison?.changed || 0}`],
+                  ["NEW",`Baru ${preview.comparison?.new || 0}`],
+                  ["TRANSFER",`Mutasi ${preview.comparison?.transferred || 0}`],
+                  ["MISSING",`Tidak muncul ${preview.comparison?.missing || 0}`],
+                ].map(([value,label])=>(
+                  <button key={value} type="button" className={reviewFilter===value?"active":""} onClick={()=>setReviewFilter(value as typeof reviewFilter)}>{label}</button>
+                ))}
+              </div>
+              <div className="intake-metrics">
                     <Metric
                       label="Karyawan valid"
                       value={String(parsed.rows.length)}
@@ -556,6 +581,13 @@ export default function DataIntakePage() {
                       label="Net / THP"
                       value={formatIDR(parsed.payrollSummary.net)}
                     />
+                  </div>
+                  <div className="intake-control-equation" aria-label="Control total payroll">
+                    <div><span>Gross</span><strong>{formatIDR(controlGross)}</strong></div>
+                    <b>−</b>
+                    <div><span>Deduction</span><strong>{formatIDR(controlDeduction)}</strong></div>
+                    <b>=</b>
+                    <div><span>Net / THP</span><strong>{formatIDR(controlNet)}</strong></div>
                   </div>
                   {(preview?.diagnostics || parsed.diagnostics).length ? (
                     <details className="intake-diagnostics">
@@ -648,7 +680,7 @@ export default function DataIntakePage() {
                   value={String(preview.comparison?.missing || 0)}
                 />
               </div>
-              {(preview.transfers || []).length ? (
+              {(reviewFilter==="ALL"||reviewFilter==="TRANSFER") && (preview.transfers || []).length ? (
                 <div className="intake-missing intake-transfer-review">
                   <div>
                     <strong>Perpindahan project terdeteksi</strong>
@@ -662,7 +694,7 @@ export default function DataIntakePage() {
                   ))}
                 </div>
               ) : null}
-              {(preview.changes || []).length ? (
+              {(reviewFilter==="ALL"||reviewFilter==="CHANGED") && (preview.changes || []).length ? (
                 <details open>
                   <summary>
                     Perubahan master terdeteksi <b>{preview.changes?.length}</b>
@@ -689,19 +721,19 @@ export default function DataIntakePage() {
                   </div>
                 </details>
               ) : null}
-              {(preview.newEmployees || []).length ? (
+              {(reviewFilter==="ALL"||reviewFilter==="NEW") && (preview.newEmployees || []).length ? (
                 <details>
                   <summary>
                     Employee baru <b>{preview.newEmployees?.length}</b>
                   </summary>
-                  <div className="intake-inline-list">
-                    {preview.newEmployees
-                      ?.map((item) => `${item.nrk} · ${item.name}`)
-                      .join(", ")}
+                  <div className="intake-new-grid">
+                    {preview.newEmployees?.map((item)=>(
+                      <div key={item.nrk}><strong>{item.nrk}</strong><span>{item.name}</span></div>
+                    ))}
                   </div>
                 </details>
               ) : null}
-              {(preview.missing || []).length ? (
+              {(reviewFilter==="ALL"||reviewFilter==="MISSING") && (preview.missing || []).length ? (
                 <div className="intake-missing">
                   <div>
                     <strong>
@@ -711,6 +743,9 @@ export default function DataIntakePage() {
                       Setiap karyawan membutuhkan keputusan eksplisit. Catatan
                       wajib untuk mutasi dan alasan lainnya.
                     </span>
+                    <div className="intake-resolution-legend">
+                      <b>No pay</b><b>Resign</b><b>Mutasi</b><b>Lainnya</b>
+                    </div>
                   </div>
                   {preview.missing?.map((item) => {
                     const value = resolutions[item.employeeId] || {
@@ -783,6 +818,12 @@ export default function DataIntakePage() {
                 </div>
               ) : null}
               {!preview.confirmed ? (
+                <>
+                <div className="intake-review-readiness">
+                  <div><span>Missing resolution</span><strong>{notesComplete ? "Lengkap" : "Belum lengkap"}</strong></div>
+                  <div><span>Transfer confirmation</span><strong>{transfersComplete ? "Lengkap" : "Belum lengkap"}</strong></div>
+                  <div><span>Snapshot</span><strong>Belum dibuat</strong></div>
+                </div>
                 <div className="intake-confirm">
                   <div>
                     <strong>Siap membuat Pay Run?</strong>
@@ -799,6 +840,7 @@ export default function DataIntakePage() {
                     {busy ? "Menyimpan…" : "Konfirmasi Intake & Buat Pay Run"}
                   </button>
                 </div>
+                </>
               ) : (
                 <div className="intake-complete">
                   <div>
