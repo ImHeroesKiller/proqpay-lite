@@ -1261,19 +1261,31 @@ async function executeAction(database, body, actor, env, organizationId) {
     const revisionNo = Number(revision?.count || 0) + 1;
     const idempotencyKey = `${`PI-${submission.id}-${paymentPeriod}`.slice(0, 105)}${revisionNo > 1 ? `-R${revisionNo}` : ''}`;
     const documentNo = `PI/${paymentPeriod.replace('-','')}/${contentHash.slice(0,10).toUpperCase()}`;
-    await d1Batch(database, [
-      ...(existing ? [{ statement:`UPDATE payment_instructions SET status='REJECTED',updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[existing.id] }] : []),
-      { statement: `INSERT INTO payment_instructions
-        (id,org_id,client_id,submission_id,status,expected_total,creator_user_id,idempotency_key,
-         document_no,content_hash,currency,execution_date,recipient_count,billing_snapshot)
-        VALUES (?,?,?,?,'PAYMENT_INSTRUCTION_READY',?,?,?,?,?,'IDR',?,?,?)`,
-        bindings: [id, organizationId, submission.client_id, submission.id, expectedTotal, actor.id, idempotencyKey,
-          documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length, billingSnapshot] },
-      ...lineInsertOperations(id, snapshotLines),
-      { statement:`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`,
-        bindings:[submission.id] },
-      auditOperation(organizationId, actor, existing ? 'PAYMENT_INSTRUCTION_REVISED' : 'PAYMENT_INSTRUCTION_CREATED', `${documentNo} · revisi ${revisionNo} · ${snapshotLines.length} penerima · ${contentHash}`, 'payment_instruction', id),
-    ]);
+    try {
+      await d1Batch(database, [
+        ...(existing ? [{ statement:`UPDATE payment_instructions SET status='REJECTED',updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[existing.id] }] : []),
+        { statement: `INSERT INTO payment_instructions
+          (id,org_id,client_id,submission_id,status,expected_total,creator_user_id,idempotency_key,
+           document_no,content_hash,currency,execution_date,recipient_count,billing_snapshot)
+          VALUES (?,?,?,?,'PAYMENT_INSTRUCTION_READY',?,?,?,?,?,'IDR',?,?,?)`,
+          bindings: [id, organizationId, submission.client_id, submission.id, expectedTotal, actor.id, idempotencyKey,
+            documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length, billingSnapshot] },
+        ...lineInsertOperations(id, snapshotLines),
+        { statement:`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`,
+          bindings:[submission.id] },
+        auditOperation(organizationId, actor, existing ? 'PAYMENT_INSTRUCTION_REVISED' : 'PAYMENT_INSTRUCTION_CREATED', `${documentNo} · revisi ${revisionNo} · ${snapshotLines.length} penerima · ${contentHash}`, 'payment_instruction', id),
+      ]);
+    } catch (error) {
+      if (/UNIQUE constraint failed|constraint failed/i.test(String(error?.message || error))) {
+        const canonical = await d1First(database, `SELECT * FROM payment_instructions
+          WHERE submission_id=? AND org_id=? AND status<>'REJECTED'
+          ORDER BY updated_at DESC,created_at DESC LIMIT 1`, [submission.id, organizationId]);
+        if (canonical?.content_hash === contentHash) {
+          return { data:{ ok:true,paymentInstruction:canonical,idempotentReplay:true,concurrentReplay:true } };
+        }
+      }
+      throw error;
+    }
     const paymentInstruction = await d1First(database, 'SELECT * FROM payment_instructions WHERE id=?', [id]);
     return { status: 201, data: { ok: true, paymentInstruction } };
   }
