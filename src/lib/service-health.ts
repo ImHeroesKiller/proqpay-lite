@@ -17,6 +17,7 @@ export type ServiceHealth = {
 };
 
 let cachedHealth: ServiceHealth | null = null;
+let lastFetchedAt = 0;
 let inflight: Promise<ServiceHealth> | null = null;
 const listeners = new Set<(health: ServiceHealth) => void>();
 
@@ -25,7 +26,8 @@ function publish(health: ServiceHealth) {
   listeners.forEach((listener) => listener(health));
 }
 
-export async function refreshServiceHealth(): Promise<ServiceHealth> {
+export async function refreshServiceHealth(force = false): Promise<ServiceHealth> {
+  if (!force && cachedHealth && Date.now() - lastFetchedAt < 30_000) return cachedHealth;
   if (inflight) return inflight;
   inflight = fetch("/api/health", {
     headers: { Accept: "application/json" },
@@ -59,6 +61,7 @@ export async function refreshServiceHealth(): Promise<ServiceHealth> {
       }],
     } satisfies ServiceHealth))
     .then((health) => {
+      lastFetchedAt = Date.now();
       publish(health);
       return health;
     })
@@ -70,7 +73,7 @@ export async function refreshServiceHealth(): Promise<ServiceHealth> {
 
 export function useServiceHealth(pollMs = 300_000) {
   const [health, setHealth] = useState<ServiceHealth | null>(cachedHealth);
-  const refresh = useCallback(() => refreshServiceHealth(), []);
+  const refresh = useCallback((force = false) => refreshServiceHealth(force), []);
 
   useEffect(() => {
     const listener = (next: ServiceHealth) => setHealth(next);
