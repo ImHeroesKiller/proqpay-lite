@@ -239,12 +239,13 @@ async function readResource(database, params, actor, env, organizationId) {
 
   if (resource === 'exceptions') {
     const rows = await d1All(database, `SELECT e.*, s.client_id, s.project_id, s.period, s.service_tier,
-      c.name AS client_name, p.name AS project_name,
+      c.name AS client_name, p.name AS project_name, emp.name AS employee_name,
       (SELECT au.email FROM app_users au JOIN user_client_scopes ucs ON ucs.user_id=au.id
        WHERE ucs.client_id=s.client_id AND au.role='CLIENT_USER' AND au.status='ACTIVE'
        ORDER BY au.created_at LIMIT 1) AS client_email
       FROM payroll_exceptions e JOIN payroll_submissions s ON s.id=e.submission_id
       JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id
+      LEFT JOIN employees emp ON emp.id=e.employee_id
       WHERE ${submissionScope.sql} ORDER BY e.created_at DESC LIMIT 2000`, submissionScope.bindings);
     return { data: { ok: true, exceptions: parseJsonFields(rows, ['source_value','canonical_value','suggested_value']) } };
   }
