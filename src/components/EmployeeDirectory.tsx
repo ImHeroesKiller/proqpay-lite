@@ -263,13 +263,19 @@ function EmployeeDetail({ employee, actor, maskSensitiveData, onClose, onSaved }
   const [message, setMessage] = useState('');
   const [portalPassword, setPortalPassword] = useState('');
   const [form, setForm] = useState({ nik: text(employee.nik), email: text(employee.email), bankName: text(employee.bankName), accountNo: text(employee.accountNo), bpjsKesehatanNo: text(employee.bpjsKesehatanNo), jamsostekNo: text(employee.jamsostekNo) });
-  const canEdit = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'CLIENT_USER'].includes(actor?.role || '');
+  const canEdit = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR'].includes(actor?.role || '');
   const canResetPortal = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR'].includes(actor?.role || '');
   async function save() {
     setSaving(true); setMessage('');
     try {
       const response = await fetch('/api/employees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        ...employee, ...form, id: employee.id, clientId: employee.clientId, name: employee.name,
+        id: employee.id,
+        nik: form.nik,
+        email: form.email,
+        bankName: form.bankName,
+        accountNo: form.accountNo,
+        bpjsKesehatanNo: form.bpjsKesehatanNo,
+        jamsostekNo: form.jamsostekNo,
       }) });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || result.message || `HTTP ${response.status}`);
