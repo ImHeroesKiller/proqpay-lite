@@ -24,7 +24,7 @@ type Plan = {
 };
 type Setup = { clients: Client[]; projects: Project[]; servicePlans: Plan[] };
 type Resolution = "NO_PAY_THIS_PERIOD" | "RESIGNED" | "TRANSFERRED" | "OTHER";
-type MissingResolution = { resolution: Resolution; note?: string };
+type MissingResolution = { resolution: Resolution; note?: string; targetProjectId?: string };
 type Parsed = Awaited<ReturnType<typeof parseIapWorkbook>>;
 type Preview = {
   batchId: string;
@@ -155,7 +155,10 @@ export default function DataIntakePage() {
   const notesComplete = (preview?.missing || []).every((item) => {
     const value = resolutions[item.employeeId];
     if (!value) return false;
-    if (["TRANSFERRED", "OTHER"].includes(value.resolution)) {
+    if (value.resolution === "TRANSFERRED") {
+      return Boolean(value.note?.trim() && value.targetProjectId);
+    }
+    if (value.resolution === "OTHER") {
       return Boolean(value.note?.trim());
     }
     return true;
@@ -730,6 +733,7 @@ export default function DataIntakePage() {
                               [item.employeeId]: {
                                 ...value,
                                 resolution: event.target.value as Resolution,
+                                targetProjectId: event.target.value === "TRANSFERRED" ? value.targetProjectId : undefined,
                               },
                             })
                           }
@@ -741,6 +745,21 @@ export default function DataIntakePage() {
                           <option value="TRANSFERRED">Mutasi project</option>
                           <option value="OTHER">Lainnya</option>
                         </select>
+                        {value.resolution === "TRANSFERRED" ? (
+                          <select
+                            aria-label={`Target project untuk ${item.name}`}
+                            value={value.targetProjectId || ""}
+                            onChange={(event)=>setResolutions({
+                              ...resolutions,
+                              [item.employeeId]: { ...value, targetProjectId:event.target.value },
+                            })}
+                          >
+                            <option value="">Pilih target project</option>
+                            {setup.projects
+                              .filter((candidate)=>candidate.client_id===form.clientId && candidate.id!==form.projectId)
+                              .map((candidate)=><option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+                          </select>
+                        ) : null}
                         <input
                           aria-label={`Catatan untuk ${item.name}`}
                           required={noteRequired}
