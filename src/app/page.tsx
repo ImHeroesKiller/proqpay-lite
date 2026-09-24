@@ -8,7 +8,6 @@ import { loadSettings, onSettingsChange, type AppSettings } from '@/lib/app-sett
 import Sidebar, { allowedViewsForRole, type AppView } from '@/components/Sidebar';
 import AppHeader from '@/components/AppHeader';
 import PayrollControlTower from '@/components/PayrollControlTower';
-import RoleDashboard from '@/components/RoleDashboard';
 import SystemHealthBubble from '@/components/SystemHealthBubble';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
@@ -235,7 +234,6 @@ export default function Home() {
   const periods = [...new Set([period,...(canonicalPeriods.length ? canonicalPeriods : (db.payrolls || []).map((item:any)=>item.period).filter(Boolean))])].sort((a:string,b:string)=>b.localeCompare(a));
   const gatewayCanView = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
   const gatewayCanExecute = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(actor.role);
-  const simplifiedInternal = ['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
 
   return (
     <div className={`app-shell theme-${settings.theme} accent-${settings.accentColor} density-${settings.density}${settings.enableAnimations ? '' : ' animations-off'}`} style={{ display: 'flex', minHeight: '100vh' }}>
@@ -261,7 +259,7 @@ export default function Home() {
             {view === 'dashboard' && (
               actor.role === 'CLIENT_USER'
                 ? <ClientHome actor={actor} period={period} onNavigate={navigate} />
-                : <>{!simplifiedInternal ? <RoleDashboard actor={actor} onNavigate={navigate} /> : null}<PayrollControlTower actor={actor} period={period} onNavigate={navigate} /></>
+                : <PayrollControlTower actor={actor} period={period} onNavigate={navigate} />
             )}
 
             {view === 'employees' && (
