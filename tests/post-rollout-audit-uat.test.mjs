@@ -243,7 +243,8 @@ test('UI audit: intake notes, client close context, and infrastructure health vi
   const clientHome=await readFile(new URL('../src/components/ClientHome.tsx',import.meta.url),'utf8');
   const page=await readFile(new URL('../src/app/page.tsx',import.meta.url),'utf8');
 
-  assert.match(intake,/if \(\["TRANSFERRED", "OTHER"\]\.includes\(value\.resolution\)\) \{\s*return Boolean\(value\.note\?\.trim\(\)\);/s);
+  assert.match(intake,/if \(value\.resolution === "TRANSFERRED"\) \{\s*return Boolean\(value\.note\?\.trim\(\) && value\.targetProjectId\);/s);
+  assert.match(intake,/if \(value\.resolution === "OTHER"\) \{\s*return Boolean\(value\.note\?\.trim\(\)\);/s);
   assert.match(clientHome,/reconciliationStatus:row\.reconciliation_status/);
   assert.match(clientHome,/periodStatus:row\.period_status/);
   assert.match(page,/actor\.role === 'SUPER_ADMIN' \? <SystemHealthBubble \/> : null/);
