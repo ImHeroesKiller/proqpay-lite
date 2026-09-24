@@ -9,6 +9,7 @@ import {
   publicError,
   secureJson,
 } from './_security.js';
+import { activeEmployeeSql } from './_employee-status.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 
@@ -157,6 +158,7 @@ export async function onRequest(context) {
         )
         SELECT
           e.id,
+          CASE WHEN ${activeEmployeeSql('e')} THEN 1 ELSE 0 END AS "isActive",
           e.employee_code AS "employeeCode",
           e.client_id AS "clientId",
           c.name AS company,
@@ -214,6 +216,7 @@ export async function onRequest(context) {
         row.bpjsKesehatan = Boolean(row.bpjsKesehatan);
         row.bpjsKetenagakerjaan = Boolean(row.bpjsKetenagakerjaan);
         row.pph21 = Boolean(row.pph21);
+        row.isActive = Boolean(row.isActive);
         return employeeView(row, actor);
       });
       return respond({ employees:visibleRows,count:visibleRows.length,role:actor.role,meta:{offset,limit,returned:visibleRows.length,nextOffset:truncated?offset+limit:null,truncated} });
