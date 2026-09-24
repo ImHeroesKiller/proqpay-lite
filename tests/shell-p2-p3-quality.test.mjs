@@ -53,11 +53,12 @@ test('Header client scope uses canonical D1 dashboard summary instead of local c
   assert.doesNotMatch(source,/clientCount=\{actor\.role==='CLIENT_USER'.*db\.companies/s);
 });
 
-test('Settings chunk mounts only when settings are open and sync age refreshes over time', async()=>{
+test('Settings is exposed as a dialog utility instead of a route-like navigation item', async()=>{
   const source=await read('src/components/Sidebar.tsx');
   assert.match(source,/settingsOpen \? <SettingsModal/);
-  assert.match(source,/setInterval\(\(\) => setNow\(Date\.now\(\)\), 60_000\)/);
-  assert.match(source,/syncLabel\(lastSyncAt, now\)/);
+  assert.match(source,/aria-haspopup="dialog"/);
+  assert.match(source,/className=\{\`sidebar-utility-button/);
+  assert.doesNotMatch(source,/NavGroup label="Administration"/);
 });
 
 test('Shell has a compact utility footer with environment, version, health, sync and support', async()=>{
@@ -74,7 +75,7 @@ test('Shell has a compact utility footer with environment, version, health, sync
   assert.match(css,/\.app-footer/);
 });
 
-test('Sidebar, footer, and System Health share one cached health source', async()=>{
+test('Footer and System Health share one cached health source without duplicate sidebar status', async()=>{
   const health=await read('src/lib/service-health.ts');
   const sidebar=await read('src/components/Sidebar.tsx');
   const footer=await read('src/components/AppFooter.tsx');
@@ -82,9 +83,28 @@ test('Sidebar, footer, and System Health share one cached health source', async(
   assert.match(health,/cachedHealth/);
   assert.match(health,/inflight/);
   assert.match(health,/Date\.now\(\) - lastFetchedAt < 30_000/);
-  assert.match(sidebar,/useServiceHealth/);
+  assert.doesNotMatch(sidebar,/useServiceHealth/);
   assert.match(footer,/useServiceHealth/);
   assert.match(bubble,/useServiceHealth/);
-  assert.doesNotMatch(sidebar,/fetch\("\/api\/health"/);
   assert.doesNotMatch(bubble,/fetch\('\/api\/health'/);
+});
+
+test('Sidebar navigation participates in browser history and restores view on back-forward', async()=>{
+  const home=await read('src/app/page.tsx');
+  assert.match(home,/window\.history\.pushState\(\{ view: safeView, period \}/);
+  assert.match(home,/window\.addEventListener\('popstate', onPopState\)/);
+  assert.match(home,/window\.removeEventListener\('popstate', onPopState\)/);
+  assert.match(home,/setView\(safeView\)/);
+  assert.match(home,/if \(requestedPeriod\) setPeriod\(requestedPeriod\)/);
+});
+
+test('Super Admin secondary groups are collapsible and workflow icons are domain-specific', async()=>{
+  const sidebar=await read('src/components/Sidebar.tsx');
+  assert.match(sidebar,/label="Employee Services"[\s\S]*collapsible=\{!compact\}/);
+  assert.match(sidebar,/label="System"[\s\S]*collapsible=\{!compact\}/);
+  assert.match(sidebar,/aria-expanded=\{open\}/);
+  assert.match(sidebar,/IconAlertTriangle/);
+  assert.match(sidebar,/IconClock/);
+  assert.match(sidebar,/IconArrowUpRight/);
+  assert.match(sidebar,/IconLayers/);
 });

@@ -36,20 +36,18 @@ test('Processor and Controller allowed views match the visible shell and cannot 
     assert.doesNotMatch(block,/"portalAudit"/);
     assert.doesNotMatch(block,/"portalSettings"/);
   }
-  assert.match(source,/role === "SUPER_ADMIN".*NavGroup label="Employee Portal"/s);
+  assert.match(source,/role === "SUPER_ADMIN".*label="Employee Services"/s);
 });
 
-test('sidebar production connectivity is derived from canonical live health instead of a hardcoded green claim', async()=>{
-  const source=await read('src/components/Sidebar.tsx');
+test('footer is the canonical production health and sync surface while sidebar stays navigation-focused', async()=>{
+  const sidebar=await read('src/components/Sidebar.tsx');
+  const footer=await read('src/components/AppFooter.tsx');
   const health=await read('src/lib/service-health.ts');
-  assert.match(source,/useServiceHealth/);
-  assert.match(source,/serviceState\(health\)/);
+  assert.doesNotMatch(sidebar,/useServiceHealth/);
+  assert.doesNotMatch(sidebar,/Production ·/);
+  assert.doesNotMatch(sidebar,/syncLabel/);
+  assert.match(footer,/useServiceHealth/);
+  assert.match(footer,/Production · \{state === "connected"/);
+  assert.match(footer,/syncLabel\(lastSyncAt, now\)/);
   assert.match(health,/fetch\("\/api\/health"/);
-  assert.match(health,/health\.ready === true.*"connected"/s);
-  assert.match(source,/Production · \{currentServiceState === "connected"/);
-  assert.doesNotMatch(source,/Production · Connected\s*<\/span>/);
-  const css=await read('src/app/globals.css');
-  assert.match(css,/sidebar-health-connected/);
-  assert.match(css,/sidebar-health-degraded/);
-  assert.match(css,/sidebar-health-offline/);
 });

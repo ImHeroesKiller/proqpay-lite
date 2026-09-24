@@ -12,14 +12,14 @@ const migration = readFileSync("migrations/0019_app_user_profiles.sql", "utf8");
 
 test("sidebar presents the role-filtered business workflow in operational order", () => {
   const labels = [
-    "Clients & Projects",
-    "Data Intake",
-    "Data Readiness",
-    "Pay Runs",
-    "Payment Instructions",
-    "Billing & AR",
-    "Reports",
-    "Employees",
+    'title="Clients & Projects"',
+    'title="Data Intake"',
+    'title={simplifiedInternal ? "Issues" : "Data Readiness"}',
+    'title={simplifiedInternal ? "Payroll" : "Pay Runs"}',
+    'title={simplifiedInternal ? "Payments" : "Payment Instructions"}',
+    'title={simplifiedInternal ? "Close & Billing" : "Billing & AR"}',
+    'title="Employees"',
+    'title="Reports"',
   ];
   let cursor = -1;
   for (const label of labels) {
@@ -28,7 +28,8 @@ test("sidebar presents the role-filtered business workflow in operational order"
     cursor = next;
   }
   assert.match(sidebar, /NavGroup label="Overview"/);
-  assert.match(sidebar, /NavGroup label="Employee Portal"/);
+  assert.match(sidebar, /label="Employee Services"/);
+  assert.match(sidebar, /label="System"/);
   assert.match(sidebar, /role === "SUPER_ADMIN"/);
 });
 

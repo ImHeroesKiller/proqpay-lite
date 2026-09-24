@@ -13,12 +13,12 @@ test('Phase 3 removes redundant static role card for Processor and Controller da
 
 test('internal navigation uses simple business language and hides secondary employee-portal admin menus', async()=>{
   const sidebar=await read('src/components/Sidebar.tsx');
-  assert.match(sidebar,/simplifiedInternal \? "Work" : "Workflow"/);
+  assert.match(sidebar,/simplifiedInternal \? "Work" : "Payroll Operations"/);
   assert.match(sidebar,/simplifiedInternal \? "Issues" : "Data Readiness"/);
   assert.match(sidebar,/simplifiedInternal \? "Payroll" : "Pay Runs"/);
   assert.match(sidebar,/simplifiedInternal\s*\? "Payments"/);
   assert.match(sidebar,/simplifiedInternal \? "Close & Billing" : "Billing & AR"/);
-  assert.match(sidebar,/simplifiedInternal \? "Reference & Reports" : "People & Insight"/);
+  assert.match(sidebar,/simplifiedInternal \? "Reference & Reports" : "People & Reporting"/);
   assert.match(sidebar,/role === "SUPER_ADMIN" && \(allowed\.has\("ewa"\)/);
 });
 
