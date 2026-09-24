@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { passwordRecord } from '../functions/api/_account-auth.js';
+import { passwordRecord, validatePassword } from '../functions/api/_account-auth.js';
 import {
   ISSUE_BATCH_SIZE, assignDefaultPasswords, employeeIdSuffix, projectSlug, uniqueJoinDate,
 } from '../functions/api/_employee-auth.js';
@@ -57,7 +57,7 @@ async function opsSession(DB) {
   return response.headers.get('set-cookie').split(';')[0];
 }
 
-test('default password is project slug plus unique join date', () => {
+test('temporary employee password is random and does not derive from project or join date', () => {
   assert.equal(projectSlug('NOC-P1', 'NOC PARTNERSHIP 1'), 'NOCP1');
   assert.equal(uniqueJoinDate('2020-09-20', null, null), '20200920');
   assert.equal(employeeIdSuffix('EMP-209200339', '209200339'), '0339');
@@ -65,18 +65,22 @@ test('default password is project slug plus unique join date', () => {
     id: '209200339', employee_code: 'EMP-209200339', project_code: 'NOC-P1',
     project_name: 'NOC PARTNERSHIP 1', join_date: '2020-09-20',
   }]);
-  assert.equal(one.password, 'NOCP120200920');
-  assert.equal(one.scheme, 'PROJECT_JOIN_DATE');
+  assert.equal(one.scheme, 'RANDOM_TEMPORARY');
+  assert.equal(validatePassword(one.password), null);
+  assert.equal(one.password.includes('NOCP1'), false);
+  assert.equal(one.password.includes('20200920'), false);
 });
 
-test('same project and join date get a unique suffix', () => {
+test('temporary passwords are unique for employees sharing project and join date', () => {
   const assigned = assignDefaultPasswords([
     { id: '1001', employee_code: 'EMP-1001', project_code: 'NOC-P1', join_date: '2020-09-20' },
     { id: '1002', employee_code: 'EMP-1002', project_code: 'NOC-P1', join_date: '2020-09-20' },
   ]);
   assert.notEqual(assigned[0].password, assigned[1].password);
-  assert.ok(assigned[0].password.startsWith('NOCP120200920'));
-  assert.ok(assigned[1].password.startsWith('NOCP120200920'));
+  assert.equal(assigned[0].scheme, 'RANDOM_TEMPORARY');
+  assert.equal(assigned[1].scheme, 'RANDOM_TEMPORARY');
+  assert.equal(validatePassword(assigned[0].password), null);
+  assert.equal(validatePassword(assigned[1].password), null);
 });
 
 test('employee portal tables are created by migration 0004', () => {
@@ -116,7 +120,9 @@ test('ops can issue default passwords in batches without storing plaintext', asy
   assert.equal(payload.processed, 2);
   assert.equal(payload.remaining, 0);
   const aziz = payload.issued.find((row) => row.employeeId === '209200339');
-  assert.equal(aziz.password, 'NOCP120200920');
+  assert.equal(aziz.scheme, 'RANDOM_TEMPORARY');
+  assert.equal(validatePassword(aziz.password), null);
+  assert.equal(aziz.password.includes('NOCP120200920'), false);
   assert.notEqual(aziz.password, DB.sqlite.prepare('SELECT password_hash FROM employee_credentials WHERE employee_id=?').get('209200339').password_hash);
 
   const replay = await issueCredentials({
@@ -129,7 +135,7 @@ test('ops can issue default passwords in batches without storing plaintext', asy
   assert.equal(replayBody.processed, 0);
 
   const audit = DB.sqlite.prepare("SELECT detail FROM audit_logs WHERE action='EMPLOYEE_PORTAL_PASSWORDS_ISSUED'").get();
-  assert.doesNotMatch(audit.detail, /NOCP120200920/);
+  assert.equal(audit.detail.includes(aziz.password), false);
 });
 
 test('employee login, me, password rotation, and logout', async () => {
@@ -310,7 +316,9 @@ test('reset returns a one-time password and revokes portal sessions', async () =
   });
   assert.equal(reset.status, 200, await reset.clone().text());
   const body = await reset.json();
-  assert.equal(body.employee.password, 'NOCP120200920');
+  assert.equal(body.employee.scheme, 'RANDOM_TEMPORARY');
+  assert.equal(validatePassword(body.employee.password), null);
+  assert.equal(body.employee.password.includes('NOCP120200920'), false);
   const login = await employeeLogin({
     request: request('/api/employee/login', { method: 'POST', body: JSON.stringify({ emp_id: '209200339', password: body.employee.password }) }),
     env,
