@@ -19,7 +19,7 @@ export default function SystemHealthBubble() {
     <ul>{issues.map((item) => <li key={item.key}><strong>{item.label}</strong><span>{item.message}</span>{item.action ? <small>{item.action}</small> : null}</li>)}</ul>
     <div className="system-health-actions"><button type="button" disabled={checking} onClick={() => {
       setChecking(true);
-      void refresh().finally(() => setChecking(false));
+      void refresh(true).finally(() => setChecking(false));
     }}>{checking ? 'Memeriksa…' : 'Cek ulang'}</button></div>
   </aside>;
 }
