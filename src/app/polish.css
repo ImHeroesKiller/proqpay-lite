@@ -1715,3 +1715,168 @@ textarea:focus-visible {
   .readiness-payrun-summary > div:last-child { grid-template-columns:1fr; }
   .readiness-decision-hero { align-items:flex-start; flex-direction:column; }
 }
+
+
+/* Pay Runs P2 — operational hardening */
+.pay-run-action-composer {
+  display:grid;
+  gap:10px;
+  margin:14px 0 2px;
+  padding:12px;
+  border:1px solid var(--border);
+  border-radius:11px;
+  background:var(--bg-subtle);
+}
+.pay-run-action-composer > div:first-child,
+.pay-run-action-composer > div:last-child {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.pay-run-action-composer > div:first-child button {
+  border:0;
+  background:transparent;
+  color:var(--text3);
+  cursor:pointer;
+}
+.pay-run-action-composer p {
+  margin:0;
+  color:var(--text2);
+  font-size:10px;
+  line-height:1.5;
+}
+.pay-run-action-composer label {
+  display:grid;
+  gap:5px;
+  font-size:9px;
+  font-weight:700;
+}
+.pay-run-action-composer input,
+.pay-run-action-composer textarea {
+  width:100%;
+  padding:9px 10px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  color:var(--text);
+  background:var(--bg-surface);
+  font:inherit;
+  font-size:10px;
+}
+
+.pay-run-edit-backdrop { z-index:80; }
+.pay-run-edit-modal { width:min(620px,100%); }
+.pay-run-edit-before {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+  margin:10px 0 12px;
+}
+.pay-run-edit-before > div,
+.pay-run-edit-summary {
+  display:grid;
+  gap:3px;
+  padding:9px 10px;
+  border:1px solid var(--border-soft);
+  border-radius:9px;
+  background:var(--bg-subtle);
+}
+.pay-run-edit-before span,
+.pay-run-edit-summary span {
+  color:var(--text3);
+  font-size:8px;
+  font-weight:800;
+  text-transform:uppercase;
+}
+.pay-run-edit-before strong,
+.pay-run-edit-summary strong {
+  font-size:10.5px;
+  font-variant-numeric:tabular-nums;
+}
+.pay-run-edit-reason {
+  display:grid;
+  gap:5px;
+  margin-top:10px;
+}
+.pay-run-edit-reason > span {
+  font-size:9px;
+  font-weight:750;
+}
+.pay-run-edit-reason textarea {
+  width:100%;
+  min-height:82px;
+  resize:vertical;
+  padding:9px 10px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  color:var(--text);
+  background:var(--bg-subtle);
+  font:inherit;
+  font-size:10px;
+}
+.pay-run-edit-reason small {
+  justify-self:end;
+  color:var(--text3);
+  font-size:8px;
+}
+.pay-run-include-toggle {
+  display:flex !important;
+  align-items:center;
+  gap:8px;
+  min-height:42px;
+  padding:9px 10px;
+  border:1px solid var(--border-soft);
+  border-radius:8px;
+  background:var(--bg-subtle);
+}
+.pay-run-include-toggle input { width:auto !important; }
+.pay-run-edit-summary {
+  margin-top:10px;
+  border-color:color-mix(in srgb,var(--accent) 24%,var(--border));
+  background:var(--accent-soft);
+}
+.pay-run-edit-summary small {
+  color:var(--text2);
+  font-size:9px;
+}
+.pay-run-delta {
+  display:inline-flex;
+  padding:3px 6px;
+  border-radius:999px;
+  font-size:8.5px;
+  font-weight:800;
+}
+.pay-run-delta.up { color:#047857; background:#ecfdf5; }
+.pay-run-delta.down { color:#b91c1c; background:#fef2f2; }
+.pay-run-delta.flat { color:var(--text3); background:var(--bg-subtle); }
+
+.pay-run-variance-rich {
+  grid-template-columns:repeat(auto-fit,minmax(120px,1fr)) !important;
+}
+.pay-run-variance-rich > div {
+  min-width:0;
+}
+
+.theme-dark .pay-run-delta.up { color:#86efac; background:rgba(6,78,59,.28); }
+.theme-dark .pay-run-delta.down { color:#fca5a5; background:rgba(127,29,29,.26); }
+
+@media (max-width:620px) {
+  .pay-run-edit-modal {
+    width:100%;
+    max-height:calc(100dvh - 72px);
+  }
+  .pay-run-edit-before { grid-template-columns:1fr; }
+  .pay-run-edit-modal .directory-modal-actions {
+    position:sticky;
+    bottom:-17px;
+    z-index:3;
+    margin:14px -17px -17px;
+    padding:12px 17px 17px;
+    border-top:1px solid var(--border);
+    background:color-mix(in srgb,var(--bg-surface) 94%,transparent);
+    backdrop-filter:blur(14px);
+  }
+  .pay-run-edit-modal .directory-modal-actions .btn { min-height:42px; }
+  .pay-run-action-composer > div:last-child { flex-wrap:wrap; }
+  .pay-run-action-composer > div:last-child .btn { min-height:40px; }
+}
