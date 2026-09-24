@@ -2,7 +2,7 @@ import { d1All, hasD1 } from './_d1.js';
 import { authorize, clientIdsFor, projectIdsFor, enforceRateLimit, handlePreflight, secureJson } from './_security.js';
 
 const METHODS='GET, OPTIONS';
-const ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','CLIENT_USER'];
+const ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR'];
 
 export async function onRequest({request,env}){
   if(request.method==='OPTIONS') return handlePreflight(request,env,METHODS);

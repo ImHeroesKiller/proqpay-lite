@@ -1,5 +1,6 @@
 import { d1All, d1Batch, d1First, d1Run, hasD1 } from "./_d1.js";
 import { validateImportRows } from "./import-validation.js";
+import { parseIapWorkbook } from "../../src/lib/excel-iap.ts";
 import {
   PAYROLL_TEMPLATE_VERSION,
   validatePayrollControlRows,
@@ -15,7 +16,7 @@ import {
 } from "./_security.js";
 
 const METHODS = "POST, OPTIONS";
-const ROLES = ["SUPER_ADMIN", "PAYROLL_PROCESSOR", "CLIENT_USER"];
+const ROLES = ["SUPER_ADMIN", "PAYROLL_PROCESSOR"];
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const ACTIVE_EXITS = new Set([
   "INACTIVE",
@@ -159,7 +160,7 @@ async function validateIntakeContext(db, orgId, context) {
     return { error: "Periode payroll tidak valid" };
   const project = await d1First(
     db,
-    `SELECT p.id,p.client_id FROM projects p JOIN clients c ON c.id=p.client_id
+    `SELECT p.id,p.client_id,c.code AS client_code FROM projects p JOIN clients c ON c.id=p.client_id
     WHERE p.id=? AND p.client_id=? AND p.org_id=? AND p.status='ACTIVE' AND c.status='ACTIVE' LIMIT 1`,
     [context.projectId, context.clientId, orgId],
   );
@@ -189,6 +190,7 @@ async function validateIntakeContext(db, orgId, context) {
     context: {
       ...context,
       tier: plan.tier,
+      clientCode: project.client_code,
       paymentPeriod: context.period,
       paymentDate: `${context.period}-25`,
     },
@@ -264,13 +266,11 @@ async function previewUpload(request, env, actor) {
       status: 413,
       data: { error: "Ukuran file payroll maksimal 8 MB" },
     };
-  let rows;
   let context;
   try {
-    rows = JSON.parse(String(form.get("rows") || ""));
     context = JSON.parse(String(form.get("context") || ""));
   } catch {
-    return { status: 400, data: { error: "Payload rows/context tidak valid" } };
+    return { status: 400, data: { error: "Payload context tidak valid" } };
   }
   if (
     !context?.clientId ||
@@ -297,6 +297,16 @@ async function previewUpload(request, env, actor) {
   const verified = await validateIntakeContext(env.DB, orgId, context);
   if (verified.error) return { status: 422, data: { error: verified.error } };
   context = verified.context;
+  const bytes = await file.arrayBuffer();
+  let parsedSource;
+  try {
+    parsedSource = await parseIapWorkbook(bytes);
+  } catch {
+    return { status: 422, data: { error: "File Excel tidak dapat diparse oleh server", code: "PAYROLL_SOURCE_PARSE_FAILED" } };
+  }
+  if (!parsedSource.rows.length)
+    return { status: 422, data: { error: "Tidak ada baris payroll valid pada file sumber", code: "PAYROLL_SOURCE_EMPTY" } };
+  const rows = parsedSource.rows;
   const base = validateImportRows(rows);
   if (!base.ok)
     return {
@@ -319,7 +329,7 @@ async function previewUpload(request, env, actor) {
     if (
       row.clientCode &&
       String(row.clientCode).toUpperCase() !==
-        String(context.clientCode || row.clientCode).toUpperCase()
+        String(context.clientCode).toUpperCase()
     )
       rowScopeIssues.push({
         row: index + 1,
@@ -351,7 +361,6 @@ async function previewUpload(request, env, actor) {
     `SELECT * FROM payroll_upload_batches WHERE submission_id=? AND status IN ('REVIEW_REQUIRED','READY_TO_CONFIRM','IMPORTED') ORDER BY uploaded_at DESC LIMIT 1`,
     [submission.id],
   );
-  const bytes = await file.arrayBuffer();
   const fileHash = await sha256Hex(bytes);
   if (prior) {
     if (prior.file_sha256 === fileHash) {
@@ -386,6 +395,15 @@ async function previewUpload(request, env, actor) {
     context.clientId,
     context.projectId,
   );
+  const clientEmployees = await d1All(
+    env.DB,
+    "SELECT id,employee_code,name,project_id,status_aktif FROM employees WHERE org_id=? AND client_id=?",
+    [orgId, context.clientId],
+  );
+  const clientByCode = new Map(clientEmployees.map((row)=>[
+    String(row.employee_code || row.id).trim().toUpperCase(),
+    row,
+  ]));
   const byCode = new Map(
     current.map((row) => [
       String(row.employee_code || row.id)
@@ -396,6 +414,7 @@ async function previewUpload(request, env, actor) {
   );
   const incomingCodes = new Set();
   const changes = [];
+  const transfers = [];
   const newEmployees = [];
   base.rows.forEach((row, index) => {
     const code = employeeCode(row).toUpperCase();
@@ -404,9 +423,21 @@ async function previewUpload(request, env, actor) {
     const after = incomingMaster(row);
     const before = currentMaster(existing);
     const fields = changedFields(before, after);
-    if (!existing)
-      newEmployees.push({ row: index + 1, nrk: row.nrk, name: row.name });
-    else if (fields.length)
+    if (!existing) {
+      const clientExisting = clientByCode.get(code);
+      if (clientExisting && String(clientExisting.project_id || "") !== String(context.projectId || "")) {
+        transfers.push({
+          row: index + 1,
+          employeeId: clientExisting.id,
+          nrk: row.nrk,
+          name: row.name,
+          fromProjectId: clientExisting.project_id || null,
+          toProjectId: context.projectId,
+        });
+      } else {
+        newEmployees.push({ row: index + 1, nrk: row.nrk, name: row.name });
+      }
+    } else if (fields.length)
       changes.push({
         row: index + 1,
         employeeId: existing.id,
@@ -458,7 +489,7 @@ async function previewUpload(request, env, actor) {
         batchId,
         i + 1,
         null,
-        JSON.stringify(rows[i] ?? base.rows[i]),
+        JSON.stringify(rows[i]),
         JSON.stringify(base.rows[i]),
         "ACCEPTED",
         "[]",
@@ -470,11 +501,13 @@ async function previewUpload(request, env, actor) {
   const summary = {
     totals: control.totals,
     newEmployees,
+    transfers,
     changes,
     missing,
     comparison: {
-      matched: base.rows.length - newEmployees.length,
+      matched: base.rows.length - newEmployees.length - transfers.length,
       new: newEmployees.length,
+      transferred: transfers.length,
       changed: changes.length,
       missing: missing.length,
     },
@@ -490,10 +523,10 @@ async function previewUpload(request, env, actor) {
       safeName(file.name),
       objectKey,
       fileHash,
-      String(form.get("templateVersion") || PAYROLL_TEMPLATE_VERSION),
+      PAYROLL_TEMPLATE_VERSION,
       actor.email,
-      String(form.get("sourceSheet") || "PAYROLL_INPUT"),
-      Number(form.get("rawRowCount") || base.rows.length),
+      parsedSource.sheetName || "PAYROLL_INPUT",
+      Number(parsedSource.totalRaw || base.rows.length),
       base.rows.length,
       0,
       control.totals.gross,
@@ -558,7 +591,7 @@ async function applyEmployee(db, orgId, submission, batchId, rowRecord, actor) {
             db,
             orgId,
             submission.client_id,
-            submission.project_id,
+            employee.project_id,
           )
         ).find((item) => item.id === employee.id),
       )
@@ -766,6 +799,18 @@ async function confirmIntake(body, env, actor) {
     summary = JSON.parse(batch.validation_summary || "{}");
   } catch {}
   const missing = Array.isArray(summary.missing) ? summary.missing : [];
+  const transfers = Array.isArray(summary.transfers) ? summary.transfers : [];
+  const transferConfirmations = body.transferConfirmations || {};
+  const unconfirmedTransfers = transfers.filter((item)=>transferConfirmations[item.employeeId] !== true);
+  if (unconfirmedTransfers.length)
+    return {
+      status: 422,
+      data: {
+        error: "Semua perpindahan karyawan antar-project harus dikonfirmasi eksplisit",
+        code: "PROJECT_TRANSFER_CONFIRMATION_REQUIRED",
+        transfers: unconfirmedTransfers,
+      },
+    };
   const resolutions = body.missingResolutions || {};
   const unresolved = missing.filter(
     (item) =>
@@ -912,6 +957,9 @@ async function confirmIntake(body, env, actor) {
     missingResolutions: Object.fromEntries(
       missing.map((item) => [item.employeeId, resolutions[item.employeeId]]),
     ),
+    transferConfirmations: Object.fromEntries(
+      transfers.map((item) => [item.employeeId, true]),
+    ),
     confirmedBy: actor.email,
     confirmedAt: new Date().toISOString(),
   };
@@ -958,6 +1006,41 @@ async function confirmIntake(body, env, actor) {
   };
 }
 
+async function resetIntake(body, env, actor) {
+  if (body?.action !== "RESET")
+    return { status: 422, data: { error: "action RESET wajib untuk membatalkan intake" } };
+  const batchId = String(body.batchId || "");
+  if (!batchId) return { status: 422, data: { error: "batchId wajib diisi" } };
+  const batch = await d1First(env.DB, "SELECT * FROM payroll_upload_batches WHERE id=? LIMIT 1", [batchId]);
+  if (!batch) return { status: 404, data: { error: "Payroll intake tidak ditemukan" } };
+  if (batch.status === "IMPORTED")
+    return { status: 409, data: { error: "Payroll intake yang sudah dikonfirmasi tidak dapat di-reset", code: "PAYROLL_INTAKE_ALREADY_CONFIRMED" } };
+  if (!["REVIEW_REQUIRED","READY_TO_CONFIRM","ERROR","CANCELLED"].includes(batch.status))
+    return { status: 409, data: { error: `Payroll intake berstatus ${batch.status} tidak dapat di-reset` } };
+  if (batch.status !== "CANCELLED") {
+    await d1Batch(env.DB, [
+      {
+        statement: "UPDATE payroll_upload_batches SET status='CANCELLED' WHERE id=?",
+        bindings: [batchId],
+      },
+      {
+        statement: "INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id) VALUES(?,?,?,?,?,?,?,?)",
+        bindings: [
+          `AUD-${crypto.randomUUID()}`,
+          batch.org_id,
+          actor.email,
+          actor.role,
+          "PAYROLL_INTAKE_RESET",
+          JSON.stringify({ batchId, submissionId: batch.submission_id }),
+          "payroll_submission",
+          batch.submission_id,
+        ],
+      },
+    ]);
+  }
+  return { status: 200, data: { ok: true, batchId, reset: true } };
+}
+
 export async function onRequest({ request, env }) {
   if (request.method === "OPTIONS")
     return handlePreflight(request, env, METHODS);
@@ -969,6 +1052,8 @@ export async function onRequest({ request, env }) {
     methods: METHODS,
   });
   if (authorization.response) return authorization.response;
+  if (!authorization.actor.permissions?.includes("import:write"))
+    return secureJson({ error: "Insufficient permission" }, 403, request, env, METHODS);
   const limited = await enforceRateLimit(
     request,
     env,
@@ -1002,7 +1087,12 @@ export async function onRequest({ request, env }) {
     const contentType = request.headers.get("content-type") || "";
     const result = contentType.includes("multipart/form-data")
       ? await previewUpload(request, env, authorization.actor)
-      : await confirmIntake(await request.json(), env, authorization.actor);
+      : await (async()=>{
+          const body = await request.json();
+          return body?.action === "RESET"
+            ? resetIntake(body, env, authorization.actor)
+            : confirmIntake(body, env, authorization.actor);
+        })();
     return respond(result.data, result.status);
   } catch (error) {
     const message = String(error?.message || error);

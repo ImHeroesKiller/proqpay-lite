@@ -38,6 +38,7 @@ type Preview = {
     changedFields: string[];
   }>;
   newEmployees?: Array<{ nrk: string; name: string }>;
+  transfers?: Array<{ employeeId:string; nrk:string; name:string; fromProjectId:string|null; toProjectId:string }>;
   missing?: Array<{ employeeId: string; nrk: string; name: string }>;
   confirmation?: Record<string, unknown>;
 };
@@ -66,6 +67,7 @@ export default function DataIntakePage() {
   const [resolutions, setResolutions] = useState<
     Record<string, MissingResolution>
   >({});
+  const [transferConfirmations,setTransferConfirmations] = useState<Record<string,boolean>>({});
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -134,6 +136,7 @@ export default function DataIntakePage() {
   const project = projects.find((item) => item.id === form.projectId);
   const contextReady = Boolean(client && project && plan && form.period);
   const progress = preview?.confirmed ? 4 : preview ? 3 : parsed ? 2 : 1;
+  const transfersComplete = (preview?.transfers || []).every((item)=>transferConfirmations[item.employeeId] === true);
   const notesComplete = (preview?.missing || []).every((item) => {
     const value = resolutions[item.employeeId];
     if (!value) return false;
@@ -148,9 +151,28 @@ export default function DataIntakePage() {
     setParsed(null);
     setPreview(null);
     setResolutions({});
+    setTransferConfirmations({});
     setIssues([]);
     if (inputRef.current) inputRef.current.value = "";
   }
+  async function restartIntake() {
+    if (!preview?.batchId || preview.confirmed) { resetFile(); return; }
+    setBusy(true); setMessage("");
+    try {
+      await readJson(await fetch("/api/payroll-intake",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({action:"RESET",batchId:preview.batchId}),
+      }));
+      resetFile();
+      setMessage("Draft intake dibatalkan. Anda dapat memilih file sumber baru.");
+    } catch(error) {
+      setMessage(error instanceof Error ? error.message : "Reset intake gagal");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function choose(chosen: File) {
     setBusy(true);
     setMessage("");
@@ -193,7 +215,6 @@ export default function DataIntakePage() {
     try {
       const data = new FormData();
       data.set("file", file);
-      data.set("rows", JSON.stringify(parsed.rows));
       data.set(
         "context",
         JSON.stringify({
@@ -204,9 +225,6 @@ export default function DataIntakePage() {
           servicePlanId: plan.id,
         }),
       );
-      data.set("sourceSheet", parsed.sheetName || "01_PAYROLL_DATA");
-      data.set("rawRowCount", String(parsed.totalRaw || parsed.rows.length));
-      data.set("templateVersion", PAYROLL_TEMPLATE_VERSION);
       const payload = await readJson(
         await fetch("/api/payroll-intake", { method: "POST", body: data }),
       );
@@ -216,6 +234,7 @@ export default function DataIntakePage() {
         initial[item.employeeId] = { resolution: "NO_PAY_THIS_PERIOD" };
       });
       setResolutions(initial);
+      setTransferConfirmations(Object.fromEntries((payload.transfers || []).map((item:{employeeId:string})=>[item.employeeId,false])));
       setMessage(
         payload.missing?.length
           ? "Analisis selesai. Lengkapi keputusan untuk karyawan yang tidak muncul."
@@ -243,6 +262,7 @@ export default function DataIntakePage() {
             action: "CONFIRM",
             batchId: preview.batchId,
             missingResolutions: resolutions,
+            transferConfirmations,
           }),
         }),
       );
@@ -369,13 +389,14 @@ export default function DataIntakePage() {
                   <span className="panel-eyebrow">1 · Scope payroll</span>
                   <h2>Pilih sumber intake</h2>
                 </div>
-                {file || preview ? (
+                {(file || preview) && !preview?.confirmed ? (
                   <button
                     className="btn btn-quiet"
                     type="button"
-                    onClick={resetFile}
+                    disabled={busy}
+                    onClick={() => void restartIntake()}
                   >
-                    Mulai ulang
+                    {preview ? "Batalkan intake" : "Mulai ulang"}
                   </button>
                 ) : null}
               </div>
@@ -571,6 +592,10 @@ export default function DataIntakePage() {
                   value={String(preview.comparison?.new || 0)}
                 />
                 <Metric
+                  label="Mutasi project"
+                  value={String(preview.comparison?.transferred || 0)}
+                />
+                <Metric
                   label="Data berubah"
                   value={String(preview.comparison?.changed || 0)}
                 />
@@ -579,6 +604,20 @@ export default function DataIntakePage() {
                   value={String(preview.comparison?.missing || 0)}
                 />
               </div>
+              {(preview.transfers || []).length ? (
+                <div className="intake-missing intake-transfer-review">
+                  <div>
+                    <strong>Perpindahan project terdeteksi</strong>
+                    <span>Karyawan berikut sudah ada pada client yang sama di project lain. Konfirmasi setiap perpindahan sebelum membuat Pay Run.</span>
+                  </div>
+                  {preview.transfers?.map((item)=>(
+                    <label className="intake-transfer-row" key={item.employeeId}>
+                      <input type="checkbox" checked={Boolean(transferConfirmations[item.employeeId])} onChange={(event)=>setTransferConfirmations({...transferConfirmations,[item.employeeId]:event.target.checked})} />
+                      <span><strong>{item.nrk} · {item.name}</strong><small>{item.fromProjectId || "Tanpa project"} → {item.toProjectId}</small></span>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
               {(preview.changes || []).length ? (
                 <details open>
                   <summary>
@@ -684,7 +723,7 @@ export default function DataIntakePage() {
                   </div>
                   <button
                     className="btn btn-primary"
-                    disabled={busy || !notesComplete}
+                    disabled={busy || !notesComplete || !transfersComplete}
                     onClick={() => void confirm()}
                   >
                     {busy ? "Menyimpan…" : "Konfirmasi Intake & Buat Pay Run"}
