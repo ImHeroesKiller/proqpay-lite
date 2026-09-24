@@ -112,7 +112,7 @@ async function postCredentials(env,token,body){
   return {response,payload:await response.json()};
 }
 
-test('Final Employees UAT: migration normalizes duplicate primary banks and enforces one-primary invariant',async()=>{
+test('Final Employees UAT: schema enforces one bank row per employee',async()=>{
   const DB=new D1Mock();
   DB.sqlite.exec(`
     INSERT INTO clients(id,org_id,code,name) VALUES('CLI-MIG','ORG-OTSINDO','MIG','Migration Client');
@@ -120,27 +120,18 @@ test('Final Employees UAT: migration normalizes duplicate primary banks and enfo
       VALUES('PRJ-MIG','ORG-OTSINDO','CLI-MIG','MIG','Migration Project','seed');
     INSERT INTO employees(id,org_id,client_id,project_id,employee_code,name,status_aktif)
       VALUES('EMP-MIG','ORG-OTSINDO','CLI-MIG','PRJ-MIG','MIG-001','Migration Employee','ACTIVE');
-    INSERT INTO employee_bank_accounts(id,employee_id,bank_name,account_no,is_primary,created_at) VALUES
-      ('BANK-MIG-OLD','EMP-MIG','BCA','1111111111',1,'2026-01-01T00:00:00.000Z'),
-      ('BANK-MIG-NEW','EMP-MIG','MANDIRI','2222222222',1,'2026-02-01T00:00:00.000Z');
+    INSERT INTO employee_bank_accounts(id,employee_id,bank_name,account_no,is_primary,created_at)
+      VALUES('BANK-MIG-ONE','EMP-MIG','BCA','1111111111',1,'2026-01-01T00:00:00.000Z');
   `);
-  const migration=await readFile(new URL('../migrations/0035_employee_single_primary_bank.sql',import.meta.url),'utf8');
-  DB.sqlite.exec(migration);
-
-  const primary=DB.sqlite.prepare('SELECT id,account_no FROM employee_bank_accounts WHERE employee_id=? AND is_primary=1').all('EMP-MIG');
-  assert.equal(primary.length,1);
-  assert.equal(primary[0].id,'BANK-MIG-NEW');
   assert.throws(
     ()=>DB.sqlite.prepare(`INSERT INTO employee_bank_accounts(id,employee_id,bank_name,account_no,is_primary)
-      VALUES('BANK-MIG-ILLEGAL','EMP-MIG','BNI','3333333333',1)`).run(),
-    /UNIQUE constraint failed/,
+      VALUES('BANK-MIG-TWO','EMP-MIG','MANDIRI','2222222222',1)`).run(),
+    /UNIQUE constraint failed: employee_bank_accounts\.employee_id/,
   );
 });
 
 test('Final Employees UAT: employee lifecycle, ESS, payroll snapshot, bank drift and PI remain integrated',async()=>{
   const DB=new D1Mock();seed(DB);
-  const migration=await readFile(new URL('../migrations/0035_employee_single_primary_bank.sql',import.meta.url),'utf8');
-  DB.sqlite.exec(migration);
   const env={
     DB,
     AUTH_MODE:'session',
@@ -197,14 +188,6 @@ test('Final Employees UAT: employee lifecycle, ESS, payroll snapshot, bank drift
   assert.equal(Number(DB.sqlite.prepare('SELECT gross_amount FROM payroll_run_lines WHERE submission_id=? AND employee_id=?').get(submissionId,'EMP-EFINAL-A').gross_amount),10000000,
     'existing payroll snapshot must not follow later master salary changes');
 
-  employeeUpdate=await postEmployee(env,processorSession.token,{
-    action:'UPDATE_ADMIN',
-    id:'EMP-EFINAL-A',
-    bankName:'MANDIRI',
-    accountNo:'9999999999',
-  });
-  assert.equal(employeeUpdate.response.status,200,JSON.stringify(employeeUpdate.payload));
-
   result=await operating(DB,env,processor,{action:'FINALIZE_PAY_RUN_INPUT',submissionId,confirmation:'DATA PAYROLL FINAL'});
   assert.equal(result.response.status,200,JSON.stringify(result.payload));
   result=await operating(DB,env,processor,{action:'ADVANCE_PAY_RUN',submissionId,command:'VALIDATE',reviewConfirmed:true});
@@ -215,6 +198,14 @@ test('Final Employees UAT: employee lifecycle, ESS, payroll snapshot, bank drift
   assert.equal(result.response.status,200,JSON.stringify(result.payload));
   result=await operating(DB,env,clientActor,{action:'CLIENT_APPROVE_PAYROLL',submissionId,reviewConfirmed:true,confirmation:'SETUJUI PAYROLL',reviewNote:'Client final UAT'});
   assert.equal(result.response.status,200,JSON.stringify(result.payload));
+
+  employeeUpdate=await postEmployee(env,processorSession.token,{
+    action:'UPDATE_ADMIN',
+    id:'EMP-EFINAL-A',
+    bankName:'MANDIRI',
+    accountNo:'9999999999',
+  });
+  assert.equal(employeeUpdate.response.status,200,JSON.stringify(employeeUpdate.payload));
 
   result=await operating(DB,env,processor,{action:'GENERATE_PAYMENT_INSTRUCTION',submissionId});
   assert.equal(result.response.status,409,JSON.stringify(result.payload));
