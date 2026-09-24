@@ -722,6 +722,18 @@ async function executeAction(database, body, actor, env, organizationId) {
       if (/idx_one_regular_pay_run_scope|UNIQUE constraint failed/i.test(String(error?.message || error))) return { status:409, data:{ error:'Pay Run reguler untuk klien, project, dan periode tersebut sudah ada' } };
       throw error;
     }
+    if (sourceSubmission) {
+      const population = await d1First(database, `SELECT
+        SUM(CASE WHEN source='COPY_PREVIOUS_NEW_EMPLOYEE' AND included=1 THEN 1 ELSE 0 END) AS added,
+        SUM(CASE WHEN source='COPY_PREVIOUS' AND included=0 THEN 1 ELSE 0 END) AS excluded,
+        SUM(CASE WHEN included=1 THEN 1 ELSE 0 END) AS active
+        FROM payroll_run_lines WHERE submission_id=?`, [id]);
+      await d1Batch(database, [
+        auditOperation(organizationId,actor,'PAY_RUN_POPULATION_RECONCILED',
+          JSON.stringify({sourceSubmissionId:sourceSubmission.id,added:Number(population?.added||0),excluded:Number(population?.excluded||0),active:Number(population?.active||0)}),
+          'payroll_submission',id),
+      ]);
+    }
     const row = await d1First(database, `${SUBMISSION_SELECT} WHERE s.id=? LIMIT 1`, [id]);
     return { status:201, data:{ ok:true, submission:row, sourcePeriod:sourceSubmission?.period || null } };
   }
@@ -839,11 +851,20 @@ async function executeAction(database, body, actor, env, organizationId) {
         SELECT 1 FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1
           AND length(REPLACE(eba.account_no,' ','')) BETWEEN 6 AND 34
           AND REPLACE(eba.account_no,' ','') NOT GLOB '*[^0-9]*'
-      ) THEN 1 ELSE 0 END) AS invalid_bank
-      FROM payroll_run_lines WHERE submission_id=? AND included=1`, [submission.id]);
+      ) THEN 1 ELSE 0 END) AS invalid_bank,
+      SUM(CASE WHEN NOT EXISTS(
+        SELECT 1 FROM employees e WHERE e.id=payroll_run_lines.employee_id AND e.org_id=? AND e.client_id=? AND e.project_id=? AND ${ACTIVE_EMPLOYEE}
+      ) THEN 1 ELSE 0 END) AS invalid_population
+      FROM payroll_run_lines WHERE submission_id=? AND included=1`,
+      [organizationId,submission.client_id,submission.project_id,submission.id]);
+    const missingEligible = await d1First(database, `SELECT COUNT(*) AS count FROM employees e
+      WHERE e.org_id=? AND e.client_id=? AND e.project_id=? AND ${ACTIVE_EMPLOYEE}
+      AND NOT EXISTS(SELECT 1 FROM payroll_run_lines l WHERE l.submission_id=? AND l.employee_id=e.id AND l.included=1)`,
+      [organizationId,submission.client_id,submission.project_id,submission.id]);
     if (!Number(quality?.recipients||0)) return { status:409, data:{ error:'Pay Run tidak memiliki penerima aktif' } };
-    if (Number(quality?.invalid_control||0) || Number(quality?.invalid_bank||0)) return { status:409, data:{
-      error:`Input belum valid: ${Number(quality?.invalid_control||0)} control payroll dan ${Number(quality?.invalid_bank||0)} rekening bermasalah`,
+    if (Number(quality?.invalid_control||0) || Number(quality?.invalid_bank||0)
+      || Number(quality?.invalid_population||0) || Number(missingEligible?.count||0)) return { status:409, data:{
+      error:`Input belum valid: ${Number(quality?.invalid_control||0)} control payroll, ${Number(quality?.invalid_bank||0)} rekening, ${Number(quality?.invalid_population||0)} penerima tidak eligible, ${Number(missingEligible?.count||0)} karyawan aktif belum masuk snapshot`,
       code:'PAY_RUN_INPUT_CONTROL_INVALID',
     } };
     await d1Batch(database, [
@@ -1047,10 +1068,10 @@ async function executeAction(database, body, actor, env, organizationId) {
     const arrears = [...new Set(body.arrearsPeriods.map(String))].filter((p) => p !== current.period && p !== body.paymentPeriod);
     const previousArrears = typeof current.arrears_periods === 'string' ? current.arrears_periods : JSON.stringify(current.arrears_periods || []);
     await d1Batch(database, [
-      { statement:`UPDATE payroll_submissions SET payment_period=?,arrears_periods=?,updated_at=${NOW} WHERE id=?`,
-        bindings:[body.paymentPeriod,JSON.stringify(arrears),body.submissionId] },
+      { statement:`UPDATE payroll_submissions SET payment_period=?,payment_date=?,arrears_periods=?,updated_at=${NOW} WHERE id=?`,
+        bindings:[body.paymentPeriod,body.paymentDate,JSON.stringify(arrears),body.submissionId] },
       auditOperation(organizationId,actor,'PAY_RUN_PAYMENT_TERMS_CHANGED',
-        JSON.stringify({before:{paymentPeriod:current.payment_period,arrearsPeriods:previousArrears},after:{paymentPeriod:body.paymentPeriod,arrearsPeriods:arrears}}),
+        JSON.stringify({before:{paymentPeriod:current.payment_period,paymentDate:current.payment_date,arrearsPeriods:previousArrears},after:{paymentPeriod:body.paymentPeriod,paymentDate:body.paymentDate,arrearsPeriods:arrears}}),
         'payroll_submission',body.submissionId),
     ]);
     const row = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? LIMIT 1', [body.submissionId]);
