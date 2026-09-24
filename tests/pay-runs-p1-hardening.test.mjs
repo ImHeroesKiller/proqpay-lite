@@ -65,6 +65,7 @@ test('Pay Runs P1 records before-after line changes and preserves components',as
   assert.match(api,/after:\{grossAmount:/);
   assert.match(api,/body\.components === undefined \? before\.components/);
   assert.match(validation,/changeReason wajib 10-500 karakter/);
-  assert.match(ui,/Alasan perubahan nominal \(minimal 10 karakter\)/);
+  assert.match(ui,/Alasan perubahan/);
+  assert.match(ui,/Minimal 10 karakter; alasan ini disimpan dalam audit trail/);
   assert.match(ui,/changeReason/);
 });
