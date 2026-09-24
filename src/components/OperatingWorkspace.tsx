@@ -297,7 +297,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
         <>
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
-          {mode === 'actions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isController || isClient} act={act} />}
+          {mode === 'actions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isClient} act={act} />}
           {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace
             actor={actor}
@@ -525,11 +525,27 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<any | null>(null);
+  const [evidenceReviewed,setEvidenceReviewed] = useState(false);
+  const [resolutionNote,setResolutionNote] = useState('');
   const filtered = rows.filter((row) => (severity === 'ALL' || row.severity === severity)
     && (status === 'ALL' || row.status === status)
-    && (!query || [row.category,row.employee_id,row.reason,row.client_name,row.project_name].join(' ').toLowerCase().includes(query.toLowerCase())));
+    && (!query || [row.category,row.employee_id,row.employee_name,row.reason,row.field,row.client_name,row.project_name].join(' ').toLowerCase().includes(query.toLowerCase())));
   const pageCount = Math.max(1, Math.ceil(filtered.length / 20));
   const visible = filtered.slice((page - 1) * 20, page * 20);
+
+  useEffect(()=>setPage((current)=>Math.min(current,pageCount)),[pageCount]);
+  useEffect(()=>{
+    if(!selected) return;
+    setEvidenceReviewed(false);
+    setResolutionNote(clientMode?'Data telah diperbaiki dan saya telah memeriksa evidence perubahan.':'Evidence sumber dan canonical telah diperiksa; exception telah diperbaiki dan diverifikasi.');
+  },[selected,clientMode]);
+
+  const evidenceValue=(value:unknown)=>{
+    if(value==null||value==='') return '-';
+    if(typeof value==='object') return JSON.stringify(value);
+    return String(value);
+  };
+
   if (!rows.length) return <Empty title="Tidak ada exception operasional" detail="Temuan validasi akan masuk ke antrean ini dan diblokir berdasarkan tingkat severity." />;
   return <div style={{display:'grid',gap:12}}>
     <div className="card" style={{padding:12,display:'flex',gap:8,flexWrap:'wrap'}}>
@@ -539,31 +555,49 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
       <span style={{...small,margin:'auto 0'}}><strong>{filtered.length}</strong> {clientMode?'perlu diperbaiki':'temuan'}</span>
     </div>
     <CardTable headers={clientMode?['Perlu diperbaiki','Payroll','Aksi']:['Temuan','Klien / Project','Severity','Status','Aksi']} rows={visible.map((r) => clientMode ? [
-      <div key="finding"><strong>{r.reason || r.category || 'Perbaikan data payroll'}</strong><small style={small}>{r.employee_id || 'Data payroll'} </small></div>,
+      <div key="finding"><strong>{r.reason || r.category || 'Perbaikan data payroll'}</strong><small style={small}>{r.employee_name || r.employee_id || 'Data payroll'} </small></div>,
       <div key="scope"><strong>{r.project_name || r.client_name || r.client_id || '-'}</strong><small style={small}>Periode {r.period || '-'}</small></div>,
       <button key="detail" style={actionButton} onClick={() => setSelected(r)}>Lihat & konfirmasi</button>,
     ] : [
-      <div key="finding"><strong>{r.category}</strong><small style={small}>{r.employee_id || 'Submission'} · {r.reason || r.field || '-'}</small></div>,
+      <div key="finding"><strong>{r.category}</strong><small style={small}>{r.employee_name || r.employee_id || 'Submission'} · {r.reason || r.field || '-'}</small></div>,
       <div key="scope"><strong>{r.client_name || r.client_id || '-'}</strong><small style={small}>{r.project_name || r.period || '-'}</small></div>,
       <Badge key="severity" text={r.severity} />,
       <Badge key="status" text={r.status} />,
       <button key="detail" style={actionButton} onClick={() => setSelected(r)}>Tindak lanjut</button>,
     ])} />
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={small}>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div style={{display:'flex',gap:6}}><button className="btn" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>←</button><button className="btn" disabled={page>=pageCount} onClick={()=>setPage(p=>p+1)}>→</button></div></div>
-    {selected ? <div className="directory-modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)setSelected(null);}}><div className="directory-modal" role="dialog" aria-modal="true">
-      <div className="directory-modal-title"><div><span>{clientMode?'PERBAIKAN PAYROLL':'EXCEPTION CENTER'}</span><h3>{clientMode?'Perlu diperbaiki':selected.category}</h3></div><button onClick={()=>setSelected(null)}>✕</button></div>
-      <p><strong>{selected.employee_id || (clientMode?'Data payroll':'Submission')}</strong> · {selected.client_name || selected.client_id}</p><p style={{color:'var(--text2)',fontSize:13}}>{selected.reason}</p>
+    {selected ? <div className="directory-modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)setSelected(null);}}><div className="directory-modal readiness-exception-modal" role="dialog" aria-modal="true" aria-label="Detail exception payroll">
+      <div className="directory-modal-title"><div><span>{clientMode?'PERBAIKAN PAYROLL':'DATA READINESS'}</span><h3>{clientMode?'Perlu diperbaiki':selected.category}</h3></div><button aria-label="Tutup detail exception" onClick={()=>setSelected(null)}>✕</button></div>
+      <div className="readiness-exception-context">
+        <div><span>Karyawan</span><strong>{selected.employee_name || selected.employee_id || 'Submission level'}</strong></div>
+        <div><span>Scope</span><strong>{selected.client_name || selected.client_id} · {selected.project_name || selected.period || '-'}</strong></div>
+        <div><span>Severity</span><strong>{selected.severity || '-'}</strong></div>
+        <div><span>Status</span><strong>{String(selected.status||'-').replaceAll('_',' ')}</strong></div>
+      </div>
+      <p style={{color:'var(--text2)',fontSize:13}}>{selected.reason}</p>
+      <section className="readiness-evidence-panel" aria-label="Evidence exception">
+        <div className="readiness-evidence-heading"><span>EVIDENCE</span><strong>{selected.field || 'Validation evidence'}</strong></div>
+        <div className="readiness-evidence-grid">
+          <div><span>Source</span><strong>{evidenceValue(selected.source_value)}</strong></div>
+          <div><span>Canonical</span><strong>{evidenceValue(selected.canonical_value)}</strong></div>
+          <div><span>Suggested</span><strong>{evidenceValue(selected.suggested_value)}</strong></div>
+          <div><span>Confidence</span><strong>{selected.confidence==null?'-':String(selected.confidence)}</strong></div>
+        </div>
+      </section>
+      {canResolve && !['RESOLVED','ACCEPTED'].includes(selected.status) ? <section className="readiness-resolution-panel">
+        <label className="payroll-review-confirm"><input type="checkbox" checked={evidenceReviewed} onChange={(event)=>setEvidenceReviewed(event.target.checked)} /><span>Saya sudah memeriksa Source, Canonical, Suggested value, dan alasan exception.</span></label>
+        <label><span>Catatan resolusi</span><textarea value={resolutionNote} onChange={(event)=>setResolutionNote(event.target.value)} rows={3} maxLength={1000} /></label>
+      </section>:null}
       <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:16}}>
         {['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role) && !['RESOLVED','ACCEPTED'].includes(selected.status) ? <button className="btn btn-primary" onClick={()=>{const message=window.prompt('Instruksi perbaikan untuk user klien:',selected.reason||'Mohon lengkapi dan validasi data ini.');if(message)void act({action:'REQUEST_CLIENT_ACTION',exceptionId:selected.id,message},'Permintaan perbaikan dikirim ke user klien').then(()=>setSelected(null));}}>Minta perbaikan klien</button> : null}
         {!clientMode?<><button className="btn" onClick={()=>{const message=window.prompt('Tulis pesan pada temuan:');if(message)void act({action:'ADD_EXCEPTION_NOTE',exceptionId:selected.id,message},'Pesan tersimpan pada temuan').then(()=>setSelected(null));}}>Chat / catatan</button>
         {selected.client_email ? <a className="btn" href={`mailto:${encodeURIComponent(selected.client_email)}?subject=${encodeURIComponent(`Perbaikan data payroll ${selected.period || ''}`)}&body=${encodeURIComponent(selected.reason || '')}`}>Email klien</a> : <span style={small}>Email akun klien belum dipasangkan</span>}</>:null}
-        {canResolve && !['RESOLVED','ACCEPTED'].includes(selected.status) ? <button className="btn" onClick={()=>void act({action:'RESOLVE_EXCEPTION',exceptionId:selected.id,status:role==='CLIENT_USER'?'ACCEPTED':'RESOLVED',resolutionNote:role==='CLIENT_USER'?'Data telah diperbaiki/dikonfirmasi oleh user klien':'Diverifikasi dan diselesaikan'},'Exception diperbarui').then(()=>setSelected(null))}>{role==='CLIENT_USER'?'Konfirmasi sudah diperbaiki':'Tandai selesai'}</button> : null}
+        {canResolve && !['RESOLVED','ACCEPTED'].includes(selected.status) ? <button className="btn" disabled={!evidenceReviewed || resolutionNote.trim().length<10} onClick={()=>void act({action:'RESOLVE_EXCEPTION',exceptionId:selected.id,status:clientMode?'ACCEPTED':'RESOLVED',resolutionNote:resolutionNote.trim()},clientMode?'Perbaikan dikonfirmasi':'Exception diselesaikan').then(()=>setSelected(null))}>{clientMode?'Konfirmasi sudah diperbaiki':'Tandai selesai'}</button> : null}
       </div>
       {selected.resolution_note ? <div className="directory-message" style={{marginTop:14,whiteSpace:'pre-wrap'}}>{selected.resolution_note}</div> : null}
     </div></div> : null}
   </div>;
 }
-
 function Payments({ instructions, proofs, reconciliations, role, simplified, canReview, canApprove, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; role:string; simplified:boolean; canReview:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
   const [proofFor, setProofFor] = useState<string | null>(null);
   const [proof, setProof] = useState({ bank:'BCA', reference:'', transactionDate:new Date().toISOString().slice(0,10), amount:'' });
