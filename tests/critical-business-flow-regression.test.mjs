@@ -40,7 +40,7 @@ async function direct(DB,actor,body){
 
 test('Processor finalization stops at Controller review before PI creation',async()=>{
   const DB=new D1Mock(); seedPayroll(DB);
-  const processor={id:'USR-P',email:'processor@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:['payment:prepare']};
+  const processor={id:'USR-P',email:'processor@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:['submission:write','payroll:write','payment:prepare']};
   const controller={id:'USR-C',email:'controller@proqpay.test',role:'PAYROLL_CONTROLLER',permissions:['payment:approve']};
 
   const created=await direct(DB,processor,{action:'CREATE_PAY_RUN',clientId:'CLI-CRIT',projectId:'PRJ-CRIT',servicePlanId:'SP-CRIT',period:'2026-09',paymentPeriod:'2026-09',paymentDate:'2026-09-25',runType:'REGULAR',sourceMode:'MASTER_CURRENT'});
@@ -110,7 +110,7 @@ test('Successful gateway settlement can reconcile without a manual proof',async(
 
 test('inactive HRIS source is fail-closed in API and absent from pay run wizard',async()=>{
   const DB=new D1Mock(); seedPayroll(DB);
-  const processor={id:'USR-P',email:'processor@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:[]};
+  const processor={id:'USR-P',email:'processor@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:['submission:write','payroll:write']};
   const result=await direct(DB,processor,{action:'CREATE_PAY_RUN',clientId:'CLI-CRIT',projectId:'PRJ-CRIT',servicePlanId:'SP-CRIT',period:'2026-09',paymentPeriod:'2026-09',paymentDate:'2026-09-25',runType:'REGULAR',sourceMode:'HRIS'});
   assert.equal(result.response.status,422);
   assert.match(result.payload.error,/Integrasi HRIS belum aktif/);
@@ -147,7 +147,7 @@ test('gateway execution lease blocks concurrent financial attempts and can be re
 
 test('VALIDATE detects corrupted payroll control totals instead of only changing status',async()=>{
   const DB=new D1Mock(); seedPayroll(DB);
-  const processor={id:'USR-V',email:'validator@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:[]};
+  const processor={id:'USR-V',email:'validator@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:['submission:write','payroll:write']};
   const created=await direct(DB,processor,{action:'CREATE_PAY_RUN',clientId:'CLI-CRIT',projectId:'PRJ-CRIT',servicePlanId:'SP-CRIT',period:'2026-10',paymentPeriod:'2026-10',paymentDate:'2026-10-25',runType:'REGULAR',sourceMode:'MASTER_CURRENT'});
   assert.equal(created.response.status,201,JSON.stringify(created.payload));
   const id=created.payload.submission.id;
@@ -174,7 +174,7 @@ test('VALIDATE detects corrupted payroll control totals instead of only changing
 
 test('Controller review locks canonical payroll snapshot until revision is requested',async()=>{
   const DB=new D1Mock(); seedPayroll(DB);
-  const processor={id:'USR-LP',email:'lock.processor@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:[]};
+  const processor={id:'USR-LP',email:'lock.processor@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:['submission:write','payroll:write']};
   const created=await direct(DB,processor,{action:'CREATE_PAY_RUN',clientId:'CLI-CRIT',projectId:'PRJ-CRIT',servicePlanId:'SP-CRIT',period:'2026-11',paymentPeriod:'2026-11',paymentDate:'2026-11-25',runType:'REGULAR',sourceMode:'MASTER_CURRENT'});
   assert.equal(created.response.status,201,JSON.stringify(created.payload));
   const id=created.payload.submission.id;
