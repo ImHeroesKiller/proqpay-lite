@@ -51,12 +51,12 @@ function sameProofPayload(existing, amount, transactionDate) {
 
 async function blockingGatewayTransaction(database, paymentInstructionId) {
   try {
-    return await d1First(database, `SELECT id,provider,status,provider_transaction_id,provider_reference,error_code,created_at
+    return await d1First(database, `SELECT id,provider,status,provider_transaction_id,provider_reference,provider_status,error_code,created_at
       FROM payment_gateway_transactions WHERE payment_instruction_id=?
       AND (
         status IN ('CREATED','PENDING','PROCESSING','SUCCEEDED')
         OR (status='FAILED' AND (
-          provider_transaction_id IS NOT NULL OR provider_reference IS NOT NULL OR UPPER(COALESCE(error_code,'')) LIKE '%UNKNOWN%'
+          UPPER(COALESCE(error_code,'')) LIKE '%UNKNOWN%' OR UPPER(COALESCE(provider_status,'')) LIKE '%AWAITING%'
         ))
       )
       ORDER BY CASE WHEN status='SUCCEEDED' THEN 0 WHEN status IN ('PENDING','PROCESSING') THEN 1 ELSE 2 END,created_at DESC LIMIT 1`, [paymentInstructionId]);
@@ -121,9 +121,6 @@ export async function onRequest({ request, env }) {
     const amount = Number(field(form, 'amount'));
     if (!paymentInstructionId || !bank || !reference || !validDate(transactionDate) || !Number.isSafeInteger(amount) || amount <= 0) {
       return respond({ error: 'Metadata bukti pembayaran tidak valid' }, 422);
-    }
-    if (transactionDate > new Date().toISOString().slice(0,10)) {
-      return respond({ error:'Tanggal transaksi bukti pembayaran tidak boleh berada di masa depan', code:'PAYMENT_PROOF_FUTURE_DATE' },422);
     }
 
     const payment = await d1First(database, 'SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1', [paymentInstructionId, organizationId]);
