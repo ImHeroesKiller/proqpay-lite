@@ -552,17 +552,6 @@ export default function DataIntakePage() {
               </div>
               {parsed ? (
                 <>
-                  <div className="intake-review-toolbar" aria-label="Filter review perubahan">
-                {[
-                  ["ALL","Semua"],
-                  ["CHANGED",`Berubah ${preview.comparison?.changed || 0}`],
-                  ["NEW",`Baru ${preview.comparison?.new || 0}`],
-                  ["TRANSFER",`Mutasi ${preview.comparison?.transferred || 0}`],
-                  ["MISSING",`Tidak muncul ${preview.comparison?.missing || 0}`],
-                ].map(([value,label])=>(
-                  <button key={value} type="button" className={reviewFilter===value?"active":""} onClick={()=>setReviewFilter(value as typeof reviewFilter)}>{label}</button>
-                ))}
-              </div>
               <div className="intake-metrics">
                     <Metric
                       label="Karyawan valid"
@@ -657,6 +646,17 @@ export default function DataIntakePage() {
                 >
                   {preview.confirmed ? "Confirmed" : "Review required"}
                 </span>
+              </div>
+              <div className="intake-review-toolbar" aria-label="Filter review perubahan">
+                {[
+                  ["ALL","Semua"],
+                  ["CHANGED",`Berubah ${preview.comparison?.changed || 0}`],
+                  ["NEW",`Baru ${preview.comparison?.new || 0}`],
+                  ["TRANSFER",`Mutasi ${preview.comparison?.transferred || 0}`],
+                  ["MISSING",`Tidak muncul ${preview.comparison?.missing || 0}`],
+                ].map(([value,label])=>(
+                  <button key={value} type="button" className={reviewFilter===value?"active":""} onClick={()=>setReviewFilter(value as typeof reviewFilter)}>{label}</button>
+                ))}
               </div>
               <div className="intake-metrics">
                 <Metric
