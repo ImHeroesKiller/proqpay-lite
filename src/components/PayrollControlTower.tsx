@@ -43,26 +43,27 @@ function daysFromNow(value?:string|null) {
 export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const [data,setData] = useState<DashboardApiResponse>({submissions:[],paymentInstructions:[]});
   const [loading,setLoading] = useState(true);
+  const [refreshing,setRefreshing] = useState(false);
   const [error,setError] = useState('');
   const [client,setClient] = useState('ALL');
-  const [status,setStatus] = useState('ALL');
   const [stage,setStage] = useState('ALL');
   const [tier,setTier] = useState('ALL');
   const [query,setQuery] = useState('');
   const [page,setPage] = useState(1);
   const [scopedPortfolio,setScopedPortfolio] = useState<Partial<DashboardPortfolioSummary>|null>(null);
 
-  const load = useCallback(async()=>{
-    setLoading(true); setError('');
+  const load = useCallback(async(background=false)=>{
+    if (background) setRefreshing(true); else setLoading(true);
+    setError('');
     try {
       setData(await listOperatingDashboard(undefined,period));
     } catch (loadError) {
       setError(loadError instanceof Error?loadError.message:'Dashboard operasional gagal dimuat');
     } finally {
-      setLoading(false);
+      if (background) setRefreshing(false); else setLoading(false);
     }
   },[period]);
-  useEffect(()=>{void load();},[load]);
+  useEffect(()=>{void load(false);},[load]);
 
   const submissions=useMemo(()=>data.submissions||[],[data.submissions]);
   const instructions=useMemo(()=>data.paymentInstructions||[],[data.paymentInstructions]);
@@ -115,17 +116,14 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
     return()=>{cancelled=true;};
   },[client,period]);
 
-  const statuses=useMemo(()=>[...new Set(operationalSubmissions.map((row)=>String(row.state||'')).filter(Boolean))].sort(),[operationalSubmissions]);
   const tiers=useMemo(()=>[...new Set(operationalSubmissions.map((row)=>String(row.service_tier||'')).filter(Boolean))].sort(),[operationalSubmissions]);
   const visible=useMemo(()=>operationalSubmissions.filter((row)=>{
     const haystack=[row.client_name,row.project_name,row.period,row.payment_period,row.state,row.business.label,row.nextAction.label,row.id].join(' ').toLowerCase();
-    const workflowFilter=simplifiedInternal
-      ? (stage==='ALL'||row.business.stage===stage)
-      : (status==='ALL'||row.state===status);
+    const workflowFilter=stage==='ALL'||row.business.stage===stage;
     return (period==='ALL'||row.period===period||row.payment_period===period)
       &&(client==='ALL'||row.client_id===client)&&workflowFilter
       &&(tier==='ALL'||row.service_tier===tier)&&(!query.trim()||haystack.includes(query.trim().toLowerCase()));
-  }),[operationalSubmissions,period,client,status,stage,tier,query,simplifiedInternal]);
+  }),[operationalSubmissions,period,client,stage,tier,query]);
   const visibleIds=useMemo(()=>new Set(visible.map((row)=>row.id)),[visible]);
   const visibleInstructions=useMemo(()=>instructions.filter((row)=>visibleIds.has(row.submission_id)),[instructions,visibleIds]);
 
@@ -134,6 +132,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const blockers=visible.reduce((sum,row)=>sum+Number(row.blocking_count||0),0);
   const openExceptions=visible.reduce((sum,row)=>sum+Number(row.open_exception_count||0),0);
   const affectedExceptionRuns=visible.filter((row)=>Number(row.open_exception_count||0)>0).length;
+  const attentionRuns=visible.filter((row)=>row.nextAction.tone==='danger'||Number(row.blocking_count||0)>0||Number(row.open_exception_count||0)>0).length;
   const awaitingApproval=visible.filter((row)=>row.nextAction.actionable&&row.nextAction.category==='APPROVAL').length;
   const matched=visible.filter((row)=>row.reconciliation_status==='MATCHED').length;
   const reconciliationPending=visible.filter((row)=>row.business.stage==='CLOSE'&&row.reconciliation_status!=='MATCHED').length;
@@ -170,9 +169,9 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const pipelineTotal=Math.max(1,visible.length);
   const pageCount=Math.max(1,Math.ceil(visible.length/10));
   const pageRows=visible.slice((page-1)*10,page*10);
-  useEffect(()=>setPage(1),[period,client,status,stage,tier,query]);
+  useEffect(()=>setPage(1),[period,client,stage,tier,query]);
   useEffect(()=>setPage((value)=>Math.min(value,pageCount)),[pageCount]);
-  const reset=()=>{setClient('ALL');setStatus('ALL');setStage('ALL');setTier('ALL');setQuery('');};
+  const reset=()=>{setClient('ALL');setStage('ALL');setTier('ALL');setQuery('');};
   const openContext=(view:AppView,submissionId?:string,businessStage?:string)=>{
     const url=new URL(window.location.href);
     if(submissionId) url.searchParams.set('submissionId',submissionId); else url.searchParams.delete('submissionId');
@@ -183,13 +182,11 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   };
 
 
-  return <section className={`control-tower${simplifiedInternal?' control-tower-simple':''}`} aria-busy={loading}>
-    <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription}</p></div><button type="button" className="btn control-refresh" onClick={()=>{invalidateOperatingCache();void load();}}><IconRefresh aria-hidden="true" /> Refresh</button></div>
+  return <section className={`control-tower${simplifiedInternal?' control-tower-simple':''}`} aria-busy={loading||refreshing}>
+    <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription}</p></div><button type="button" className="btn control-refresh" disabled={refreshing} onClick={()=>{invalidateOperatingCache();void load(true);}}><IconRefresh aria-hidden="true" /> {refreshing?'Refreshing…':'Refresh'}</button></div>
     <div className="control-bar card" aria-label="Filter dashboard payroll">
       <label><span>Klien</span><select value={client} onChange={(event)=>setClient(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
-      {simplifiedInternal
-        ? <label><span>Stage</span><select value={stage} onChange={(event)=>setStage(event.target.value)}><option value="ALL">Semua stage</option>{PIPELINE.map((item)=><option key={item.stage} value={item.stage}>{item.label}</option>)}</select></label>
-        : <label><span>Status</span><select value={status} onChange={(event)=>setStatus(event.target.value)}><option value="ALL">Semua status</option>{statuses.map((item)=><option key={item}>{item}</option>)}</select></label>}
+      <label><span>Workflow stage</span><select value={stage} onChange={(event)=>setStage(event.target.value)}><option value="ALL">Semua stage</option>{PIPELINE.map((item)=><option key={item.stage} value={item.stage}>{item.label}</option>)}</select></label>
       {!simplifiedInternal ? <label><span>Service tier</span><select value={tier} onChange={(event)=>setTier(event.target.value)}><option value="ALL">Semua tier</option>{tiers.map((item)=><option key={item}>{statusLabel(item)}</option>)}</select></label> : null}
       <label className="control-search"><span>Pencarian</span><input value={query} onChange={(event)=>setQuery(event.target.value)} placeholder="Klien, project, payroll…" /></label>
       <button type="button" onClick={reset}>Reset</button>
@@ -206,15 +203,15 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
       <div className="control-kpis" aria-label="KPI dashboard payroll">
         {simplifiedInternal ? <>
           <Kpi label="My work" value={String(actions.length)} note="Tindakan yang membutuhkan Anda" tone="blue" icon={<IconLayers />} onClick={()=>actions[0]?openContext(actions[0].view,actions[0].submissionId):openContext('operations')} />
-          <Kpi label="Need attention" value={String(actions.filter((item)=>item.tone==='danger').length)} note={`${blockers} blocker aktif`} tone="red" icon={<IconAlertTriangle />} onClick={()=>{const item=actions.find((row)=>row.tone==='danger');item?openContext(item.view,item.submissionId):openContext('exceptions');}} />
+          <Kpi label="Need attention" value={String(attentionRuns)} note={`${blockers} blocker kritis · ${openExceptions} exception`} tone="red" icon={<IconAlertTriangle />} onClick={()=>{const item=actions.find((row)=>row.tone==='danger');item?openContext(item.view,item.submissionId):openContext('exceptions');}} />
           <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval sesuai role Anda" tone="amber" icon={<IconClock />} onClick={()=>{const item=actions.find((row)=>row.category==='APPROVAL');item?openContext(item.view,item.submissionId):openContext('operations');}} />
           <Kpi label="Active payroll" value={String(activeRuns)} note={`${visible.length} payroll pada filter`} tone="navy" icon={<IconWallet />} onClick={()=>openContext('operations')} />
         </> : <>
           <Kpi label="Active pay runs" value={String(activeRuns)} note={`${visible.length} pay run terfilter`} tone="blue" icon={<IconLayers />} onClick={()=>openContext('operations')} />
-          <Kpi label="Need attention" value={String(actions.filter((item)=>item.tone==='danger').length)} note={`${blockers} blocker aktif`} tone="red" icon={<IconAlertTriangle />} onClick={()=>{const item=actions.find((row)=>row.tone==='danger');item?openContext(item.view,item.submissionId):openContext('operations');}} />
+          <Kpi label="Need attention" value={String(attentionRuns)} note={`${blockers} blocker kritis · ${openExceptions} exception`} tone="red" icon={<IconAlertTriangle />} onClick={()=>{const item=actions.find((row)=>row.tone==='danger');item?openContext(item.view,item.submissionId):openContext('exceptions');}} />
           <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval yang membutuhkan role Anda" tone="amber" icon={<IconClock />} onClick={()=>{const item=actions.find((row)=>row.category==='APPROVAL');item?openContext(item.view,item.submissionId):openContext('operations');}} />
           <Kpi label="Payment due" value={formatIDRShort(paymentDue)} note={`${paymentDueRecipients.toLocaleString('id-ID')} penerima siap / sedang dibayar`} tone="navy" icon={<IconWallet />} featured onClick={()=>openContext('payments')} />
-          <Kpi label="Paid & matched" value={String(matched)} note={`${reconciliationPending} menunggu reconciliation`} tone="green" icon={<IconCheckCircle />} onClick={()=>openContext('reports')} />
+          <Kpi label="Paid & matched" value={String(matched)} note={`${reconciliationPending} menunggu reconciliation`} tone="green" icon={<IconCheckCircle />} onClick={()=>openContext('billing',undefined,'CLOSE')} />
           <Kpi label="Open exceptions" value={String(openExceptions)} note="Belum resolved / accepted" tone="violet" icon={<IconShieldCheck />} onClick={()=>openContext('exceptions')} />
         </>}
       </div>
