@@ -109,7 +109,8 @@ export default function Home() {
     const unsub = onDbChange(() => {
       const fresh = loadDatabase();
       setDb(fresh);
-      if (fresh?.meta?.currentPeriod) setPeriod(fresh.meta.currentPeriod);
+      // The global period is owned by the canonical operating-model period
+      // selector after boot. Background/local mirror changes must not override it.
     });
     const unsubS = onSettingsChange(() => setSettings(loadSettings()));
     return () => {
@@ -183,6 +184,7 @@ export default function Home() {
   const periods = [...new Set([period,...(canonicalPeriods.length ? canonicalPeriods : (db.payrolls || []).map((item:any)=>item.period).filter(Boolean))])].sort((a:string,b:string)=>b.localeCompare(a));
   const gatewayCanView = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
   const gatewayCanExecute = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(actor.role);
+  const portalCanManage = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(actor.role);
   const simplifiedInternal = ['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
 
   return (
@@ -236,7 +238,7 @@ export default function Home() {
             {view === 'integrations' && <IntegrationsWorkspace canManage={gatewayCanExecute} canView={gatewayCanView} />}
 
             {view === 'ewa' && <EwaInbox />}
-            {view === 'portalSettings' && <PortalSettings />}
+            {view === 'portalSettings' && <PortalSettings canManage={portalCanManage} />}
             {view === 'portalAudit' && <PortalAudit />}
 
             {view === 'reports' && (actor.role === 'CLIENT_USER' ? <ClientDocumentsWorkspace actor={actor} /> : <ReportsWorkspace />)}
