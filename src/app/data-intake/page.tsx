@@ -2,7 +2,7 @@
 
 import { DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { parseIapWorkbook } from "@/lib/excel-iap";
 import { formatIDR } from "@/lib/format";
 import Sidebar, { type AppView } from "@/components/Sidebar";
@@ -44,7 +44,6 @@ type Preview = {
 
 export default function DataIntakePage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
   const [actor, setActor] = useState<{ email: string; role: string } | null>(
     null,
@@ -59,7 +58,7 @@ export default function DataIntakePage() {
   const [form, setForm] = useState({
     clientId: "",
     projectId: "",
-    period: searchParams.get("period") || new Date().toISOString().slice(0, 7),
+    period: new Date().toISOString().slice(0, 7),
   });
   const [file, setFile] = useState<File | null>(null);
   const [parsed, setParsed] = useState<Parsed | null>(null);
@@ -74,6 +73,13 @@ export default function DataIntakePage() {
     Array<{ row?: number; field?: string; message: string }>
   >([]);
   const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    const requestedPeriod = new URLSearchParams(window.location.search).get("period");
+    if (requestedPeriod && /^\d{4}-\d{2}$/.test(requestedPeriod)) {
+      setForm((current) => ({ ...current, period: requestedPeriod }));
+    }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
