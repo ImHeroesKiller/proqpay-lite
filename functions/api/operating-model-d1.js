@@ -1158,22 +1158,46 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (!submission) return { status: 404, data: { error: 'Submission not found' } };
     const existing = await d1First(database, `SELECT * FROM payment_instructions
       WHERE submission_id=? AND org_id=? AND status<>'REJECTED' ORDER BY created_at DESC LIMIT 1`, [submission.id, organizationId]);
+    if (['DATA_APPROVED','PAYROLL_FINALIZED'].includes(String(submission.state || ''))) {
+      await d1Batch(database, [
+        { statement:`UPDATE payroll_submissions SET state='CLIENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=? AND state=?`,
+          bindings:[submission.id,submission.state] },
+        auditOperation(organizationId,actor,'PAYMENT_INSTRUCTION_LEGACY_RECOVERY',
+          `${submission.state} dipulihkan ke CLIENT_APPROVAL_PENDING; client payroll approval tidak boleh dilewati`,
+          'payroll_submission',submission.id),
+      ]);
+      return { status:409, data:{
+        error:'Pay Run legacy dipulihkan ke Client Approval. Selesaikan approval payroll Client sebelum membuat Payment Instruction.',
+        code:'CLIENT_PAYROLL_APPROVAL_REQUIRED',
+        recoveredState:'CLIENT_APPROVAL_PENDING',
+      } };
+    }
     const expectedStates = ['CLIENT_APPROVED','PAYMENT_INSTRUCTION_READY'];
     if (!expectedStates.includes(submission.state)) return { status:409, data:{
       error:'Submission belum memiliki approval Client atau belum siap dibuatkan payment instruction',
       code:'CLIENT_PAYROLL_APPROVAL_REQUIRED',
     } };
-    if (submission.state === 'PAYMENT_INSTRUCTION_READY' && !existing) return { status:409, data:{
-      error:'Payment Instruction baru hanya dapat dibuat dari payroll yang memiliki approval Client',
-      code:'CLIENT_PAYROLL_APPROVAL_REQUIRED',
-    } };
-    if (submission.state === 'CLIENT_APPROVED'
-      && (submission.client_review_decision !== 'APPROVED' || !submission.client_reviewed_by)) {
+    const clientApprovalEvidence = submission.client_review_decision === 'APPROVED' && Boolean(submission.client_reviewed_by);
+    if (!clientApprovalEvidence) {
+      if (submission.state === 'PAYMENT_INSTRUCTION_READY' && !existing) {
+        await d1Batch(database, [
+          { statement:`UPDATE payroll_submissions SET state='CLIENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=? AND state='PAYMENT_INSTRUCTION_READY'`, bindings:[submission.id] },
+          auditOperation(organizationId,actor,'PAYMENT_INSTRUCTION_ORPHAN_RECOVERY',
+            'PAYMENT_INSTRUCTION_READY tanpa PI/approval evidence dipulihkan ke CLIENT_APPROVAL_PENDING',
+            'payroll_submission',submission.id),
+        ]);
+        return { status:409, data:{
+          error:'Payment Instruction orphan terdeteksi. Pay Run dipulihkan ke Client Approval untuk menjaga approval evidence.',
+          code:'CLIENT_APPROVAL_EVIDENCE_REQUIRED',
+          recoveredState:'CLIENT_APPROVAL_PENDING',
+        } };
+      }
       return { status:409, data:{
         error:'Bukti approval Client belum lengkap; Payment Instruction diblokir',
         code:'CLIENT_APPROVAL_EVIDENCE_REQUIRED',
       } };
     }
+    const recoveringOrphan = submission.state === 'PAYMENT_INSTRUCTION_READY' && !existing;
     const blocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
       AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
     if (Number(blocking?.count || 0) > 0) return { status:409, data:{
@@ -1273,7 +1297,7 @@ async function executeAction(database, body, actor, env, organizationId) {
         ...lineInsertOperations(id, snapshotLines),
         { statement:`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`,
           bindings:[submission.id] },
-        auditOperation(organizationId, actor, existing ? 'PAYMENT_INSTRUCTION_REVISED' : 'PAYMENT_INSTRUCTION_CREATED', `${documentNo} · revisi ${revisionNo} · ${snapshotLines.length} penerima · ${contentHash}`, 'payment_instruction', id),
+        auditOperation(organizationId, actor, existing ? 'PAYMENT_INSTRUCTION_REVISED' : recoveringOrphan ? 'PAYMENT_INSTRUCTION_ORPHAN_REGENERATED' : 'PAYMENT_INSTRUCTION_CREATED', `${documentNo} · revisi ${revisionNo} · ${snapshotLines.length} penerima · ${contentHash}`, 'payment_instruction', id),
       ]);
     } catch (error) {
       if (/UNIQUE constraint failed|constraint failed/i.test(String(error?.message || error))) {
