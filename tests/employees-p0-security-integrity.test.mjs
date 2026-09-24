@@ -92,7 +92,7 @@ test('Employees P0: administrative patch cannot overwrite compensation or employ
   });
   assert.equal(result.response.status,200,JSON.stringify(result.payload));
   const row=DB.sqlite.prepare('SELECT client_id,project_id,name,status_aktif,province,email FROM employees WHERE id=?').get('EMP-SAFE');
-  assert.deepEqual(row,{
+  assert.deepEqual({ ...row },{
     client_id:'CLI-EMP-A',
     project_id:'PRJ-EMP-A',
     name:'Employee Safe',
