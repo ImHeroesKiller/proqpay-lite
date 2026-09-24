@@ -21,13 +21,50 @@ const CONTROLLER_BLOCKED_FIELDS = new Set([
   'schoolName', 'major', 'hrisUser', 'inputUser', 'inputAt',
 ]);
 
+const SENSITIVE_FIELDS = new Set([
+  'nik','npwp','accountNo','bankAccount','bpjsKesehatanNo','jamsostekNo',
+  'address','motherName','birthDate','phone','mobile',
+]);
+
+function digits(value) {
+  return String(value ?? '').replace(/\D/g, '');
+}
+
+function maskLast4(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const compact = raw.replace(/\s+/g, '');
+  return compact.length <= 4 ? '••••' : `${'•'.repeat(Math.min(8, compact.length - 4))}${compact.slice(-4)}`;
+}
+
+function maskEmail(value) {
+  const raw = String(value ?? '').trim();
+  const [local, domain] = raw.split('@');
+  if (!local || !domain) return raw ? '••••' : '';
+  return `${local.slice(0, 1)}•••@${domain}`;
+}
+
 function employeeView(row, actor) {
-  if (['SUPER_ADMIN', 'PAYROLL_PROCESSOR'].includes(actor.role)) return row;
-  if (actor.role === 'PAYROLL_CONTROLLER') {
-    return Object.fromEntries(Object.entries(row).filter(([key]) => !CONTROLLER_BLOCKED_FIELDS.has(key)));
+  if (actor.permissions?.includes('employees:write')) return row;
+  const safe = { ...row };
+  for (const field of SENSITIVE_FIELDS) {
+    if (!(field in safe)) continue;
+    if (field === 'address' || field === 'motherName' || field === 'birthDate') safe[field] = '';
+    else safe[field] = maskLast4(safe[field]);
   }
-  if (actor.role === 'CLIENT_USER') return row;
-  return Object.fromEntries(Object.entries(row).filter(([key]) => BASIC_FIELDS.has(key)));
+  if ('email' in safe) safe.email = maskEmail(safe.email);
+  return Object.fromEntries(Object.entries(safe).filter(([key]) =>
+    actor.role !== 'PAYROLL_CONTROLLER' || !CONTROLLER_BLOCKED_FIELDS.has(key)
+  ));
+}
+
+function validEmail(value) {
+  const raw = String(value ?? '').trim();
+  return !raw || (raw.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw));
+}
+
+function auditSensitive(value) {
+  return value ? { present:true, last4:String(value).replace(/\s+/g,'').slice(-4) } : { present:false };
 }
 
 export async function onRequest(context) {
@@ -62,7 +99,7 @@ export async function onRequest(context) {
   const requestId = crypto.randomUUID();
 
   try {
-    if (!hasD1(env)) return respond({ status: 'error', message: 'Cloudflare D1 unavailable', requestId }, 503);
+    if (!hasD1(env)) return respond({ status:'error', message:'Layanan data karyawan belum tersedia. Hubungi administrator.', code:'EMPLOYEE_DATA_UNAVAILABLE', requestId }, 503);
     const database = env.DB;
     const actor = authorization.actor;
     const organizationId = String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');
@@ -191,6 +228,16 @@ export async function onRequest(context) {
       const existing = requestedId
         ? await d1First(database, 'SELECT * FROM employees WHERE id=? AND org_id=? LIMIT 1', [requestedId, organizationId])
         : null;
+      const before = existing ? await d1First(database, `SELECT e.client_id,e.project_id,e.branch_id,e.location_id,e.employee_code,e.name,e.status_aktif,e.province,e.email,
+          cp.basic_salary,
+          (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 ORDER BY created_at DESC LIMIT 1) AS bank_name,
+          (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 ORDER BY created_at DESC LIMIT 1) AS account_no,
+          ei.ktp_no,ei.npwp_no,ei.address,bp.bpjs_kesehatan_no,bp.jamsostek_no
+        FROM employees e
+        LEFT JOIN employee_compensation cp ON cp.employee_id=e.id
+        LEFT JOIN employee_identity ei ON ei.employee_id=e.id
+        LEFT JOIN employee_bpjs bp ON bp.employee_id=e.id
+        WHERE e.id=? AND e.org_id=? LIMIT 1`, [requestedId, organizationId]) : null;
       if (requestedId && !existing) {
         const foreign = await d1First(database, 'SELECT org_id FROM employees WHERE id=? LIMIT 1', [requestedId]);
         if (foreign) return respond({ error: 'Karyawan berada di luar organization aktif', code: 'EMPLOYEE_ORG_SCOPE_DENIED' }, 403);
@@ -224,6 +271,40 @@ export async function onRequest(context) {
         ? String(value('employeeCode','employee_code') || '').trim()
         : String(existing?.employee_code || (String(id).startsWith('EMP-') ? id : `EMP-${id}`));
 
+      if (!targetName || targetName.length > 160) return respond({ error:'Nama karyawan tidak valid', code:'EMPLOYEE_NAME_INVALID' },422);
+      if (!targetEmployeeCode || targetEmployeeCode.length > 80 || !/^[A-Za-z0-9._\/-]+$/.test(targetEmployeeCode)) {
+        return respond({ error:'Kode karyawan tidak valid', code:'EMPLOYEE_CODE_INVALID' },422);
+      }
+      if (has('email') && !validEmail(body.email)) return respond({ error:'Format email tidak valid', code:'EMPLOYEE_EMAIL_INVALID' },422);
+      if (has('nik')) {
+        const normalized=digits(body.nik);
+        if (body.nik && normalized.length!==16) return respond({ error:'NIK harus terdiri dari 16 digit', code:'EMPLOYEE_NIK_INVALID' },422);
+        body.nik=normalized || null;
+      }
+      if (has('npwp')) {
+        const normalized=digits(body.npwp);
+        if (body.npwp && ![15,16].includes(normalized.length)) return respond({ error:'NPWP harus terdiri dari 15 atau 16 digit', code:'EMPLOYEE_NPWP_INVALID' },422);
+        body.npwp=normalized || null;
+      }
+      if (supplied('accountNo','bankAccount','bank_account')) {
+        const raw=value('accountNo','bankAccount','bank_account');
+        const normalized=digits(raw);
+        if (raw && (normalized.length<6 || normalized.length>34)) return respond({ error:'Nomor rekening harus 6–34 digit', code:'EMPLOYEE_BANK_ACCOUNT_INVALID' },422);
+        if (has('accountNo')) body.accountNo=normalized || null;
+        else if (has('bankAccount')) body.bankAccount=normalized || null;
+        else body.bank_account=normalized || null;
+      }
+      if (has('bpjsKesehatanNo')) {
+        const normalized=digits(body.bpjsKesehatanNo);
+        if (body.bpjsKesehatanNo && normalized.length!==13) return respond({ error:'Nomor BPJS Kesehatan harus 13 digit', code:'EMPLOYEE_BPJS_HEALTH_INVALID' },422);
+        body.bpjsKesehatanNo=normalized || null;
+      }
+      if (has('jamsostekNo')) {
+        const normalized=digits(body.jamsostekNo);
+        if (body.jamsostekNo && normalized.length!==11) return respond({ error:'Nomor BPJS Ketenagakerjaan harus 11 digit', code:'EMPLOYEE_BPJS_WORK_INVALID' },422);
+        body.jamsostekNo=normalized || null;
+      }
+
       if (!targetName) return respond({ error: 'name required' }, 400);
       if (creating && !targetClientId) return respond({ error: 'clientId required', code: 'EMPLOYEE_CLIENT_REQUIRED' }, 422);
 
@@ -256,7 +337,7 @@ export async function onRequest(context) {
 
       if (supplied('salaryGross','salary_gross','basicSalary')) {
         const salaryGross = Number(value('salaryGross','salary_gross','basicSalary'));
-        if (!Number.isFinite(salaryGross) || salaryGross < 0) return respond({ error: 'Nilai gaji pokok tidak valid' }, 422);
+        if (!Number.isSafeInteger(salaryGross) || salaryGross < 0 || salaryGross > 1_000_000_000_000) return respond({ error:'Nilai gaji pokok tidak valid', code:'EMPLOYEE_SALARY_INVALID' },422);
         operations.push({ statement: `INSERT INTO employee_compensation (employee_id, basic_salary) VALUES (?, ?)
           ON CONFLICT (employee_id) DO UPDATE SET basic_salary=excluded.basic_salary,
           updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`, bindings: [id, salaryGross] });
@@ -277,7 +358,7 @@ export async function onRequest(context) {
             { statement: 'UPDATE employee_bank_accounts SET is_primary=0 WHERE employee_id=? AND id<>?', bindings: [id, bankId] },
             { statement: `INSERT INTO employee_bank_accounts (id, employee_id, bank_name, account_no, is_primary)
               VALUES (?, ?, ?, ?, 1) ON CONFLICT (id) DO UPDATE SET bank_name=excluded.bank_name,
-              account_no=excluded.account_no, is_primary=1`, bindings: [bankId, id, supplied('bankName') ? body.bankName || null : null, accountNo] }
+              account_no=excluded.account_no, is_primary=1`, bindings: [bankId, id, supplied('bankName') ? body.bankName || null : before?.bank_name || 'UNKNOWN', accountNo] }
           );
         }
       }
@@ -307,8 +388,39 @@ export async function onRequest(context) {
           bindings: [body.email || null, id, organizationId] });
       }
 
+      const changedFields=[];
+      const auditBefore={};
+      const auditAfter={};
+      const track=(field,beforeValue,afterValue,{sensitive=false}={})=>{
+        if (String(beforeValue ?? '')===String(afterValue ?? '')) return;
+        changedFields.push(field);
+        auditBefore[field]=sensitive?auditSensitive(beforeValue):beforeValue ?? null;
+        auditAfter[field]=sensitive?auditSensitive(afterValue):afterValue ?? null;
+      };
+      track('clientId',before?.client_id,targetClientId);
+      track('projectId',before?.project_id,targetProjectId);
+      track('employeeCode',before?.employee_code,targetEmployeeCode);
+      track('name',before?.name,targetName);
+      track('status',before?.status_aktif,targetStatus);
+      track('province',before?.province,targetProvince);
+      if (has('email')) track('email',before?.email,body.email,{sensitive:true});
+      if (supplied('salaryGross','salary_gross','basicSalary')) track('salaryGross',before?.basic_salary,Number(value('salaryGross','salary_gross','basicSalary')));
+      if (has('nik')) track('nik',before?.ktp_no,body.nik,{sensitive:true});
+      if (has('npwp')) track('npwp',before?.npwp_no,body.npwp,{sensitive:true});
+      if (has('address')) track('address',before?.address,body.address,{sensitive:true});
+      if (supplied('accountNo','bankAccount','bank_account')) track('accountNo',before?.account_no,value('accountNo','bankAccount','bank_account'),{sensitive:true});
+      if (has('bankName')) track('bankName',before?.bank_name,body.bankName);
+      if (has('bpjsKesehatanNo')) track('bpjsKesehatanNo',before?.bpjs_kesehatan_no,body.bpjsKesehatanNo,{sensitive:true});
+      if (has('jamsostekNo')) track('jamsostekNo',before?.jamsostek_no,body.jamsostekNo,{sensitive:true});
+      operations.push({
+        statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id)
+          VALUES(?,?,?,?,?,?, 'employee',?)`,
+        bindings:[`AUD-${crypto.randomUUID()}`,organizationId,actor.email,actor.role,creating?'EMPLOYEE_CREATED':'EMPLOYEE_UPDATED',
+          JSON.stringify({changedFields,before:auditBefore,after:auditAfter}),id],
+      });
+
       await d1Batch(database, operations);
-      return respond({ ok: true, id, created: creating });
+      return respond({ ok:true, id, created:creating, changedFields });
     }
 
     return respond({ error: 'Method not allowed' }, 405);

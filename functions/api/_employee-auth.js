@@ -1,10 +1,10 @@
 import {
-  constantTimeEqual, passwordRecord, validatePassword, verifyPassword,
+  constantTimeEqual, generateTemporaryPassword, passwordRecord, validatePassword, verifyPassword,
 } from './_account-auth.js';
 import { d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 
 export const EMPLOYEE_SESSION_COOKIE = 'proqpay_employee';
-export const DEFAULT_PASSWORD_SCHEME = 'PROJECT_JOIN_DATE';
+export const DEFAULT_PASSWORD_SCHEME = 'RANDOM_TEMPORARY';
 export const ISSUE_BATCH_SIZE = 10;
 
 const encoder = new TextEncoder();
@@ -44,23 +44,11 @@ export function employeeIdSuffix(employeeCode, employeeId) {
 }
 
 export function assignDefaultPasswords(rows) {
-  const prepared = (rows || []).map((row) => {
-    const slug = projectSlug(row.project_code || row.projectCode, row.project_name || row.projectName);
-    const date = uniqueJoinDate(row.join_date || row.joinDate, row.accepted_date || row.acceptedDate, row.created_at || row.createdAt);
-    return { ...row, slug, date, base: `${slug}${date}` };
-  });
-  const counts = new Map();
-  for (const row of prepared) counts.set(row.base, (counts.get(row.base) || 0) + 1);
-  const seen = new Map();
-  return prepared.map((row) => {
-    let password = counts.get(row.base) > 1
-      ? `${row.base}${employeeIdSuffix(row.employee_code || row.employeeCode, row.id)}`
-      : row.base;
-    const used = (seen.get(password) || 0) + 1;
-    seen.set(password, used);
-    if (used > 1) password = `${password}${used}`;
-    return { ...row, password, scheme: DEFAULT_PASSWORD_SCHEME };
-  });
+  return (rows || []).map((row) => ({
+    ...row,
+    password: generateTemporaryPassword(),
+    scheme: DEFAULT_PASSWORD_SCHEME,
+  }));
 }
 
 export function isActiveEmployee(row) {
