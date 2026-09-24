@@ -35,7 +35,7 @@ test('client exception correction is scoped, resumable, and returns Pay Run to C
     INSERT INTO payroll_exceptions(id,submission_id,category,severity,status,reason)
       VALUES('EX-1','SUB-EX','BANK','CRITICAL','OPEN','Rekening perlu dikoreksi');
   `);
-  const processor={id:'USR-P',email:'processor@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:[]};
+  const processor={id:'USR-P',email:'processor@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:['exception:write']};
   const client={id:'USR-C',email:'client@proqpay.test',role:'CLIENT_USER',permissions:[],clientIds:['CLI-CRIT'],projectIds:['PRJ-CRIT']};
   const env={DB,DEFAULT_ORG_ID:'ORG-OTSINDO'};
 
