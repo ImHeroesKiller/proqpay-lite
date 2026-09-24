@@ -119,6 +119,9 @@ export function validateOperatingAction(input) {
   } else if (action === 'UPDATE_SUBMISSION_PERIODS') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (!PERIOD.test(String(input.paymentPeriod || ''))) errors.push('paymentPeriod tidak valid');
+    if (!DATE.test(String(input.paymentDate || ''))) errors.push('paymentDate tidak valid');
+    if (PERIOD.test(String(input.paymentPeriod || '')) && DATE.test(String(input.paymentDate || ''))
+      && !String(input.paymentDate).startsWith(`${input.paymentPeriod}-`)) errors.push('paymentDate harus berada pada paymentPeriod yang dipilih');
     if (!Array.isArray(input.arrearsPeriods) || input.arrearsPeriods.length > 24
       || input.arrearsPeriods.some((period) => !PERIOD.test(String(period)))) errors.push('arrearsPeriods tidak valid');
   } else if (action === 'GENERATE_PAYMENT_INSTRUCTION' || action === 'APPROVE_PAYROLL_AND_GENERATE_PI') {
