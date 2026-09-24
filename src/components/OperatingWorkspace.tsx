@@ -35,6 +35,18 @@ function clientActionLabel(code:string,label:string) {
   return labels[code] || label;
 }
 
+function payRunSourceLabel(source:string) {
+  return ({
+    MASTER_CURRENT:'Current master',
+    COPY_PREVIOUS:'Previous payroll',
+    UPLOAD_FINAL:'Data Intake snapshot',
+  } as Record<string,string>)[String(source||'')] || String(source||'Unknown').replaceAll('_',' ');
+}
+
+function payRunTypeLabel(type:string) {
+  return String(type||'REGULAR')==='ADJUSTMENT'?'Adjustment':'Regular payroll';
+}
+
 function paymentBusinessLabel(status:string) {
   const labels:Record<string,string>={
     PAYMENT_INSTRUCTION_READY:'Prepared',
@@ -362,7 +374,7 @@ function CreatePayRunWizard({clients,projects,servicePlans,submissions,onClose,o
     <div className="directory-modal-title"><div><span>CREATE PAY RUN · STEP {step}/3</span><h3>{step===1?'Pilih scope payroll':step===2?'Atur periode dan sumber':'Review & buat snapshot'}</h3></div><button type="button" disabled={busy} onClick={onClose}>✕</button></div>
     <div className="pay-run-stepper"><i className={step>=1?'active':''}/><i className={step>=2?'active':''}/><i className={step>=3?'active':''}/></div>
     {step===1?<><div className="directory-form-grid"><label>Klien<select value={form.clientId} onChange={(event)=>selectClient(event.target.value)}><option value="">Pilih klien</option>{clients.map((row)=><option key={row.id} value={row.id}>{row.name} · {Number(row.employee_count||0)} karyawan</option>)}</select></label><label>Periode payroll<input type="month" value={form.period} onChange={(event)=>selectPeriod(event.target.value)}/></label><label>Project<select value={form.projectId} disabled={!form.clientId} onChange={(event)=>selectProject(event.target.value)}><option value="">Pilih project</option>{scopedProjects.map((row)=><option key={row.id} value={row.id} disabled={!Number(row.employee_count||0)}>{row.name} · {Number(row.employee_count||0)} karyawan{!Number(row.employee_count||0)?' · belum terhubung':''}</option>)}</select></label><label>Service tier<select value={form.servicePlanId} disabled={!form.clientId} onChange={(event)=>patch({servicePlanId:event.target.value})}><option value="">Pilih tier untuk periode ini</option>{scopedPlans.map((row)=><option key={row.id} value={row.id}>{String(row.tier).replaceAll('_',' ')}</option>)}</select></label></div>{client&&Number(client.employee_count||0)>0&&!scopedProjects.some((row)=>Number(row.employee_count||0)>0)?<div className="app-notice-bubble app-notice-error"><strong>Assignment project belum lengkap</strong><span>{Number(client.employee_count||0)} karyawan klien terdeteksi, tetapi belum terhubung ke project aktif. Perbarui Project pada master Employees sebelum membuat Pay Run.</span></div>:null}{client&&Number(client.unassigned_employee_count||0)>0?<div className="app-notice-bubble app-notice-info"><strong>Perlu melengkapi assignment</strong><span>{Number(client.unassigned_employee_count)} karyawan belum memiliki project dan tidak akan masuk snapshot payroll.</span></div>:null}{form.clientId&&!scopedPlans.length?<div className="app-notice-bubble app-notice-error"><strong>Tier tidak aktif pada periode {form.period}</strong><span>{clientPlans.length?'Ubah periode atau perbarui effective date service plan klien.':'Buat service plan Tier 1, Tier 2, atau Tier 3 terlebih dahulu.'}</span></div>:null}</>:null}
-    {step===2?<div className="directory-form-grid"><label>Periode pembayaran<input type="month" value={form.paymentPeriod} onChange={(event)=>patch({paymentPeriod:event.target.value})}/></label><label>Tanggal pembayaran<input type="date" value={form.paymentDate} onChange={(event)=>patch({paymentDate:event.target.value})}/></label><label>Jenis Pay Run<select value={form.runType} onChange={(event)=>patch({runType:event.target.value,parentSubmissionId:''})}><option value="REGULAR">Regular payroll</option><option value="OFF_CYCLE">Off-cycle payroll</option><option value="ADJUSTMENT">Adjustment</option></select></label><label className="directory-form-wide">Sumber data<select value={form.sourceMode} onChange={(event)=>patch({sourceMode:event.target.value})}><option value="COPY_PREVIOUS">Salin periode sebelumnya</option><option value="MASTER_CURRENT">Master data terbaru</option></select><small>{form.sourceMode==='COPY_PREVIOUS'?'Snapshot periode terakhir yang sudah final akan disalin lalu direkonsiliasi dengan karyawan aktif bulan berjalan.':'Payroll periode yang sama dipakai bila tersedia; jika tidak, gaji pokok master menjadi gross/THP awal.'}</small><a className="directory-hint" href="/data-intake">Payroll final dari klien diproses melalui Data Intake →</a></label>{form.runType==='ADJUSTMENT'?<><label className="directory-form-wide">Pay Run induk<select value={form.parentSubmissionId} onChange={(event)=>patch({parentSubmissionId:event.target.value})}><option value="">Pilih Pay Run REGULAR yang sudah final</option>{parentRuns.map((row)=><option key={row.id} value={row.id}>{row.period} · {row.client_name||row.client_id} · {formatIDR(Number(row.total_net||0))}</option>)}</select></label><div className="directory-form-wide app-notice-bubble app-notice-info"><strong>Adjustment terhubung ke payroll induk</strong><span>{parentRuns.length?'Hanya Pay Run REGULAR yang sudah melewati finalisasi/approval dan periodenya tidak lebih baru yang dapat dipilih.':'Belum ada Pay Run induk yang memenuhi syarat untuk scope dan periode ini.'}</span></div></>:null}</div>:null}
+    {step===2?<div className="directory-form-grid"><label>Periode pembayaran<input type="month" value={form.paymentPeriod} onChange={(event)=>patch({paymentPeriod:event.target.value})}/></label><label>Tanggal pembayaran<input type="date" value={form.paymentDate} onChange={(event)=>patch({paymentDate:event.target.value})}/></label><label>Jenis Pay Run<select value={form.runType} onChange={(event)=>patch({runType:event.target.value,parentSubmissionId:''})}><option value="REGULAR">Regular payroll</option><option value="OFF_CYCLE">Off-cycle payroll</option><option value="ADJUSTMENT">Adjustment</option></select></label><label className="directory-form-wide">Sumber data<select value={form.sourceMode} onChange={(event)=>patch({sourceMode:event.target.value})}><option value="COPY_PREVIOUS">Previous payroll — salin periode sebelumnya</option><option value="MASTER_CURRENT">Current master — data master terbaru</option></select><small>{form.sourceMode==='COPY_PREVIOUS'?'Snapshot periode terakhir yang sudah final akan disalin lalu direkonsiliasi dengan karyawan aktif bulan berjalan.':'Payroll periode yang sama dipakai bila tersedia; jika tidak, gaji pokok master menjadi gross/THP awal.'}</small><a className="directory-hint" href="/data-intake">Payroll final dari klien diproses melalui Data Intake →</a></label>{form.runType==='ADJUSTMENT'?<><label className="directory-form-wide">Pay Run induk<select value={form.parentSubmissionId} onChange={(event)=>patch({parentSubmissionId:event.target.value})}><option value="">Pilih Pay Run REGULAR yang sudah final</option>{parentRuns.map((row)=><option key={row.id} value={row.id}>{row.period} · {row.client_name||row.client_id} · {formatIDR(Number(row.total_net||0))}</option>)}</select></label><div className="directory-form-wide app-notice-bubble app-notice-info"><strong>Adjustment terhubung ke payroll induk</strong><span>{parentRuns.length?'Hanya Pay Run REGULAR yang sudah melewati finalisasi/approval dan periodenya tidak lebih baru yang dapat dipilih.':'Belum ada Pay Run induk yang memenuhi syarat untuk scope dan periode ini.'}</span></div></>:null}</div>:null}
     {step===3?<div className="pay-run-review"><div><span>Scope</span><strong>{clients.find((row)=>row.id===form.clientId)?.name||'-'}</strong><small>{project?.name||'-'} · {Number(project?.employee_count||0)} karyawan aktif</small></div><div><span>Periode</span><strong>{form.period}</strong><small>Bayar {form.paymentDate}</small></div><div><span>Service</span><strong>{String(plan?.tier||'-').replaceAll('_',' ')}</strong><small>{form.runType.replaceAll('_',' ')}</small></div><div><span>Sumber</span><strong>{form.sourceMode.replaceAll('_',' ')}</strong><small>Snapshot terpisah dari master data</small></div><p>Pay Run dibuat per project dan periode. Perubahan master berikutnya tidak akan mengubah snapshot periode ini.</p></div>:null}
     {error?<div className="app-notice-bubble app-notice-error"><strong>Pay Run belum dibuat</strong><span>{error}</span></div>:null}
     <div className="directory-modal-actions"><button type="button" className="btn" disabled={busy} onClick={()=>step===1?onClose():setStep((value)=>value-1)}>{step===1?'Batal':'Kembali'}</button>{step<3?<button type="button" className="btn btn-primary" disabled={!canNext} onClick={()=>setStep((value)=>value+1)}>Lanjut</button>:<button type="button" className="btn btn-primary" disabled={busy} onClick={()=>void create()}>{busy?'Membuat snapshot…':'Buat Pay Run'}</button>}</div>
@@ -380,6 +392,7 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
   const [runDetailLoading,setRunDetailLoading]=useState(false);
   const [workflowDialog,setWorkflowDialog]=useState<{kind:'DELETE'|'REFRESH'|'REOPEN'|'CONTROLLER_REVISION'|'CLIENT_REVISION'|'CLOSE';value:string}>({kind:'REFRESH',value:''});
   const [workflowDialogOpen,setWorkflowDialogOpen]=useState(false);
+  const [runGroup,setRunGroup]=useState<'ALL'|'PREPARE'|'REVIEW'|'APPROVE'|'PAY'|'CLOSE'|'BLOCKED'>('ALL');
   const reviewDialogRef=useRef<HTMLDivElement>(null);
   const previousFocusRef=useRef<HTMLElement|null>(null);
   const instructionBySubmission=new Map(instructions.map((row)=>[row.submission_id,row]));
@@ -429,16 +442,34 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
     return()=>{cancelAnimationFrame(frame);document.removeEventListener('keydown',onKey);document.body.style.overflow=oldOverflow;previousFocusRef.current?.focus();};
   },[selected,workflowDialogOpen]);
 
-  if (!rows.length) return <Empty title="Belum ada payroll submission" detail="Submission baru akan tampil setelah service plan klien aktif dan data periode dikirim." />;
+  const businessFor=(row:any)=>derivePayrollBusinessStage({
+    state:row.state,
+    paymentInstructionStatus:instructionBySubmission.get(row.id)?.status,
+    invoiceStatus:row.invoice_status,
+    arStatus:row.ar_status,
+    reconciliationStatus:row.reconciliation_status,
+    periodStatus:row.period_status,
+    blockingCount:row.blocking_count,
+    exceptionCount:row.exception_count,
+  });
+  const groupCounts={
+    PREPARE:rows.filter((row)=>businessFor(row).stage==='PREPARE').length,
+    REVIEW:rows.filter((row)=>businessFor(row).stage==='REVIEW').length,
+    APPROVE:rows.filter((row)=>businessFor(row).stage==='APPROVE').length,
+    PAY:rows.filter((row)=>businessFor(row).stage==='PAY').length,
+    CLOSE:rows.filter((row)=>businessFor(row).stage==='CLOSE').length,
+    BLOCKED:rows.filter((row)=>Number(row.blocking_count||0)>0).length,
+  };
+  const groupedRows=rows.filter((row)=>runGroup==='ALL' || (runGroup==='BLOCKED' ? Number(row.blocking_count||0)>0 : businessFor(row).stage===runGroup));
+  const actionRequiredCount=rows.filter((row)=>nextActionFor(row).actionable).length;
+  const adjustmentCount=rows.filter((row)=>String(row.run_type||'REGULAR')==='ADJUSTMENT').length;
+  const readyForPaymentCount=rows.filter((row)=>['APPROVE','PAY'].includes(businessFor(row).stage)&&!Number(row.blocking_count||0)).length;
+
+  if (!rows.length) return <Empty title="Belum ada Pay Run pada scope ini" detail={role==='CLIENT_USER'?'Payroll akan muncul setelah data periode diproses oleh payroll team.':'Buat Pay Run baru atau ubah filter periode/klien untuk melihat payroll yang tersedia.'} />;
   const simpleHeaders=role==='CLIENT_USER'?['Payroll','Stage','Net / THP','Payment','Next']:['Klien / Periode','Stage','Net / THP','Next action'];
-  const table = <CardTable headers={simplified?simpleHeaders:['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={rows.map((r) => {
+  const desktopTable = <div className="pay-run-desktop-list"><CardTable headers={simplified?simpleHeaders:['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={groupedRows.map((r) => {
     const nextAction=nextActionFor(r);
-    const business=derivePayrollBusinessStage({
-      state:r.state,
-      paymentInstructionStatus:instructionBySubmission.get(r.id)?.status,
-      invoiceStatus:r.invoice_status,
-      arStatus:r.ar_status,
-    });
+    const business=businessFor(r);
     const rawLabel=nextAction.actionable||nextAction.category==='MONITOR'?nextAction.label:'View Status';
     const label=role==='CLIENT_USER'?clientActionLabel(nextAction.code,rawLabel):rawLabel;
     const targetView=role==='CLIENT_USER'&&nextAction.view==='billing'?'reports':nextAction.view;
@@ -447,24 +478,57 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
       : <a key="action" className="btn" href={`?view=${targetView}`}>{label}</a>;
     const instruction=instructionBySubmission.get(r.id);
     return simplified ? role==='CLIENT_USER' ? [
-      <div key="id"><strong>{r.project_name || r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small></div>,
+      <div key="id"><strong>{r.project_name || r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small>{String(r.run_type||'REGULAR')==='ADJUSTMENT'?<span className="pay-run-mini-badge">Adjustment</span>:null}</div>,
       <div key="stage"><span className="stage-pill">{business.label}</span><small style={small}>{business.description}</small></div>,
       <div key="summary"><strong>{formatIDR(Number(r.total_net || 0))}</strong><small style={small}>{Number(r.employee_count || 0)} karyawan</small></div>,
       <div key="payment"><strong>{instruction?paymentBusinessLabel(instruction.status):'Belum masuk pembayaran'}</strong><small style={small}>{instruction?.status==='COMPLETED'?'Pembayaran selesai':'Pantau dari stage payroll'}</small></div>,
       <div key="next">{actionCell}<small style={small}>{nextAction.actionable?'Perlu tindakan':'Pantau status'}</small></div>,
     ] : [
-      <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id}</small></div>,
+      <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id}</small>{String(r.run_type||'REGULAR')==='ADJUSTMENT'?<span className="pay-run-mini-badge">Adjustment</span>:null}</div>,
       <div key="stage"><span className="stage-pill">{business.label}</span><small style={small}>{String(business.status).replaceAll('_',' ')}</small></div>,
       <div key="summary"><strong>{formatIDR(Number(r.total_net || 0))}</strong><small style={small}>{Number(r.employee_count || 0)} karyawan{Number(r.blocking_count||0)?` · ${r.blocking_count} blocker`:''}</small></div>,
       <div key="next">{actionCell}<small style={small}>{nextAction.actionable?'Action required':'Monitor only'}</small></div>,
     ] : [
-      <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id} · {String(r.run_type||'REGULAR').replaceAll('_',' ')}</small></div>,
+      <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id} · {payRunTypeLabel(r.run_type)}</small></div>,
       String(r.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' '),
-      <Badge key="state" text={r.state} />,
+      <span key="state" className="stage-pill">{business.label}</span>,
       <div key="summary"><strong>{Number(r.employee_count || 0)} karyawan</strong><small style={small}>{formatIDR(Number(r.total_net || 0))} · {Number(r.blocking_count || 0)} blocker</small></div>,
       actionCell,
     ];
-  })} />;
+  })} /></div>;
+
+  const mobileList=<div className="pay-run-mobile-list">{groupedRows.map((r)=>{
+    const nextAction=nextActionFor(r);
+    const business=businessFor(r);
+    const instruction=instructionBySubmission.get(r.id);
+    return <article key={r.id} className="pay-run-mobile-card">
+      <div className="pay-run-mobile-head"><div><span>{r.period}</span><strong>{r.client_name||r.client_id}</strong></div><span className="stage-pill">{business.label}</span></div>
+      <div className="pay-run-mobile-scope"><span>{r.project_name||'-'}</span><span>{payRunTypeLabel(r.run_type)}</span><span>{payRunSourceLabel(r.source_mode)}</span></div>
+      <div className="pay-run-mobile-metrics"><div><span>Net/THP</span><strong>{formatIDR(Number(r.total_net||0))}</strong></div><div><span>Headcount</span><strong>{Number(r.employee_count||0).toLocaleString('id-ID')}</strong></div><div><span>Blocker</span><strong>{Number(r.blocking_count||0)}</strong></div></div>
+      <div className="pay-run-mobile-footer"><small>{instruction?paymentBusinessLabel(instruction.status):nextAction.description}</small><button type="button" className="btn btn-primary" onClick={()=>openReview(r)}>{role==='CLIENT_USER'?clientActionLabel(nextAction.code,nextAction.label):(nextAction.actionable?nextAction.label:'Lihat Pay Run')}</button></div>
+    </article>;
+  })}</div>;
+
+  const table=<div className="pay-run-execution-center">
+    {role!=='CLIENT_USER'?<div className="pay-run-p3-summary">
+      <div><span>Action required</span><strong>{actionRequiredCount}</strong><small>Dari {rows.length} Pay Run</small></div>
+      <div><span>Blocker</span><strong>{groupCounts.BLOCKED}</strong><small>Harus diselesaikan</small></div>
+      <div><span>Ready / payment</span><strong>{readyForPaymentCount}</strong><small>Tanpa blocker</small></div>
+      <div><span>Adjustment</span><strong>{adjustmentCount}</strong><small>Correction run</small></div>
+    </div>:null}
+    {role!=='CLIENT_USER'?<div className="pay-run-group-tabs" aria-label="Kelompok Pay Run">
+      {[
+        ['ALL','Semua',rows.length],
+        ['PREPARE','Prepare',groupCounts.PREPARE],
+        ['REVIEW','Review',groupCounts.REVIEW],
+        ['APPROVE','Approve',groupCounts.APPROVE],
+        ['PAY','Pay',groupCounts.PAY],
+        ['CLOSE','Close',groupCounts.CLOSE],
+        ['BLOCKED','Blocker',groupCounts.BLOCKED],
+      ].map(([value,label,count])=><button key={String(value)} type="button" className={runGroup===value?'active':''} onClick={()=>setRunGroup(value as typeof runGroup)}><span>{label}</span><b>{count}</b></button>)}
+    </div>:null}
+    {groupedRows.length?<>{desktopTable}{mobileList}</>:<div className="card pay-run-filter-empty"><strong>Tidak ada Pay Run pada kelompok ini</strong><span>Pilih stage lain atau kembali ke Semua untuk melihat Pay Run lainnya.</span><button type="button" className="btn" onClick={()=>setRunGroup('ALL')}>Tampilkan semua</button></div>}
+  </div>;
   if (!selected) return table;
   const nextAction=nextActionFor(selected);
   const next=nextAction.workflowCommand;
@@ -485,8 +549,13 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
   return <>{table}{createPortal(<div className="directory-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
     <div ref={reviewDialogRef} className="directory-modal payroll-review-modal" role="dialog" aria-modal="true" aria-label="Review payroll submission">
       <div className="directory-modal-title"><div><span>{role==='CLIENT_USER'?'PAYROLL':'PAYROLL REVIEW'}</span><h3>{selected.client_name || selected.client_id}</h3></div><button type="button" aria-label="Tutup review Pay Run" onClick={() => setSelected(null)}>✕</button></div>
+      <div className="pay-run-review-hero">
+        <div><span>{payRunTypeLabel(selected.run_type)}</span><strong>{selected.project_name || selected.client_name || selected.client_id}</strong><small>Payroll {selected.period} · Bayar {selected.payment_period || selected.period}</small></div>
+        <div><span>Current stage</span><strong>{businessStage.label}</strong><small>{nextAction.actionable?`Next: ${nextAction.label}`:'Monitoring workflow'}</small></div>
+      </div>
+      {String(selected.run_type||'REGULAR')==='ADJUSTMENT'?<div className="pay-run-parent-context"><span>ADJUSTMENT LINK</span><strong>Correction run untuk Pay Run induk</strong><small>{selected.parent_submission_id?`Parent: ${selected.parent_submission_id}`:'Parent Pay Run terhubung pada snapshot backend.'}</small></div>:null}
       <div className="payroll-review-meta"><div><span>Payroll</span><strong>{selected.period}</strong></div><div><span>Project</span><strong>{selected.project_name || '-'}</strong></div>{role!=='CLIENT_USER'?<div><span>Tier</span><strong>{String(selected.service_tier || '-').replace('TIER_','Tier ').replaceAll('_',' ')}</strong></div>:<div><span>Net/THP</span><strong>{formatIDR(Number(selected.total_net||0))}</strong></div>}<div><span>Stage</span><strong>{businessStage.label}</strong>{role!=='CLIENT_USER'?<small>{String(selected.state||'').replaceAll('_',' ')}</small>:null}</div></div>
-      {role!=='CLIENT_USER'?<div className="pay-run-lifecycle"><span className={selected.input_status==='READY'?'ready':''}>Input {selected.input_status||'LEGACY'}</span><span>{String(selected.run_type||'REGULAR').replaceAll('_',' ')}</span><span>{String(selected.source_mode||'UPLOAD_FINAL').replaceAll('_',' ')}</span><span className={selected.period_status==='CLOSED'?'closed':''}>Periode {selected.period_status||'OPEN'}</span></div>:null}
+      {role!=='CLIENT_USER'?<div className="pay-run-lifecycle"><span className={selected.input_status==='READY'?'ready':''}>Input {selected.input_status||'LEGACY'}</span><span>{payRunTypeLabel(selected.run_type)}</span><span>{payRunSourceLabel(selected.source_mode)}</span><span className={selected.period_status==='CLOSED'?'closed':''}>Periode {selected.period_status||'OPEN'}</span></div>:null}
       <div className="pay-run-flow-guide" aria-label="Tahapan Pay Run menuju Payment Instruction">{flowStates.map((state,index)=><div key={state} className={index<currentFlowIndex?'done':index===currentFlowIndex?'current':''}><i>{index<currentFlowIndex?'✓':index+1}</i><span>{state}</span></div>)}</div>
       <div className={`pay-run-next-action ${nextAction.actionable?'':'pending'}`}><strong>{role==='CLIENT_USER'?clientActionLabel(nextAction.code,nextAction.label):(nextAction.actionable?`Next action: ${nextAction.label}`:nextAction.label)}</strong><span>{nextAction.description}</span></div>
       <div className="payroll-review-totals"><div><span>Karyawan</span><strong>{Number(selected.employee_count || 0)}</strong></div><div><span>Gross</span><strong>{formatIDR(Number(selected.total_gross || 0))}</strong></div><div><span>Potongan</span><strong>{formatIDR(Number(selected.total_deduction || 0))}</strong></div><div><span>Net/THP</span><strong>{formatIDR(Number(selected.total_net || 0))}</strong></div></div>
