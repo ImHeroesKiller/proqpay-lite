@@ -63,6 +63,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const [originalProjectClientId,setOriginalProjectClientId] = useState('');
   const [detail,setDetail] = useState<{type:'client'|'project';item:Client|Project}|null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const detailDialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement|null>(null);
 
   const load = useCallback(async () => {
@@ -156,15 +157,17 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   useEffect(()=>setProjectPage((value)=>Math.min(value,projectPageCount)),[projectPageCount]);
 
   useEffect(()=>{
-    if(!mode) return;
+    if(!mode&&!detail) return;
     previousFocusRef.current=document.activeElement instanceof HTMLElement?document.activeElement:null;
     const originalOverflow=document.body.style.overflow;
     document.body.style.overflow='hidden';
-    const frame=requestAnimationFrame(()=>dialogRef.current?.querySelector<HTMLElement>('input,select,textarea,button')?.focus());
+    const activeDialog=()=>mode?dialogRef.current:detailDialogRef.current;
+    const frame=requestAnimationFrame(()=>activeDialog()?.querySelector<HTMLElement>('input,select,textarea,button')?.focus());
     const handleKey=(event:KeyboardEvent)=>{
-      if(event.key==='Escape'){event.preventDefault();setMode(null);return;}
-      if(event.key!=='Tab'||!dialogRef.current) return;
-      const focusable=[...dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')];
+      if(event.key==='Escape'){event.preventDefault();if(mode)setMode(null);else setDetail(null);return;}
+      const dialog=activeDialog();
+      if(event.key!=='Tab'||!dialog) return;
+      const focusable=[...dialog.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')];
       if(!focusable.length) return;
       const first=focusable[0],last=focusable[focusable.length-1];
       if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
@@ -177,7 +180,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
       document.body.style.overflow=originalOverflow;
       previousFocusRef.current?.focus();
     };
-  },[mode]);
+  },[mode,detail]);
 
   const statusClass=(status?:string)=>String(status||'ACTIVE').toLowerCase().replaceAll('_','-');
 
@@ -249,7 +252,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
           <div className="directory-modal-actions"><button type="button" className="btn" onClick={() => setMode(null)}>Batal</button><button type="button" className="btn btn-primary" disabled={saving || !form.name || (mode === 'project' && !form.clientId)} onClick={() => void submit()}>{saving ? 'Menyimpan…' : editingId ? 'Simpan perubahan' : 'Simpan'}</button></div>
         </div>
       </div>, document.body) : null}
-      {detail ? createPortal(<div className="directory-modal-backdrop" role="presentation" onMouseDown={(event)=>{if(event.target===event.currentTarget)setDetail(null);}}><div className="directory-modal directory-detail-modal" role="dialog" aria-modal="true" aria-label={`Detail ${detail.type}`}><div className="directory-modal-title"><div><span>MASTER DATA</span><h3>{detail.item.name}</h3></div><button type="button" aria-label="Tutup detail" onClick={()=>setDetail(null)}>✕</button></div><DirectoryDetail detail={detail} /><div className="directory-modal-actions"><button type="button" className="btn" onClick={()=>setDetail(null)}>Tutup</button>{detail.type==='client'&&canCreateClient?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editClient(detail.item as Client);}}>Kelola</button>:detail.type==='project'&&canCreateProject&&(detail.item as Project).client_id?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editProject(detail.item as Project);}}>Kelola</button>:null}</div></div></div>,document.body):null}
+      {detail ? createPortal(<div className="directory-modal-backdrop" role="presentation" onMouseDown={(event)=>{if(event.target===event.currentTarget)setDetail(null);}}><div ref={detailDialogRef} className="directory-modal directory-detail-modal" role="dialog" aria-modal="true" aria-label={`Detail ${detail.type}`}><div className="directory-modal-title"><div><span>MASTER DATA</span><h3>{detail.item.name}</h3></div><button type="button" aria-label="Tutup detail" onClick={()=>setDetail(null)}>✕</button></div><DirectoryDetail detail={detail} /><div className="directory-modal-actions"><button type="button" className="btn" onClick={()=>setDetail(null)}>Tutup</button>{detail.type==='client'&&canCreateClient?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editClient(detail.item as Client);}}>Kelola</button>:detail.type==='project'&&canCreateProject&&(detail.item as Project).client_id?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editProject(detail.item as Project);}}>Kelola</button>:null}</div></div></div>,document.body):null}
     </section>
   );
 }
