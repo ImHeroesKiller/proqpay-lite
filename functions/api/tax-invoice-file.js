@@ -10,8 +10,11 @@ const NOW="strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 const orgId=(env)=>String(env.DEFAULT_ORG_ID||'ORG-OTSINDO');
 const field=(form,name)=>String(form.get(name)||'').trim();
 
-function canAccess(actor,clientId){
-  return actor.role!=='CLIENT_USER'||new Set((actor.clientIds||[]).map(String)).has(String(clientId));
+function canAccess(actor,clientId,projectId){
+  if(actor.role!=='CLIENT_USER') return true;
+  if(!new Set((actor.clientIds||[]).map(String)).has(String(clientId))) return false;
+  const projects=Array.isArray(actor.projectIds)?actor.projectIds.map(String):[];
+  return !projects.length||Boolean(projectId&&projects.includes(String(projectId)));
 }
 
 export async function onRequest({request,env}){
@@ -30,9 +33,9 @@ export async function onRequest({request,env}){
     if(request.method==='GET'){
       const invoiceId=new URL(request.url).searchParams.get('invoiceId')||'';
       if(!ID.test(invoiceId)) return respond({error:'ID invoice tidak valid'},400);
-      const invoice=await d1First(database,'SELECT id,client_id FROM invoices WHERE id=? AND org_id=? LIMIT 1',[invoiceId,organizationId]);
+      const invoice=await d1First(database,'SELECT id,client_id,project_id FROM invoices WHERE id=? AND org_id=? LIMIT 1',[invoiceId,organizationId]);
       if(!invoice) return respond({error:'Invoice tidak ditemukan'},404);
-      if(!canAccess(authorization.actor,invoice.client_id)) return respond({error:'Akun tidak memiliki akses ke invoice ini'},403);
+      if(!canAccess(authorization.actor,invoice.client_id,invoice.project_id)) return respond({error:'Akun tidak memiliki akses ke invoice ini'},403);
       const audit=await d1First(database,`SELECT detail FROM audit_logs WHERE org_id=? AND entity='tax_invoice_file' AND entity_id=? AND action='TAX_INVOICE_FILE_UPLOADED' ORDER BY timestamp DESC LIMIT 1`,[organizationId,invoiceId]);
       if(!audit) return respond({error:'File faktur pajak belum tersedia'},404);
       const detail=JSON.parse(audit.detail||'{}'),object=await bucket.get(detail.objectKey);
