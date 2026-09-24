@@ -39,6 +39,11 @@ function clientFilter(actor,column) {
   if (!ids.length) return {sql:' AND 1=0',bindings:[]};
   return {sql:` AND ${column} IN (${ids.map(()=>'?').join(',')})`,bindings:ids};
 }
+function projectFilter(actor,column) {
+  const ids=actor.role==='CLIENT_USER'&&Array.isArray(actor.projectIds)?actor.projectIds.map(String):[];
+  if (actor.role!=='CLIENT_USER'||!ids.length) return {sql:'',bindings:[]};
+  return {sql:` AND ${column} IN (${ids.map(()=>'?').join(',')})`,bindings:ids};
+}
 async function nextInvoiceSequence(database, organizationId, period) {
   const row = await d1First(database, `INSERT INTO invoice_sequences(org_id,period,next_number,updated_at)
     VALUES(?,?,2,${NOW})
@@ -76,7 +81,8 @@ export async function onRequest({request,env}) {
     if (request.method==='GET') {
       const focusSubmissionId=new URL(request.url).searchParams.get('submissionId');
       const submissionFilter=focusSubmissionId?{sql:' AND s.id=?',bindings:[focusSubmissionId]}:{sql:'',bindings:[]};
-      const cs=clientFilter(actor,'id'),is=clientFilter(actor,'i.client_id'),as=clientFilter(actor,'ar.client_id');
+      const cs=clientFilter(actor,'id'),is=clientFilter(actor,'i.client_id'),as=clientFilter(actor,'ar.client_id'),
+        ips=projectFilter(actor,'i.project_id'),aps=projectFilter(actor,'ar.project_id');
       const [clients,billablePayments,invoices,arItems]=await Promise.all([
         d1All(database,`SELECT id,code,name,npwp,nitku,billing_address,billing_email,payment_terms_days,tax_status,
           purchase_order,billing_method,billing_rate,billing_admin_fee,billing_tax_rate FROM clients
@@ -97,8 +103,8 @@ export async function onRequest({request,env}) {
           LEFT JOIN payment_instructions pi_link ON pi_link.id=i.payment_instruction_id
           LEFT JOIN payroll_submissions s ON s.id=pi_link.submission_id
           LEFT JOIN projects p ON p.id=i.project_id LEFT JOIN ar_monitor ar ON ar.invoice_id=i.id
-          WHERE i.org_id=?${is.sql}${actor.role==='CLIENT_USER'?" AND i.status IN ('ISSUED','PARTIALLY_PAID','PAID')":''}${submissionFilter.sql}
-          ORDER BY (i.issued_at IS NULL),i.issued_at DESC,i.updated_at DESC LIMIT 500`,[organizationId,...is.bindings,...submissionFilter.bindings]),
+          WHERE i.org_id=?${is.sql}${actor.role==='CLIENT_USER'?" AND i.status IN ('ISSUED','PARTIALLY_PAID','PAID')":''}${ips.sql}${submissionFilter.sql}
+          ORDER BY (i.issued_at IS NULL),i.issued_at DESC,i.updated_at DESC LIMIT 500`,[organizationId,...is.bindings,...ips.bindings,...submissionFilter.bindings]),
         d1All(database,`SELECT ar.*,i.invoice_number,i.total_amount,i.issued_at,c.name AS client_name,p.name AS project_name,
           CASE WHEN ar.status NOT IN ('PAID','DISPUTED') AND date(ar.due_date)<date('now') THEN 'OVERDUE'
           WHEN ar.status='OUTSTANDING' AND date(ar.due_date)>=date('now') THEN 'NOT_DUE' ELSE ar.status END AS display_status,
@@ -116,8 +122,8 @@ export async function onRequest({request,env}) {
           FROM ar_monitor ar JOIN invoices i ON i.id=ar.invoice_id JOIN clients c ON c.id=ar.client_id
           LEFT JOIN payment_instructions pi_link ON pi_link.id=i.payment_instruction_id
           LEFT JOIN payroll_submissions s ON s.id=pi_link.submission_id
-          LEFT JOIN projects p ON p.id=ar.project_id WHERE ar.org_id=?${as.sql}${submissionFilter.sql}
-          ORDER BY ar.due_date DESC LIMIT 500`,[organizationId,...as.bindings,...submissionFilter.bindings]),
+          LEFT JOIN projects p ON p.id=ar.project_id WHERE ar.org_id=?${as.sql}${aps.sql}${submissionFilter.sql}
+          ORDER BY ar.due_date DESC LIMIT 500`,[organizationId,...as.bindings,...aps.bindings,...submissionFilter.bindings]),
       ]);
       for (const invoice of invoices) invoice.items=parseJson(invoice.items);
       for (const ar of arItems) { ar.payments=parseJson(ar.payments); ar.unapplied_cash=parseJson(ar.unapplied_cash); ar.follow_ups=parseJson(ar.follow_ups); }
