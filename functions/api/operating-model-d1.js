@@ -2,7 +2,7 @@ import { d1All, d1Batch, d1First } from './_d1.js';
 import { applyEwaRepayments, markEwaRepaid } from './_ewa.js';
 import { handlePreflight, publicError, secureJson } from './_security.js';
 import { canTransition, resolveTierTransition, validateOperatingAction } from './operating-model-validation.js';
-import { canonicalBankCode, encryptAccountNumber, instructionContentHash, sha256Hex } from './payment-instruction-core.js';
+import { canonicalBankCode, decryptAccountNumber, encryptAccountNumber, instructionContentHash, sha256Hex } from './payment-instruction-core.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const PROCESSOR_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
@@ -327,8 +327,17 @@ async function readResource(database, params, actor, env, organizationId) {
         WHERE pa.payment_instruction_id=? ORDER BY pa.created_at`, [paymentInstructionId]),
     ]);
     const total = lines.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const expectedRecipients = Number(instruction.recipient_count || 0);
+    const recipientBalanced = expectedRecipients === lines.length;
     return { data: { ok: true, paymentInstruction: instruction, lines, approvals,
-      control: { recipientCount: lines.length, totalAmount: total, expectedTotal: Number(instruction.expected_total), balanced: total === Number(instruction.expected_total) } } };
+      control: {
+        recipientCount: lines.length,
+        expectedRecipientCount: expectedRecipients,
+        recipientBalanced,
+        totalAmount: total,
+        expectedTotal: Number(instruction.expected_total),
+        balanced: total === Number(instruction.expected_total),
+      } } };
   }
 
   if (resource === 'payment-proofs') {
@@ -1142,8 +1151,8 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'GENERATE_PAYMENT_INSTRUCTION') {
-    if (!PROCESSOR_ROLES.has(actor.role)) {
-      return { status:403, data:{ error:'Hanya Payroll Processor yang dapat membuat PI' } };
+    if (!PROCESSOR_ROLES.has(actor.role) || !actor.permissions?.includes('payment:prepare')) {
+      return { status:403, data:{ error:'Hanya Payroll Processor dengan izin payment:prepare yang dapat membuat PI', code:'PAYMENT_PREPARE_PERMISSION_REQUIRED' } };
     }
     const submission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
     if (!submission) return { status: 404, data: { error: 'Submission not found' } };
@@ -1174,8 +1183,11 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (existing && existing.status !== 'REVISION_REQUIRED') return { data: { ok: true, paymentInstruction: existing, idempotentReplay: true } };
     const snapshotCount = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_run_lines WHERE submission_id=?`, [submission.id]);
     const source = Number(snapshotCount?.count || 0) ? await d1All(database, `SELECT l.employee_id AS id,l.employee_name AS name,l.net_amount AS amount,
-      eba.bank_name,eba.account_no,l.account_last4 FROM payroll_run_lines l
+      eba.bank_name,eba.account_no,l.account_last4,
+      pbs.bank_name AS snapshot_bank_name,pbs.account_last4 AS snapshot_account_last4,pbs.account_fingerprint
+      FROM payroll_run_lines l
       LEFT JOIN employee_bank_accounts eba ON eba.employee_id=l.employee_id AND eba.is_primary=1
+      LEFT JOIN payroll_bank_snapshots pbs ON pbs.submission_id=l.submission_id AND pbs.employee_id=l.employee_id
       WHERE l.submission_id=? AND l.included=1 ORDER BY l.employee_name`, [submission.id])
       : await d1All(database, `SELECT e.id,e.name,COALESCE(ec.imported_net,0) AS amount,
         (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS bank_name,
@@ -1185,10 +1197,27 @@ async function executeAction(database, body, actor, env, organizationId) {
         AND (? IS NULL OR e.project_id=?) AND ec.payroll_source_period=? ORDER BY e.name`,
         [submission.client_id, submission.project_id || null, submission.project_id || null, submission.period]);
     if (!source.length) return { status: 409, data: { error: 'Tidak ada data payroll final untuk periode submission' } };
-    const invalid = source.filter((row) => Number(row.amount || 0) <= 0 || !row.bank_name || !row.account_no);
+    const invalid = source.filter((row) => Number(row.amount || 0) <= 0 || !row.bank_name || !/^\d{6,34}$/.test(String(row.account_no || '').replace(/\s+/g,'')));
     if (invalid.length) return { status: 409, data: { error: `${invalid.length} karyawan belum memiliki THP atau rekening bank yang valid` } };
-    const changedAccounts = source.filter((row) => row.account_last4 && String(row.account_no).slice(-4) !== String(row.account_last4));
-    if (changedAccounts.length) return { status:409, data:{ error:`${changedAccounts.length} rekening berubah setelah snapshot; review dan finalisasi ulang Pay Run diperlukan` } };
+    if (Number(snapshotCount?.count || 0)) {
+      const missingBankSnapshots = source.filter((row) => !row.account_fingerprint || !row.snapshot_account_last4);
+      if (missingBankSnapshots.length) return { status:409, data:{
+        error:`${missingBankSnapshots.length} penerima belum memiliki immutable bank snapshot; finalisasi ulang Pay Run diperlukan`,
+        code:'BANK_SNAPSHOT_INCOMPLETE',
+      } };
+      const changedBankSnapshots = [];
+      for (const row of source) {
+        const account = String(row.account_no || '').replace(/\s+/g,'');
+        const fingerprint = await sha256Hex(`${String(row.bank_name || '').trim().toUpperCase()}|${account}`);
+        if (fingerprint !== row.account_fingerprint || account.slice(-4) !== String(row.snapshot_account_last4)) changedBankSnapshots.push(row.id);
+      }
+      if (changedBankSnapshots.length) return { status:409, data:{
+        error:`${changedBankSnapshots.length} rekening berubah setelah snapshot; review dan finalisasi ulang Pay Run diperlukan`,
+        code:'BANK_SNAPSHOT_CHANGED',
+      } };
+    }
+    const changedAccounts = source.filter((row) => row.account_last4 && String(row.account_no).replace(/\s+/g,'').slice(-4) !== String(row.account_last4));
+    if (changedAccounts.length) return { status:409, data:{ error:`${changedAccounts.length} rekening berubah setelah snapshot; review dan finalisasi ulang Pay Run diperlukan`, code:'PAY_RUN_BANK_LAST4_CHANGED' } };
     if (!env.PI_ENCRYPTION_KEY || String(env.PI_ENCRYPTION_KEY).length < 32) return { status: 503, data: { error: 'PI_ENCRYPTION_KEY belum dikonfigurasi dengan aman' } };
     const expectedTotal = source.reduce((sum, row) => sum + Number(row.amount), 0);
     const billingProfile = await d1First(database, `SELECT billing_method,billing_rate,billing_admin_fee,billing_tax_rate,
@@ -1250,7 +1279,9 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'SUBMIT_PAYMENT_INSTRUCTION') {
-    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat submit PI' } };
+    if (!PROCESSOR_ROLES.has(actor.role) || !actor.permissions?.includes('payment:prepare')) {
+      return { status:403, data:{ error:'Hanya Payroll Processor dengan izin payment:prepare yang dapat submit PI', code:'PAYMENT_PREPARE_PERMISSION_REQUIRED' } };
+    }
     const payment = await d1First(database, `SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
     if (!payment) return { status:404, data:{ error:'Payment instruction tidak ditemukan' } };
     if (payment.status !== 'PAYMENT_INSTRUCTION_READY') return { status:409, data:{ error:'PI tidak berada pada status siap submit' } };
@@ -1387,30 +1418,84 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'APPROVE_PAYMENT') {
-    if (!CONTROLLER_ROLES.has(actor.role)) return { status: 403, data: { error: 'Hanya Payroll Controller yang dapat approve PI' } };
-    const payment = await d1First(database, `SELECT pi.*,
-      COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total
-      FROM payment_instructions pi WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
+    if (!CONTROLLER_ROLES.has(actor.role) || !actor.permissions?.includes('payment:approve')) {
+      return { status: 403, data: { error: 'Hanya Payroll Controller dengan izin payment:approve yang dapat approve PI', code:'PAYMENT_APPROVE_PERMISSION_REQUIRED' } };
+    }
+    const payment = await d1First(database, `SELECT pi.*,s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,
+      COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total,
+      COALESCE((SELECT COUNT(*) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_count
+      FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
+      WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
     if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
     if (payment.status !== 'PAYMENT_APPROVAL_PENDING') return { status:409, data:{ error:'PI belum disubmit atau tidak lagi menunggu approval' } };
     if (String(payment.creator_user_id) === String(actor.id)) return { status: 409, data: { error: 'Maker cannot approve the same payment instruction' } };
-    if (Number(payment.instruction_total) !== Number(payment.expected_total)) return { status: 409, data: { error: 'Payment total mismatch blocks approval' } };
-    if (!payment.content_hash || body.actionHash !== payment.content_hash) return { status: 409, data: { error: 'Content hash payment berubah atau tidak sesuai preview' } };
+    if (Number(payment.instruction_total) !== Number(payment.expected_total)) return { status: 409, data: { error: 'Payment total mismatch blocks approval', code:'PI_CONTROL_TOTAL_MISMATCH' } };
+    if (Number(payment.instruction_count) !== Number(payment.recipient_count)) return { status: 409, data: { error: 'Recipient count snapshot tidak sesuai; approval diblokir', code:'PI_RECIPIENT_COUNT_MISMATCH' } };
+    if (!payment.content_hash || body.actionHash !== payment.content_hash) return { status: 409, data: { error: 'Content hash payment berubah atau tidak sesuai preview', code:'PI_ACTION_HASH_MISMATCH' } };
+    if (!env.PI_ENCRYPTION_KEY || String(env.PI_ENCRYPTION_KEY).length < 32) {
+      return { status:503, data:{ error:'PI_ENCRYPTION_KEY belum dikonfigurasi dengan aman', code:'PI_ENCRYPTION_KEY_REQUIRED' } };
+    }
+    const lines = await d1All(database, `SELECT employee_id,beneficiary_name,bank_name,bank_code,
+      account_ciphertext,account_iv,line_hash,amount FROM payment_instruction_lines
+      WHERE payment_instruction_id=? ORDER BY employee_id,id`, [payment.id]);
+    if (lines.length !== Number(payment.recipient_count) || lines.some((line) => !line.account_ciphertext || !line.account_iv || !line.line_hash)) {
+      return { status:409, data:{ error:'Snapshot PI tidak lengkap; approval diblokir dan PI harus diregenerasi', code:'PI_SNAPSHOT_INCOMPLETE' } };
+    }
+    let decrypted;
+    try {
+      decrypted = await Promise.all(lines.map(async (line) => ({
+        ...line,
+        accountNumber: await decryptAccountNumber(line.account_ciphertext,line.account_iv,env.PI_ENCRYPTION_KEY),
+      })));
+    } catch {
+      return { status:409, data:{ error:'Snapshot rekening PI gagal diverifikasi; approval diblokir', code:'PI_SNAPSHOT_DECRYPT_FAILED' } };
+    }
+    for (const line of decrypted) {
+      const expectedLineHash = await sha256Hex(JSON.stringify({
+        employeeId: line.employee_id,
+        beneficiaryName: line.beneficiary_name,
+        bankCode: line.bank_code,
+        accountNumber: String(line.accountNumber),
+        amount: Number(line.amount),
+      }));
+      if (expectedLineHash !== line.line_hash) {
+        return { status:409, data:{ error:'Integritas salah satu baris PI berubah; approval diblokir', code:'PI_LINE_HASH_MISMATCH' } };
+      }
+    }
+    const serverHash = await instructionContentHash({
+      organizationId,
+      clientId:payment.client_id,
+      submissionId:payment.submission_id,
+      payrollPeriod:payment.payroll_period,
+      paymentPeriod:payment.payment_period,
+    }, decrypted.map((line) => ({
+      employeeId:line.employee_id,
+      beneficiaryName:line.beneficiary_name,
+      bankName:line.bank_name,
+      bankCode:line.bank_code,
+      accountNumber:line.accountNumber,
+      amount:Number(line.amount),
+    })));
+    if (serverHash !== payment.content_hash || serverHash !== body.actionHash) {
+      return { status:409, data:{ error:'Content hash hasil verifikasi server tidak sesuai snapshot PI; approval diblokir', code:'PI_SERVER_HASH_MISMATCH' } };
+    }
     const existing = await d1First(database, 'SELECT * FROM payment_approvals WHERE payment_instruction_id=? AND action_hash=? LIMIT 1', [payment.id, body.actionHash]);
     if (existing) return { data: { ok: true, approval: existing, idempotentReplay: true } };
     const approvalId = `PA-${crypto.randomUUID()}`;
     await d1Batch(database, [
       { statement: `INSERT INTO payment_approvals (id,payment_instruction_id,approver_user_id,status,action_hash)
         VALUES (?,?,?,'APPROVED',?)`, bindings: [approvalId, payment.id, actor.id, body.actionHash] },
-      { statement: `UPDATE payment_instructions SET status='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=?`, bindings: [payment.id] },
-      { statement: `UPDATE payroll_submissions SET state='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=?`, bindings: [payment.submission_id] },
-      auditOperation(organizationId, actor, 'PAYMENT_APPROVED', 'Maker-checker approval passed', 'payment_instruction', payment.id),
+      { statement: `UPDATE payment_instructions SET status='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=? AND status='PAYMENT_APPROVAL_PENDING'`, bindings: [payment.id] },
+      { statement: `UPDATE payroll_submissions SET state='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=? AND state='PAYMENT_APPROVAL_PENDING'`, bindings: [payment.submission_id] },
+      auditOperation(organizationId, actor, 'PAYMENT_APPROVED', `Maker-checker approval passed · ${payment.recipient_count} recipients · ${serverHash}`, 'payment_instruction', payment.id),
     ]);
     return { data: { ok: true, approval: { id: approvalId, paymentInstructionId: payment.id, status: 'APPROVED' } } };
   }
 
   if (body.action === 'REJECT_PAYMENT') {
-    if (!CONTROLLER_ROLES.has(actor.role)) return { status:403, data:{ error:'Hanya Payroll Controller yang dapat reject PI' } };
+    if (!CONTROLLER_ROLES.has(actor.role) || !actor.permissions?.includes('payment:approve')) {
+      return { status:403, data:{ error:'Hanya Payroll Controller dengan izin payment:approve yang dapat reject PI', code:'PAYMENT_APPROVE_PERMISSION_REQUIRED' } };
+    }
     const payment = await d1First(database, `SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
     if (!payment) return { status:404, data:{ error:'Payment instruction tidak ditemukan' } };
     if (payment.status !== 'PAYMENT_APPROVAL_PENDING') return { status:409, data:{ error:'PI tidak sedang menunggu approval' } };
