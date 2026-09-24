@@ -149,7 +149,9 @@ export async function onRequest({request,env}) {
         tax_status=?,purchase_order=?,billing_method=?,billing_rate=?,billing_admin_fee=?,billing_tax_rate=? WHERE id=? AND org_id=? RETURNING *`,
         [text(body.npwp,40),text(body.nitku,40),text(body.billingAddress,1000),text(body.billingEmail,254),terms,taxStatus,
         text(body.purchaseOrder,120),method,rate,admin,taxRate,body.clientId,organizationId]);
-      return client?respond({ok:true,client}):respond({error:'Klien tidak ditemukan'},404);
+      if (!client) return respond({error:'Klien tidak ditemukan'},404);
+      await recordAudit(database,organizationId,actor,'BILLING_PROFILE_UPDATED','client',client.id,JSON.stringify({billingMethod:method,paymentTermsDays:terms,taxStatus}));
+      return respond({ok:true,client});
     }
     if (body.action==='GENERATE_INVOICE') {
       if (!canPrepareBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Processor dan izin billing:prepare',code:'BILLING_PREPARE_PERMISSION_REQUIRED'},403);
@@ -182,7 +184,9 @@ export async function onRequest({request,env}) {
           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,?,${NOW}) RETURNING *`,[id,organizationId,item.client_id,item.project_id,item.id,item.name,period,
           invoiceNumber,subtotal,subtotal,taxRate,taxAmount,total,JSON.stringify(items),taxStatus==='PKP'?'PENDING':'NOT_REQUIRED',actor.email,
           item.billing_snapshot || JSON.stringify({ method:billingMethod,rate,adminFee,taxRate,taxStatus,paymentTermsDays:Number(item.payment_terms_days||0),purchaseOrder:item.purchase_order||null,legacyFallback:true })]);
-        invoice.items=items; return respond({ok:true,invoice},201);
+        invoice.items=items;
+        await recordAudit(database,organizationId,actor,'INVOICE_GENERATED','invoice',invoice.id,JSON.stringify({paymentInstructionId:item.id,invoiceNumber,totalAmount:total}));
+        return respond({ok:true,invoice},201);
       } catch (insertError) {
         if (/payment_instruction_id|UNIQUE constraint failed: invoices\.payment_instruction_id/i.test(String(insertError?.message||insertError))) {
           const replay=await d1First(database,'SELECT * FROM invoices WHERE payment_instruction_id=? LIMIT 1',[item.id]);
@@ -191,25 +195,25 @@ export async function onRequest({request,env}) {
         throw insertError;
       }
     }
-    const transition=async(sql,bindings,message)=>{const invoice=await d1First(database,sql,bindings);return invoice?respond({ok:true,invoice}):respond({error:message},409);};
+    const transition=async(sql,bindings,message,auditAction,auditDetail='')=>{const invoice=await d1First(database,sql,bindings);if(!invoice)return respond({error:message},409);await recordAudit(database,organizationId,actor,auditAction,'invoice',invoice.id,auditDetail||JSON.stringify({status:invoice.status,taxInvoiceStatus:invoice.tax_invoice_status||null}));return respond({ok:true,invoice});};
     if (body.action==='SUBMIT_INVOICE') {
       if (!canPrepareBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Processor dan izin billing:prepare',code:'BILLING_PREPARE_PERMISSION_REQUIRED'},403);
-      return transition(`UPDATE invoices SET status='UNDER_REVIEW',reviewed_at=${NOW},reviewed_by=?,updated_at=${NOW} WHERE id=? AND org_id=? AND status='DRAFT' RETURNING *`,[actor.email,body.invoiceId,organizationId],'Invoice tidak berada pada status DRAFT');
+      return transition(`UPDATE invoices SET status='UNDER_REVIEW',reviewed_at=${NOW},reviewed_by=?,updated_at=${NOW} WHERE id=? AND org_id=? AND status='DRAFT' RETURNING *`,[actor.email,body.invoiceId,organizationId],'Invoice tidak berada pada status DRAFT','INVOICE_SUBMITTED_FOR_REVIEW');
     }
     if (body.action==='APPROVE_INVOICE') {
       if (!canApproveBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Controller dan izin billing:approve',code:'BILLING_APPROVE_PERMISSION_REQUIRED'},403);
-      return transition(`UPDATE invoices SET status='APPROVED',approved_at=${NOW},approved_by=?,updated_at=${NOW} WHERE id=? AND org_id=? AND status='UNDER_REVIEW' AND created_by<>? RETURNING *`,[actor.email,body.invoiceId,organizationId,actor.email],'Invoice belum diajukan atau maker tidak boleh menyetujui invoice sendiri');
+      return transition(`UPDATE invoices SET status='APPROVED',approved_at=${NOW},approved_by=?,updated_at=${NOW} WHERE id=? AND org_id=? AND status='UNDER_REVIEW' AND created_by<>? RETURNING *`,[actor.email,body.invoiceId,organizationId,actor.email],'Invoice belum diajukan atau maker tidak boleh menyetujui invoice sendiri','INVOICE_APPROVED');
     }
     if (body.action==='REVISE_INVOICE') {
       if (!canApproveBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Controller dan izin billing:approve',code:'BILLING_APPROVE_PERMISSION_REQUIRED'},403);
-      return transition(`UPDATE invoices SET status='DRAFT',updated_at=${NOW},review_note=? WHERE id=? AND org_id=? AND status='UNDER_REVIEW' RETURNING *`,[text(body.reviewNote??body.note,1000),body.invoiceId,organizationId],'Invoice tidak dapat direvisi pada status ini');
+      return transition(`UPDATE invoices SET status='DRAFT',updated_at=${NOW},review_note=? WHERE id=? AND org_id=? AND status='UNDER_REVIEW' RETURNING *`,[text(body.reviewNote??body.note,1000),body.invoiceId,organizationId],'Invoice tidak dapat direvisi pada status ini','INVOICE_REVISION_REQUESTED',text(body.reviewNote??body.note,1000)||'');
     }
     if (body.action==='RECORD_TAX_INVOICE') {
       if (!canApproveBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Controller dan izin billing:approve',code:'BILLING_APPROVE_PERMISSION_REQUIRED'},403);
       const status=String(body.taxInvoiceStatus??body.status??'');
       if (!['SUBMITTED','APPROVED','REJECTED'].includes(status)) return respond({error:'Status faktur pajak tidak valid'},422);
       if (status==='APPROVED'&&(!text(body.taxInvoiceNumber,120)||!validPaymentProofDate(body.taxInvoiceDate))) return respond({error:'Nomor dan tanggal faktur pajak yang valid wajib diisi',code:'TAX_INVOICE_DATE_INVALID'},422);
-      return transition(`UPDATE invoices SET tax_invoice_status=?,tax_invoice_number=?,tax_invoice_date=?,coretax_reference=?,updated_at=${NOW} WHERE id=? AND org_id=? AND status IN ('APPROVED','ISSUED','PARTIALLY_PAID','PAID') RETURNING *`,[status,text(body.taxInvoiceNumber,120),body.taxInvoiceDate||null,text(body.coretaxReference,160),body.invoiceId,organizationId],'Invoice belum disetujui');
+      return transition(`UPDATE invoices SET tax_invoice_status=?,tax_invoice_number=?,tax_invoice_date=?,coretax_reference=?,updated_at=${NOW} WHERE id=? AND org_id=? AND status IN ('APPROVED','ISSUED','PARTIALLY_PAID','PAID') RETURNING *`,[status,text(body.taxInvoiceNumber,120),body.taxInvoiceDate||null,text(body.coretaxReference,160),body.invoiceId,organizationId],'Invoice belum disetujui','TAX_INVOICE_RECORDED',JSON.stringify({status,taxInvoiceNumber:text(body.taxInvoiceNumber,120),taxInvoiceDate:body.taxInvoiceDate||null}));
     }
     if (body.action==='ISSUE_INVOICE') {
       if (!canApproveBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Controller dan izin billing:approve',code:'BILLING_APPROVE_PERMISSION_REQUIRED'},403);
@@ -221,6 +225,7 @@ export async function onRequest({request,env}) {
         await d1Batch(database,[{statement:`UPDATE invoices SET status='ISSUED',issued_at=${NOW},sent_at=${NOW},due_date=NULL,updated_at=${NOW}
           WHERE id=? AND org_id=? AND status='APPROVED'`,bindings:[invoice.id,organizationId]}]);
         invoice=await d1First(database,`SELECT i.*,c.payment_terms_days,c.tax_status FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.id=? AND i.org_id=? LIMIT 1`,[body.invoiceId,organizationId]);
+        await recordAudit(database,organizationId,actor,'INVOICE_ISSUED','invoice',invoice.id,JSON.stringify({invoiceNumber:invoice.invoice_number,totalAmount:Number(invoice.total_amount||0)}));
       }
       if (await billingSlaSchemaAvailable(database)) {
         const sla=await materializeInvoiceSla(database,organizationId,invoice.id);
@@ -249,6 +254,7 @@ export async function onRequest({request,env}) {
         const unappliedId=`UC-${crypto.randomUUID()}`;
         await d1Batch(database,[{statement:`INSERT INTO unapplied_cash(id,org_id,client_id,ar_id,invoice_id,amount,payment_date,reference,notes,status,recorded_by,updated_at)
           VALUES(?,?,?,?,?,?,?,?,?,'OPEN',?,${NOW})`,bindings:[unappliedId,organizationId,ar.client_id,ar.id,ar.invoice_id,amount,paymentDate,reference,text(body.notes,500),actor.email]}]);
+        await recordAudit(database,organizationId,actor,'AR_PAYMENT_RECORDED','ar',ar.id,JSON.stringify({reference,paymentDate,amount,applied:0,unapplied:amount,balance:0}));
         return respond({ok:true,applied:0,unapplied:amount,balance:0,status:'PAID'});
       }
       const paymentId=`ARP-${crypto.randomUUID()}`,unappliedId=`UC-${crypto.randomUUID()}`;
@@ -284,6 +290,7 @@ export async function onRequest({request,env}) {
         d1First(database,'SELECT amount FROM unapplied_cash WHERE id=?',[unappliedId]),
         d1First(database,'SELECT balance,status FROM ar_monitor WHERE id=?',[ar.id]),
       ]);
+      await recordAudit(database,organizationId,actor,'AR_PAYMENT_RECORDED','ar',ar.id,JSON.stringify({reference,paymentDate,amount,applied:Number(recorded?.amount||0),unapplied:Number(unapplied?.amount||0),balance:Number(current?.balance||0)}));
       return respond({ok:true,applied:Number(recorded?.amount||0),unapplied:Number(unapplied?.amount||0),balance:Number(current?.balance||0),status:current?.status});
     }
     if (body.action==='FOLLOW_UP_AR') {
@@ -294,6 +301,7 @@ export async function onRequest({request,env}) {
       const status=body.disputed?'DISPUTED':ar.status;
       await d1Batch(database,[{statement:'INSERT INTO ar_follow_ups(id,ar_id,note,next_follow_up_at,created_by) VALUES(?,?,?,?,?)',bindings:[`ARF-${crypto.randomUUID()}`,body.arId,note,body.nextFollowUpAt||null,actor.email]},
         {statement:`UPDATE ar_monitor SET status=?,dispute_reason=?,last_follow_up_at=${NOW},next_follow_up_at=?,updated_at=${NOW} WHERE id=?`,bindings:[status,body.disputed?note:ar.dispute_reason,body.nextFollowUpAt||null,body.arId]}]);
+      await recordAudit(database,organizationId,actor,'AR_FOLLOW_UP_RECORDED','ar',ar.id,JSON.stringify({status,nextFollowUpAt:body.nextFollowUpAt||null,disputed:Boolean(body.disputed),note}));
       return respond({ok:true,status});
     }
     return respond({error:'Action tidak dikenal'},422);
