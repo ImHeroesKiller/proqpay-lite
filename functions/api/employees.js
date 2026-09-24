@@ -358,7 +358,7 @@ export async function onRequest(context) {
             { statement: 'UPDATE employee_bank_accounts SET is_primary=0 WHERE employee_id=? AND id<>?', bindings: [id, bankId] },
             { statement: `INSERT INTO employee_bank_accounts (id, employee_id, bank_name, account_no, is_primary)
               VALUES (?, ?, ?, ?, 1) ON CONFLICT (id) DO UPDATE SET bank_name=excluded.bank_name,
-              account_no=excluded.account_no, is_primary=1`, bindings: [bankId, id, supplied('bankName') ? body.bankName || null : null, accountNo] }
+              account_no=excluded.account_no, is_primary=1`, bindings: [bankId, id, supplied('bankName') ? body.bankName || null : before?.bank_name || 'UNKNOWN', accountNo] }
           );
         }
       }
