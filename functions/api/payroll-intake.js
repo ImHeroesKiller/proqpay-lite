@@ -858,6 +858,31 @@ async function confirmIntake(body, env, actor) {
         missing: missingNotes,
       },
     };
+  const invalidTransferTargets = [];
+  for (const item of missing) {
+    const value = resolutions[item.employeeId];
+    if (String(value?.resolution || "") !== "TRANSFERRED") continue;
+    const targetProjectId = String(value?.targetProjectId || "");
+    if (!targetProjectId || targetProjectId === String(submission.project_id || "")) {
+      invalidTransferTargets.push(item);
+      continue;
+    }
+    const target = await d1First(
+      env.DB,
+      "SELECT id FROM projects WHERE id=? AND client_id=? AND org_id=? AND status='ACTIVE' LIMIT 1",
+      [targetProjectId, submission.client_id, batch.org_id],
+    );
+    if (!target) invalidTransferTargets.push(item);
+  }
+  if (invalidTransferTargets.length)
+    return {
+      status: 422,
+      data: {
+        error: "Target project aktif wajib dipilih untuk setiap mutasi",
+        code: "MISSING_EMPLOYEE_TRANSFER_TARGET_REQUIRED",
+        missing: invalidTransferTargets,
+      },
+    };
   await d1Run(
     env.DB,
     "UPDATE payroll_upload_batches SET status='APPLYING' WHERE id=?",
@@ -888,6 +913,12 @@ async function confirmIntake(body, env, actor) {
           "UPDATE employees SET status_aktif='RESIGN',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
           [item.employeeId],
         );
+      if (resolution === "TRANSFERRED")
+        await d1Run(
+          env.DB,
+          "UPDATE employees SET project_id=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND client_id=?",
+          [String(value?.targetProjectId || ""), item.employeeId, submission.client_id],
+        );
       await d1Batch(env.DB, [
         {
           statement: `INSERT INTO payroll_intake_missing_resolutions(id,batch_id,employee_id,resolution,note,resolved_by) VALUES(?,?,?,?,?,?)`,
@@ -909,8 +940,8 @@ async function confirmIntake(body, env, actor) {
             batchId,
             submission.period,
             before ? JSON.stringify(before) : null,
-            JSON.stringify({ ...before, missingResolution: resolution, note }),
-            JSON.stringify(resolution === "RESIGNED" ? ["statusAktif"] : []),
+            JSON.stringify({ ...before, missingResolution: resolution, note, targetProjectId: value?.targetProjectId || null }),
+            JSON.stringify(resolution === "RESIGNED" ? ["statusAktif"] : resolution === "TRANSFERRED" ? ["projectId"] : []),
             actor.email,
           ],
         },
