@@ -108,6 +108,9 @@ export async function onRequest(context) {
     }
 
     if (request.method === 'GET') {
+      const params=new URL(request.url).searchParams;
+      const offset=Math.max(0,Number.parseInt(params.get('offset')||'0',10)||0);
+      const limit=Math.min(500,Math.max(1,Number.parseInt(params.get('limit')||'200',10)||200));
       const scopedClientIds = clientIdsFor(actor, env);
       const scopedProjectIds = projectIdsFor(actor);
       if (actor.role === 'CLIENT_USER' && !scopedClientIds?.length) {
@@ -120,97 +123,100 @@ export async function onRequest(context) {
         ? ` AND e.project_id IN (${scopedProjectIds.map(() => '?').join(',')})`
         : '';
       const rows = await d1All(database, `
+        WITH current_assignment AS (
+          SELECT ea.* FROM employee_assignments ea
+          JOIN (
+            SELECT employee_id,MAX(created_at) AS created_at FROM employee_assignments
+            WHERE is_current=1 GROUP BY employee_id
+          ) pick ON pick.employee_id=ea.employee_id AND pick.created_at=ea.created_at
+          WHERE ea.is_current=1
+        ),
+        current_contract AS (
+          SELECT ec.* FROM employee_contracts ec
+          JOIN (
+            SELECT employee_id,MAX(created_at) AS created_at FROM employee_contracts
+            WHERE is_current=1 GROUP BY employee_id
+          ) pick ON pick.employee_id=ec.employee_id AND pick.created_at=ec.created_at
+          WHERE ec.is_current=1
+        ),
+        primary_bank AS (
+          SELECT eba.* FROM employee_bank_accounts eba
+          JOIN (
+            SELECT employee_id,MAX(created_at) AS created_at FROM employee_bank_accounts
+            WHERE is_primary=1 GROUP BY employee_id
+          ) pick ON pick.employee_id=eba.employee_id AND pick.created_at=eba.created_at
+          WHERE eba.is_primary=1
+        ),
+        highest_education AS (
+          SELECT ee.* FROM employee_education ee
+          JOIN (
+            SELECT employee_id,MAX(CASE WHEN is_highest=1 THEN 10000+COALESCE(graduate_year,0) ELSE COALESCE(graduate_year,0) END) AS rank_value
+            FROM employee_education GROUP BY employee_id
+          ) pick ON pick.employee_id=ee.employee_id
+            AND (CASE WHEN ee.is_highest=1 THEN 10000+COALESCE(ee.graduate_year,0) ELSE COALESCE(ee.graduate_year,0) END)=pick.rank_value
+        )
         SELECT
           e.id,
           e.employee_code AS "employeeCode",
           e.client_id AS "clientId",
           c.name AS company,
-          e.name,
-          e.gender,
-          e.birth_place AS "birthPlace",
-          e.birth_date AS "birthDate",
-          e.religion,
-          e.phone,
-          e.mobile,
-          e.mother_name AS "motherName",
-          (SELECT position FROM employee_assignments WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS position,
-          (SELECT pic FROM employee_assignments WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS pic,
-          (SELECT hrbp FROM employee_assignments WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS hrbp,
-          COALESCE((SELECT contract_status FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1), e.status_aktif) AS status,
-          (SELECT employment_type FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "employmentType",
-          (SELECT join_date FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "joinDate",
-          (SELECT accepted_date FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "acceptedDate",
-          (SELECT contract_start FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "contractStart",
-          (SELECT contract_end FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "contractEnd",
-          (SELECT resign_date FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "resignDate",
-          (SELECT resign_reason FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "resignReason",
-          (SELECT candidate_source FROM employee_contracts WHERE employee_id=e.id AND is_current=1 ORDER BY created_at DESC LIMIT 1) AS "candidateSource",
-          COALESCE(wl.province, e.province, b.province) AS region,
-          COALESCE(wl.province, e.province, b.province) AS province,
-          COALESCE(p.name, wl.unit_kerja, wl.name) AS project,
+          e.name,e.gender,e.birth_place AS "birthPlace",e.birth_date AS "birthDate",e.religion,e.phone,e.mobile,e.mother_name AS "motherName",
+          ca.position,ca.pic,ca.hrbp,
+          COALESCE(cc.contract_status,e.status_aktif) AS status,
+          cc.employment_type AS "employmentType",cc.join_date AS "joinDate",cc.accepted_date AS "acceptedDate",
+          cc.contract_start AS "contractStart",cc.contract_end AS "contractEnd",cc.resign_date AS "resignDate",
+          cc.resign_reason AS "resignReason",cc.candidate_source AS "candidateSource",
+          COALESCE(wl.province,e.province,b.province) AS region,
+          COALESCE(wl.province,e.province,b.province) AS province,
+          COALESCE(p.name,wl.unit_kerja,wl.name) AS project,
           e.project_id AS "projectId",
-          COALESCE(cp.basic_salary, 0) AS "salaryGross",
+          COALESCE(cp.basic_salary,0) AS "salaryGross",
           cp.payroll_source_period AS "payrollSourcePeriod",
-          COALESCE(cp.imported_gross, 0) AS "importedGross",
-          COALESCE(cp.imported_deduction, 0) AS "importedDeduction",
-          COALESCE(cp.imported_net, 0) AS "importedNet",
-          COALESCE(cp.payroll_components, '{}') AS "payrollComponents",
-          0 AS "allowanceTransport",
-          0 AS "allowanceMeal",
-          (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 ORDER BY created_at DESC LIMIT 1) AS "accountNo",
-          CASE
-            WHEN (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) IS NULL THEN ''
-            WHEN (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) IS NULL
-              THEN (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1)
-            ELSE (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1)
-              || '-' || (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1)
-          END AS "bankAccount",
-          (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 ORDER BY created_at DESC LIMIT 1) AS "bankName",
-          ei.ktp_no AS nik,
-          ei.npwp_no AS npwp,
-          ei.address,
-          ei.marital_status AS "maritalStatus",
-          ei.ptkp_claimed AS "ptkpClaimed",
-          ei.ptkp_updated AS "ptkpUpdated",
-          e.email,
-          bp.bpjs_kesehatan_no AS "bpjsKesehatanNo",
-          bp.bpjs_kesehatan_effective AS "bpjsKesehatanEffective",
+          COALESCE(cp.imported_gross,0) AS "importedGross",
+          COALESCE(cp.imported_deduction,0) AS "importedDeduction",
+          COALESCE(cp.imported_net,0) AS "importedNet",
+          COALESCE(cp.payroll_components,'{}') AS "payrollComponents",
+          0 AS "allowanceTransport",0 AS "allowanceMeal",
+          pb.account_no AS "accountNo",
+          CASE WHEN pb.account_no IS NULL THEN '' WHEN pb.bank_name IS NULL THEN pb.account_no ELSE pb.bank_name||'-'||pb.account_no END AS "bankAccount",
+          pb.bank_name AS "bankName",
+          ei.ktp_no AS nik,ei.npwp_no AS npwp,ei.address,ei.marital_status AS "maritalStatus",
+          ei.ptkp_claimed AS "ptkpClaimed",ei.ptkp_updated AS "ptkpUpdated",
+          e.email,bp.bpjs_kesehatan_no AS "bpjsKesehatanNo",bp.bpjs_kesehatan_effective AS "bpjsKesehatanEffective",
           bp.jamsostek_no AS "jamsostekNo",
           (bp.bpjs_kesehatan_no IS NOT NULL) AS "bpjsKesehatan",
           (bp.jamsostek_no IS NOT NULL) AS "bpjsKetenagakerjaan",
-          (SELECT level FROM employee_education WHERE employee_id=e.id ORDER BY is_highest DESC, graduate_year DESC LIMIT 1) AS "educationLevel",
-          (SELECT school_name FROM employee_education WHERE employee_id=e.id ORDER BY is_highest DESC, graduate_year DESC LIMIT 1) AS "schoolName",
-          (SELECT major FROM employee_education WHERE employee_id=e.id ORDER BY is_highest DESC, graduate_year DESC LIMIT 1) AS major,
-          (SELECT graduate_year FROM employee_education WHERE employee_id=e.id ORDER BY is_highest DESC, graduate_year DESC LIMIT 1) AS "graduateYear",
-          hm.input_user AS "inputUser",
-          hm.input_at AS "inputAt",
-          hm.fj_input_at AS "fjInputAt",
-          hm.fj_input_user AS "fjInputUser",
-          hm.es_input_at AS "esInputAt",
-          hm.es_input_user AS "esInputUser",
-          hm.hris_user AS "hrisUser",
+          he.level AS "educationLevel",he.school_name AS "schoolName",he.major,he.graduate_year AS "graduateYear",
+          hm.input_user AS "inputUser",hm.input_at AS "inputAt",hm.fj_input_at AS "fjInputAt",
+          hm.fj_input_user AS "fjInputUser",hm.es_input_at AS "esInputAt",hm.es_input_user AS "esInputUser",hm.hris_user AS "hrisUser",
           1 AS pph21
         FROM employees e
-        LEFT JOIN clients c ON c.id = e.client_id
-        LEFT JOIN projects p ON p.id = e.project_id
-        LEFT JOIN branches b ON b.id = e.branch_id
-        LEFT JOIN work_locations wl ON wl.id = e.location_id
-        LEFT JOIN employee_compensation cp ON cp.employee_id = e.id
-        LEFT JOIN employee_identity ei ON ei.employee_id = e.id
-        LEFT JOIN employee_bpjs bp ON bp.employee_id = e.id
-        LEFT JOIN employee_hris_meta hm ON hm.employee_id = e.id
+        LEFT JOIN clients c ON c.id=e.client_id
+        LEFT JOIN projects p ON p.id=e.project_id
+        LEFT JOIN branches b ON b.id=e.branch_id
+        LEFT JOIN work_locations wl ON wl.id=e.location_id
+        LEFT JOIN employee_compensation cp ON cp.employee_id=e.id
+        LEFT JOIN employee_identity ei ON ei.employee_id=e.id
+        LEFT JOIN employee_bpjs bp ON bp.employee_id=e.id
+        LEFT JOIN employee_hris_meta hm ON hm.employee_id=e.id
+        LEFT JOIN current_assignment ca ON ca.employee_id=e.id
+        LEFT JOIN current_contract cc ON cc.employee_id=e.id
+        LEFT JOIN primary_bank pb ON pb.employee_id=e.id
+        LEFT JOIN highest_education he ON he.employee_id=e.id
         WHERE e.org_id=?${clientFilter}${projectFilter}
-        ORDER BY e.name ASC
-        LIMIT 500
-      `, [organizationId, ...(actor.role === 'CLIENT_USER' ? scopedClientIds : []), ...(actor.role === 'CLIENT_USER' && scopedProjectIds?.length ? scopedProjectIds : [])]);
-      const visibleRows = rows.map((row) => {
+        ORDER BY e.name ASC,e.id ASC
+        LIMIT ? OFFSET ?
+      `, [organizationId, ...(actor.role === 'CLIENT_USER' ? scopedClientIds : []), ...(actor.role === 'CLIENT_USER' && scopedProjectIds?.length ? scopedProjectIds : []), limit+1, offset]);
+      const truncated=rows.length>limit;
+      const pageRows=truncated?rows.slice(0,limit):rows;
+      const visibleRows = pageRows.map((row) => {
         try { row.payrollComponents = JSON.parse(row.payrollComponents || '{}'); } catch { row.payrollComponents = {}; }
         row.bpjsKesehatan = Boolean(row.bpjsKesehatan);
         row.bpjsKetenagakerjaan = Boolean(row.bpjsKetenagakerjaan);
         row.pph21 = Boolean(row.pph21);
         return employeeView(row, actor);
       });
-      return respond({ employees: visibleRows, count: visibleRows.length, role: actor.role });
+      return respond({ employees:visibleRows,count:visibleRows.length,role:actor.role,meta:{offset,limit,returned:visibleRows.length,nextOffset:truncated?offset+limit:null,truncated} });
     }
 
     if (request.method === 'POST') {
@@ -222,6 +228,21 @@ export async function onRequest(context) {
       }
       if (!body || typeof body !== 'object' || Array.isArray(body)) {
         return respond({ status: 'error', message: 'Invalid employee payload' }, 400);
+      }
+      const mutationAction=String(body.action || 'PATCH_EMPLOYEE').toUpperCase();
+      const actionFields={
+        CREATE_EMPLOYEE:new Set(['action','id','clientId','client_id','projectId','project_id','branchId','branch_id','locationId','location_id','employeeCode','employee_code','name','statusAktif','status_aktif','status','province','region','email','position','salaryGross','salary_gross','basicSalary','nik','npwp','address','bankName','accountNo','bankAccount','bank_account','bpjsKesehatanNo','jamsostekNo']),
+        UPDATE_ADMIN:new Set(['action','id','email','nik','npwp','address','bankName','accountNo','bankAccount','bank_account','bpjsKesehatanNo','jamsostekNo']),
+        UPDATE_COMPENSATION:new Set(['action','id','salaryGross','salary_gross','basicSalary']),
+        UPDATE_PLACEMENT:new Set(['action','id','clientId','client_id','projectId','project_id','branchId','branch_id','locationId','location_id','position','province','region']),
+        UPDATE_STATUS:new Set(['action','id','statusAktif','status_aktif','status']),
+        PATCH_EMPLOYEE:null,
+      };
+      if (!(mutationAction in actionFields)) return respond({error:'Aksi perubahan karyawan tidak didukung',code:'EMPLOYEE_MUTATION_ACTION_INVALID'},422);
+      const allowed=actionFields[mutationAction];
+      if (allowed) {
+        const unexpected=Object.keys(body).filter((key)=>!allowed.has(key));
+        if (unexpected.length) return respond({error:'Payload memuat field di luar domain aksi',code:'EMPLOYEE_MUTATION_DOMAIN_VIOLATION',unexpectedFields:unexpected},422);
       }
 
       const requestedId = String(body.id || '').trim();
@@ -244,6 +265,8 @@ export async function onRequest(context) {
       }
 
       const creating = !existing;
+      if (creating && !['CREATE_EMPLOYEE','PATCH_EMPLOYEE'].includes(mutationAction)) return respond({error:'Gunakan CREATE_EMPLOYEE untuk membuat karyawan baru',code:'EMPLOYEE_CREATE_ACTION_REQUIRED'},422);
+      if (!creating && mutationAction==='CREATE_EMPLOYEE') return respond({error:'Karyawan sudah ada',code:'EMPLOYEE_ALREADY_EXISTS'},409);
       if (creating && (!body.name || !String(body.name).trim())) {
         return respond({ status: 'error', message: 'name required' }, 400);
       }
@@ -416,7 +439,7 @@ export async function onRequest(context) {
         statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id)
           VALUES(?,?,?,?,?,?, 'employee',?)`,
         bindings:[`AUD-${crypto.randomUUID()}`,organizationId,actor.email,actor.role,creating?'EMPLOYEE_CREATED':'EMPLOYEE_UPDATED',
-          JSON.stringify({changedFields,before:auditBefore,after:auditAfter}),id],
+          JSON.stringify({mutationAction,changedFields,before:auditBefore,after:auditAfter}),id],
       });
 
       await d1Batch(database, operations);
