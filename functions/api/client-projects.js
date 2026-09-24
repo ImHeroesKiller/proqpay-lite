@@ -142,7 +142,7 @@ export async function onRequest({ request, env }) {
       const clientFilter = clientRestricted ? ` AND c.id IN (${scope.map(() => '?').join(',')})` : '';
       const projectClientFilter = clientRestricted ? ` AND p.client_id IN (${scope.map(() => '?').join(',')})` : '';
       const projectFilter = clientRestricted && projectScope?.length ? ` AND p.id IN (${projectScope.map(() => '?').join(',')})` : '';
-      const [clients, projects] = await Promise.all([
+      const [clients, projectsRaw] = await Promise.all([
         d1All(database, `SELECT c.id, c.code, c.name, c.website, c.industry, c.contact_name, c.contact_email, c.contact_phone,
           c.logo_url,c.status,c.npwp,c.nitku,c.billing_address,c.billing_email,c.payment_terms_days,c.tax_status,
           c.purchase_order,c.billing_method,c.billing_rate,c.billing_admin_fee,c.billing_tax_rate,c.created_at,
@@ -167,9 +167,11 @@ export async function onRequest({ request, env }) {
               ORDER BY sp3.effective_from DESC LIMIT 1)
           )
           WHERE p.org_id=?${projectClientFilter}${projectFilter}
-          ORDER BY p.created_at DESC LIMIT 500`, [organizationId, ...(clientRestricted ? scope : []), ...(clientRestricted && projectScope?.length ? projectScope : [])]),
+          ORDER BY p.created_at DESC LIMIT 501`, [organizationId, ...(clientRestricted ? scope : []), ...(clientRestricted && projectScope?.length ? projectScope : [])]),
       ]);
-      return respond({ ok: true, clients, projects, role: actor.role });
+      const projectsTruncated = projectsRaw.length > 500;
+      const projects = projectsRaw.slice(0, 500);
+      return respond({ ok: true, clients, projects, role: actor.role, meta: { projectsTruncated, projectLimit: 500 } });
     }
     const raw = await request.json().catch(() => null);
     const action = String(raw?.action || '');
