@@ -294,8 +294,13 @@ async function readResource(database, params, actor, env, organizationId) {
 
   if (resource === 'payment-instructions') {
     const scope = scopeWhere({ organizationId, clientId, orgColumn: 'pi.org_id', clientColumn: 'pi.client_id', projectIds, projectColumn: 's.project_id' });
-    const rows = await d1All(database, `${PI_SELECT} WHERE ${scope.sql} ORDER BY pi.created_at DESC LIMIT 100`, scope.bindings);
-    return { data: { ok: true, paymentInstructions: parseJsonFields(rows, ['arrears_periods']) } };
+    const offset=Math.max(0,Number.parseInt(params.get('offset')||'0',10)||0);
+    const limit=Math.min(500,Math.max(1,Number.parseInt(params.get('limit')||'100',10)||100));
+    const rows = await d1All(database, `${PI_SELECT} WHERE ${scope.sql} ORDER BY pi.created_at DESC,pi.id DESC LIMIT ? OFFSET ?`, [...scope.bindings,limit+1,offset]);
+    const truncated=rows.length>limit;
+    const page=rows.slice(0,limit);
+    return { data: { ok: true, paymentInstructions: parseJsonFields(page, ['arrears_periods']),
+      paymentInstructionsMeta:{ offset,limit,returned:page.length,nextOffset:truncated?offset+limit:null,truncated } } };
   }
 
   if (resource === 'payment-instruction-detail') {
