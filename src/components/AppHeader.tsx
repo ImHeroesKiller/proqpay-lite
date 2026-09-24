@@ -132,41 +132,81 @@ export default function AppHeader({
   const [profileOpen, setProfileOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [alerts, setAlerts] = useState({ exceptions: 0, approvals: 0 });
+  const [alerts, setAlerts] = useState({
+    issues: 0,
+    clientActions: 0,
+    payrollApprovals: 0,
+    paymentApprovals: 0,
+    invoiceApprovals: 0,
+  });
+  const [alertsState, setAlertsState] = useState<"loading" | "ready" | "error">("loading");
   const shellRef = useRef<HTMLDivElement>(null);
   const user = { ...actor, name: actor.name || actor.email.split("@")[0] };
   const refreshAlerts = useCallback(async () => {
+    setAlertsState("loading");
     try {
-      const results = await Promise.all([
-        listOperatingDashboard(undefined, period),
-      ]);
-      let exceptions = 0,
-        approvals = 0;
-      results.forEach((result) => {
-        const submissions=result.submissions || [];
-        const paymentInstructions=result.paymentInstructions || [];
-        const openCount=submissions.reduce((sum:number,row:any)=>sum+Number(row.open_exception_count||0),0);
-        const clientActionCount=submissions.reduce((sum:number,row:any)=>sum+Number(row.client_action_count||0),0);
-        const payrollApprovals=submissions.filter((row:any)=>row.state==="CONTROLLER_REVIEW").length;
-        const paymentApprovals=paymentInstructions.filter((row:any)=>row.status==="PAYMENT_APPROVAL_PENDING").length;
-        const invoiceApprovals=submissions.filter((row:any)=>row.invoice_status==="UNDER_REVIEW").length;
-        if (actor.role === "PAYROLL_PROCESSOR") {
-          exceptions += Math.max(0, openCount-clientActionCount);
-        } else if (actor.role === "PAYROLL_CONTROLLER") {
-          approvals += payrollApprovals + paymentApprovals + invoiceApprovals;
-        } else if (actor.role === "CLIENT_USER") {
-          exceptions += clientActionCount;
-          approvals += submissions.filter((row:any)=>row.state==="CLIENT_APPROVAL_PENDING").length;
-        } else {
-          exceptions += openCount;
-          approvals += payrollApprovals + paymentApprovals + invoiceApprovals;
-        }
-      });
-      setAlerts({ exceptions, approvals });
+      const result = await listOperatingDashboard(undefined, period);
+      const submissions = result.submissions || [];
+      const paymentInstructions = result.paymentInstructions || [];
+      const openCount = submissions.reduce(
+        (sum, row) => sum + Number(row.open_exception_count || 0),
+        0,
+      );
+      const clientActionCount = submissions.reduce(
+        (sum, row) => sum + Number(row.client_action_count || 0),
+        0,
+      );
+      const payrollApprovals = submissions.filter(
+        (row) => row.state === "CONTROLLER_REVIEW",
+      ).length;
+      const paymentApprovals = paymentInstructions.filter(
+        (row) => row.status === "PAYMENT_APPROVAL_PENDING",
+      ).length;
+      const invoiceApprovals = submissions.filter(
+        (row) => row.invoice_status === "UNDER_REVIEW",
+      ).length;
+      const clientApprovals = submissions.filter(
+        (row) => row.state === "CLIENT_APPROVAL_PENDING",
+      ).length;
+
+      if (actor.role === "PAYROLL_PROCESSOR") {
+        setAlerts({
+          issues: Math.max(0, openCount - clientActionCount),
+          clientActions: 0,
+          payrollApprovals: 0,
+          paymentApprovals: 0,
+          invoiceApprovals: 0,
+        });
+      } else if (actor.role === "PAYROLL_CONTROLLER") {
+        setAlerts({
+          issues: 0,
+          clientActions: 0,
+          payrollApprovals,
+          paymentApprovals,
+          invoiceApprovals,
+        });
+      } else if (actor.role === "CLIENT_USER") {
+        setAlerts({
+          issues: 0,
+          clientActions: clientActionCount + clientApprovals,
+          payrollApprovals: 0,
+          paymentApprovals: 0,
+          invoiceApprovals: 0,
+        });
+      } else {
+        setAlerts({
+          issues: openCount,
+          clientActions: 0,
+          payrollApprovals,
+          paymentApprovals,
+          invoiceApprovals,
+        });
+      }
+      setAlertsState("ready");
     } catch {
-      setAlerts({ exceptions: 0, approvals: 0 });
+      setAlertsState("error");
     }
-  }, [actor.clientIds, actor.role, period]);
+  }, [actor.role, period]);
   useEffect(() => {
     void refreshAlerts();
     const refresh=()=>void refreshAlerts();
@@ -211,7 +251,12 @@ export default function AppHeader({
           .includes(query.toLowerCase()),
     ).slice(0, 5);
   }, [actor.role, query]);
-  const totalAlerts = alerts.exceptions + alerts.approvals;
+  const totalAlerts =
+    alerts.issues +
+    alerts.clientActions +
+    alerts.payrollApprovals +
+    alerts.paymentApprovals +
+    alerts.invoiceApprovals;
   async function logout() {
     setAccountOpen(false);
     if (actor.authMode === "access") {
@@ -311,7 +356,11 @@ export default function AppHeader({
           <div className="header-alerts">
             <button
               type="button"
-              aria-label={`${totalAlerts} pekerjaan membutuhkan perhatian`}
+              aria-label={
+                alertsState === "error"
+                  ? "Work queue tidak tersedia"
+                  : `${totalAlerts} pekerjaan membutuhkan perhatian`
+              }
               aria-expanded={alertsOpen}
               onClick={() => {
                 setAlertsOpen((open) => !open);
@@ -320,32 +369,69 @@ export default function AppHeader({
               }}
             >
               <IconBell aria-hidden="true" />
-              {totalAlerts ? <b>{totalAlerts}</b> : null}
+              {alertsState === "ready" && totalAlerts ? <b>{totalAlerts}</b> : null}
             </button>
             {alertsOpen ? (
               <div className="header-popover">
                 <span>WORK QUEUE</span>
-                {alerts.exceptions ? <button
+                {alertsState === "loading" ? <small>Refreshing work queue…</small> : null}
+                {alertsState === "error" ? <>
+                  <small role="status">Work queue unavailable. Status pekerjaan belum dapat dipastikan.</small>
+                  <button type="button" onClick={() => void refreshAlerts()}>
+                    <strong>Try again</strong>
+                  </button>
+                </> : null}
+                {alertsState === "ready" && alerts.issues ? <button
                   type="button"
                   onClick={() => {
-                    onNavigate(actor.role==="CLIENT_USER" ? "operations" : "exceptions");
+                    onNavigate("exceptions");
                     setAlertsOpen(false);
                   }}
                 >
-                  <strong>{actor.role==="CLIENT_USER"?"Action required":"Issues"}</strong>
-                  <b>{alerts.exceptions}</b>
+                  <strong>Issues</strong>
+                  <b>{alerts.issues}</b>
                 </button> : null}
-                {alerts.approvals ? <button
+                {alertsState === "ready" && alerts.clientActions ? <button
                   type="button"
                   onClick={() => {
-                    onNavigate(actor.role==="CLIENT_USER" ? "operations" : "payments");
+                    onNavigate("operations");
                     setAlertsOpen(false);
                   }}
                 >
-                  <strong>{actor.role==="CLIENT_USER"?"For approval":"For approval"}</strong>
-                  <b>{alerts.approvals}</b>
+                  <strong>Action required</strong>
+                  <b>{alerts.clientActions}</b>
                 </button> : null}
-                {!totalAlerts ? <small>No action required</small> : null}
+                {alertsState === "ready" && alerts.payrollApprovals ? <button
+                  type="button"
+                  onClick={() => {
+                    onNavigate("operations");
+                    setAlertsOpen(false);
+                  }}
+                >
+                  <strong>Payroll approval</strong>
+                  <b>{alerts.payrollApprovals}</b>
+                </button> : null}
+                {alertsState === "ready" && alerts.paymentApprovals ? <button
+                  type="button"
+                  onClick={() => {
+                    onNavigate("payments");
+                    setAlertsOpen(false);
+                  }}
+                >
+                  <strong>Payment approval</strong>
+                  <b>{alerts.paymentApprovals}</b>
+                </button> : null}
+                {alertsState === "ready" && alerts.invoiceApprovals ? <button
+                  type="button"
+                  onClick={() => {
+                    onNavigate("billing");
+                    setAlertsOpen(false);
+                  }}
+                >
+                  <strong>Invoice approval</strong>
+                  <b>{alerts.invoiceApprovals}</b>
+                </button> : null}
+                {alertsState === "ready" && !totalAlerts ? <small>No action required</small> : null}
               </div>
             ) : null}
           </div>

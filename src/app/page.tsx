@@ -109,7 +109,8 @@ export default function Home() {
     const unsub = onDbChange(() => {
       const fresh = loadDatabase();
       setDb(fresh);
-      if (fresh?.meta?.currentPeriod) setPeriod(fresh.meta.currentPeriod);
+      // The global period is owned by the canonical operating-model period
+      // selector after boot. Background/local mirror changes must not override it.
     });
     const unsubS = onSettingsChange(() => setSettings(loadSettings()));
     return () => {
