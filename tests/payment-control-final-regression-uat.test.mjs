@@ -25,7 +25,10 @@ function seedPaymentInstructionVolume(DB,count=125){
   for(let i=1;i<=count;i+=1){
     const n=String(i).padStart(3,'0');
     const submissionId=`SUB-FINAL-${n}`;
-    submission.run(submissionId,'ORG-OTSINDO','CLI-FINAL','PRJ-FINAL','SP-FINAL','TIER_1_PAYMENT_PROCESSING','2026-09','2026-09','REGULAR');
+    const year=2016+Math.floor((i-1)/12);
+    const month=String(((i-1)%12)+1).padStart(2,'0');
+    const period=`${year}-${month}`;
+    submission.run(submissionId,'ORG-OTSINDO','CLI-FINAL','PRJ-FINAL','SP-FINAL','TIER_1_PAYMENT_PROCESSING',period,period,'REGULAR');
     instruction.run(`PI-FINAL-${n}`,'ORG-OTSINDO','CLI-FINAL',submissionId,`KEY-FINAL-${n}`,`PI/FINAL/${n}`,'a'.repeat(64),`2026-09-24T12:${String(i%60).padStart(2,'0')}:00.000Z`);
   }
   DB.sqlite.exec('COMMIT');
