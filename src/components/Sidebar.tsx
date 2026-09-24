@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { serviceState, useServiceHealth } from "@/lib/service-health";
+import { useEffect, useRef, useState } from "react";
 import {
   IconDashboard,
   IconUsers,
@@ -118,31 +119,10 @@ export default function Sidebar({
   ].includes(role || "");
   const simplifiedInternal = ["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role || "");
   const clientExperience = role === "CLIENT_USER";
-  const [serviceState, setServiceState] = useState<"checking" | "connected" | "degraded" | "offline">("checking");
-  const refreshHealth = useCallback(async () => {
-    try {
-      const response = await fetch("/api/health", {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setServiceState("offline");
-        return;
-      }
-      setServiceState(result.ready === true ? "connected" : "degraded");
-    } catch {
-      setServiceState("offline");
-    }
-  }, []);
+  const { health } = useServiceHealth();
+  const currentServiceState = serviceState(health);
+
   useEffect(() => {
-    void refreshHealth();
-    const timer = window.setInterval(() => void refreshHealth(), 300_000);
-    const visible = () => {
-      if (document.visibilityState === "visible") void refreshHealth();
-    };
-    document.addEventListener("visibilitychange", visible);
-    useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -186,12 +166,6 @@ export default function Sidebar({
       previousFocusRef.current?.focus();
     };
   }, [mobileOpen, onMobileClose]);
-
-  return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", visible);
-    };
-  }, [refreshHealth]);
 
   return (
     <>
@@ -415,12 +389,12 @@ export default function Sidebar({
         </button> : null}
         <div className="sidebar-system-meta">
           <span>
-            <i className={`sidebar-health-dot sidebar-health-${serviceState}`} />
-            Production · {serviceState === "connected"
+            <i className={`sidebar-health-dot sidebar-health-${currentServiceState}`} />
+            Production · {currentServiceState === "connected"
               ? "Connected"
-              : serviceState === "degraded"
+              : currentServiceState === "degraded"
                 ? "Degraded"
-                : serviceState === "offline"
+                : currentServiceState === "offline"
                   ? "Unavailable"
                   : "Checking"}
           </span>
