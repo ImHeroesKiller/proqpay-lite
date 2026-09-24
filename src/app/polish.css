@@ -973,3 +973,114 @@ textarea:focus-visible {
   }
   .directory-modal-actions .btn { min-height:42px; }
 }
+
+
+/* Data Intake P2 — operational hardening */
+.app-notice-success {
+  border-color:#a7f3d0;
+  color:#047857;
+  background:#ecfdf5;
+}
+.app-notice-warning {
+  border-color:#fde68a;
+  color:#92400e;
+  background:#fffbeb;
+}
+
+.intake-diagnostics {
+  margin-top:12px;
+  padding:10px 12px;
+  border:1px solid var(--border-soft);
+  border-radius:11px;
+  background:var(--bg-subtle);
+}
+.intake-diagnostics > summary {
+  cursor:pointer;
+  color:var(--text2);
+  font-size:10.5px;
+  font-weight:700;
+}
+.intake-diagnostics-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+  gap:8px;
+  margin-top:10px;
+}
+.intake-diagnostics-grid > div {
+  display:grid;
+  gap:3px;
+  min-width:0;
+  padding:9px 10px;
+  border:1px solid var(--border-soft);
+  border-radius:9px;
+  background:var(--bg-surface);
+}
+.intake-diagnostics-grid strong { font-size:10px; overflow-wrap:anywhere; }
+.intake-diagnostics-grid span { color:var(--text2); font-size:9.5px; }
+.intake-diagnostics-grid small { color:var(--text3); font-size:8.5px; }
+
+.intake-change-fields {
+  display:grid;
+  gap:5px;
+  margin-top:8px;
+}
+.intake-change-fields > div {
+  display:grid;
+  grid-template-columns:minmax(90px,.7fr) minmax(0,1fr) auto minmax(0,1fr);
+  gap:7px;
+  align-items:center;
+  padding:6px 8px;
+  border:1px solid var(--border-soft);
+  border-radius:8px;
+  background:var(--bg-subtle);
+  font-size:9px;
+}
+.intake-change-fields span {
+  color:var(--text3);
+  font-weight:700;
+}
+.intake-change-fields del {
+  color:var(--text2);
+  text-decoration:none;
+  overflow-wrap:anywhere;
+}
+.intake-change-fields b { color:var(--text3); }
+.intake-change-fields ins {
+  color:var(--text);
+  font-weight:700;
+  text-decoration:none;
+  overflow-wrap:anywhere;
+}
+
+.intake-transfer-row {
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  gap:9px;
+  align-items:start;
+  padding:9px 10px;
+  border:1px solid var(--border-soft);
+  border-radius:9px;
+  background:var(--bg-surface);
+}
+.intake-transfer-row input { margin-top:3px; }
+.intake-transfer-row span { display:grid; gap:2px; }
+.intake-transfer-row small { color:var(--text3); font-size:9px; }
+
+.theme-dark .app-notice-success {
+  color:#86efac;
+  border-color:rgba(16,185,129,.35);
+  background:rgba(6,78,59,.28);
+}
+.theme-dark .app-notice-warning {
+  color:#fde68a;
+  border-color:rgba(245,158,11,.35);
+  background:rgba(120,53,15,.28);
+}
+
+@media (max-width:620px) {
+  .intake-change-fields > div {
+    grid-template-columns:1fr;
+    gap:3px;
+  }
+  .intake-change-fields b { display:none; }
+}
