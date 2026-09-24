@@ -1223,25 +1223,38 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (!source.length) return { status: 409, data: { error: 'Tidak ada data payroll final untuk periode submission' } };
     const invalid = source.filter((row) => Number(row.amount || 0) <= 0 || !row.bank_name || !/^\d{6,34}$/.test(String(row.account_no || '').replace(/\s+/g,'')));
     if (invalid.length) return { status: 409, data: { error: `${invalid.length} karyawan belum memiliki THP atau rekening bank yang valid` } };
+    const changedAccounts = source.filter((row) => row.account_last4 && String(row.account_no).replace(/\s+/g,'').slice(-4) !== String(row.account_last4));
+    if (changedAccounts.length) return { status:409, data:{ error:`${changedAccounts.length} rekening berubah setelah snapshot; review dan finalisasi ulang Pay Run diperlukan`, code:'PAY_RUN_BANK_LAST4_CHANGED' } };
     if (Number(snapshotCount?.count || 0)) {
-      const missingBankSnapshots = source.filter((row) => !row.account_fingerprint || !row.snapshot_account_last4);
-      if (missingBankSnapshots.length) return { status:409, data:{
-        error:`${missingBankSnapshots.length} penerima belum memiliki immutable bank snapshot; finalisasi ulang Pay Run diperlukan`,
-        code:'BANK_SNAPSHOT_INCOMPLETE',
-      } };
       const changedBankSnapshots = [];
+      const missingBankSnapshots = [];
       for (const row of source) {
         const account = String(row.account_no || '').replace(/\s+/g,'');
         const fingerprint = await sha256Hex(`${String(row.bank_name || '').trim().toUpperCase()}|${account}`);
+        if (!row.account_fingerprint || !row.snapshot_account_last4) {
+          missingBankSnapshots.push({row,account,fingerprint});
+          continue;
+        }
         if (fingerprint !== row.account_fingerprint || account.slice(-4) !== String(row.snapshot_account_last4)) changedBankSnapshots.push(row.id);
       }
       if (changedBankSnapshots.length) return { status:409, data:{
         error:`${changedBankSnapshots.length} rekening berubah setelah snapshot; review dan finalisasi ulang Pay Run diperlukan`,
         code:'BANK_SNAPSHOT_CHANGED',
       } };
+      if (missingBankSnapshots.length) {
+        await d1Batch(database, [
+          ...missingBankSnapshots.map(({row,account,fingerprint}) => ({
+            statement:`INSERT INTO payroll_bank_snapshots
+              (submission_id,employee_id,bank_name,account_last4,account_fingerprint,captured_at)
+              VALUES (?,?,?,?,?,${NOW}) ON CONFLICT(submission_id,employee_id) DO NOTHING`,
+            bindings:[submission.id,row.id,String(row.bank_name),account.slice(-4),fingerprint],
+          })),
+          auditOperation(organizationId,actor,'PAYMENT_INSTRUCTION_BANK_SNAPSHOT_BACKFILLED',
+            `${missingBankSnapshots.length} legacy bank snapshot(s) backfilled after account last-4 verification`,
+            'payroll_submission',submission.id),
+        ]);
+      }
     }
-    const changedAccounts = source.filter((row) => row.account_last4 && String(row.account_no).replace(/\s+/g,'').slice(-4) !== String(row.account_last4));
-    if (changedAccounts.length) return { status:409, data:{ error:`${changedAccounts.length} rekening berubah setelah snapshot; review dan finalisasi ulang Pay Run diperlukan`, code:'PAY_RUN_BANK_LAST4_CHANGED' } };
     if (!env.PI_ENCRYPTION_KEY || String(env.PI_ENCRYPTION_KEY).length < 32) return { status: 503, data: { error: 'PI_ENCRYPTION_KEY belum dikonfigurasi dengan aman' } };
     const expectedTotal = source.reduce((sum, row) => sum + Number(row.amount), 0);
     const billingProfile = await d1First(database, `SELECT billing_method,billing_rate,billing_admin_fee,billing_tax_rate,
