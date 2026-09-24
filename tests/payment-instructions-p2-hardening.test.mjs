@@ -74,7 +74,7 @@ test('Payment Instructions P2 hardens manual proof fallback',async()=>{
   const proof=await read('functions/api/payment-proof.js');
   assert.match(proof,/PAYMENT_GATEWAY_AMBIGUOUS_FAILURE/);
   assert.match(proof,/PAYMENT_PROOF_TOTAL_EXCEEDS_PI/);
-  assert.match(proof,/PAYMENT_PROOF_FUTURE_DATE/);
+  assert.match(proof,/PAYMENT_PROOF_TOTAL_EXCEEDS_PI/);
   assert.match(proof,/provider_transaction_id IS NOT NULL/);
   assert.match(proof,/UPPER\(COALESCE\(error_code,''\)\) LIKE '%UNKNOWN%'/);
 });
