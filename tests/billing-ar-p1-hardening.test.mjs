@@ -28,6 +28,8 @@ function seed(DB){
     INSERT INTO payroll_submissions
       (id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,run_type,source_mode,input_status,state,created_by)
       VALUES('SUB-BP1','ORG-OTSINDO','CLI-BP1','PRJ-BP1','SP-BP1','TIER_1_PAYMENT_PROCESSING','2026-09','2026-09','REGULAR','MASTER_CURRENT','READY','COMPLETED','seed');
+    INSERT INTO employees(id,org_id,client_id,project_id,employee_code,name,status_aktif)
+      VALUES('EMP-BP1','ORG-OTSINDO','CLI-BP1','PRJ-BP1','BP1-001','Billing Employee','ACTIVE');
     INSERT INTO payment_instructions
       (id,org_id,client_id,submission_id,status,expected_total,creator_user_id,idempotency_key,document_no,content_hash,currency,recipient_count,billing_snapshot)
       VALUES('PI-BP1','ORG-OTSINDO','CLI-BP1','SUB-BP1','COMPLETED',5000000,'maker','PI-BP1-key','PI/BP1',
