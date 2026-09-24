@@ -197,7 +197,7 @@ function PortalCredentialsPanel({ actor }: { actor: { role: string } | null }) {
 
   async function issueAll() {
     if (busy) return;
-    if (!window.confirm('Password default = kode project + tanggal join (YYYYMMDD). Ditampilkan sekali. Lanjutkan?')) return;
+    if (!window.confirm('Password sementara acak akan diterbitkan dan hanya ditampilkan sekali. Karyawan wajib menggantinya saat login pertama. Lanjutkan?')) return;
     setBusy(true); setError(''); setIssued([]);
     try {
       const collected: typeof issued = [];
@@ -212,7 +212,7 @@ function PortalCredentialsPanel({ actor }: { actor: { role: string } | null }) {
         collected.push(...(data.issued || []));
         remaining = Number(data.remaining || 0);
         setSummary({
-          total: data.total, issued: data.issuedCount, pending: remaining, formula: '{PROJECT_SLUG}{JOIN_YYYYMMDD}',
+          total: data.total, issued: data.issuedCount, pending: remaining, formula: 'RANDOM_TEMPORARY',
         });
         if (!data.processed) break;
       }
@@ -226,7 +226,7 @@ function PortalCredentialsPanel({ actor }: { actor: { role: string } | null }) {
     <div className="portal-credentials-card card">
       <div>
         <strong>Password portal ESS</strong>
-        <span>Rumus {summary?.formula || '{PROJECT_SLUG}{JOIN_YYYYMMDD}'} · wajib diganti saat login pertama. Plaintext tidak disimpan.</span>
+        <span>Password sementara acak · wajib diganti saat login pertama. Plaintext tidak disimpan.</span>
       </div>
       <div className="portal-credentials-meta">
         <span>Karyawan {summary?.total ?? '—'}</span>
