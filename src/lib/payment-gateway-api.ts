@@ -45,6 +45,20 @@ export type PaymentGatewayItem = {
   error_message?: string | null;
 };
 
+export type PaymentGatewayOperationalStatus = {
+  state: string;
+  stale: boolean;
+  staleMinutes: number;
+  needsReconciliation: boolean;
+  safeToRetry: boolean;
+  activeLease: boolean;
+  unresolvedItems: number;
+  failedItems: number;
+  retryableFailedItems?: number;
+  succeededItems: number;
+  lastActivityAt?: string | null;
+};
+
 export type HostedPaymentSession = {
   id: string;
   payment_instruction_id: string;
@@ -79,6 +93,7 @@ export async function getPaymentGatewayStatus(paymentInstructionId?: string) {
     gateway: PaymentGatewayReadiness;
     transaction?: PaymentGatewayTransaction | null;
     items?: PaymentGatewayItem[];
+    operational?: PaymentGatewayOperationalStatus;
   }>;
 }
 
