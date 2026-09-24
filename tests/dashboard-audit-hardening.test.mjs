@@ -142,7 +142,7 @@ test('dashboard UI contracts implement audited P1 and P2 fixes',async()=>{
   assert.match(tower,/\['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'\]/);
   assert.match(tower,/open_exception_count/);
   assert.match(tower,/proof_count/);
-  assert.match(tower,/row\.days>=0&&row\.days<=30/);
+  assert.match(tower,/row\.days!==null&&row\.days<=30/);
   assert.match(tower,/UPCOMING 30 DAYS/);
   assert.match(tower,/No critical blocker/);
   assert.match(tower,/Pay runs with exception/);
