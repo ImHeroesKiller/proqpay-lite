@@ -306,6 +306,15 @@ async function previewUpload(request, env, actor) {
   }
   if (!parsedSource.rows.length)
     return { status: 422, data: { error: "Tidak ada baris payroll valid pada file sumber", code: "PAYROLL_SOURCE_EMPTY" } };
+  if (parsedSource.duplicateRows > 0)
+    return {
+      status: 422,
+      data: {
+        error: `Ditemukan ${parsedSource.duplicateRows} NRK duplikat. Setiap NRK harus unik sebelum payroll dapat diproses.`,
+        code: "PAYROLL_DUPLICATE_NRK",
+        diagnostics: parsedSource.diagnostics,
+      },
+    };
   const rows = parsedSource.rows;
   const base = validateImportRows(rows);
   if (!base.ok)
@@ -500,6 +509,7 @@ async function previewUpload(request, env, actor) {
   const status = missing.length ? "REVIEW_REQUIRED" : "READY_TO_CONFIRM";
   const summary = {
     totals: control.totals,
+    diagnostics: parsedSource.diagnostics,
     newEmployees,
     transfers,
     changes,
@@ -780,6 +790,7 @@ async function confirmIntake(body, env, actor) {
         submissionId: batch.submission_id,
       },
     };
+  const recovering = batch.status === "APPLYING";
   if (
     !["REVIEW_REQUIRED", "READY_TO_CONFIRM", "APPLYING"].includes(batch.status)
   )
@@ -1002,6 +1013,7 @@ async function confirmIntake(body, env, actor) {
       inputStatus: "READY",
       employees: rows.length,
       totals: summary.totals,
+      recovered: recovering,
     },
   };
 }
