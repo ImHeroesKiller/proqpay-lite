@@ -18,8 +18,8 @@ test("sidebar presents the role-filtered business workflow in operational order"
     "Pay Runs",
     "Payment Instructions",
     "Billing & AR",
-    "Reports",
     "Employees",
+    "Reports",
   ];
   let cursor = -1;
   for (const label of labels) {
@@ -28,7 +28,8 @@ test("sidebar presents the role-filtered business workflow in operational order"
     cursor = next;
   }
   assert.match(sidebar, /NavGroup label="Overview"/);
-  assert.match(sidebar, /NavGroup label="Employee Portal"/);
+  assert.match(sidebar, /label="Employee Services"/);
+  assert.match(sidebar, /label="System"/);
   assert.match(sidebar, /role === "SUPER_ADMIN"/);
 });
 
