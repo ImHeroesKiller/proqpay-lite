@@ -121,6 +121,8 @@ export async function onRequest({ request, env }) {
     const fileBytes = await file.arrayBuffer();
     const contentValidation = validatePaymentProofContent(file, fileBytes);
     if (!contentValidation.ok) return respond({ error: contentValidation.errors.join('; '), code:'PAYMENT_PROOF_FILE_SIGNATURE_INVALID' }, 422);
+    const digest = await crypto.subtle.digest('SHA-256', fileBytes);
+    const fileSha256 = [...new Uint8Array(digest)].map((value)=>value.toString(16).padStart(2,'0')).join('');
     const paymentInstructionId = field(form, 'paymentInstructionId');
     const bank = normalizedKey(field(form, 'bank'));
     const reference = normalizedKey(field(form, 'reference'));
@@ -161,6 +163,11 @@ export async function onRequest({ request, env }) {
       if (!sameProofPayload(existing, amount, transactionDate)) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
       return respond({ ok: true, paymentProof: existing, idempotentReplay: true });
     }
+    const duplicateFile = await d1First(database, `SELECT id,bank,reference,amount,transaction_date FROM payment_proofs
+      WHERE payment_instruction_id=? AND file_sha256=? LIMIT 1`, [paymentInstructionId,fileSha256]);
+    if (duplicateFile) {
+      return respond({ error:'File bukti yang sama sudah pernah dicatat untuk Payment Instruction ini', code:'PAYMENT_PROOF_DUPLICATE_FILE', existingProofId:duplicateFile.id },409);
+    }
     const currentProofTotal = await d1First(database, `SELECT COALESCE(SUM(amount),0) AS total FROM payment_proofs WHERE payment_instruction_id=?`, [paymentInstructionId]);
     if (Number(currentProofTotal?.total || 0) + amount > Number(payment.expected_total || 0)) {
       return respond({
@@ -172,8 +179,6 @@ export async function onRequest({ request, env }) {
       },409);
     }
     const proofId = `PP-${crypto.randomUUID()}`;
-    const digest = await crypto.subtle.digest('SHA-256', fileBytes);
-    const fileSha256 = [...new Uint8Array(digest)].map((value)=>value.toString(16).padStart(2,'0')).join('');
     const key = paymentProofObjectKey(organizationId, paymentInstructionId, file.name);
     const nextProofTotal = Number(currentProofTotal?.total || 0) + amount;
     const evidenceComplete = nextProofTotal === Number(payment.expected_total || 0);
@@ -183,6 +188,7 @@ export async function onRequest({ request, env }) {
         originalName: safeProofFilename(file.name),
         paymentInstructionId,
         uploadedBy: authorization.actor.email,
+        fileSha256,
       },
     });
     try {
