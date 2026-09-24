@@ -257,6 +257,9 @@ async function guardSensitivePaymentActions(body, actor, env) {
   const expectedTotal=Number(payment.expected_total || 0);
   const proofTotal=Number(payment.proof_total || 0);
   const gatewayTotal=Number(payment.gateway_total || 0);
+  if (proofTotal > 0 && gatewayTotal > 0) {
+    return { status:409, data:{ error:'Terdapat dua sumber settlement aktif untuk Payment Instruction yang sama. Rekonsiliasi diblokir sampai sumber settlement diklarifikasi.', code:'SETTLEMENT_SOURCE_CONFLICT', proofTotal, gatewayTotal, expectedTotal } };
+  }
   if (proofTotal > 0 && proofTotal !== expectedTotal) {
     return { status:409, data:{ error:'Bukti pembayaran belum lengkap untuk rekonsiliasi final', code:'RECONCILIATION_EVIDENCE_INCOMPLETE', proofTotal, expectedTotal } };
   }

@@ -66,6 +66,24 @@ export async function listAllOperatingExceptions(clientId?:string):Promise<{exce
   return {exceptions,exceptionsMeta:{returned:exceptions.length,truncated:false}};
 }
 
+
+export async function listAllPaginatedOperatingResource(resource:'payment-proofs'|'reconciliations', clientId?:string):Promise<Record<string,unknown>> {
+  const key=resource==='payment-proofs'?'paymentProofs':'reconciliations';
+  const metaKey=resource==='payment-proofs'?'paymentProofsMeta':'reconciliationsMeta';
+  const rows:any[]=[];
+  let offset=0;
+  while(true){
+    const params=new URLSearchParams({resource,offset:String(offset),limit:'500'});
+    if(clientId) params.set('clientId',clientId);
+    const page=await cachedOperatingGet<any>(`/api/operating-model?${params}`);
+    rows.push(...(page[key]||[]));
+    const nextOffset=page[metaKey]?.nextOffset;
+    if(nextOffset==null) break;
+    offset=Number(nextOffset);
+  }
+  return {[key]:rows,[metaKey]:{returned:rows.length,truncated:false,nextOffset:null}};
+}
+
 export async function getExceptionHistory(exceptionId:string):Promise<{exceptionHistory:any[]}> {
   const params=new URLSearchParams({resource:'exception-history',exceptionId});
   return cachedOperatingGet<{exceptionHistory:any[]}>(`/api/operating-model?${params}`);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { executeOperatingAction, getExceptionHistory, getPayRunDetail, getPaymentInstructionDetail, listAllOperatingExceptions, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
+import { executeOperatingAction, getExceptionHistory, getPayRunDetail, getPaymentInstructionDetail, listAllOperatingExceptions, listAllPaginatedOperatingResource, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
@@ -83,7 +83,9 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       setActor(me.user || null);
       const clientIds = me.user?.role === 'CLIENT_USER' ? (me.user.clientIds || []) : [undefined];
       const results = await Promise.all(clientIds.flatMap((clientId: string | undefined) => resources.map((resource) =>
-        resource === 'exceptions' ? listAllOperatingExceptions(clientId) : listOperatingResource(resource, clientId)
+        resource === 'exceptions' ? listAllOperatingExceptions(clientId)
+          : resource === 'payment-proofs' || resource === 'reconciliations' ? listAllPaginatedOperatingResource(resource, clientId)
+          : listOperatingResource(resource, clientId)
       )));
       const merged: Record<string, any[]> = {};
       results.forEach((result: any) => Object.entries(result).forEach(([key, value]) => {
@@ -944,7 +946,7 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
       <button style={actionButton} disabled={uploading || !file || !proof.reference || !Number(proof.amount)} onClick={() => { setUploadError(''); void uploadProof(proofFor, proof, file, setUploading, () => { setProofFor(null); setFile(null); void act({}, 'Bukti pembayaran tersimpan di R2'); }).catch((error) => setUploadError(error instanceof Error ? error.message : 'Upload gagal')); }}>{uploading ? 'Mengunggah…' : 'Upload Bukti'}</button>
     </div>}
     <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
-      <div className="card" style={{ padding:18 }}><span style={small}>Bukti Pembayaran</span><div style={{ fontSize:26, fontWeight:750, margin:'6px 0' }}>{proofs.length}</div>{proofs.length ? <a style={{ ...actionButton, display:'inline-block', textDecoration:'none', background:'var(--bg-subtle)', color:'var(--accent)' }} href={`/api/payment-proof?id=${encodeURIComponent(proofs[0].id)}`} target="_blank" rel="noreferrer">Unduh bukti terbaru</a> : <span style={small}>Belum ada bukti</span>}</div>
+      <div className="card" style={{ padding:18 }}><span style={small}>Bukti Pembayaran</span><div style={{ fontSize:26, fontWeight:750, margin:'6px 0' }}>{proofs.length}</div>{proofs.length ? <><small style={small}>{formatIDR(proofs.reduce((sum,row)=>sum+Number(row.amount||0),0))} tercatat · {proofs[0].uploaded_by || 'Uploader legacy'}</small><a style={{ ...actionButton, display:'inline-block', textDecoration:'none', background:'var(--bg-subtle)', color:'var(--accent)', marginTop:8 }} href={`/api/payment-proof?id=${encodeURIComponent(proofs[0].id)}`} target="_blank" rel="noreferrer">Unduh bukti terbaru</a></> : <span style={small}>Belum ada bukti</span>}</div>
       <Summary title="Rekonsiliasi" value={reconciliations.length} note={reconciliations.length ? `${reconciliations[0].status} · Selisih ${formatIDR(Number(reconciliations[0].difference || 0))}` : 'Belum direkonsiliasi'} />
     </div>
   </div>;

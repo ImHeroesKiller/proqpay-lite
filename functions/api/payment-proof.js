@@ -121,6 +121,8 @@ export async function onRequest({ request, env }) {
     const fileBytes = await file.arrayBuffer();
     const contentValidation = validatePaymentProofContent(file, fileBytes);
     if (!contentValidation.ok) return respond({ error: contentValidation.errors.join('; '), code:'PAYMENT_PROOF_FILE_SIGNATURE_INVALID' }, 422);
+    const digest = await crypto.subtle.digest('SHA-256', fileBytes);
+    const fileSha256 = [...new Uint8Array(digest)].map((value)=>value.toString(16).padStart(2,'0')).join('');
     const paymentInstructionId = field(form, 'paymentInstructionId');
     const bank = normalizedKey(field(form, 'bank'));
     const reference = normalizedKey(field(form, 'reference'));
@@ -161,6 +163,11 @@ export async function onRequest({ request, env }) {
       if (!sameProofPayload(existing, amount, transactionDate)) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
       return respond({ ok: true, paymentProof: existing, idempotentReplay: true });
     }
+    const duplicateFile = await d1First(database, `SELECT id,bank,reference,amount,transaction_date FROM payment_proofs
+      WHERE payment_instruction_id=? AND file_sha256=? LIMIT 1`, [paymentInstructionId,fileSha256]);
+    if (duplicateFile) {
+      return respond({ error:'File bukti yang sama sudah pernah dicatat untuk Payment Instruction ini', code:'PAYMENT_PROOF_DUPLICATE_FILE', existingProofId:duplicateFile.id },409);
+    }
     const currentProofTotal = await d1First(database, `SELECT COALESCE(SUM(amount),0) AS total FROM payment_proofs WHERE payment_instruction_id=?`, [paymentInstructionId]);
     if (Number(currentProofTotal?.total || 0) + amount > Number(payment.expected_total || 0)) {
       return respond({
@@ -181,13 +188,15 @@ export async function onRequest({ request, env }) {
         originalName: safeProofFilename(file.name),
         paymentInstructionId,
         uploadedBy: authorization.actor.email,
+        fileSha256,
       },
     });
     try {
       const results = await d1Batch(database, [
         { statement: `INSERT INTO payment_proofs
-          (id, payment_instruction_id, bank, reference, transaction_date, amount, uploaded_file_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`, bindings: [proofId, paymentInstructionId, bank, reference, transactionDate, amount, key] },
+          (id, payment_instruction_id, bank, reference, transaction_date, amount, uploaded_file_id, file_sha256, file_size, mime_type, uploaded_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+          bindings: [proofId, paymentInstructionId, bank, reference, transactionDate, amount, key, fileSha256, file.size, contentValidation.detectedType || file.type, authorization.actor.email] },
         { statement: `UPDATE payment_instructions SET status=CASE WHEN ?=1 THEN 'PROOF_UPLOADED' ELSE status END,
           updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings: [evidenceComplete ? 1 : 0, paymentInstructionId] },
         { statement: `UPDATE payroll_submissions SET state=CASE WHEN ?=1 THEN 'PROOF_UPLOADED' ELSE state END,
@@ -196,7 +205,7 @@ export async function onRequest({ request, env }) {
         { statement: `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
           VALUES (?,?,?,?,'PAYMENT_PROOF_UPLOADED',?,'payment_proof',?)`,
           bindings: [`AUD-${crypto.randomUUID()}`, organizationId, authorization.actor.email, authorization.actor.role,
-            `${bank} · ${reference} · ${file.size} bytes`, proofId] },
+            `${bank} · ${reference} · ${file.size} bytes · sha256 ${fileSha256}`, proofId] },
       ]);
       return respond({ ok: true, paymentProof: results[0]?.results?.[0], evidenceComplete, proofTotal:nextProofTotal, expectedTotal:Number(payment.expected_total || 0) }, 201);
     } catch (error) {
