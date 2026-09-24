@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useCallback, useEffect, useState } from "react";
 import {
   IconDashboard,
   IconUsers,
@@ -55,9 +56,6 @@ const ROLE_VIEWS: Record<string, AppView[]> = {
     "employees",
     "clients",
     "reports",
-    "ewa",
-    "portalAudit",
-    "portalSettings",
   ],
   PAYROLL_CONTROLLER: [
     "dashboard",
@@ -66,9 +64,6 @@ const ROLE_VIEWS: Record<string, AppView[]> = {
     "payments",
     "billing",
     "reports",
-    "ewa",
-    "portalAudit",
-    "portalSettings",
   ],
   CLIENT_USER: ["dashboard", "operations", "reports"],
 };
@@ -117,6 +112,36 @@ export default function Sidebar({
   ].includes(role || "");
   const simplifiedInternal = ["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role || "");
   const clientExperience = role === "CLIENT_USER";
+  const [serviceState, setServiceState] = useState<"checking" | "connected" | "degraded" | "offline">("checking");
+  const refreshHealth = useCallback(async () => {
+    try {
+      const response = await fetch("/api/health", {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setServiceState("offline");
+        return;
+      }
+      setServiceState(result.ready === true ? "connected" : "degraded");
+    } catch {
+      setServiceState("offline");
+    }
+  }, []);
+  useEffect(() => {
+    void refreshHealth();
+    const timer = window.setInterval(() => void refreshHealth(), 300_000);
+    const visible = () => {
+      if (document.visibilityState === "visible") void refreshHealth();
+    };
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [refreshHealth]);
+
   return (
     <>
       <button
@@ -336,8 +361,14 @@ export default function Sidebar({
         </button> : null}
         <div className="sidebar-system-meta">
           <span>
-            <i />
-            Production · Connected
+            <i className={`sidebar-health-dot sidebar-health-${serviceState}`} />
+            Production · {serviceState === "connected"
+              ? "Connected"
+              : serviceState === "degraded"
+                ? "Degraded"
+                : serviceState === "offline"
+                  ? "Unavailable"
+                  : "Checking"}
           </span>
           <small>ProQPay · {syncLabel(lastSyncAt)}</small>
           <button
