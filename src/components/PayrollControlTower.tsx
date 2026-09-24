@@ -164,13 +164,14 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const deadlines=useMemo(()=>visible.map((row)=>{
     const raw=row.payment_date||row.due_date||row.cutoff_date||row.payment_due_date;
     return {...row,deadline:raw,days:raw?daysFromNow(raw):null};
-  }).filter((row)=>row.deadline&&row.days!==null&&row.days>=0&&row.days<=30)
+  }).filter((row)=>row.deadline&&row.days!==null&&row.days<=30)
     .sort((a,b)=>(a.days??0)-(b.days??0)).slice(0,6),[visible]);
   const pipeline=PIPELINE.map((stage)=>({...stage,rows:visible.filter((row)=>row.business.stage===stage.stage)}));
   const pipelineTotal=Math.max(1,visible.length);
   const pageCount=Math.max(1,Math.ceil(visible.length/10));
   const pageRows=visible.slice((page-1)*10,page*10);
   useEffect(()=>setPage(1),[period,client,status,stage,tier,query]);
+  useEffect(()=>setPage((value)=>Math.min(value,pageCount)),[pageCount]);
   const reset=()=>{setClient('ALL');setStatus('ALL');setStage('ALL');setTier('ALL');setQuery('');};
   const openContext=(view:AppView,submissionId?:string,businessStage?:string)=>{
     const url=new URL(window.location.href);
@@ -214,7 +215,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
           <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval yang membutuhkan role Anda" tone="amber" icon={<IconClock />} onClick={()=>{const item=actions.find((row)=>row.category==='APPROVAL');item?openContext(item.view,item.submissionId):openContext('operations');}} />
           <Kpi label="Payment due" value={formatIDRShort(paymentDue)} note={`${paymentDueRecipients.toLocaleString('id-ID')} penerima siap / sedang dibayar`} tone="navy" icon={<IconWallet />} featured onClick={()=>openContext('payments')} />
           <Kpi label="Paid & matched" value={String(matched)} note={`${reconciliationPending} menunggu reconciliation`} tone="green" icon={<IconCheckCircle />} onClick={()=>openContext('reports')} />
-          <Kpi label="Open exceptions" value={String(openExceptions)} note="Belum resolved / accepted" tone="violet" icon={<IconShieldCheck />} onClick={()=>openContext('operations')} />
+          <Kpi label="Open exceptions" value={String(openExceptions)} note="Belum resolved / accepted" tone="violet" icon={<IconShieldCheck />} onClick={()=>openContext('exceptions')} />
         </>}
       </div>
       <div className={simplifiedInternal?'':'control-priority-grid'}>
@@ -222,7 +223,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
           <div className="action-list">{actions.length?actions.slice(0,simplifiedInternal?10:8).map((item)=><button type="button" key={item.id} onClick={()=>openContext(item.view,item.submissionId)}><i className={`action-tone ${item.tone}`} /><span><strong>{item.client}</strong><small>{item.title} · {item.detail}</small></span><b>{item.amount?formatIDRShort(item.amount):'-'}</b><em>{item.action} →</em></button>):<Empty text="Tidak ada tindakan yang membutuhkan Anda pada filter ini." />}</div>
         </section>
         {!simplifiedInternal ? <section className="card deadline-panel"><PanelTitle eyebrow="UPCOMING 30 DAYS" title="Deadline & SLA" meta={`${deadlines.length} agenda`} />
-          <div className="deadline-list">{deadlines.length?deadlines.map((item)=><button type="button" key={item.id} onClick={()=>openContext('operations',String(item.id))}><time>{dateLabel(item.deadline)}</time><span><strong>{item.client_name||item.client_id}</strong><small>{item.business.label} · {statusLabel(item.state)}</small></span><b className={item.days!==null&&item.days<0?'overdue':''}>{item.days===null?'-':item.days<0?`${Math.abs(item.days)}h terlambat`:item.days===0?'Hari ini':`${item.days} hari`}</b></button>):<Empty text="Belum ada deadline operasional." />}</div>
+          <div className="deadline-list">{deadlines.length?deadlines.map((item)=><button type="button" key={item.id} onClick={()=>openContext('operations',String(item.id))}><time>{dateLabel(item.deadline)}</time><span><strong>{item.client_name||item.client_id}</strong><small>{item.business.label} · {statusLabel(item.state)}</small></span><b className={item.days!==null&&item.days<0?'overdue':''}>{item.days===null?'-':item.days<0?`${Math.abs(item.days)} hari terlambat`:item.days===0?'Hari ini':`${item.days} hari`}</b></button>):<Empty text="Belum ada deadline operasional." />}</div>
         </section> : null}
       </div>
       <section className="card pipeline-panel">
