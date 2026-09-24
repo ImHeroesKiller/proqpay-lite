@@ -2136,3 +2136,75 @@ textarea:focus-visible {
     min-height:42px;
   }
 }
+
+
+/* Billing & AR P3 — quality, accessibility, responsive polish */
+.billing-workspace {
+  min-width:0;
+}
+.billing-tabs {
+  scrollbar-width:thin;
+  padding-bottom:2px;
+}
+.billing-tabs > button {
+  flex:0 0 auto;
+  min-height:38px;
+}
+.billing-confirmation-summary {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+  padding:10px;
+  border:1px solid var(--border-soft);
+  border-radius:11px;
+  background:var(--bg-subtle);
+}
+.billing-modal-backdrop {
+  backdrop-filter:blur(8px);
+}
+.billing-modal {
+  box-shadow:0 26px 70px rgba(15,23,42,.26);
+}
+.billing-modal textarea,
+.billing-modal input,
+.billing-modal select {
+  min-height:40px;
+}
+.theme-dark .billing-modal {
+  border-color:var(--border);
+  background:var(--bg-surface);
+  box-shadow:0 28px 72px rgba(0,0,0,.42);
+}
+
+@media (max-width:760px) {
+  .billing-tabs {
+    margin-inline:-4px;
+    padding-inline:4px;
+  }
+  .billing-tabs > button {
+    min-height:42px;
+    padding-inline:13px !important;
+  }
+  .billing-modal-backdrop {
+    align-items:end !important;
+    padding:0 !important;
+  }
+  .billing-modal {
+    width:100% !important;
+    max-height:calc(100dvh - 52px) !important;
+    padding:18px !important;
+    border-radius:18px 18px 0 0 !important;
+  }
+  .billing-confirmation-summary {
+    grid-template-columns:1fr;
+  }
+  .billing-modal form > button[type="submit"] {
+    position:sticky;
+    bottom:-18px;
+    z-index:2;
+    width:calc(100% + 36px);
+    min-height:46px;
+    margin:8px -18px -18px !important;
+    border-radius:0 !important;
+  }
+}

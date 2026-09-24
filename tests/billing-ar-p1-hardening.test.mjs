@@ -59,11 +59,13 @@ async function postBilling(env,token,body){
 test('Billing P1: role permissions expose billing:prepare billing:approve and ar:write',async()=>{
   const security=await read('functions/api/_security.js');
   const ui=await read('src/components/BillingWorkspace.tsx');
+  const billingUi=await read('src/lib/billing-ui.ts');
   assert.match(security,/PAYROLL_PROCESSOR:[^\n]*'billing:prepare'/);
   assert.match(security,/PAYROLL_CONTROLLER:[^\n]*'billing:approve'[^\n]*'ar:write'/);
-  assert.match(ui,/permissions\.includes\("billing:prepare"\)/);
-  assert.match(ui,/permissions\.includes\("billing:approve"\)/);
-  assert.match(ui,/permissions\.includes\("ar:write"\)/);
+  assert.match(ui,/billingPermission\(actor, "billing:prepare"/);
+  assert.match(ui,/billingPermission\(actor, "billing:approve"/);
+  assert.match(ui,/billingPermission\(actor, "ar:write"/);
+  assert.match(billingUi,/actor\.permissions\?\.includes\(permission\)/);
 });
 
 test('Billing P1: impossible calendar dates are rejected for tax, AR payment and follow-up',async()=>{
