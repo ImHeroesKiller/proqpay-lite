@@ -552,8 +552,8 @@ function Exceptions({ rows, payRuns, role, canResolve, act }: { rows: any[]; pay
   };
   const filtered = rows.filter((row) => groupMatches(row)
     && (severity === 'ALL' || row.severity === severity)
-    && (status === 'ALL' || (status==='ACTIVE' ? !isClosed(row) : row.status === status)
-    && (!query || [row.category,row.employee_id,row.employee_name,row.reason,row.field,row.client_name,row.project_name,row.period,row.status].join(' ').toLowerCase().includes(query.toLowerCase()))));
+    && (status === 'ALL' || (status==='ACTIVE' ? !isClosed(row) : row.status === status))
+    && (!query || [row.category,row.employee_id,row.employee_name,row.reason,row.field,row.client_name,row.project_name,row.period,row.status].join(' ').toLowerCase().includes(query.toLowerCase())));
   const pageCount = Math.max(1, Math.ceil(filtered.length / 20));
   const visible = filtered.slice((page - 1) * 20, page * 20);
   const selectedRun=selected?payRuns.find((row)=>row.id===selected.submission_id):null;
