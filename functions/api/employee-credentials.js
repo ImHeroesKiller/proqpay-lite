@@ -37,7 +37,7 @@ export async function onRequest({ request, env }) {
   const limited = await enforceRateLimit(request, env, authorization.actor, 'employee-credentials', METHODS);
   if (limited) return limited;
   const respond = (data, status = 200) => secureJson(data, status, request, env, METHODS);
-  if (!hasD1(env)) return respond({ error: 'Cloudflare D1 binding unavailable', code: 'D1_REQUIRED' }, 503);
+  if (!hasD1(env)) return respond({ error:'Layanan credential karyawan belum tersedia. Hubungi administrator.', code:'EMPLOYEE_CREDENTIAL_DATA_UNAVAILABLE' },503);
 
   const database = env.DB;
   const actor = authorization.actor;
@@ -56,8 +56,8 @@ export async function onRequest({ request, env }) {
       const issued = Number(summary?.issued || 0);
       return respond({
         ok: true,
-        scheme: 'PROJECT_JOIN_DATE',
-        formula: '{PROJECT_SLUG}{JOIN_YYYYMMDD}',
+        scheme: 'RANDOM_TEMPORARY',
+        formula: 'RANDOM_TEMPORARY',
         total,
         issued,
         pending: Number(summary?.pending || 0),
