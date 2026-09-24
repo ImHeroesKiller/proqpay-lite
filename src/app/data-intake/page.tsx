@@ -36,10 +36,13 @@ type Preview = {
     nrk: string;
     name: string;
     changedFields: string[];
+    before?: Record<string, unknown> | null;
+    after?: Record<string, unknown> | null;
   }>;
   newEmployees?: Array<{ nrk: string; name: string }>;
   transfers?: Array<{ employeeId:string; nrk:string; name:string; fromProjectId:string|null; toProjectId:string }>;
   missing?: Array<{ employeeId: string; nrk: string; name: string }>;
+  diagnostics?: Array<{sheetName:string;headerRow:number|null;totalRaw:number;accepted:number;skipped:number;kind:string}>;
   confirmation?: Record<string, unknown>;
 };
 
@@ -71,6 +74,7 @@ export default function DataIntakePage() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [messageTone,setMessageTone] = useState<"info"|"success"|"error"|"warning">("info");
   const [issues, setIssues] = useState<
     Array<{ row?: number; field?: string; message: string }>
   >([]);
@@ -103,11 +107,22 @@ export default function DataIntakePage() {
         });
       })
       .catch((error) => {
-        if (error.name !== "AbortError") setMessage(error.message);
+        if (error.name !== "AbortError") { setMessageTone("error"); setMessage(error.message); }
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
   }, []);
+
+  useEffect(()=>{
+    const dirty=Boolean(preview?.batchId && !preview.confirmed);
+    if(!dirty) return;
+    const handler=(event:BeforeUnloadEvent)=>{
+      event.preventDefault();
+      event.returnValue="";
+    };
+    window.addEventListener("beforeunload",handler);
+    return()=>window.removeEventListener("beforeunload",handler);
+  },[preview?.batchId,preview?.confirmed]);
 
   const projects = useMemo(
     () =>
@@ -157,7 +172,7 @@ export default function DataIntakePage() {
   }
   async function restartIntake() {
     if (!preview?.batchId || preview.confirmed) { resetFile(); return; }
-    setBusy(true); setMessage("");
+    setBusy(true); setMessage(""); setMessageTone("info");
     try {
       await readJson(await fetch("/api/payroll-intake",{
         method:"POST",
@@ -165,8 +180,10 @@ export default function DataIntakePage() {
         body:JSON.stringify({action:"RESET",batchId:preview.batchId}),
       }));
       resetFile();
+      setMessageTone("success");
       setMessage("Draft intake dibatalkan. Anda dapat memilih file sumber baru.");
     } catch(error) {
+      setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "Reset intake gagal");
     } finally {
       setBusy(false);
@@ -179,8 +196,8 @@ export default function DataIntakePage() {
     setIssues([]);
     setPreview(null);
     try {
-      if (!/\.xlsx?$/i.test(chosen.name))
-        throw new Error("Gunakan file Excel berformat .xlsx atau .xls");
+      if (!/\.xlsx$/i.test(chosen.name))
+        throw new Error("Gunakan file Excel .xlsx sesuai template ProQPay v1");
       if (chosen.size > 8 * 1024 * 1024)
         throw new Error("Ukuran file maksimal 8 MB");
       const result = await parseIapWorkbook(await chosen.arrayBuffer());
@@ -188,14 +205,17 @@ export default function DataIntakePage() {
         throw new Error(
           "Tidak ada baris dengan NRK dan Nama Karyawan yang dapat dibaca",
         );
+      if (result.duplicateRows > 0)
+        throw new Error(`Ditemukan ${result.duplicateRows} NRK duplikat. Perbaiki file sebelum melanjutkan.`);
       setFile(chosen);
       setParsed(result);
-      if (result.skipped || result.duplicateRows)
-        setMessage(
-          `${result.rows.length} baris siap. ${result.skipped} baris dilewati dan ${result.duplicateRows} NRK duplikat diabaikan.`,
-        );
+      if (result.skipped) {
+        setMessageTone("warning");
+        setMessage(`${result.rows.length} baris siap. ${result.skipped} baris tanpa NRK/Nama dilewati.`);
+      }
     } catch (error) {
       resetFile();
+      setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "File gagal dibaca");
     } finally {
       setBusy(false);
@@ -211,6 +231,7 @@ export default function DataIntakePage() {
     if (!file || !parsed || !client || !project || !plan) return;
     setBusy(true);
     setMessage("");
+    setMessageTone("info");
     setIssues([]);
     try {
       const data = new FormData();
@@ -235,14 +256,18 @@ export default function DataIntakePage() {
       });
       setResolutions(initial);
       setTransferConfirmations(Object.fromEntries((payload.transfers || []).map((item:{employeeId:string})=>[item.employeeId,false])));
+      setMessageTone(payload.missing?.length || payload.transfers?.length ? "warning" : "success");
       setMessage(
         payload.missing?.length
           ? "Analisis selesai. Lengkapi keputusan untuk karyawan yang tidak muncul."
-          : "Analisis selesai. Data siap dikonfirmasi.",
+          : payload.transfers?.length
+            ? "Analisis selesai. Konfirmasi perpindahan project sebelum melanjutkan."
+            : "Analisis selesai. Data siap dikonfirmasi.",
       );
     } catch (error) {
       const enriched = error as Error & { issues?: typeof issues };
       setIssues(enriched.issues || []);
+      setMessageTone("error");
       setMessage(enriched.message || "Upload gagal");
     } finally {
       setBusy(false);
@@ -252,6 +277,7 @@ export default function DataIntakePage() {
     if (!preview?.batchId || !notesComplete) return;
     setBusy(true);
     setMessage("");
+    setMessageTone("info");
     setIssues([]);
     try {
       const payload = await readJson(
@@ -267,10 +293,14 @@ export default function DataIntakePage() {
         }),
       );
       setPreview({ ...preview, confirmed: true, confirmation: payload });
+      setMessageTone("success");
       setMessage(
-        `Intake ${form.period} dikonfirmasi. ${payload.employees ?? "Semua"} karyawan masuk Pay Run.`,
+        payload.recovered
+          ? `Intake ${form.period} berhasil dipulihkan dan dikonfirmasi. ${payload.employees ?? "Semua"} karyawan masuk Pay Run.`
+          : `Intake ${form.period} dikonfirmasi. ${payload.employees ?? "Semua"} karyawan masuk Pay Run.`,
       );
     } catch (error) {
+      setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "Konfirmasi gagal");
     } finally {
       setBusy(false);
@@ -278,6 +308,7 @@ export default function DataIntakePage() {
   }
 
   function navigate(view: AppView) {
+    if (preview?.batchId && !preview.confirmed && !window.confirm("Intake belum dikonfirmasi. Batalkan intake terlebih dahulu jika ingin meninggalkan halaman ini.")) return;
     router.push(`/?view=${view}&period=${encodeURIComponent(form.period)}`);
   }
 
@@ -355,14 +386,10 @@ export default function DataIntakePage() {
           </ol>
           {message ? (
             <div
-              role="status"
-              className={`app-notice-bubble ${/gagal|error|tidak|wajib|valid/i.test(message) ? "app-notice-error" : "app-notice-info"}`}
+              role={messageTone==="error"?"alert":"status"}
+              className={`app-notice-bubble ${messageTone==="error"?"app-notice-error":messageTone==="success"?"app-notice-success":messageTone==="warning"?"app-notice-warning":"app-notice-info"}`}
             >
-              <strong>
-                {/gagal|error|tidak|wajib|valid/i.test(message)
-                  ? "Perlu perhatian"
-                  : "Informasi"}
-              </strong>
+              <strong>{messageTone==="error"?"Perlu perhatian":messageTone==="success"?"Berhasil":messageTone==="warning"?"Perlu review":"Informasi"}</strong>
               <span>{message}</span>
             </div>
           ) : null}
@@ -480,7 +507,7 @@ export default function DataIntakePage() {
                   ref={inputRef}
                   hidden
                   type="file"
-                  accept=".xlsx,.xls"
+                  accept=".xlsx"
                   onChange={(event) => {
                     const chosen = event.target.files?.[0];
                     if (chosen) void choose(chosen);
@@ -494,7 +521,7 @@ export default function DataIntakePage() {
                   <span>
                     {file
                       ? `${(file.size / 1024).toFixed(0)} KB · ${parsed?.rows.length || 0} karyawan terbaca`
-                      : "Atau pilih file .xlsx/.xls, maksimal 8 MB"}
+                      : "Atau pilih file .xlsx, maksimal 8 MB"}
                   </span>
                 </div>
                 <button
@@ -527,6 +554,20 @@ export default function DataIntakePage() {
                       value={formatIDR(parsed.payrollSummary.net)}
                     />
                   </div>
+                  {(preview?.diagnostics || parsed.diagnostics).length ? (
+                    <details className="intake-diagnostics">
+                      <summary>Diagnostik workbook <b>{(preview?.diagnostics || parsed.diagnostics).length}</b></summary>
+                      <div className="intake-diagnostics-grid">
+                        {(preview?.diagnostics || parsed.diagnostics).map((item)=>(
+                          <div key={item.sheetName}>
+                            <strong>{item.sheetName}</strong>
+                            <span>{item.kind==="EMPLOYEE_DATA" ? `${item.accepted} accepted · ${item.skipped} skipped` : "Bukan sheet employee"}</span>
+                            <small>{item.headerRow ? `Header baris ${item.headerRow}` : "Header employee tidak ditemukan"}</small>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                   {!preview ? (
                     <div className="intake-primary-action">
                       <span>
@@ -630,6 +671,16 @@ export default function DataIntakePage() {
                           {item.nrk} · {item.name}
                         </strong>
                         <small>{item.changedFields.join(", ")}</small>
+                        <div className="intake-change-fields">
+                          {item.changedFields.slice(0,8).map((field)=>(
+                            <div key={field}>
+                              <span>{changeFieldLabel(field)}</span>
+                              <del>{displayChangeValue(field,item.before?.[field])}</del>
+                              <b>→</b>
+                              <ins>{displayChangeValue(field,item.after?.[field])}</ins>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -774,6 +825,17 @@ async function readJson(response: Response) {
     throw error;
   }
   return payload;
+}
+function changeFieldLabel(field:string) {
+  const labels:Record<string,string>={accountNo:"Rekening",basicSalary:"Gaji pokok",statusAktif:"Status",bpjsKes:"BPJS Kesehatan",jamsostek:"Jamsostek",ktp:"KTP",npwp:"NPWP",employmentType:"Status kerja",contractStart:"Awal kontrak",contractEnd:"Akhir kontrak"};
+  return labels[field] || field.replace(/([a-z])([A-Z])/g,"$1 $2");
+}
+function displayChangeValue(field:string,value:unknown) {
+  if(value==null||value==="") return "-";
+  const text=String(value);
+  if(["accountNo","ktp","npwp"].includes(field)) return text.length>4?`••••${text.slice(-4)}`:text;
+  if(field==="basicSalary") return formatIDR(Number(value)||0);
+  return text;
 }
 function Metric({
   label,
