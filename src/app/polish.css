@@ -1452,3 +1452,266 @@ textarea:focus-visible {
   }
   .readiness-modal-actions .btn { min-height:42px; }
 }
+
+
+/* Data Readiness P3 — quality and control-center polish */
+.readiness-control-center {
+  display:grid;
+  gap:12px;
+}
+.readiness-group-tabs {
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+}
+.readiness-group-tabs button {
+  display:flex;
+  align-items:center;
+  gap:7px;
+  min-height:34px;
+  padding:6px 10px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  color:var(--text2);
+  background:var(--bg-surface);
+  font-size:9px;
+  font-weight:700;
+  cursor:pointer;
+}
+.readiness-group-tabs button b {
+  display:grid;
+  min-width:20px;
+  height:20px;
+  padding:0 5px;
+  place-items:center;
+  border-radius:999px;
+  color:var(--text3);
+  background:var(--bg-subtle);
+  font-size:8.5px;
+}
+.readiness-group-tabs button.active {
+  color:var(--accent);
+  border-color:color-mix(in srgb,var(--accent) 38%,var(--border));
+  background:var(--accent-soft);
+}
+.readiness-group-tabs button.active b {
+  color:var(--accent);
+  background:color-mix(in srgb,var(--accent) 10%,var(--bg-surface));
+}
+.readiness-result-count {
+  margin:auto 0;
+  color:var(--text3);
+  font-size:10px;
+}
+.readiness-result-count strong {
+  color:var(--text);
+  font-size:11px;
+}
+
+.readiness-pill {
+  display:inline-flex;
+  align-items:center;
+  width:max-content;
+  max-width:100%;
+  min-height:24px;
+  padding:4px 8px;
+  border:1px solid transparent;
+  border-radius:999px;
+  font-size:8.5px;
+  font-weight:800;
+  line-height:1;
+  white-space:nowrap;
+}
+.readiness-pill.severity-critical {
+  color:#b91c1c;
+  border-color:#fecaca;
+  background:#fef2f2;
+}
+.readiness-pill.severity-warning {
+  color:#92400e;
+  border-color:#fde68a;
+  background:#fffbeb;
+}
+.readiness-pill.severity-info {
+  color:#1d4ed8;
+  border-color:#bfdbfe;
+  background:#eff6ff;
+}
+.readiness-pill.status-open {
+  color:#7c3aed;
+  border-color:#ddd6fe;
+  background:#f5f3ff;
+}
+.readiness-pill.status-client-action-required {
+  color:#b45309;
+  border-color:#fde68a;
+  background:#fffbeb;
+}
+.readiness-pill.status-resolved,
+.readiness-pill.status-accepted,
+.readiness-pill.status-auto-normalized {
+  color:#047857;
+  border-color:#a7f3d0;
+  background:#ecfdf5;
+}
+
+.readiness-mobile-list { display:none; }
+.readiness-mobile-card {
+  display:grid;
+  gap:6px;
+  padding:12px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--bg-surface);
+  box-shadow:var(--shadow-xs);
+}
+.readiness-mobile-card-head {
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  align-items:flex-start;
+}
+.readiness-mobile-card > strong {
+  font-size:11px;
+  line-height:1.4;
+}
+.readiness-mobile-card > span {
+  color:var(--text2);
+  font-size:10px;
+}
+.readiness-mobile-card > small {
+  color:var(--text3);
+  font-size:9px;
+  line-height:1.4;
+}
+.readiness-mobile-card .btn {
+  width:100%;
+  min-height:40px;
+  margin-top:3px;
+}
+
+.readiness-empty-filter {
+  display:grid;
+  justify-items:center;
+  gap:7px;
+  padding:28px 20px;
+  text-align:center;
+}
+.readiness-empty-filter span {
+  max-width:520px;
+  color:var(--text3);
+  font-size:10px;
+}
+.readiness-empty-filter .btn { margin-top:4px; }
+
+.readiness-decision-hero {
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  align-items:center;
+  margin:2px 0 12px;
+  padding:12px 13px;
+  border:1px solid color-mix(in srgb,var(--accent) 22%,var(--border));
+  border-radius:11px;
+  background:linear-gradient(145deg,var(--accent-soft),var(--bg-subtle));
+}
+.readiness-decision-hero > div {
+  display:grid;
+  gap:2px;
+}
+.readiness-decision-hero span:first-child {
+  color:var(--text3);
+  font-size:8px;
+  font-weight:800;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+.readiness-decision-hero strong { font-size:12px; }
+
+.readiness-payrun-summary {
+  display:grid;
+  gap:10px;
+  margin-top:12px;
+  padding:12px;
+  border:1px solid var(--border);
+  border-radius:11px;
+  background:var(--bg-surface);
+}
+.readiness-payrun-summary > div:last-child {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:7px;
+}
+.readiness-payrun-summary > div:last-child > span {
+  display:grid;
+  gap:3px;
+  padding:8px 9px;
+  border:1px solid var(--border-soft);
+  border-radius:8px;
+  color:var(--text3);
+  background:var(--bg-subtle);
+  font-size:8px;
+  font-weight:750;
+  text-transform:uppercase;
+}
+.readiness-payrun-summary strong {
+  overflow-wrap:anywhere;
+  color:var(--text);
+  font-size:9.5px;
+  text-transform:none;
+}
+.readiness-reason {
+  margin:12px 0 0;
+  padding:10px 12px;
+  border-left:3px solid var(--accent);
+  border-radius:0 8px 8px 0;
+  color:var(--text2);
+  background:var(--bg-subtle);
+  font-size:11px;
+  line-height:1.5;
+}
+
+.theme-dark .readiness-pill.severity-critical {
+  color:#fca5a5;
+  border-color:rgba(239,68,68,.34);
+  background:rgba(127,29,29,.25);
+}
+.theme-dark .readiness-pill.severity-warning,
+.theme-dark .readiness-pill.status-client-action-required {
+  color:#fde68a;
+  border-color:rgba(245,158,11,.35);
+  background:rgba(120,53,15,.26);
+}
+.theme-dark .readiness-pill.severity-info {
+  color:#93c5fd;
+  border-color:rgba(59,130,246,.35);
+  background:rgba(30,64,175,.24);
+}
+.theme-dark .readiness-pill.status-open {
+  color:#c4b5fd;
+  border-color:rgba(139,92,246,.35);
+  background:rgba(76,29,149,.24);
+}
+.theme-dark .readiness-pill.status-resolved,
+.theme-dark .readiness-pill.status-accepted,
+.theme-dark .readiness-pill.status-auto-normalized {
+  color:#86efac;
+  border-color:rgba(16,185,129,.35);
+  background:rgba(6,78,59,.25);
+}
+
+@media (max-width:760px) {
+  .readiness-group-tabs {
+    overflow-x:auto;
+    flex-wrap:nowrap;
+    padding-bottom:2px;
+  }
+  .readiness-group-tabs button { flex:0 0 auto; min-height:38px; }
+  .readiness-desktop-table { display:none; }
+  .readiness-mobile-list { display:grid; gap:9px; }
+  .readiness-payrun-summary > div:last-child { grid-template-columns:1fr 1fr; }
+}
+@media (max-width:480px) {
+  .readiness-payrun-summary > div:last-child { grid-template-columns:1fr; }
+  .readiness-decision-hero { align-items:flex-start; flex-direction:column; }
+}

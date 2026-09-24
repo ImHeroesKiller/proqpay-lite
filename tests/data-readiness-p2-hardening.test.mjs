@@ -61,7 +61,7 @@ test('Data Readiness P2 modal supports escape focus trap restore and scroll lock
 
 test('Data Readiness P2 clamps and resets pagination safely',async()=>{
   const ui=await read('src/components/OperatingWorkspace.tsx');
-  assert.match(ui,/useEffect\(\(\)=>setPage\(1\),\[severity,status,query\]\)/);
+  assert.match(ui,/useEffect\(\(\)=>setPage\(1\),\[severity,status,query,group\]\)/);
   assert.match(ui,/setPage\(\(current\)=>Math\.min\(current,pageCount\)\)/);
   assert.match(ui,/Math\.max\(1,p-1\)/);
   assert.match(ui,/Math\.min\(pageCount,p\+1\)/);
