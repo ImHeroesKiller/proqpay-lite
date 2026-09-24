@@ -42,7 +42,7 @@ export async function onRequest(context) {
   }
 
   const authorization = await authorize(request, env, {
-    roles: request.method === 'POST' ? ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'CLIENT_USER'] : ROLES,
+    roles: request.method === 'POST' ? ['SUPER_ADMIN', 'PAYROLL_PROCESSOR'] : ROLES,
     mutating: request.method === 'POST',
     methods: METHODS,
   });
@@ -65,6 +65,10 @@ export async function onRequest(context) {
     if (!hasD1(env)) return respond({ status: 'error', message: 'Cloudflare D1 unavailable', requestId }, 503);
     const database = env.DB;
     const actor = authorization.actor;
+    const organizationId = String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');
+    if (request.method === 'POST' && !actor.permissions?.includes('employees:write')) {
+      return respond({ error: 'Aksi ini membutuhkan izin employees:write', code: 'EMPLOYEES_WRITE_PERMISSION_REQUIRED' }, 403);
+    }
 
     if (request.method === 'GET') {
       const scopedClientIds = clientIdsFor(actor, env);
@@ -158,10 +162,10 @@ export async function onRequest(context) {
         LEFT JOIN employee_identity ei ON ei.employee_id = e.id
         LEFT JOIN employee_bpjs bp ON bp.employee_id = e.id
         LEFT JOIN employee_hris_meta hm ON hm.employee_id = e.id
-        WHERE 1=1${clientFilter}${projectFilter}
+        WHERE e.org_id=?${clientFilter}${projectFilter}
         ORDER BY e.name ASC
         LIMIT 500
-      `, [...(actor.role === 'CLIENT_USER' ? scopedClientIds : []), ...(actor.role === 'CLIENT_USER' && scopedProjectIds?.length ? scopedProjectIds : [])]);
+      `, [organizationId, ...(actor.role === 'CLIENT_USER' ? scopedClientIds : []), ...(actor.role === 'CLIENT_USER' && scopedProjectIds?.length ? scopedProjectIds : [])]);
       const visibleRows = rows.map((row) => {
         try { row.payrollComponents = JSON.parse(row.payrollComponents || '{}'); } catch { row.payrollComponents = {}; }
         row.bpjsKesehatan = Boolean(row.bpjsKesehatan);
@@ -179,89 +183,132 @@ export async function onRequest(context) {
       } catch {
         return respond({ status: 'error', message: 'Invalid JSON' }, 400);
       }
-      if (!body.name || !String(body.name).trim()) {
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return respond({ status: 'error', message: 'Invalid employee payload' }, 400);
+      }
+
+      const requestedId = String(body.id || '').trim();
+      const existing = requestedId
+        ? await d1First(database, 'SELECT * FROM employees WHERE id=? AND org_id=? LIMIT 1', [requestedId, organizationId])
+        : null;
+      if (requestedId && !existing) {
+        const foreign = await d1First(database, 'SELECT org_id FROM employees WHERE id=? LIMIT 1', [requestedId]);
+        if (foreign) return respond({ error: 'Karyawan berada di luar organization aktif', code: 'EMPLOYEE_ORG_SCOPE_DENIED' }, 403);
+      }
+
+      const creating = !existing;
+      if (creating && (!body.name || !String(body.name).trim())) {
         return respond({ status: 'error', message: 'name required' }, 400);
       }
 
-      const id = body.id || `EMP-${crypto.randomUUID()}`;
-      const orgId = body.orgId || body.org_id || 'ORG-OTSINDO';
-      const clientId = body.clientId || body.client_id || null;
-      const branchId = body.branchId || body.branch_id || null;
-      const locationId = body.locationId || body.location_id || null;
-      const projectId = body.projectId || body.project_id || null;
-      const status = body.statusAktif || body.status_aktif || body.status || 'TETAP';
-      const province = body.province || body.region || null;
-      const salaryGross = Number(body.salaryGross ?? body.salary_gross ?? body.basicSalary ?? 0) || 0;
+      const id = existing?.id || requestedId || `EMP-${crypto.randomUUID()}`;
+      const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
+      const supplied = (...keys) => keys.some((key) => has(key));
+      const value = (...keys) => {
+        for (const key of keys) if (has(key)) return body[key];
+        return undefined;
+      };
 
-      if (actor.role === 'CLIENT_USER') {
-        const scope = clientIdsFor(actor, env) || [];
-        const projectScope = projectIdsFor(actor) || [];
-        const existing = await d1First(database, 'SELECT client_id, project_id FROM employees WHERE id=? LIMIT 1', [id]);
-        const targetClientId = existing?.client_id || clientId;
-        const targetProjectId = existing?.project_id || projectId;
-        if (!targetClientId || !scope.includes(String(targetClientId))) {
-          return respond({ error: 'Karyawan berada di luar client scope Anda.' }, 403);
-        }
-        if (projectScope.length && (!targetProjectId || !projectScope.includes(String(targetProjectId)))) {
-          return respond({ error: 'Karyawan berada di luar project scope Anda.' }, 403);
+      const currentClientId = existing?.client_id || null;
+      const currentProjectId = existing?.project_id || null;
+      const targetClientId = supplied('clientId','client_id') ? (value('clientId','client_id') || null) : currentClientId;
+      const targetProjectId = supplied('projectId','project_id') ? (value('projectId','project_id') || null) : currentProjectId;
+      const targetBranchId = supplied('branchId','branch_id') ? (value('branchId','branch_id') || null) : (existing?.branch_id || null);
+      const targetLocationId = supplied('locationId','location_id') ? (value('locationId','location_id') || null) : (existing?.location_id || null);
+      const targetName = supplied('name') ? String(body.name || '').trim() : String(existing?.name || '');
+      const targetStatus = supplied('statusAktif','status_aktif','status')
+        ? String(value('statusAktif','status_aktif','status') || '').trim()
+        : String(existing?.status_aktif || 'TETAP');
+      const targetProvince = supplied('province','region') ? (value('province','region') || null) : (existing?.province || null);
+      const targetEmployeeCode = supplied('employeeCode','employee_code')
+        ? String(value('employeeCode','employee_code') || '').trim()
+        : String(existing?.employee_code || (String(id).startsWith('EMP-') ? id : `EMP-${id}`));
+
+      if (!targetName) return respond({ error: 'name required' }, 400);
+      if (creating && !targetClientId) return respond({ error: 'clientId required', code: 'EMPLOYEE_CLIENT_REQUIRED' }, 422);
+
+      const client = targetClientId
+        ? await d1First(database, 'SELECT id FROM clients WHERE id=? AND org_id=? LIMIT 1', [targetClientId, organizationId])
+        : null;
+      if (targetClientId && !client) return respond({ error: 'Client tidak berada pada organization aktif', code: 'EMPLOYEE_CLIENT_SCOPE_INVALID' }, 422);
+      if (targetProjectId) {
+        const project = await d1First(database, 'SELECT id,client_id FROM projects WHERE id=? AND org_id=? LIMIT 1', [targetProjectId, organizationId]);
+        if (!project || String(project.client_id || '') !== String(targetClientId || '')) {
+          return respond({ error: 'Project tidak valid untuk client dan organization aktif', code: 'EMPLOYEE_PROJECT_SCOPE_INVALID' }, 422);
         }
       }
 
-      const operations = [
-        { statement: `INSERT OR IGNORE INTO organizations (id, name, code) VALUES (?, ?, ?)`,
-          bindings: [orgId, body.orgName || 'OTSINDO', body.orgCode || 'OTSINDO'] },
-        { statement: `INSERT INTO employees (
-          id, org_id, client_id, project_id, branch_id, location_id, employee_code, name, status_aktif, province, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        ON CONFLICT (id) DO UPDATE SET
-          name=excluded.name, client_id=excluded.client_id,
-          project_id=COALESCE(excluded.project_id, employees.project_id), branch_id=excluded.branch_id,
-          location_id=excluded.location_id, employee_code=COALESCE(employees.employee_code, excluded.employee_code),
-          status_aktif=excluded.status_aktif, province=excluded.province,
-          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
-          bindings: [id, orgId, clientId, projectId, branchId, locationId, String(body.employeeCode || (String(id).startsWith('EMP-') ? id : `EMP-${id}`)), String(body.name).trim(), status, province] },
-        { statement: `INSERT INTO employee_compensation (employee_id, basic_salary) VALUES (?, ?)
-          ON CONFLICT (employee_id) DO UPDATE SET basic_salary=excluded.basic_salary,
-          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`, bindings: [id, salaryGross] },
-      ];
+      const operations = [];
+      if (creating) {
+        operations.push({
+          statement: `INSERT INTO employees (
+            id, org_id, client_id, project_id, branch_id, location_id, employee_code, name, status_aktif, province, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+          bindings: [id, organizationId, targetClientId, targetProjectId, targetBranchId, targetLocationId, targetEmployeeCode, targetName, targetStatus, targetProvince],
+        });
+      } else {
+        operations.push({
+          statement: `UPDATE employees SET client_id=?,project_id=?,branch_id=?,location_id=?,employee_code=?,name=?,status_aktif=?,province=?,
+            updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,
+          bindings: [targetClientId,targetProjectId,targetBranchId,targetLocationId,targetEmployeeCode,targetName,targetStatus,targetProvince,id,organizationId],
+        });
+      }
 
-      if (body.position) {
+      if (supplied('salaryGross','salary_gross','basicSalary')) {
+        const salaryGross = Number(value('salaryGross','salary_gross','basicSalary'));
+        if (!Number.isFinite(salaryGross) || salaryGross < 0) return respond({ error: 'Nilai gaji pokok tidak valid' }, 422);
+        operations.push({ statement: `INSERT INTO employee_compensation (employee_id, basic_salary) VALUES (?, ?)
+          ON CONFLICT (employee_id) DO UPDATE SET basic_salary=excluded.basic_salary,
+          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`, bindings: [id, salaryGross] });
+      }
+
+      if (supplied('position') && body.position) {
         const assignmentId = `ASG-${id}`;
         operations.push({ statement: `INSERT INTO employee_assignments (id, employee_id, position, is_current)
           VALUES (?, ?, ?, 1) ON CONFLICT (id) DO UPDATE SET position=excluded.position, is_current=1`,
           bindings: [assignmentId, id, body.position] });
       }
 
-      const accountNo = body.accountNo || body.bankAccount || body.bank_account || null;
-      if (accountNo) {
-        const bankId = `BNK-${id}`;
-        operations.push(
-          { statement: 'UPDATE employee_bank_accounts SET is_primary=0 WHERE employee_id=? AND id<>?', bindings: [id, bankId] },
-          { statement: `INSERT INTO employee_bank_accounts (id, employee_id, bank_name, account_no, is_primary)
-            VALUES (?, ?, ?, ?, 1) ON CONFLICT (id) DO UPDATE SET bank_name=excluded.bank_name,
-            account_no=excluded.account_no, is_primary=1`, bindings: [bankId, id, body.bankName || null, accountNo] }
-        );
+      if (supplied('accountNo','bankAccount','bank_account')) {
+        const accountNo = value('accountNo','bankAccount','bank_account');
+        if (accountNo) {
+          const bankId = `BNK-${id}`;
+          operations.push(
+            { statement: 'UPDATE employee_bank_accounts SET is_primary=0 WHERE employee_id=? AND id<>?', bindings: [id, bankId] },
+            { statement: `INSERT INTO employee_bank_accounts (id, employee_id, bank_name, account_no, is_primary)
+              VALUES (?, ?, ?, ?, 1) ON CONFLICT (id) DO UPDATE SET bank_name=excluded.bank_name,
+              account_no=excluded.account_no, is_primary=1`, bindings: [bankId, id, supplied('bankName') ? body.bankName || null : null, accountNo] }
+          );
+        }
       }
 
-      if (body.nik || body.npwp || body.address) {
+      if (supplied('nik','npwp','address')) {
         operations.push({ statement: `INSERT INTO employee_identity (employee_id, ktp_no, npwp_no, address)
           VALUES (?, ?, ?, ?)
-          ON CONFLICT (employee_id) DO UPDATE SET ktp_no=COALESCE(EXCLUDED.ktp_no, employee_identity.ktp_no),
-            npwp_no=COALESCE(EXCLUDED.npwp_no, employee_identity.npwp_no), address=COALESCE(EXCLUDED.address, employee_identity.address)`,
-          bindings: [id, body.nik || null, body.npwp || null, body.address || null] });
+          ON CONFLICT (employee_id) DO UPDATE SET
+            ktp_no=CASE WHEN ? THEN EXCLUDED.ktp_no ELSE employee_identity.ktp_no END,
+            npwp_no=CASE WHEN ? THEN EXCLUDED.npwp_no ELSE employee_identity.npwp_no END,
+            address=CASE WHEN ? THEN EXCLUDED.address ELSE employee_identity.address END`,
+          bindings: [id, has('nik') ? body.nik || null : null, has('npwp') ? body.npwp || null : null, has('address') ? body.address || null : null,
+            has('nik') ? 1 : 0, has('npwp') ? 1 : 0, has('address') ? 1 : 0] });
       }
-      if (body.bpjsKesehatanNo || body.jamsostekNo) {
+      if (supplied('bpjsKesehatanNo','jamsostekNo')) {
         operations.push({ statement: `INSERT INTO employee_bpjs (employee_id, bpjs_kesehatan_no, jamsostek_no)
           VALUES (?, ?, ?)
-          ON CONFLICT (employee_id) DO UPDATE SET bpjs_kesehatan_no=COALESCE(EXCLUDED.bpjs_kesehatan_no, employee_bpjs.bpjs_kesehatan_no),
-            jamsostek_no=COALESCE(EXCLUDED.jamsostek_no, employee_bpjs.jamsostek_no), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
-          bindings: [id, body.bpjsKesehatanNo || null, body.jamsostekNo || null] });
+          ON CONFLICT (employee_id) DO UPDATE SET
+            bpjs_kesehatan_no=CASE WHEN ? THEN EXCLUDED.bpjs_kesehatan_no ELSE employee_bpjs.bpjs_kesehatan_no END,
+            jamsostek_no=CASE WHEN ? THEN EXCLUDED.jamsostek_no ELSE employee_bpjs.jamsostek_no END,
+            updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
+          bindings: [id, has('bpjsKesehatanNo') ? body.bpjsKesehatanNo || null : null, has('jamsostekNo') ? body.jamsostekNo || null : null,
+            has('bpjsKesehatanNo') ? 1 : 0, has('jamsostekNo') ? 1 : 0] });
       }
-      if (body.email) operations.push({ statement: `UPDATE employees SET email=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings: [body.email, id] });
+      if (supplied('email')) {
+        operations.push({ statement: `UPDATE employees SET email=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,
+          bindings: [body.email || null, id, organizationId] });
+      }
 
       await d1Batch(database, operations);
-
-      return respond({ ok: true, id });
+      return respond({ ok: true, id, created: creating });
     }
 
     return respond({ error: 'Method not allowed' }, 405);
