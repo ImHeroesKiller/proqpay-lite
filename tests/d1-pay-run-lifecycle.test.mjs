@@ -45,7 +45,7 @@ test('Pay Run snapshots monthly data, compares variance, and controls period lif
   DB.sqlite.prepare("UPDATE employee_compensation SET basic_salary=7000000 WHERE employee_id='EMP-B'").run();
   const refreshed=await action(DB,{action:'REFRESH_PAY_RUN_FROM_MASTER',submissionId:firstId});
   assert.equal(refreshed.response.status,200,JSON.stringify(refreshed.payload));
-  assert.deepEqual(refreshed.payload.summary,{recipients:2,calculated:2,missingSalary:0,totalGross:12_000_000,totalDeduction:0,totalNet:12_000_000});
+  assert.deepEqual(refreshed.payload.summary,{recipients:2,calculated:2,missingSalary:0,added:0,excluded:0,totalGross:12_000_000,totalDeduction:0,totalNet:12_000_000});
 
   for (const [employeeId,gross,deduction] of [['EMP-A',5_500_000,500_000],['EMP-B',6_500_000,500_000]]) {
     const updated=await action(DB,{action:'UPDATE_PAY_RUN_LINE',submissionId:firstId,employeeId,grossAmount:gross,deductionAmount:deduction,netAmount:gross-deduction,included:true,changeReason:'Koreksi nominal payroll untuk UAT'});
