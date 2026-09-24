@@ -16,7 +16,7 @@ test('Payment Instructions P1 enforces maker and checker permissions at edge and
 test('Payment Instructions P1 verifies immutable bank snapshot before generation',async()=>{
   const api=await read('functions/api/operating-model-d1.js');
   assert.match(api,/LEFT JOIN payroll_bank_snapshots pbs/);
-  assert.match(api,/BANK_SNAPSHOT_INCOMPLETE/);
+  assert.match(api,/PAYMENT_INSTRUCTION_BANK_SNAPSHOT_BACKFILLED/);
   assert.match(api,/BANK_SNAPSHOT_CHANGED/);
   assert.match(api,/account_fingerprint/);
   assert.match(api,/PAY_RUN_BANK_LAST4_CHANGED/);
