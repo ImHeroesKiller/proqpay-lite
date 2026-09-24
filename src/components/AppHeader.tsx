@@ -369,7 +369,7 @@ export default function AppHeader({
               }}
             >
               <IconBell aria-hidden="true" />
-              {totalAlerts ? <b>{totalAlerts}</b> : null}
+              {alertsState === "ready" && totalAlerts ? <b>{totalAlerts}</b> : null}
             </button>
             {alertsOpen ? (
               <div className="header-popover">
