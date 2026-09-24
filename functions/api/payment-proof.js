@@ -155,6 +155,12 @@ export async function onRequest({ request, env }) {
         code: gateway.status === 'FAILED' ? 'PAYMENT_GATEWAY_AMBIGUOUS_FAILURE' : 'PAYMENT_GATEWAY_ACTIVE',
       }, 409);
     }
+    const existing = await d1First(database, `SELECT * FROM payment_proofs
+      WHERE payment_instruction_id=? AND UPPER(bank)=? AND UPPER(reference)=? LIMIT 1`, [paymentInstructionId, bank, reference]);
+    if (existing) {
+      if (!sameProofPayload(existing, amount, transactionDate)) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
+      return respond({ ok: true, paymentProof: existing, idempotentReplay: true });
+    }
     const currentProofTotal = await d1First(database, `SELECT COALESCE(SUM(amount),0) AS total FROM payment_proofs WHERE payment_instruction_id=?`, [paymentInstructionId]);
     if (Number(currentProofTotal?.total || 0) + amount > Number(payment.expected_total || 0)) {
       return respond({
@@ -164,12 +170,6 @@ export async function onRequest({ request, env }) {
         attemptedAmount:amount,
         expectedTotal:Number(payment.expected_total || 0),
       },409);
-    }
-    const existing = await d1First(database, `SELECT * FROM payment_proofs
-      WHERE payment_instruction_id=? AND UPPER(bank)=? AND UPPER(reference)=? LIMIT 1`, [paymentInstructionId, bank, reference]);
-    if (existing) {
-      if (!sameProofPayload(existing, amount, transactionDate)) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
-      return respond({ ok: true, paymentProof: existing, idempotentReplay: true });
     }
     const proofId = `PP-${crypto.randomUUID()}`;
     const key = paymentProofObjectKey(organizationId, paymentInstructionId, file.name);
