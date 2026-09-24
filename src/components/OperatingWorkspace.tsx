@@ -87,7 +87,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       const clientIds = me.user?.role === 'CLIENT_USER' ? (me.user.clientIds || []) : [undefined];
       const results = await Promise.all(clientIds.flatMap((clientId: string | undefined) => resources.map((resource) =>
         resource === 'exceptions' ? listAllOperatingExceptions(clientId)
-          : resource === 'payment-proofs' || resource === 'reconciliations' ? listAllPaginatedOperatingResource(resource, clientId)
+          : resource === 'payment-instructions' || resource === 'payment-proofs' || resource === 'reconciliations' ? listAllPaginatedOperatingResource(resource, clientId)
           : listOperatingResource(resource, clientId)
       )));
       const merged: Record<string, any[]> = {};

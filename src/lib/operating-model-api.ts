@@ -67,9 +67,9 @@ export async function listAllOperatingExceptions(clientId?:string):Promise<{exce
 }
 
 
-export async function listAllPaginatedOperatingResource(resource:'payment-proofs'|'reconciliations', clientId?:string):Promise<Record<string,unknown>> {
-  const key=resource==='payment-proofs'?'paymentProofs':'reconciliations';
-  const metaKey=resource==='payment-proofs'?'paymentProofsMeta':'reconciliationsMeta';
+export async function listAllPaginatedOperatingResource(resource:'payment-instructions'|'payment-proofs'|'reconciliations', clientId?:string):Promise<Record<string,unknown>> {
+  const key=resource==='payment-instructions'?'paymentInstructions':resource==='payment-proofs'?'paymentProofs':'reconciliations';
+  const metaKey=resource==='payment-instructions'?'paymentInstructionsMeta':resource==='payment-proofs'?'paymentProofsMeta':'reconciliationsMeta';
   const rows:any[]=[];
   let offset=0;
   while(true){
