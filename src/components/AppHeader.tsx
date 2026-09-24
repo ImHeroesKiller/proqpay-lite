@@ -375,8 +375,6 @@ export default function AppHeader({
               <div
                 id="header-search-results"
                 className="header-popover search-popover"
-                role="listbox"
-                aria-label="Hasil pencarian modul"
               >
                 <input
                   autoFocus
@@ -402,7 +400,7 @@ export default function AppHeader({
                     }
                   }}
                 />
-                <div id="header-search-options">
+                <div id="header-search-options" role="listbox" aria-label="Hasil pencarian modul">
                   {matches.map((item, index) => (
                     <button
                       id={`header-search-${item.view}`}
