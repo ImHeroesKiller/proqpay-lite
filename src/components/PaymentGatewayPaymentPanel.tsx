@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { listOperatingResource } from '@/lib/operating-model-api';
+import { listAllPaginatedOperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
 import PaymentGatewayExecutionActions from '@/components/PaymentGatewayExecutionActions';
 
@@ -21,7 +21,7 @@ export default function PaymentGatewayPaymentPanel({ role }: Props) {
     setLoading(true);
     setError('');
     try {
-      const result = await listOperatingResource('payment-instructions');
+      const result = await listAllPaginatedOperatingResource('payment-instructions');
       setRows(Array.isArray(result.paymentInstructions) ? result.paymentInstructions : []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Gateway execution queue gagal dimuat');
