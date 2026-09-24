@@ -223,7 +223,13 @@ async function readResource(database, params, actor, env, organizationId) {
       ORDER BY period DESC,created_at DESC LIMIT 1`, [organizationId, submission.client_id, submission.project_id || null, submission.period]);
     const lines = await d1All(database, `SELECT current.*,
       previous.gross_amount AS previous_gross,previous.deduction_amount AS previous_deduction,previous.net_amount AS previous_net,
-      CASE WHEN previous.employee_id IS NULL THEN 'NEW' WHEN current.net_amount<>previous.net_amount THEN 'CHANGED' ELSE 'UNCHANGED' END AS variance_type
+      previous.account_last4 AS previous_account_last4,previous.employment_status AS previous_employment_status,
+      CASE
+        WHEN previous.employee_id IS NULL THEN 'NEW'
+        WHEN current.net_amount<>previous.net_amount OR current.gross_amount<>previous.gross_amount
+          OR current.deduction_amount<>previous.deduction_amount
+          OR COALESCE(current.account_last4,'')<>COALESCE(previous.account_last4,'') THEN 'CHANGED'
+        ELSE 'UNCHANGED' END AS variance_type
       FROM payroll_run_lines current LEFT JOIN payroll_run_lines previous
         ON previous.submission_id=? AND previous.employee_id=current.employee_id
       WHERE current.submission_id=? ORDER BY current.employee_name`, [previous?.id || '', submission.id]);
@@ -231,15 +237,26 @@ async function readResource(database, params, actor, env, organizationId) {
     const removed = previous ? await d1All(database, `SELECT p.employee_id,p.employee_name,p.net_amount AS previous_net
       FROM payroll_run_lines p LEFT JOIN payroll_run_lines c ON c.submission_id=? AND c.employee_id=p.employee_id
       WHERE p.submission_id=? AND p.included=1 AND c.employee_id IS NULL ORDER BY p.employee_name`, [submission.id, previous.id]) : [];
-    const currentTotal = lines.filter((line)=>line.included).reduce((sum,line)=>sum+Number(line.net_amount||0),0);
-    const previousTotal = lines.filter((line)=>line.included).reduce((sum,line)=>sum+Number(line.previous_net||0),0)
+    const includedLines=lines.filter((line)=>line.included);
+    const currentTotal = includedLines.reduce((sum,line)=>sum+Number(line.net_amount||0),0);
+    const previousTotal = includedLines.reduce((sum,line)=>sum+Number(line.previous_net||0),0)
       + removed.reduce((sum,line)=>sum+Number(line.previous_net||0),0);
+    const currentGross=includedLines.reduce((sum,line)=>sum+Number(line.gross_amount||0),0);
+    const previousGross=includedLines.reduce((sum,line)=>sum+Number(line.previous_gross||0),0);
+    const currentDeduction=includedLines.reduce((sum,line)=>sum+Number(line.deduction_amount||0),0);
+    const previousDeduction=includedLines.reduce((sum,line)=>sum+Number(line.previous_deduction||0),0);
     return { data:{ ok:true, submission, previousPeriod:previous?.period || null, lines, removed,
       variance:{ currentTotal, previousTotal, amount:currentTotal-previousTotal,
         percent:previousTotal ? Number((((currentTotal-previousTotal)/previousTotal)*100).toFixed(2)) : null,
-        newEmployees:lines.filter((line)=>line.variance_type==='NEW'&&line.included).length,
-        changedEmployees:lines.filter((line)=>line.variance_type==='CHANGED'&&line.included).length,
-        removedEmployees:removed.length } } };
+        currentGross,previousGross,grossAmount:currentGross-previousGross,
+        currentDeduction,previousDeduction,deductionAmount:currentDeduction-previousDeduction,
+        currentHeadcount:includedLines.length,
+        previousHeadcount:includedLines.filter((line)=>line.previous_net!=null).length+removed.length,
+        headcountAmount:includedLines.length-(includedLines.filter((line)=>line.previous_net!=null).length+removed.length),
+        newEmployees:includedLines.filter((line)=>line.variance_type==='NEW').length,
+        changedEmployees:includedLines.filter((line)=>line.variance_type==='CHANGED').length,
+        removedEmployees:removed.length,
+        bankChangedEmployees:includedLines.filter((line)=>line.previous_account_last4&&line.account_last4&&String(line.previous_account_last4)!==String(line.account_last4)).length } } };
   }
 
   if (resource === 'exceptions') {
@@ -739,14 +756,41 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'REFRESH_PAY_RUN_FROM_MASTER') {
-    if (!PROCESSOR_ROLES.has(actor.role)) return { status:403, data:{ error:'Insufficient role' } };
+    if (!PROCESSOR_ROLES.has(actor.role) || !actor.permissions?.some((permission)=>['submission:write','payroll:write'].includes(permission))) {
+      return { status:403, data:{ error:'Permission payroll write diperlukan', code:'PAY_RUN_REFRESH_PERMISSION_REQUIRED' } };
+    }
     const submission = await d1First(database, `SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1`, [body.submissionId,organizationId]);
     if (!submission) return { status:404, data:{ error:'Pay Run tidak ditemukan' } };
     if (submission.source_mode!=='MASTER_CURRENT') return { status:409, data:{ error:'Hitung ulang master hanya tersedia untuk sumber MASTER_CURRENT' } };
     if (submission.period_status==='CLOSED' || !['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_ACTION_REQUIRED','CLIENT_RESUBMITTED','REVISION_REQUIRED','CLIENT_REVISION_REQUESTED'].includes(submission.state)) {
       return { status:409, data:{ error:'Snapshot Pay Run sudah terkunci dan tidak dapat dihitung ulang' } };
     }
+    const before = await d1First(database, `SELECT COUNT(*) AS recipients,COALESCE(SUM(gross_amount),0) AS gross,
+      COALESCE(SUM(deduction_amount),0) AS deduction,COALESCE(SUM(net_amount),0) AS net
+      FROM payroll_run_lines WHERE submission_id=? AND included=1`, [submission.id]);
     await d1Batch(database, [
+      { statement:`UPDATE payroll_run_lines SET included=0,updated_at=${NOW}
+        WHERE submission_id=? AND NOT EXISTS(
+          SELECT 1 FROM employees e WHERE e.id=payroll_run_lines.employee_id AND e.org_id=? AND e.client_id=? AND e.project_id=? AND ${ACTIVE_EMPLOYEE}
+        )`, bindings:[submission.id,organizationId,submission.client_id,submission.project_id] },
+      { statement:`INSERT INTO payroll_run_lines
+        (id,submission_id,employee_id,employee_code,employee_name,employment_status,bank_name,account_last4,
+         gross_amount,deduction_amount,net_amount,components,source,included)
+        SELECT 'PRL-'||lower(hex(randomblob(16))),?,e.id,e.employee_code,e.name,e.status_aktif,
+          (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
+          (SELECT substr(account_no,-4) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
+          CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END,
+          CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.imported_deduction,0) ELSE 0 END,
+          MAX(0,(CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END)
+            -(CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.imported_deduction,0) ELSE 0 END)),
+          CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.payroll_components,'{}')
+            ELSE json_object('Gaji Pokok',COALESCE(ec.basic_salary,0)) END,
+          'MASTER_CURRENT_REFRESH_NEW',1
+        FROM employees e LEFT JOIN employee_compensation ec ON ec.employee_id=e.id
+        WHERE e.org_id=? AND e.client_id=? AND e.project_id=? AND ${ACTIVE_EMPLOYEE}
+          AND NOT EXISTS(SELECT 1 FROM payroll_run_lines l WHERE l.submission_id=? AND l.employee_id=e.id)`,
+        bindings:[submission.id,submission.period,submission.period,submission.period,submission.period,submission.period,
+          organizationId,submission.client_id,submission.project_id,submission.id] },
       { statement:`UPDATE payroll_run_lines SET
           gross_amount=CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END,
           deduction_amount=CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.imported_deduction,0) ELSE 0 END,
@@ -754,20 +798,32 @@ async function executeAction(database, body, actor, env, organizationId) {
             -(CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.imported_deduction,0) ELSE 0 END)),
           components=CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.payroll_components,'{}')
             ELSE json_object('Gaji Pokok',COALESCE(ec.basic_salary,0)) END,
+          employment_status=(SELECT e.status_aktif FROM employees e WHERE e.id=payroll_run_lines.employee_id),
+          bank_name=(SELECT eba.bank_name FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
+          account_last4=(SELECT substr(REPLACE(eba.account_no,' ',''),-4) FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
           source='MASTER_CURRENT',updated_at=${NOW}
-        FROM employee_compensation ec WHERE payroll_run_lines.submission_id=? AND ec.employee_id=payroll_run_lines.employee_id`,
+        FROM employee_compensation ec WHERE payroll_run_lines.submission_id=? AND payroll_run_lines.included=1
+          AND ec.employee_id=payroll_run_lines.employee_id`,
         bindings:[submission.period,submission.period,submission.period,submission.period,submission.period,submission.id] },
       { statement:`UPDATE payroll_submissions SET input_status='PENDING',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },
-      auditOperation(organizationId,actor,'PAY_RUN_MASTER_REFRESHED',`Master compensation refreshed for ${submission.period}`,'payroll_submission',submission.id),
     ]);
     const quality = await d1First(database, `SELECT COUNT(*) AS recipients,
       SUM(CASE WHEN gross_amount>0 THEN 1 ELSE 0 END) AS calculated,
       SUM(CASE WHEN gross_amount<=0 THEN 1 ELSE 0 END) AS missing_salary,
-      SUM(gross_amount) AS total_gross,SUM(deduction_amount) AS total_deduction,SUM(net_amount) AS total_net
+      SUM(CASE WHEN source='MASTER_CURRENT_REFRESH_NEW' THEN 1 ELSE 0 END) AS added,
+      COALESCE(SUM(gross_amount),0) AS total_gross,COALESCE(SUM(deduction_amount),0) AS total_deduction,COALESCE(SUM(net_amount),0) AS total_net
       FROM payroll_run_lines WHERE submission_id=? AND included=1`, [submission.id]);
+    const excluded = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_run_lines WHERE submission_id=? AND included=0
+      AND source<>'MANUAL_EXCLUDE'`, [submission.id]);
+    const auditDetail=JSON.stringify({
+      before:{recipients:Number(before?.recipients||0),gross:Number(before?.gross||0),deduction:Number(before?.deduction||0),net:Number(before?.net||0)},
+      after:{recipients:Number(quality?.recipients||0),gross:Number(quality?.total_gross||0),deduction:Number(quality?.total_deduction||0),net:Number(quality?.total_net||0)},
+      added:Number(quality?.added||0),excluded:Number(excluded?.count||0),period:submission.period,
+    });
+    await d1Batch(database,[auditOperation(organizationId,actor,'PAY_RUN_MASTER_REFRESHED',auditDetail,'payroll_submission',submission.id)]);
     return { data:{ ok:true,summary:{recipients:Number(quality?.recipients||0),calculated:Number(quality?.calculated||0),
-      missingSalary:Number(quality?.missing_salary||0),totalGross:Number(quality?.total_gross||0),
-      totalDeduction:Number(quality?.total_deduction||0),totalNet:Number(quality?.total_net||0)} } };
+      missingSalary:Number(quality?.missing_salary||0),added:Number(quality?.added||0),excluded:Number(excluded?.count||0),
+      totalGross:Number(quality?.total_gross||0),totalDeduction:Number(quality?.total_deduction||0),totalNet:Number(quality?.total_net||0)} } };
   }
 
   if (body.action === 'DELETE_PAY_RUN') {
