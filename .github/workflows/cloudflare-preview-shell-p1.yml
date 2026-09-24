@@ -1,0 +1,86 @@
+name: Cloudflare Pages Preview Deploy
+
+on:
+  push:
+    branches:
+      - preview/shell-p1-2026-09-24
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-pages-preview-shell-p1
+  cancel-in-progress: true
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'proqpay-lite' }}
+      PREVIEW_BRANCH: preview-shell-p1-2026-09-24
+
+    steps:
+      - name: Checkout preview branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Quality gates
+        run: |
+          npm test
+          npm run typecheck
+          npm run lint
+          npm run build
+
+      - name: Verify Cloudflare credentials
+        shell: bash
+        run: |
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
+          npx wrangler whoami
+
+      - name: Deploy preview branch
+        id: deploy
+        shell: bash
+        run: |
+          set -o pipefail
+          npx wrangler pages deploy out             --project-name="$PAGES_PROJECT_NAME"             --branch="$PREVIEW_BRANCH"             --commit-hash="${{ github.sha }}" | tee /tmp/preview-deploy.txt
+          preview_url=$(grep -Eo 'https://[A-Za-z0-9.-]+\.pages\.dev' /tmp/preview-deploy.txt | tail -1)
+          test -n "$preview_url" || { echo "Preview URL not found in Wrangler output"; cat /tmp/preview-deploy.txt; exit 1; }
+          echo "preview_url=$preview_url" >> "$GITHUB_OUTPUT"
+          echo "Preview URL: $preview_url"
+
+      - name: Preview smoke
+        shell: bash
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.preview_url }}
+        run: |
+          for attempt in {1..10}; do
+            if curl --fail --silent --show-error "$PREVIEW_URL/" >/tmp/preview-home.html; then
+              echo "Preview home is reachable: $PREVIEW_URL"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Preview home did not become reachable."
+          exit 1
+
+      - name: Preview summary
+        if: success()
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.preview_url }}
+        run: |
+          echo "Preview deployed successfully."
+          echo "URL: $PREVIEW_URL"
+          echo "No production migration, seed, reconciliation, or promotion was executed."
