@@ -14,6 +14,6 @@ test('Pay Run readiness exposes filters, recommendations, and direct fix actions
 test('employee deep-link filters and opens the exact matching profile', async () => {
   const source = await readFile(new URL('../src/components/EmployeeDirectory.tsx', import.meta.url), 'utf8');
   assert.match(source, /get\('employeeQuery'\)/);
-  assert.match(source, /filtered\.length !== 1/);
+  assert.match(source, /filtered\.length\s*!==\s*1/);
   assert.match(source, /setSelected\(filtered\[0\]\)/);
 });
