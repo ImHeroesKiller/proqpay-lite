@@ -13,7 +13,7 @@ test('Header search supports keyboard combobox navigation and profile dialog foc
   assert.match(source,/ArrowUp/);
   assert.match(source,/aria-activedescendant/);
   assert.match(source,/profileRef/);
-  assert.match(source,/event\.key === "Tab"/);
+  assert.match(source,/event\.key !== "Tab"/);
   assert.match(source,/event\.key === "Escape"/);
   assert.match(source,/accountButtonRef/);
   assert.doesNotMatch(source,/\bany\b/);
