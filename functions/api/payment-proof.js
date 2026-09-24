@@ -172,6 +172,8 @@ export async function onRequest({ request, env }) {
       },409);
     }
     const proofId = `PP-${crypto.randomUUID()}`;
+    const digest = await crypto.subtle.digest('SHA-256', fileBytes);
+    const fileSha256 = [...new Uint8Array(digest)].map((value)=>value.toString(16).padStart(2,'0')).join('');
     const key = paymentProofObjectKey(organizationId, paymentInstructionId, file.name);
     const nextProofTotal = Number(currentProofTotal?.total || 0) + amount;
     const evidenceComplete = nextProofTotal === Number(payment.expected_total || 0);
@@ -186,8 +188,9 @@ export async function onRequest({ request, env }) {
     try {
       const results = await d1Batch(database, [
         { statement: `INSERT INTO payment_proofs
-          (id, payment_instruction_id, bank, reference, transaction_date, amount, uploaded_file_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`, bindings: [proofId, paymentInstructionId, bank, reference, transactionDate, amount, key] },
+          (id, payment_instruction_id, bank, reference, transaction_date, amount, uploaded_file_id, file_sha256, file_size, mime_type, uploaded_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+          bindings: [proofId, paymentInstructionId, bank, reference, transactionDate, amount, key, fileSha256, file.size, contentValidation.detectedType || file.type, authorization.actor.email] },
         { statement: `UPDATE payment_instructions SET status=CASE WHEN ?=1 THEN 'PROOF_UPLOADED' ELSE status END,
           updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings: [evidenceComplete ? 1 : 0, paymentInstructionId] },
         { statement: `UPDATE payroll_submissions SET state=CASE WHEN ?=1 THEN 'PROOF_UPLOADED' ELSE state END,
@@ -196,7 +199,7 @@ export async function onRequest({ request, env }) {
         { statement: `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
           VALUES (?,?,?,?,'PAYMENT_PROOF_UPLOADED',?,'payment_proof',?)`,
           bindings: [`AUD-${crypto.randomUUID()}`, organizationId, authorization.actor.email, authorization.actor.role,
-            `${bank} · ${reference} · ${file.size} bytes`, proofId] },
+            `${bank} · ${reference} · ${file.size} bytes · sha256 ${fileSha256}`, proofId] },
       ]);
       return respond({ ok: true, paymentProof: results[0]?.results?.[0], evidenceComplete, proofTotal:nextProofTotal, expectedTotal:Number(payment.expected_total || 0) }, 201);
     } catch (error) {
