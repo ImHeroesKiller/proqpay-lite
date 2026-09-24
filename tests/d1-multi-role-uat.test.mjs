@@ -25,7 +25,7 @@ async function action(DB,actor,body){
   return {response,payload:await response.json()};
 }
 
-const processor={id:'USR-P',email:'processor@test.id',role:'PAYROLL_PROCESSOR',permissions:[]};
+const processor={id:'USR-P',email:'processor@test.id',role:'PAYROLL_PROCESSOR',permissions:['submission:write','payroll:write']};
 const controller={id:'USR-C',email:'controller@test.id',role:'PAYROLL_CONTROLLER',permissions:['payment:prepare']};
 const client={id:'USR-CL',email:'client@test.id',role:'CLIENT_USER',clientIds:['CLI-UAT'],projectIds:['PRJ-UAT'],permissions:[]};
 const outsider={id:'USR-O',email:'outside@test.id',role:'CLIENT_USER',clientIds:['CLI-OTHER'],projectIds:['PRJ-OTHER'],permissions:[]};
