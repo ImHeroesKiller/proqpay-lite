@@ -88,5 +88,7 @@ test('Payment Instructions P2 exposes actionable operational state in UI',async(
   assert.match(ui,/window\.confirm/);
   assert.match(detail,/OPERATIONAL AUDIT/);
   assert.match(detail,/Activity trail/);
-  assert.match(api,/FROM audit_logs WHERE org_id=\? AND entity='payment_instruction'/);
+  assert.match(api,/FROM audit_logs WHERE org_id=\? AND \(/);
+  assert.match(api,/entity='payment_instruction'/);
+  assert.match(api,/entity='payment_proof'/);
 });
