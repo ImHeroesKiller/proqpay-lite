@@ -367,7 +367,7 @@ export default function BillingWorkspace({
     );
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    <div className="billing-workspace" style={{ display: "grid", gap: 16 }}>
       {(focusSubmissionId || focusSection) && (
         <div className="dashboard-focus-banner" role="status">
           <span>
@@ -413,7 +413,7 @@ export default function BillingWorkspace({
         />
       </div>
 
-      <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>
+      <div className="billing-tabs" style={{ display: "flex", gap: 8, overflowX: "auto" }}>
         {(Object.keys(sections) as BillingSection[]).map((key) => (
           <button
             key={key}
@@ -1370,6 +1370,7 @@ function Modal({ title, close, children }: any) {
   if (typeof document === "undefined") return null;
   return createPortal(
     <div
+      className="billing-modal-backdrop"
       style={{
         position: "fixed",
         inset: 0,
@@ -1382,7 +1383,10 @@ function Modal({ title, close, children }: any) {
       onMouseDown={close}
     >
       <div
-        className="card"
+        className="card billing-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         style={{
           width: "min(680px,100%)",
           maxHeight: "88vh",
