@@ -188,7 +188,12 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   }).length;
   const openExceptions = visibleExceptions.filter((row) => !['RESOLVED','ACCEPTED','AUTO_NORMALIZED'].includes(row.status));
   const criticalExceptions = openExceptions.filter((row) => row.severity === 'CRITICAL');
+  const warningExceptions = openExceptions.filter((row) => row.severity === 'WARNING');
+  const clientActionExceptions = openExceptions.filter((row)=>row.status==='CLIENT_ACTION_REQUIRED');
+  const internalActionExceptions = openExceptions.filter((row)=>row.status!=='CLIENT_ACTION_REQUIRED');
+  const resolvedExceptions = visibleExceptions.filter((row)=>['RESOLVED','ACCEPTED','AUTO_NORMALIZED'].includes(row.status));
   const affectedRuns = new Set(openExceptions.map((row) => row.submission_id)).size;
+  const cleanRuns = visibleSubmissions.filter((submission)=>!openExceptions.some((row)=>row.submission_id===submission.id)).length;
   const awaitingApproval = visibleInstructions.filter((row) => row.status === 'PAYMENT_APPROVAL_PENDING').length;
   const approvedPayments = visibleInstructions.filter((row) => ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(row.status)).length;
   const matchedPayments = visibleReconciliations.filter((row) => row.status === 'MATCHED').length;
@@ -277,10 +282,10 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           <div><span>Active workflow</span><strong>{pendingActions}</strong><small>{visibleSubmissions.reduce((sum,row)=>sum+Number(row.employee_count||0),0).toLocaleString('id-ID')} penerima</small></div>
           <div><span>Blocked</span><strong>{blockers}</strong><small>Temuan kritis aktif</small></div>
         </> : mode === 'actions' ? <>
-          <div><span>Open exceptions</span><strong>{openExceptions.length}</strong><small>Antrean aktif</small></div>
-          <div><span>Critical blockers</span><strong>{criticalExceptions.length}</strong><small>Harus diselesaikan</small></div>
-          <div><span>Affected pay runs</span><strong>{affectedRuns}</strong><small>Dari {visibleSubmissions.length} pay run</small></div>
-          <div><span>Client action</span><strong>{openExceptions.filter((row)=>row.status==='CLIENT_ACTION_REQUIRED').length}</strong><small>Menunggu perbaikan</small></div>
+          <div><span>Critical blocker</span><strong>{criticalExceptions.length}</strong><small>{affectedRuns} pay run terdampak</small></div>
+          <div><span>Warning</span><strong>{warningExceptions.length}</strong><small>Perlu review sebelum finalisasi</small></div>
+          <div><span>Client action</span><strong>{clientActionExceptions.length}</strong><small>Menunggu koreksi klien</small></div>
+          <div><span>Ready / clean</span><strong>{cleanRuns}</strong><small>{resolvedExceptions.length} exception selesai</small></div>
         </> : simplifiedInternal ? <>
           <div><span>Payments</span><strong>{visibleInstructions.length}</strong><small>{visibleInstructions.reduce((sum,row)=>sum+Number(row.recipient_count||0),0).toLocaleString('id-ID')} penerima</small></div>
           <div><span>{role==='PAYROLL_CONTROLLER'?'For approval':'Ready to pay'}</span><strong>{role==='PAYROLL_CONTROLLER'?awaitingApproval:visibleInstructions.filter((row)=>row.status==='APPROVED_FOR_PAYMENT').length}</strong><small>{role==='PAYROLL_CONTROLLER'?'Menunggu keputusan Anda':'Siap dieksekusi'}</small></div>
@@ -298,8 +303,8 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       {loading ? <Empty title="Memuat data operasional…" /> : (
         <>
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
-          {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
-          {mode === 'actions' && <Exceptions rows={visibleExceptions} role={role} canResolve={isProcessor || isClient} act={act} />}
+          {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
+          {mode === 'actions' && <Exceptions rows={visibleExceptions} payRuns={visibleSubmissions} role={role} canResolve={isProcessor || isClient} act={act} />}
           {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace
             actor={actor}
@@ -520,10 +525,11 @@ function PayRunLineTable({detail,editable,onEdit}:{detail:any;editable:boolean;o
   return <><section className={`pay-run-readiness ${totalIssues?'has-issues':'ready'}`}><div><span>AI DATA READINESS</span><strong>{totalIssues?`${totalIssues} data harus diperbaiki`:'Semua data utama siap'}</strong><small>{totalIssues?'Pilih kategori untuk melihat record dan rekomendasi perbaikan.':'THP dan rekening penerima telah lolos pemeriksaan dasar.'}</small></div>{totalIssues?<div className="pay-run-readiness-actions">{issueCounts.THP?<button type="button" onClick={()=>focusIssue('THP')}><b>{issueCounts.THP}</b><span>THP kosong/nol</span><small>Edit nominal →</small></button>:null}{issueCounts.GROSS?<button type="button" onClick={()=>focusIssue('GROSS')}><b>{issueCounts.GROSS}</b><span>Gross kosong</span><small>Edit nominal →</small></button>:null}{issueCounts.CONTROL?<button type="button" onClick={()=>focusIssue('CONTROL')}><b>{issueCounts.CONTROL}</b><span>Control total tidak balance</span><small>Edit nominal →</small></button>:null}{issueCounts.BANK?<button type="button" onClick={()=>focusIssue('BANK')}><b>{issueCounts.BANK}</b><span>Rekening belum lengkap</span><small>Buka karyawan →</small></button>:null}</div>:null}</section><details ref={detailsRef} className="pay-run-lines" open={Boolean(totalIssues)}><summary>{issueFilter==='ALL'?'Preview seluruh penerima':`Filter masalah: ${issueFilter}`} <b>{rows.length}</b></summary><div className="pay-run-line-toolbar"><input value={query} placeholder="Cari nama atau ID karyawan" onChange={(event)=>{setQuery(event.target.value);setPage(1);}}/><select value={issueFilter} onChange={(event)=>{setIssueFilter(event.target.value);setPage(1);}}><option value="ALL">Semua penerima</option><option value="THP">THP kosong/nol</option><option value="GROSS">Gross kosong</option><option value="CONTROL">Control total tidak balance</option><option value="BANK">Rekening belum lengkap</option></select><span>Halaman {Math.min(page,pages)}/{pages}</span></div><div className="pay-run-line-scroll"><table><thead><tr><th>Karyawan</th><th>Gross</th><th>Potongan</th><th>THP</th><th>Masalah & rekomendasi</th><th>Aksi</th></tr></thead><tbody>{visible.map((line:any)=>{const issue=issueFor(line);return <tr key={line.id} className={issue?'pay-run-line-issue':''}><td><strong>{line.employee_name}</strong><small>{line.employee_code||line.employee_id} · {line.bank_name||'Bank belum ada'} ••••{line.account_last4||'----'}</small></td><td>{formatIDR(Number(line.gross_amount||0))}</td><td>{formatIDR(Number(line.deduction_amount||0))}</td><td><strong>{formatIDR(Number(line.net_amount||0))}</strong></td><td>{issue?<><Badge text="CRITICAL"/><small>{issue==='BANK'?'Lengkapi bank dan nomor rekening utama pada master karyawan.':issue==='CONTROL'?'Pastikan Gross - Potongan sama dengan THP.':'Isi gross dan potongan yang benar agar THP dapat dihitung.'}</small></>:<><Badge text="READY"/><small>Data utama siap diproses.</small></>}</td><td>{issue==='BANK'?<a className="btn" href={`?view=employees&employeeQuery=${encodeURIComponent(line.employee_code||line.employee_id)}`}>Perbaiki rekening</a>:editable?<button type="button" className="btn btn-primary" onClick={()=>edit(line)}>Edit nominal</button>:<span>Review only</span>}</td></tr>})}</tbody></table></div><div className="control-pagination"><span>{rows.length} ditampilkan · {totalIssues} masalah ditemukan</span><div><button className="btn" disabled={page<=1} onClick={()=>setPage((value)=>value-1)}>←</button><button className="btn" disabled={page>=pages} onClick={()=>setPage((value)=>value+1)}>→</button></div></div></details></>;
 }
 
-function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string; canResolve: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+function Exceptions({ rows, payRuns, role, canResolve, act }: { rows: any[]; payRuns:any[]; role: string; canResolve: boolean; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
   const clientMode = role === 'CLIENT_USER';
   const [severity, setSeverity] = useState('ALL');
   const [status, setStatus] = useState(role === 'CLIENT_USER' ? 'CLIENT_ACTION_REQUIRED' : 'ACTIVE');
+  const [group,setGroup] = useState<'ALL'|'CRITICAL'|'WARNING'|'CLIENT'|'INTERNAL'|'RESOLVED'>('ALL');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<any | null>(null);
@@ -536,13 +542,38 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
   const dialogRef=useRef<HTMLDivElement>(null);
   const previousFocusRef=useRef<HTMLElement|null>(null);
   const isClosed=(row:any)=>['RESOLVED','ACCEPTED','AUTO_NORMALIZED'].includes(row.status);
-  const filtered = rows.filter((row) => (severity === 'ALL' || row.severity === severity)
-    && (status === 'ALL' || (status==='ACTIVE' ? !isClosed(row) : row.status === status))
-    && (!query || [row.category,row.employee_id,row.employee_name,row.reason,row.field,row.client_name,row.project_name,row.period,row.status].join(' ').toLowerCase().includes(query.toLowerCase())));
+  const groupMatches=(row:any)=>{
+    if(group==='CRITICAL') return !isClosed(row)&&row.severity==='CRITICAL';
+    if(group==='WARNING') return !isClosed(row)&&row.severity==='WARNING';
+    if(group==='CLIENT') return !isClosed(row)&&row.status==='CLIENT_ACTION_REQUIRED';
+    if(group==='INTERNAL') return !isClosed(row)&&row.status!=='CLIENT_ACTION_REQUIRED';
+    if(group==='RESOLVED') return isClosed(row);
+    return true;
+  };
+  const filtered = rows.filter((row) => groupMatches(row)
+    && (severity === 'ALL' || row.severity === severity)
+    && (status === 'ALL' || (status==='ACTIVE' ? !isClosed(row) : row.status === status)
+    && (!query || [row.category,row.employee_id,row.employee_name,row.reason,row.field,row.client_name,row.project_name,row.period,row.status].join(' ').toLowerCase().includes(query.toLowerCase()))));
   const pageCount = Math.max(1, Math.ceil(filtered.length / 20));
   const visible = filtered.slice((page - 1) * 20, page * 20);
+  const selectedRun=selected?payRuns.find((row)=>row.id===selected.submission_id):null;
+  const counts={
+    critical:rows.filter((row)=>!isClosed(row)&&row.severity==='CRITICAL').length,
+    warning:rows.filter((row)=>!isClosed(row)&&row.severity==='WARNING').length,
+    client:rows.filter((row)=>!isClosed(row)&&row.status==='CLIENT_ACTION_REQUIRED').length,
+    internal:rows.filter((row)=>!isClosed(row)&&row.status!=='CLIENT_ACTION_REQUIRED').length,
+    resolved:rows.filter(isClosed).length,
+  };
+  const readinessSeverityLabel=(value:string)=>value==='CRITICAL'?'Blocker':value==='WARNING'?'Warning':'Info';
+  const readinessStatusLabel=(value:string)=>({
+    OPEN:'Internal action',
+    CLIENT_ACTION_REQUIRED:'Client action',
+    RESOLVED:'Resolved',
+    ACCEPTED:'Client confirmed',
+    AUTO_NORMALIZED:'Auto normalized',
+  } as Record<string,string>)[value] || value.replaceAll('_',' ');
 
-  useEffect(()=>setPage(1),[severity,status,query]);
+  useEffect(()=>setPage(1),[severity,status,query,group]);
   useEffect(()=>setPage((current)=>Math.min(current,pageCount)),[pageCount]);
   useEffect(()=>{
     if(!selected) return;
@@ -585,35 +616,69 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
     setSelected(null);
   };
 
-  if (!rows.length) return <Empty title="Tidak ada exception operasional" detail="Temuan validasi akan masuk ke antrean ini dan diblokir berdasarkan tingkat severity." />;
-  return <div style={{display:'grid',gap:12}}>
+  if (!rows.length) return <Empty
+    title={payRuns.length?'Data readiness bersih':'Belum ada Pay Run untuk direview'}
+    detail={payRuns.length?'Tidak ada exception pada scope ini. Pay Run dapat dilanjutkan sesuai workflow berikutnya.':'Buat atau pilih Pay Run terlebih dahulu; hasil validasi readiness akan muncul di halaman ini.'}
+  />;
+  return <div className="readiness-control-center">
+    {!clientMode?<div className="readiness-group-tabs" aria-label="Kelompok readiness">
+      {[
+        ['ALL','Semua aktif',counts.critical+counts.warning+rows.filter((r)=>!isClosed(r)&&!['CRITICAL','WARNING'].includes(r.severity)).length],
+        ['CRITICAL','Blocker',counts.critical],
+        ['WARNING','Warning',counts.warning],
+        ['CLIENT','Client action',counts.client],
+        ['INTERNAL','Internal action',counts.internal],
+        ['RESOLVED','Resolved',counts.resolved],
+      ].map(([value,label,count])=><button key={String(value)} type="button" className={group===value?'active':''} onClick={()=>{setGroup(value as typeof group);if(value==='RESOLVED')setStatus('ALL');else if(status!=='ALL')setStatus('ACTIVE');}}><span>{label}</span><b>{count}</b></button>)}
+    </div>:null}
     <div className="card readiness-filter-bar">
       <input style={{...input,flex:'1 1 220px'}} value={query} placeholder={clientMode?"Cari payroll atau karyawan…":"Cari karyawan, alasan, field, klien, project…"} onChange={(e)=>setQuery(e.target.value)} />
       {!clientMode?<><select style={input} value={severity} onChange={(e)=>setSeverity(e.target.value)}><option value="ALL">Semua severity</option><option>CRITICAL</option><option>WARNING</option><option>INFO</option></select>
       <select style={input} value={status} onChange={(e)=>setStatus(e.target.value)}><option value="ACTIVE">Semua aktif</option><option value="ALL">Semua status</option><option>OPEN</option><option>CLIENT_ACTION_REQUIRED</option><option>RESOLVED</option><option>ACCEPTED</option><option>AUTO_NORMALIZED</option></select></>:null}
-      <span style={{...small,margin:'auto 0'}}><strong>{filtered.length}</strong> {clientMode?'perlu diperbaiki':'temuan'}</span>
+      <span className="readiness-result-count"><strong>{filtered.length}</strong> {clientMode?'perlu diperbaiki':'temuan'}</span>
     </div>
-    <CardTable headers={clientMode?['Perlu diperbaiki','Payroll','Aksi']:['Temuan','Klien / Project','Severity','Status','Aksi']} rows={visible.map((r) => clientMode ? [
-      <div key="finding"><strong>{r.reason || r.category || 'Perbaikan data payroll'}</strong><small style={small}>{r.employee_name || r.employee_id || 'Data payroll'} </small></div>,
-      <div key="scope"><strong>{r.project_name || r.client_name || r.client_id || '-'}</strong><small style={small}>Periode {r.period || '-'}</small></div>,
-      <button key="detail" style={actionButton} onClick={() => setSelected(r)}>Lihat & konfirmasi</button>,
-    ] : [
-      <div key="finding"><strong>{r.category}</strong><small style={small}>{r.employee_name || r.employee_id || 'Submission'} · {r.reason || r.field || '-'}</small></div>,
-      <div key="scope"><strong>{r.client_name || r.client_id || '-'}</strong><small style={small}>{r.project_name || r.period || '-'}</small></div>,
-      <Badge key="severity" text={r.severity} />,
-      <Badge key="status" text={r.status} />,
-      <button key="detail" style={actionButton} onClick={() => setSelected(r)}>Tindak lanjut</button>,
-    ])} />
-    <div className="readiness-pagination"><span>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div><button className="btn" aria-label="Halaman sebelumnya" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>←</button><button className="btn" aria-label="Halaman berikutnya" disabled={page>=pageCount} onClick={()=>setPage(p=>Math.min(pageCount,p+1))}>→</button></div></div>
+    {filtered.length ? <>
+      <div className="readiness-desktop-table">
+        <CardTable headers={clientMode?['Perlu diperbaiki','Payroll','Aksi']:['Temuan','Klien / Project','Severity','Status','Aksi']} rows={visible.map((r) => clientMode ? [
+          <div key="finding"><strong>{r.reason || r.category || 'Perbaikan data payroll'}</strong><small style={small}>{r.employee_name || r.employee_id || 'Data payroll'} </small></div>,
+          <div key="scope"><strong>{r.project_name || r.client_name || r.client_id || '-'}</strong><small style={small}>Periode {r.period || '-'}</small></div>,
+          <button key="detail" style={actionButton} onClick={() => setSelected(r)}>Lihat & konfirmasi</button>,
+        ] : [
+          <div key="finding"><strong>{r.category}</strong><small style={small}>{r.employee_name || r.employee_id || 'Submission'} · {r.reason || r.field || '-'}</small></div>,
+          <div key="scope"><strong>{r.client_name || r.client_id || '-'}</strong><small style={small}>{r.project_name || r.period || '-'}</small></div>,
+          <span key="severity" className={`readiness-pill severity-${String(r.severity||'INFO').toLowerCase()}`}>{readinessSeverityLabel(r.severity)}</span>,
+          <span key="status" className={`readiness-pill status-${String(r.status||'OPEN').toLowerCase().replaceAll('_','-')}`}>{readinessStatusLabel(r.status)}</span>,
+          <button key="detail" style={actionButton} onClick={() => setSelected(r)}>Tindak lanjut</button>,
+        ])} />
+      </div>
+      <div className="readiness-mobile-list">
+        {visible.map((r)=><article key={r.id} className="readiness-mobile-card">
+          <div className="readiness-mobile-card-head"><span className={`readiness-pill severity-${String(r.severity||'INFO').toLowerCase()}`}>{readinessSeverityLabel(r.severity)}</span><span className={`readiness-pill status-${String(r.status||'OPEN').toLowerCase().replaceAll('_','-')}`}>{readinessStatusLabel(r.status)}</span></div>
+          <strong>{r.reason || r.category || 'Temuan payroll'}</strong>
+          <span>{r.employee_name || r.employee_id || 'Submission level'}</span>
+          <small>{r.client_name || r.client_id || '-'} · {r.project_name || '-'} · {r.period || '-'}</small>
+          <button type="button" className="btn btn-primary" onClick={()=>setSelected(r)}>{clientMode?'Lihat & konfirmasi':'Tindak lanjut'}</button>
+        </article>)}
+      </div>
+      <div className="readiness-pagination"><span>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div><button className="btn" aria-label="Halaman sebelumnya" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>←</button><button className="btn" aria-label="Halaman berikutnya" disabled={page>=pageCount} onClick={()=>setPage(p=>Math.min(pageCount,p+1))}>→</button></div></div>
+    </>:<div className="card readiness-empty-filter"><strong>Tidak ada temuan sesuai filter</strong><span>Ubah pencarian, severity, status, atau kelompok readiness untuk melihat item lain.</span><button type="button" className="btn" onClick={()=>{setQuery('');setSeverity('ALL');setStatus(clientMode?'CLIENT_ACTION_REQUIRED':'ACTIVE');setGroup('ALL');}}>Reset filter</button></div>}
     {selected ? <div className="directory-modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)setSelected(null);}}><div ref={dialogRef} className="directory-modal readiness-exception-modal" role="dialog" aria-modal="true" aria-label="Detail exception payroll">
-      <div className="directory-modal-title"><div><span>{clientMode?'PERBAIKAN PAYROLL':'DATA READINESS'}</span><h3>{clientMode?'Perlu diperbaiki':selected.category}</h3></div><button aria-label="Tutup detail exception" onClick={()=>setSelected(null)}>✕</button></div>
+      <div className="directory-modal-title"><div><span>{clientMode?'PERBAIKAN PAYROLL':'READINESS DECISION'}</span><h3>{clientMode?'Perlu diperbaiki':selected.reason || selected.category}</h3></div><button aria-label="Tutup detail exception" onClick={()=>setSelected(null)}>✕</button></div>
+      <div className="readiness-decision-hero">
+        <div><span>Decision status</span><strong>{isClosed(selected)?'Selesai':selected.status==='CLIENT_ACTION_REQUIRED'?'Menunggu klien':'Perlu keputusan'}</strong></div>
+        <span className={`readiness-pill severity-${String(selected.severity||'INFO').toLowerCase()}`}>{readinessSeverityLabel(selected.severity)}</span>
+      </div>
       <div className="readiness-exception-context">
         <div><span>Karyawan</span><strong>{selected.employee_name || selected.employee_id || 'Submission level'}</strong></div>
         <div><span>Scope</span><strong>{selected.client_name || selected.client_id} · {selected.project_name || selected.period || '-'}</strong></div>
-        <div><span>Severity</span><strong>{selected.severity || '-'}</strong></div>
-        <div><span>Status</span><strong>{String(selected.status||'-').replaceAll('_',' ')}</strong></div>
+        <div><span>Status</span><strong>{readinessStatusLabel(selected.status)}</strong></div>
+        <div><span>Field</span><strong>{selected.field || '-'}</strong></div>
       </div>
-      <p style={{color:'var(--text2)',fontSize:13}}>{selected.reason}</p>
+      {selectedRun?<section className="readiness-payrun-summary" aria-label="Affected Pay Run">
+        <div className="readiness-evidence-heading"><span>AFFECTED PAY RUN</span><strong>{selectedRun.client_name || selected.client_name} · {selectedRun.period || selected.period}</strong></div>
+        <div><span>Project<strong>{selectedRun.project_name || selected.project_name || '-'}</strong></span><span>Headcount<strong>{Number(selectedRun.employee_count||0).toLocaleString('id-ID')}</strong></span><span>Net payroll<strong>{formatIDR(Number(selectedRun.total_net||0))}</strong></span><span>Stage<strong>{String(selectedRun.state||'-').replaceAll('_',' ')}</strong></span></div>
+      </section>:null}
+      <p className="readiness-reason">{selected.reason}</p>
       <section className="readiness-evidence-panel" aria-label="Evidence exception">
         <div className="readiness-evidence-heading"><span>EVIDENCE</span><strong>{selected.field || 'Validation evidence'}</strong></div>
         <div className="readiness-evidence-grid">
@@ -628,6 +693,7 @@ function Exceptions({ rows, role, canResolve, act }: { rows: any[]; role: string
         {historyLoading?<small>Memuat riwayat…</small>:history.length?<div className="readiness-timeline">{history.map((item)=><div key={item.id}><i aria-hidden="true" /><div><strong>{String(item.action||'').replaceAll('_',' ')}</strong><span>{item.username || '-'} · {item.timestamp ? new Date(item.timestamp).toLocaleString('id-ID') : '-'}</span><small>{item.detail || '-'}</small></div></div>)}</div>:<small>Belum ada event audit untuk exception ini.</small>}
       </section>
       {canResolve && !isClosed(selected) ? <section className="readiness-resolution-panel">
+        <div className="readiness-evidence-heading"><span>DECISION</span><strong>{clientMode?'Konfirmasi koreksi':'Resolution decision'}</strong></div>
         <label className="payroll-review-confirm"><input type="checkbox" checked={evidenceReviewed} onChange={(event)=>setEvidenceReviewed(event.target.checked)} /><span>Saya sudah memeriksa Source, Canonical, Suggested value, dan alasan exception.</span></label>
         <label><span>Catatan resolusi</span><textarea value={resolutionNote} onChange={(event)=>setResolutionNote(event.target.value)} rows={3} maxLength={1000} /></label>
       </section>:null}
