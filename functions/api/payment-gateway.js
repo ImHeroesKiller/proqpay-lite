@@ -31,6 +31,7 @@ function auditOperation(organizationId, actor, action, detail, entityId) {
 async function approvedInstruction(database, organizationId, paymentInstructionId) {
   return d1First(database, `SELECT pi.*,
       COALESCE((SELECT SUM(pil.amount) FROM payment_instruction_lines pil WHERE pil.payment_instruction_id=pi.id),0) AS instruction_total,
+      COALESCE((SELECT COUNT(*) FROM payment_instruction_lines pil WHERE pil.payment_instruction_id=pi.id),0) AS instruction_count,
       (SELECT pa.action_hash FROM payment_approvals pa WHERE pa.payment_instruction_id=pi.id AND pa.status='APPROVED'
         ORDER BY pa.created_at DESC LIMIT 1) AS approved_hash
     FROM payment_instructions pi WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [paymentInstructionId, organizationId]);
@@ -62,6 +63,9 @@ function validateInstruction(payment) {
   if (Number(payment.expected_total) <= 0 || Number(payment.expected_total) !== Number(payment.instruction_total)) {
     return { status: 409, error: 'Control total Payment Instruction tidak seimbang', code: 'PAYMENT_CONTROL_TOTAL_MISMATCH' };
   }
+  if (Number(payment.recipient_count) <= 0 || Number(payment.recipient_count) !== Number(payment.instruction_count)) {
+    return { status: 409, error: 'Jumlah penerima Payment Instruction tidak sesuai snapshot', code: 'PAYMENT_RECIPIENT_COUNT_MISMATCH' };
+  }
   return null;
 }
 
@@ -84,6 +88,38 @@ function publicTransaction(row) {
     ...safe
   } = row;
   return safe;
+}
+
+export function gatewayOperationalStatus(transaction, items = [], nowMs = Date.now()) {
+  if (!transaction) return {
+    state:'IDLE', stale:false, staleMinutes:0, needsReconciliation:false, safeToRetry:false,
+    activeLease:false, unresolvedItems:0, failedItems:0, succeededItems:0, lastActivityAt:null,
+  };
+  const unresolved = items.filter((item) => ['PENDING','PROCESSING','UNKNOWN'].includes(String(item.status || '')));
+  const failed = items.filter((item) => String(item.status || '') === 'FAILED');
+  const succeeded = items.filter((item) => String(item.status || '') === 'SUCCEEDED');
+  const retryableFailed = failed.filter((item) => Number(item.attempt_count || 0) === 0 || String(item.response_code || '').trim() === '99');
+  const itemActivity = items.map((item) => item.last_checked_at || item.updated_at || item.created_at).filter(Boolean).sort().at(-1);
+  const lastActivityAt = itemActivity || transaction.updated_at || transaction.created_at || null;
+  const ageMs = lastActivityAt ? Math.max(0, nowMs - new Date(lastActivityAt).getTime()) : 0;
+  const staleMinutes = Math.floor(ageMs / 60000);
+  const activeLease = Boolean(transaction.execution_lock_until && new Date(transaction.execution_lock_until).getTime() > nowMs);
+  const status = String(transaction.status || '');
+  const active = ['CREATED','PENDING','PROCESSING'].includes(status);
+  const stale = active && !activeLease && staleMinutes >= 15;
+  const needsReconciliation = unresolved.length > 0 || (stale && status === 'PROCESSING');
+  const safeToRetry = status === 'FAILED' && unresolved.length === 0
+    && (!items.length || (failed.length > 0 && retryableFailed.length === failed.length));
+  const state = status === 'SUCCEEDED' ? 'SETTLED'
+    : needsReconciliation ? (stale ? 'STALE' : 'RECONCILE')
+    : status === 'FAILED' ? 'FAILED'
+    : active ? 'PROCESSING'
+    : status || 'IDLE';
+  return {
+    state, stale, staleMinutes, needsReconciliation, safeToRetry, activeLease,
+    unresolvedItems:unresolved.length, failedItems:failed.length, retryableFailedItems:retryableFailed.length,
+    succeededItems:succeeded.length, lastActivityAt,
+  };
 }
 
 export async function acquireExecutionLease(database, transactionId) {
@@ -133,7 +169,8 @@ export async function onRequest(context) {
         ? await d1All(database, `SELECT id,payment_instruction_line_id,employee_id,provider,client_ref,bank_id,beneficiary_name,provider_beneficiary_name,account_last4,amount,fee_amount,journal_id,correlation_id,response_code,response_message,status,attempt_count,last_checked_at,error_code,error_message,created_at,updated_at
             FROM payment_gateway_items WHERE payment_gateway_transaction_id=? ORDER BY created_at,id`, [transaction.id])
         : [];
-      return secureJson({ ok: true, gateway: readiness, transaction:publicTransaction(transaction), items }, 200, request, env, METHODS);
+      const operational = gatewayOperationalStatus(transaction,items);
+      return secureJson({ ok: true, gateway: readiness, transaction:publicTransaction(transaction), items, operational }, 200, request, env, METHODS);
     }
 
     if (!authorization.actor.permissions?.includes('payment:prepare')) {
@@ -257,14 +294,18 @@ export async function onRequest(context) {
         const unresolved = await d1First(database, `SELECT COUNT(*) AS count FROM payment_gateway_items
           WHERE payment_gateway_transaction_id=? AND status IN ('PENDING','PROCESSING','UNKNOWN')`, [transactionId]);
         const hasUnresolved = Number(unresolved?.count || 0) > 0;
-        await d1Batch(database, [{ statement: `UPDATE payment_gateway_transactions SET status=?,provider_status=?,error_code=?,error_message=?,updated_at=${NOW} WHERE id=?`,
-          bindings: [
-            hasUnresolved ? 'PROCESSING' : 'FAILED',
-            hasUnresolved ? 'AWAITING_RECONCILIATION' : 'FAILED',
-            hasUnresolved ? 'E2PAY_EXECUTION_UNKNOWN' : 'E2PAY_EXECUTION_FAILED',
-            String(error?.message || error).slice(0, 500),
-            transactionId,
-          ] }]);
+        await d1Batch(database, [
+          { statement: `UPDATE payment_gateway_transactions SET status=?,provider_status=?,error_code=?,error_message=?,updated_at=${NOW} WHERE id=?`,
+            bindings: [
+              hasUnresolved ? 'PROCESSING' : 'FAILED',
+              hasUnresolved ? 'AWAITING_RECONCILIATION' : 'FAILED',
+              hasUnresolved ? 'E2PAY_EXECUTION_UNKNOWN' : 'E2PAY_EXECUTION_FAILED',
+              String(error?.message || error).slice(0, 500),
+              transactionId,
+            ] },
+          auditOperation(organizationId,authorization.actor,hasUnresolved ? 'E2PAY_EXECUTION_UNCERTAIN' : 'E2PAY_EXECUTION_FAILED',
+            String(error?.message || error).slice(0,500),payment.id),
+        ]);
         return secureJson({
           error:hasUnresolved
             ? 'Status provider belum pasti. Lakukan reconciliation sebelum retry.'
@@ -304,9 +345,23 @@ export async function onRequest(context) {
       transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transactionId]);
       return secureJson({ ok: true, transaction:publicTransaction(transaction), gateway: readiness }, 201, request, env, METHODS);
     } catch (error) {
-      await d1Batch(database, [{ statement: `UPDATE payment_gateway_transactions SET status='FAILED',error_code=?,error_message=?,updated_at=${NOW} WHERE id=?`,
-        bindings: [error instanceof PaymentGatewayConfigurationError ? 'GATEWAY_CONFIGURATION' : 'GATEWAY_REQUEST_FAILED', String(error?.message || error).slice(0, 500), transactionId] }]);
-      return secureJson({ error: 'Payment gateway menolak atau gagal menerima transaksi', code: 'PAYMENT_GATEWAY_REQUEST_FAILED', transactionId }, 502, request, env, METHODS);
+      const configurationFailure = error instanceof PaymentGatewayConfigurationError;
+      const nextStatus = configurationFailure ? 'FAILED' : 'PROCESSING';
+      const errorCode = configurationFailure ? 'GATEWAY_CONFIGURATION' : 'GATEWAY_EXECUTION_UNKNOWN';
+      await d1Batch(database, [
+        { statement: `UPDATE payment_gateway_transactions SET status=?,provider_status=?,error_code=?,error_message=?,updated_at=${NOW} WHERE id=?`,
+          bindings: [nextStatus,configurationFailure ? 'FAILED' : 'AWAITING_PROVIDER_CONFIRMATION',errorCode,String(error?.message || error).slice(0,500),transactionId] },
+        auditOperation(organizationId,authorization.actor,configurationFailure ? 'GATEWAY_EXECUTION_FAILED' : 'GATEWAY_EXECUTION_UNCERTAIN',
+          String(error?.message || error).slice(0,500),payment.id),
+      ]);
+      return secureJson({
+        error:configurationFailure
+          ? 'Konfigurasi payment gateway tidak valid.'
+          : 'Hasil eksekusi gateway belum pasti. Jangan retry sampai status provider dikonfirmasi.',
+        code:errorCode,
+        transactionId,
+        requiresProviderConfirmation:!configurationFailure,
+      }, configurationFailure ? 503 : 409, request, env, METHODS);
     }
   } catch (error) {
     const requestId = crypto.randomUUID();
