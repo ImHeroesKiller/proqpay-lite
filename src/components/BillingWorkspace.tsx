@@ -31,6 +31,52 @@ const initialData: BillingData = {
   submissions: [],
 };
 
+async function loadAllBillingPages(focusSubmissionId = ""): Promise<Omit<BillingData, "submissions">> {
+  const clients = new Map<string, any>();
+  const billablePayments = new Map<string, any>();
+  const invoices = new Map<string, any>();
+  const arItems = new Map<string, any>();
+  let billableOffset = 0;
+  let invoiceOffset = 0;
+  let arOffset = 0;
+  let billableDone = false;
+  let invoiceDone = false;
+  let arDone = false;
+
+  for (let page = 0; page < 100 && !(billableDone && invoiceDone && arDone); page += 1) {
+    const params = new URLSearchParams({
+      limit: "200",
+      billableOffset: String(billableOffset),
+      invoiceOffset: String(invoiceOffset),
+      arOffset: String(arOffset),
+    });
+    if (focusSubmissionId) params.set("submissionId", focusSubmissionId);
+    const response = await fetch(`/api/billing?${params.toString()}`, { credentials: "same-origin" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+
+    for (const row of body.clients || []) clients.set(String(row.id), row);
+    for (const row of body.billablePayments || []) billablePayments.set(String(row.id), row);
+    for (const row of body.invoices || []) invoices.set(String(row.id), row);
+    for (const row of body.arItems || []) arItems.set(String(row.id), row);
+
+    const meta = body.meta || {};
+    billableDone = meta.billable?.nextOffset == null;
+    invoiceDone = meta.invoices?.nextOffset == null;
+    arDone = meta.ar?.nextOffset == null;
+    if (!billableDone) billableOffset = Number(meta.billable.nextOffset);
+    if (!invoiceDone) invoiceOffset = Number(meta.invoices.nextOffset);
+    if (!arDone) arOffset = Number(meta.ar.nextOffset);
+  }
+
+  return {
+    clients: [...clients.values()],
+    billablePayments: [...billablePayments.values()],
+    invoices: [...invoices.values()],
+    arItems: [...arItems.values()],
+  };
+}
+
 type BillingWorkspaceProps = {
   actor: Actor | null;
   focusSubmissionId?: string;
@@ -60,19 +106,13 @@ export default function BillingWorkspace({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const billingUrl = focusSubmissionId
-        ? `/api/billing?submissionId=${encodeURIComponent(focusSubmissionId)}`
-        : "/api/billing";
-      const [response, operating, focused] = await Promise.all([
-        fetch(billingUrl, { credentials: "same-origin" }),
+      const [body, operating, focused] = await Promise.all([
+        loadAllBillingPages(focusSubmissionId),
         listOperatingResource("submissions"),
         focusSubmissionId
           ? getPayRunDetail(focusSubmissionId).catch(() => null)
           : Promise.resolve(null),
       ]);
-      const body = await response.json();
-      if (!response.ok)
-        throw new Error(body.error || `HTTP ${response.status}`);
       const submissions = [...(operating.submissions || [])];
       if (
         focused?.submission &&
@@ -442,6 +482,7 @@ export default function BillingWorkspace({
           canFollow={canWriteAr}
           payment={openPayment}
           follow={followUp}
+          history={(row: any) => setModal({ kind: "ar-history", row })}
         />
       )}
       {section === "close" && (
@@ -526,6 +567,7 @@ export default function BillingWorkspace({
             />
           )}
           {modal.kind === "detail" && <InvoiceDetail row={modal.row} />}
+          {modal.kind === "ar-history" && <ARHistory row={modal.row} />}
         </Modal>
       )}
     </div>
@@ -793,7 +835,7 @@ function TaxSection({ rows, canControl, openTax, exportCoretax }: any) {
   );
 }
 
-function ARSection({ rows, canControl, canFollow, payment, follow }: any) {
+function ARSection({ rows, canControl, canFollow, payment, follow, history }: any) {
   const buckets = ["BELUM_JATUH_TEMPO", "1-30", "31-60", "61-90", ">90"];
   const totals = Object.fromEntries(
     buckets.map((b) => [
@@ -803,8 +845,31 @@ function ARSection({ rows, canControl, canFollow, payment, follow }: any) {
         .reduce((n: number, r: any) => n + Number(r.balance || 0), 0),
     ]),
   );
+  const control = rows.reduce(
+    (acc: any, row: any) => ({
+      invoice: acc.invoice + Number(row.control?.invoiceTotal ?? row.amount ?? 0),
+      paid: acc.paid + Number(row.control?.paid ?? row.paid_amount ?? 0),
+      unapplied: acc.unapplied + Number(row.control?.unapplied ?? 0),
+      outstanding: acc.outstanding + Number(row.control?.outstanding ?? row.balance ?? 0),
+    }),
+    { invoice: 0, paid: 0, unapplied: 0, outstanding: 0 },
+  );
+  const appliedVariance = control.invoice - control.paid - control.outstanding;
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))",
+          gap: 10,
+        }}
+      >
+        <Metric label="Invoice total" value={formatIDR(control.invoice)} note="Nilai AR terbentuk" />
+        <Metric label="Applied payment" value={formatIDR(control.paid)} note="Sudah dialokasikan" />
+        <Metric label="Unapplied cash" value={formatIDR(control.unapplied)} note="Kelebihan / belum dialokasikan" danger={control.unapplied > 0} />
+        <Metric label="Outstanding" value={formatIDR(control.outstanding)} note="Saldo piutang" />
+        <Metric label="Control variance" value={formatIDR(appliedVariance)} note="Invoice − paid − outstanding" danger={appliedVariance !== 0} />
+      </div>
       <div
         style={{
           display: "grid",
@@ -835,6 +900,7 @@ function ARSection({ rows, canControl, canFollow, payment, follow }: any) {
               "Aging",
               "Nilai",
               "Terbayar",
+              "Unapplied",
               "Saldo",
               "Status",
               "Aksi",
@@ -849,6 +915,7 @@ function ARSection({ rows, canControl, canFollow, payment, follow }: any) {
               r.aging_days > 0 ? `${r.aging_days} hari` : "Belum jatuh tempo",
               formatIDR(Number(r.amount || 0)),
               formatIDR(Number(r.paid_amount || 0)),
+              formatIDR(Number(r.control?.unapplied || 0)),
               formatIDR(Number(r.balance || 0)),
               <Badge key="s" text={r.display_status || r.status} />,
               <div
@@ -865,6 +932,9 @@ function ARSection({ rows, canControl, canFollow, payment, follow }: any) {
                     Follow-up
                   </button>
                 )}
+                <button style={secondary} onClick={() => history(r)}>
+                  Riwayat
+                </button>
               </div>,
             ])}
           />
@@ -1146,6 +1216,19 @@ function InvoiceDetail({ row }: any) {
             Faktur pajak: <strong>{row.tax_invoice_number}</strong>
           </p>
         )}
+        {Array.isArray(row.activity) && row.activity.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <strong style={{ fontSize: 12 }}>Riwayat invoice</strong>
+            <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+              {row.activity.slice(0, 20).map((entry: any, index: number) => (
+                <div key={index} style={{ borderBottom: "1px solid var(--border-soft)", paddingBottom: 7 }}>
+                  <small><strong>{String(entry.action || entry.type || "ACTIVITY").replaceAll("_", " ")}</strong> · {date(entry.at || entry.timestamp)}</small>
+                  <small>{entry.username || entry.actor || "-"}{entry.detail ? ` · ${entry.detail}` : ""}</small>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       <div
         style={{
@@ -1166,6 +1249,38 @@ function InvoiceDetail({ row }: any) {
         <button style={secondary} onClick={() => window.print()}>
           Cetak / Simpan PDF
         </button>
+      </div>
+    </div>
+  );
+}
+
+function ARHistory({ row }: any) {
+  const control = row.control || {};
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      <div style={grid2}>
+        <Info label="Invoice total" value={formatIDR(Number(control.invoiceTotal ?? row.amount ?? 0))} />
+        <Info label="Applied payment" value={formatIDR(Number(control.paid ?? row.paid_amount ?? 0))} />
+        <Info label="Unapplied cash" value={formatIDR(Number(control.unapplied ?? 0))} />
+        <Info label="Outstanding" value={formatIDR(Number(control.outstanding ?? row.balance ?? 0))} />
+        <Info label="Aging" value={Number(control.agingDays ?? row.aging_days ?? 0) > 0 ? `${Number(control.agingDays ?? row.aging_days)} hari` : "Belum jatuh tempo"} />
+        <Info label="Control variance" value={formatIDR(Number(control.appliedDifference ?? 0))} />
+      </div>
+      <div>
+        <strong style={{ fontSize: 12 }}>Financial activity</strong>
+        <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+          {(row.activity || []).slice(0, 50).map((entry: any, index: number) => (
+            <div key={index} style={{ borderBottom: "1px solid var(--border-soft)", paddingBottom: 8 }}>
+              <small><strong>{String(entry.type || entry.action || "ACTIVITY").replaceAll("_", " ")}</strong> · {date(entry.at)}</small>
+              <small>
+                {entry.reference ? `Ref ${entry.reference}` : entry.actor || entry.username || "-"}
+                {Number.isFinite(Number(entry.amount)) && entry.amount !== undefined ? ` · ${formatIDR(Number(entry.amount))}` : ""}
+              </small>
+              {(entry.notes || entry.detail) && <small>{entry.notes || entry.detail}</small>}
+            </div>
+          ))}
+          {!(row.activity || []).length && <Empty text="Belum ada aktivitas finansial." />}
+        </div>
       </div>
     </div>
   );
@@ -1400,6 +1515,7 @@ const modalTitle = (kind: string) =>
       payment: "Catat penerimaan AR",
       setup: "Billing profile klien",
       detail: "Detail invoice",
+      "ar-history": "Riwayat AR",
     }) as any
   )[kind] || "Billing";
 const muted: any = { color: "var(--text3)", fontSize: 11 };

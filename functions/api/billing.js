@@ -88,7 +88,12 @@ export async function onRequest({request,env}) {
   const database=env.DB,actor=authorization.actor,organizationId=orgId(env);
   try {
     if (request.method==='GET') {
-      const focusSubmissionId=new URL(request.url).searchParams.get('submissionId');
+      const params=new URL(request.url).searchParams;
+      const focusSubmissionId=params.get('submissionId');
+      const pageLimit=Math.min(500,Math.max(1,Number.parseInt(params.get('limit')||'200',10)||200));
+      const billableOffset=Math.max(0,Number.parseInt(params.get('billableOffset')||'0',10)||0);
+      const invoiceOffset=Math.max(0,Number.parseInt(params.get('invoiceOffset')||'0',10)||0);
+      const arOffset=Math.max(0,Number.parseInt(params.get('arOffset')||'0',10)||0);
       const submissionFilter=focusSubmissionId?{sql:' AND s.id=?',bindings:[focusSubmissionId]}:{sql:'',bindings:[]};
       const cs=clientFilter(actor,'id'),is=clientFilter(actor,'i.client_id'),as=clientFilter(actor,'ar.client_id'),
         ips=projectFilter(actor,'i.project_id'),aps=projectFilter(actor,'ar.project_id');
@@ -103,9 +108,13 @@ export async function onRequest({request,env}) {
           FROM payment_instructions pi JOIN clients c ON c.id=pi.client_id JOIN payroll_submissions s ON s.id=pi.submission_id
           LEFT JOIN projects p ON p.id=s.project_id WHERE pi.org_id=? AND pi.status='COMPLETED'
           AND NOT EXISTS(SELECT 1 FROM invoices i WHERE i.payment_instruction_id=pi.id)${submissionFilter.sql}
-          ORDER BY pi.updated_at DESC LIMIT 200`,[organizationId,...submissionFilter.bindings]),
+          ORDER BY pi.updated_at DESC,pi.id DESC LIMIT ? OFFSET ?`,[organizationId,...submissionFilter.bindings,pageLimit+1,billableOffset]),
         d1All(database,`SELECT i.*,s.id AS submission_id,c.name AS client_name,c.billing_email,c.billing_address,c.npwp,c.nitku,c.tax_status,
           c.tax_status AS client_tax_status,p.name AS project_name,
+          COALESCE((SELECT json_group_array(json_object('action',x.action,'detail',x.detail,'username',x.username,'role',x.role,'timestamp',x.timestamp))
+            FROM (SELECT al.action,al.detail,al.username,al.role,al.timestamp FROM audit_logs al WHERE al.org_id=i.org_id
+              AND ((al.entity='invoice' AND al.entity_id=i.id) OR (al.entity='tax_invoice_file' AND al.entity_id=i.id))
+              ORDER BY al.timestamp DESC LIMIT 100) x),'[]') AS audit_activity,
           EXISTS(SELECT 1 FROM audit_logs al WHERE al.org_id=i.org_id AND al.entity='tax_invoice_file' AND al.entity_id=i.id AND al.action='TAX_INVOICE_FILE_UPLOADED') AS tax_invoice_file_uploaded,
           COALESCE(ar.status,CASE WHEN i.status='ISSUED' THEN 'OUTSTANDING' ELSE NULL END) AS ar_status,
           COALESCE(ar.balance,i.total_amount) AS ar_balance,ar.id AS ar_id FROM invoices i JOIN clients c ON c.id=i.client_id
@@ -113,7 +122,7 @@ export async function onRequest({request,env}) {
           LEFT JOIN payroll_submissions s ON s.id=pi_link.submission_id
           LEFT JOIN projects p ON p.id=i.project_id LEFT JOIN ar_monitor ar ON ar.invoice_id=i.id
           WHERE i.org_id=?${is.sql}${actor.role==='CLIENT_USER'?" AND i.status IN ('ISSUED','PARTIALLY_PAID','PAID')":''}${ips.sql}${submissionFilter.sql}
-          ORDER BY (i.issued_at IS NULL),i.issued_at DESC,i.updated_at DESC LIMIT 500`,[organizationId,...is.bindings,...ips.bindings,...submissionFilter.bindings]),
+          ORDER BY (i.issued_at IS NULL),i.issued_at DESC,i.updated_at DESC,i.id DESC LIMIT ? OFFSET ?`,[organizationId,...is.bindings,...ips.bindings,...submissionFilter.bindings,pageLimit+1,invoiceOffset]),
         d1All(database,`SELECT ar.*,i.invoice_number,i.total_amount,i.issued_at,c.name AS client_name,p.name AS project_name,
           CASE WHEN ar.status NOT IN ('PAID','DISPUTED') AND date(ar.due_date)<date('now') THEN 'OVERDUE'
           WHEN ar.status='OUTSTANDING' AND date(ar.due_date)>=date('now') THEN 'NOT_DUE' ELSE ar.status END AS display_status,
@@ -127,16 +136,47 @@ export async function onRequest({request,env}) {
           COALESCE((SELECT json_group_array(json_object('id',uc.id,'amount',uc.amount,'payment_date',uc.payment_date,
           'reference',uc.reference,'status',uc.status,'notes',uc.notes,'created_at',uc.created_at)) FROM unapplied_cash uc WHERE uc.ar_id=ar.id AND uc.status<>'VOID'),'[]') AS unapplied_cash,
           COALESCE((SELECT json_group_array(json_object('id',af.id,'note',af.note,'next_follow_up_at',af.next_follow_up_at,
-          'created_by',af.created_by,'created_at',af.created_at)) FROM ar_follow_ups af WHERE af.ar_id=ar.id),'[]') AS follow_ups
+          'created_by',af.created_by,'created_at',af.created_at)) FROM ar_follow_ups af WHERE af.ar_id=ar.id),'[]') AS follow_ups,
+          COALESCE((SELECT json_group_array(json_object('action',x.action,'detail',x.detail,'username',x.username,'role',x.role,'timestamp',x.timestamp))
+            FROM (SELECT al.action,al.detail,al.username,al.role,al.timestamp FROM audit_logs al WHERE al.org_id=ar.org_id
+              AND al.entity='ar' AND al.entity_id=ar.id ORDER BY al.timestamp DESC LIMIT 100) x),'[]') AS audit_activity
           FROM ar_monitor ar JOIN invoices i ON i.id=ar.invoice_id JOIN clients c ON c.id=ar.client_id
           LEFT JOIN payment_instructions pi_link ON pi_link.id=i.payment_instruction_id
           LEFT JOIN payroll_submissions s ON s.id=pi_link.submission_id
           LEFT JOIN projects p ON p.id=ar.project_id WHERE ar.org_id=?${as.sql}${aps.sql}${submissionFilter.sql}
-          ORDER BY ar.due_date DESC LIMIT 500`,[organizationId,...as.bindings,...aps.bindings,...submissionFilter.bindings]),
+          ORDER BY ar.due_date DESC,ar.id DESC LIMIT ? OFFSET ?`,[organizationId,...as.bindings,...aps.bindings,...submissionFilter.bindings,pageLimit+1,arOffset]),
       ]);
-      for (const invoice of invoices) invoice.items=parseJson(invoice.items);
-      for (const ar of arItems) { ar.payments=parseJson(ar.payments); ar.unapplied_cash=parseJson(ar.unapplied_cash); ar.follow_ups=parseJson(ar.follow_ups); }
-      return respond({ok:true,clients,billablePayments,invoices,arItems});
+      const billableTruncated=billablePayments.length>pageLimit;
+      const invoiceTruncated=invoices.length>pageLimit;
+      const arTruncated=arItems.length>pageLimit;
+      const billablePage=billablePayments.slice(0,pageLimit);
+      const invoicePage=invoices.slice(0,pageLimit);
+      const arPage=arItems.slice(0,pageLimit);
+      for (const invoice of invoicePage) {
+        invoice.items=parseJson(invoice.items);
+        invoice.audit_activity=parseJson(invoice.audit_activity);
+        invoice.activity=invoice.audit_activity.map((entry)=>({...entry,type:'AUDIT',at:entry.timestamp}));
+      }
+      for (const ar of arPage) {
+        ar.payments=parseJson(ar.payments);
+        ar.unapplied_cash=parseJson(ar.unapplied_cash);
+        ar.follow_ups=parseJson(ar.follow_ups);
+        ar.audit_activity=parseJson(ar.audit_activity);
+        const paid=Number(ar.paid_amount||0),unapplied=ar.unapplied_cash.reduce((sum,row)=>sum+Number(row.amount||0),0),outstanding=Number(ar.balance||0),invoiceTotal=Number(ar.amount||0);
+        ar.control={invoiceTotal,paid,unapplied,outstanding,agingDays:Number(ar.aging_days||0),appliedDifference:invoiceTotal-paid-outstanding};
+        ar.activity=[
+          ...ar.payments.map((row)=>({type:'PAYMENT',at:row.created_at||row.payment_date,reference:row.reference,amount:Number(row.amount||0),actor:row.recorded_by,notes:row.notes})),
+          ...ar.unapplied_cash.map((row)=>({type:'UNAPPLIED_CASH',at:row.created_at||row.payment_date,reference:row.reference,amount:Number(row.amount||0),status:row.status,notes:row.notes})),
+          ...ar.follow_ups.map((row)=>({type:'FOLLOW_UP',at:row.created_at,actor:row.created_by,notes:row.note,nextFollowUpAt:row.next_follow_up_at})),
+          ...ar.audit_activity.map((entry)=>({...entry,type:'AUDIT',at:entry.timestamp})),
+        ].sort((left,right)=>String(right.at||'').localeCompare(String(left.at||'')));
+      }
+      return respond({ok:true,clients,billablePayments:billablePage,invoices:invoicePage,arItems:arPage,
+        meta:{
+          billable:{offset:billableOffset,limit:pageLimit,returned:billablePage.length,nextOffset:billableTruncated?billableOffset+pageLimit:null,truncated:billableTruncated},
+          invoices:{offset:invoiceOffset,limit:pageLimit,returned:invoicePage.length,nextOffset:invoiceTruncated?invoiceOffset+pageLimit:null,truncated:invoiceTruncated},
+          ar:{offset:arOffset,limit:pageLimit,returned:arPage.length,nextOffset:arTruncated?arOffset+pageLimit:null,truncated:arTruncated},
+        }});
     }
     const body=await request.json().catch(()=>null),error=validate(body);
     if (error) return respond({error},422);
