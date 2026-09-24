@@ -318,7 +318,7 @@ async function readResource(database, params, actor, env, organizationId) {
     if (!assertClientScope(actor, env, instruction.client_id) || !assertProjectScope(actor, instruction.project_id)) {
       return { status: 403, data: { error: 'Payment instruction scope denied' } };
     }
-    const [lines, approvals, activity] = await Promise.all([
+    const [lines, approvals, activity, proofSummary, reconciliationHistory] = await Promise.all([
       d1All(database, `SELECT id,employee_id,beneficiary_name,bank_name,bank_code,
         COALESCE(account_last4,substr(masked_account,-4)) AS account_last4,masked_account,amount,line_hash
         FROM payment_instruction_lines WHERE payment_instruction_id=? ORDER BY beneficiary_name,id LIMIT 5000`, [paymentInstructionId]),
@@ -326,13 +326,19 @@ async function readResource(database, params, actor, env, organizationId) {
         FROM payment_approvals pa LEFT JOIN app_users au ON au.id=pa.approver_user_id
         WHERE pa.payment_instruction_id=? ORDER BY pa.created_at`, [paymentInstructionId]),
       d1All(database, `SELECT id,username,role,action,detail,timestamp
-        FROM audit_logs WHERE org_id=? AND entity='payment_instruction' AND entity_id=?
-        ORDER BY timestamp DESC LIMIT 100`, [organizationId,paymentInstructionId]),
+        FROM audit_logs WHERE org_id=? AND (
+          (entity='payment_instruction' AND entity_id=?)
+          OR (entity='payment_proof' AND entity_id IN (SELECT id FROM payment_proofs WHERE payment_instruction_id=?))
+        ) ORDER BY timestamp DESC LIMIT 100`, [organizationId,paymentInstructionId,paymentInstructionId]),
+      d1First(database, `SELECT COUNT(*) AS proof_count,COALESCE(SUM(amount),0) AS proof_total,
+        MAX(created_at) AS latest_proof_at FROM payment_proofs WHERE payment_instruction_id=?`, [paymentInstructionId]),
+      d1All(database, `SELECT id,expected_total,instruction_total,settlement_total,difference,settlement_source,status,reviewed_by,created_at
+        FROM reconciliation_attempts WHERE payment_instruction_id=? ORDER BY created_at DESC LIMIT 50`, [paymentInstructionId]),
     ]);
     const total = lines.reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const expectedRecipients = Number(instruction.recipient_count || 0);
     const recipientBalanced = expectedRecipients === lines.length;
-    return { data: { ok: true, paymentInstruction: instruction, lines, approvals, activity,
+    return { data: { ok: true, paymentInstruction: instruction, lines, approvals, activity, proofSummary, reconciliationHistory,
       control: {
         recipientCount: lines.length,
         expectedRecipientCount: expectedRecipients,
@@ -345,21 +351,30 @@ async function readResource(database, params, actor, env, organizationId) {
 
   if (resource === 'payment-proofs') {
     const scope = scopeWhere({ organizationId, clientId, projectIds, orgColumn: 'pi.org_id', clientColumn: 'pi.client_id', projectColumn: 's.project_id' });
+    const offset=Math.max(0,Number.parseInt(params.get('offset')||'0',10)||0);
+    const limit=Math.min(500,Math.max(1,Number.parseInt(params.get('limit')||'200',10)||200));
     const rows = await d1All(database, `SELECT pp.id,pp.payment_instruction_id,pp.bank,pp.reference,
-      pp.transaction_date,pp.amount,pp.created_at FROM payment_proofs pp
+      pp.transaction_date,pp.amount,pp.file_sha256,pp.file_size,pp.mime_type,pp.uploaded_by,pp.created_at
+      FROM payment_proofs pp
       JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id
       JOIN payroll_submissions s ON s.id=pi.submission_id
-      WHERE ${scope.sql} ORDER BY pp.created_at DESC LIMIT 200`, scope.bindings);
-    return { data: { ok: true, paymentProofs: rows } };
+      WHERE ${scope.sql} ORDER BY pp.created_at DESC LIMIT ? OFFSET ?`, [...scope.bindings,limit+1,offset]);
+    const truncated=rows.length>limit;
+    const page=truncated?rows.slice(0,limit):rows;
+    return { data: { ok: true, paymentProofs: page, paymentProofsMeta:{ offset,limit,returned:page.length,nextOffset:truncated?offset+limit:null,truncated } } };
   }
 
   if (resource === 'reconciliations') {
     const scope = scopeWhere({ organizationId, clientId, projectIds, orgColumn: 'pi.org_id', clientColumn: 'pi.client_id', projectColumn: 's.project_id' });
+    const offset=Math.max(0,Number.parseInt(params.get('offset')||'0',10)||0);
+    const limit=Math.min(500,Math.max(1,Number.parseInt(params.get('limit')||'200',10)||200));
     const rows = await d1All(database, `SELECT r.* FROM reconciliations r
       JOIN payment_instructions pi ON pi.id=r.payment_instruction_id
       JOIN payroll_submissions s ON s.id=pi.submission_id
-      WHERE ${scope.sql} ORDER BY r.created_at DESC LIMIT 200`, scope.bindings);
-    return { data: { ok: true, reconciliations: rows } };
+      WHERE ${scope.sql} ORDER BY r.created_at DESC LIMIT ? OFFSET ?`, [...scope.bindings,limit+1,offset]);
+    const truncated=rows.length>limit;
+    const page=truncated?rows.slice(0,limit):rows;
+    return { data: { ok: true, reconciliations: page, reconciliationsMeta:{ offset,limit,returned:page.length,nextOffset:truncated?offset+limit:null,truncated } } };
   }
 
   if (resource === 'integrations') {
@@ -1584,6 +1599,9 @@ async function executeAction(database, body, actor, env, organizationId) {
     const expectedTotal=Number(payment.expected_total || 0);
     const manualProofTotal=Number(payment.manual_proof_total || 0);
     const gatewayTotal=Number(payment.gateway_total || 0);
+    if (manualProofTotal > 0 && gatewayTotal > 0) {
+      return { status:409, data:{ error:'Terdapat dua sumber settlement aktif untuk Payment Instruction yang sama. Rekonsiliasi diblokir sampai sumber settlement diklarifikasi.', code:'SETTLEMENT_SOURCE_CONFLICT', proofTotal:manualProofTotal, gatewayTotal, expectedTotal } };
+    }
     if (manualProofTotal > 0 && manualProofTotal !== expectedTotal) {
       return { status:409, data:{ error:'Bukti pembayaran belum lengkap untuk rekonsiliasi final', code:'RECONCILIATION_EVIDENCE_INCOMPLETE', proofTotal:manualProofTotal, expectedTotal } };
     }
@@ -1595,7 +1613,12 @@ async function executeAction(database, body, actor, env, organizationId) {
     const difference = settlementTotal - expectedTotal;
     const status = difference === 0 && Number(payment.instruction_total) === Number(payment.expected_total) ? 'MATCHED' : 'EXCEPTION';
     const id = `REC-${crypto.randomUUID()}`;
+    const attemptId = `RCA-${crypto.randomUUID()}`;
     await d1Batch(database, [
+      { statement: `INSERT INTO reconciliation_attempts
+        (id,payment_instruction_id,expected_total,instruction_total,settlement_total,difference,settlement_source,status,reviewed_by)
+        VALUES (?,?,?,?,?,?,?,?,?)`,
+        bindings:[attemptId,payment.id,expectedTotal,Number(payment.instruction_total||0),settlementTotal,difference,settlementSource,status,actor.email] },
       { statement: `INSERT INTO reconciliations
         (id,payment_instruction_id,expected_total,instruction_total,proof_total,difference,status,reviewed_by)
         VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(payment_instruction_id) DO UPDATE SET
