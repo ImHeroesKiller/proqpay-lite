@@ -2,6 +2,7 @@ import {
   constantTimeEqual, generateTemporaryPassword, passwordRecord, validatePassword, verifyPassword,
 } from './_account-auth.js';
 import { d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
+import { isActiveEmployeeStatus } from './_employee-status.js';
 
 export const EMPLOYEE_SESSION_COOKIE = 'proqpay_employee';
 export const DEFAULT_PASSWORD_SCHEME = 'RANDOM_TEMPORARY';
@@ -52,9 +53,7 @@ export function assignDefaultPasswords(rows) {
 }
 
 export function isActiveEmployee(row) {
-  const status = String(row?.status_aktif || row?.status || '').toLowerCase();
-  if (!status) return true;
-  return !/non|inaktif|inactive|resign|keluar|terminate/.test(status);
+  return isActiveEmployeeStatus(row?.status_aktif ?? row?.status);
 }
 
 export function portalMutationAllowed(request, env) {
