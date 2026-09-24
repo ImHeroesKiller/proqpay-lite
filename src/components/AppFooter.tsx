@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import packageInfo from "../../package.json";
+import { serviceState, useServiceHealth } from "@/lib/service-health";
 
 type Props = {
   lastSyncAt?: number;
@@ -21,6 +22,8 @@ function syncLabel(value: number | undefined, now: number) {
 
 export default function AppFooter({ lastSyncAt, onSupport }: Props) {
   const [now, setNow] = useState(() => Date.now());
+  const { health } = useServiceHealth();
+  const state = serviceState(health);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
@@ -34,7 +37,13 @@ export default function AppFooter({ lastSyncAt, onSupport }: Props) {
       <span>
         <strong>ProQPay</strong>
         <i aria-hidden="true">·</i>
-        Production
+        Production · {state === "connected"
+          ? "Connected"
+          : state === "degraded"
+            ? "Degraded"
+            : state === "offline"
+              ? "Unavailable"
+              : "Checking"}
         <i aria-hidden="true">·</i>
         {version}{build ? ` · ${build}` : ""}
       </span>
