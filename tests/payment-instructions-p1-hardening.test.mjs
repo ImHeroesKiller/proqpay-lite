@@ -34,12 +34,14 @@ test('Payment Instructions P1 rehashes encrypted PI snapshot server-side before 
 test('Payment Instructions P1 blocks amount and recipient count drift',async()=>{
   const api=await read('functions/api/operating-model-d1.js');
   const ui=await read('src/components/OperatingWorkspace.tsx');
+  const presentation=await read('src/lib/payment-instruction-ui.ts');
   assert.match(api,/PI_CONTROL_TOTAL_MISMATCH/);
   assert.match(api,/PI_RECIPIENT_COUNT_MISMATCH/);
   assert.match(api,/expectedRecipientCount/);
   assert.match(api,/recipientBalanced/);
   assert.match(ui,/Recipient count terkunci/);
-  assert.match(ui,/recipientBalanced !== true/);
+  assert.match(presentation,/const recipientBalanced=control\?\.recipientBalanced===true/);
+  assert.match(presentation,/approvalReady:valid/);
 });
 
 test('Payment Instructions P1 keeps generation idempotent under concurrent requests',async()=>{

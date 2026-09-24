@@ -1,4 +1,5 @@
 import type { DashboardApiResponse } from './dashboard-types';
+import type { PaymentInstructionDetail } from './payment-instruction-ui';
 
 export type OperatingResource =
   | 'dashboard'
@@ -126,9 +127,9 @@ export function invalidateOperatingCache() {
   }
 }
 
-export async function getPaymentInstructionDetail(paymentInstructionId: string):Promise<any> {
+export async function getPaymentInstructionDetail(paymentInstructionId: string):Promise<PaymentInstructionDetail> {
   const params = new URLSearchParams({ resource:'payment-instruction-detail', paymentInstructionId });
-  return parseResponse<any>(await fetch(`/api/operating-model?${params}`, { headers:{Accept:'application/json'} }));
+  return parseResponse<PaymentInstructionDetail>(await fetch(`/api/operating-model?${params}`, { headers:{Accept:'application/json'} }));
 }
 
 export async function getPayRunDetail(submissionId: string):Promise<any> {

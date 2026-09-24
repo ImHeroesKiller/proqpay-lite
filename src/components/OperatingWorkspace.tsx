@@ -7,6 +7,16 @@ import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
+import {
+  filterPaymentInstructionLines,
+  paymentActivityLabel,
+  paymentBusinessLabel,
+  paymentInstructionIntegrity,
+  shortPaymentHash,
+  summarizePaymentBanks,
+  type PaymentInstructionDetail,
+  type PaymentInstructionLine,
+} from '@/lib/payment-instruction-ui';
 
 type WorkspaceMode = 'payruns' | 'actions' | 'payments' | 'billing';
 type Actor = { email: string; role: string; permissions?: string[]; clientIds?: string[]; projectIds?: string[] };
@@ -45,22 +55,6 @@ function payRunSourceLabel(source:string) {
 
 function payRunTypeLabel(type:string) {
   return String(type||'REGULAR')==='ADJUSTMENT'?'Adjustment':'Regular payroll';
-}
-
-function paymentBusinessLabel(status:string) {
-  const labels:Record<string,string>={
-    PAYMENT_INSTRUCTION_READY:'Prepared',
-    PAYMENT_APPROVAL_PENDING:'For Approval',
-    APPROVED_FOR_PAYMENT:'Ready to Pay',
-    DISBURSEMENT_PROCESSING:'Processing',
-    PAYMENT_CONFIRMED:'Processing',
-    PROOF_UPLOADED:'Reconcile',
-    RECONCILIATION:'Reconcile',
-    PAYMENT_EXCEPTION:'Action Required',
-    REVISION_REQUIRED:'Revision Required',
-    COMPLETED:'Completed',
-  };
-  return labels[String(status||'')] || String(status||'-').replaceAll('_',' ');
 }
 
 export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: WorkspaceMode }) {
@@ -273,7 +267,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       {mode !== 'billing' ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((period) => <option key={period} value={period}>{period}</option>)}</select></label>
         <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        {mode!=='actions'?<label><span>{mode === 'payments' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:String(state).replaceAll('_', ' ')}</option>)}</select></label>:null}
+        {mode!=='actions'?<label><span>{mode === 'payments' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:mode==='payments'?paymentBusinessLabel(String(state)):String(state).replaceAll('_', ' ')}</option>)}</select></label>:null}
         {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>:null}
       </div> : null}
 
@@ -850,28 +844,17 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
-  const [detail, setDetail] = useState<any | null>(null);
+  const [detail, setDetail] = useState<PaymentInstructionDetail | null>(null);
   const [detailError, setDetailError] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
   const [approvalConfirmed, setApprovalConfirmed] = useState(false);
   const [detailQuery, setDetailQuery] = useState('');
   const [detailBank, setDetailBank] = useState('ALL');
   const [detailPage, setDetailPage] = useState(1);
-  const detailLines = useMemo(() => detail?.lines || [], [detail]);
-  const bankSummaries = useMemo(() => {
-    const summaries = new Map<string, { count:number; total:number }>();
-    detailLines.forEach((line:any) => {
-      const bank = String(line.bank_code || line.bank_name || 'LAINNYA').toUpperCase();
-      const current = summaries.get(bank) || { count:0, total:0 };
-      summaries.set(bank, { count:current.count + 1, total:current.total + Number(line.amount || 0) });
-    });
-    return [...summaries.entries()].sort((a,b) => b[1].total - a[1].total);
-  }, [detailLines]);
-  const filteredDetailLines = useMemo(() => detailLines.filter((line:any) => {
-    const bank = String(line.bank_code || line.bank_name || 'LAINNYA').toUpperCase();
-    const haystack = [line.beneficiary_name,line.employee_id,line.account_last4,bank].join(' ').toLowerCase();
-    return (detailBank === 'ALL' || bank === detailBank) && (!detailQuery.trim() || haystack.includes(detailQuery.trim().toLowerCase()));
-  }), [detailLines, detailBank, detailQuery]);
+  const detailLines = useMemo<PaymentInstructionLine[]>(() => detail?.lines || [], [detail]);
+  const bankSummaries = useMemo(() => summarizePaymentBanks(detailLines), [detailLines]);
+  const filteredDetailLines = useMemo(() => filterPaymentInstructionLines(detailLines,detailQuery,detailBank), [detailLines, detailBank, detailQuery]);
+  const integrity = useMemo(() => paymentInstructionIntegrity(detail), [detail]);
   const detailPageSize = 25;
   const detailPageCount = Math.max(1, Math.ceil(filteredDetailLines.length / detailPageSize));
   const visibleDetailLines = filteredDetailLines.slice((detailPage - 1) * detailPageSize, detailPage * detailPageSize);
@@ -911,7 +894,7 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
     {detail ? createPortal(<div className="directory-modal-backdrop pi-detail-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget)setDetail(null);}}><div className="directory-modal pi-detail-modal" role="dialog" aria-modal="true" aria-label="Detail Payment Instruction">
       <header className="pi-detail-header">
         <div><span>IMMUTABLE PAYMENT SNAPSHOT</span><h3>{detail.paymentInstruction.document_no || detail.paymentInstruction.id}</h3><p>{detail.paymentInstruction.client_name || 'Klien tidak tersedia'} · Dibuat {detail.paymentInstruction.creator_email || 'System'} · {date(detail.paymentInstruction.created_at)}</p></div>
-        <div className="pi-detail-header-actions"><Badge text={detail.paymentInstruction.status} /><button type="button" aria-label="Tutup detail Payment Instruction" onClick={()=>setDetail(null)}>✕</button></div>
+        <div className="pi-detail-header-actions"><Badge text={paymentBusinessLabel(detail.paymentInstruction.status)} /><button type="button" aria-label="Tutup detail Payment Instruction" onClick={()=>setDetail(null)}>✕</button></div>
       </header>
       <div className="pi-detail-body">
         <section className="pi-detail-summary" aria-label="Ringkasan Payment Instruction">
@@ -920,10 +903,10 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
           <div><span>Total penerima</span><strong>{Number(detail.control.recipientCount || 0).toLocaleString('id-ID')}</strong></div>
           <div className="pi-detail-total"><span>Control total</span><strong>{formatIDR(detail.control.totalAmount)}</strong></div>
         </section>
-        <section className={`pi-integrity-panel ${detail.control.balanced && detail.control.recipientBalanced === true && detail.paymentInstruction.content_hash ? 'pi-integrity-valid' : 'pi-integrity-warning'}`}>
+        <section className={`pi-integrity-panel ${integrity.valid ? 'pi-integrity-valid' : 'pi-integrity-warning'}`} aria-label={integrity.valid?'Integrity Payment Instruction valid':'Integrity Payment Instruction perlu perhatian'}>
           <div><strong>{detail.control.balanced ? '✓ Control total seimbang' : '⛔ Control total tidak seimbang'}</strong><span>Expected {formatIDR(detail.control.expectedTotal)} · Snapshot {formatIDR(detail.control.totalAmount)} · Selisih {formatIDR(detail.control.totalAmount - detail.control.expectedTotal)}</span></div>
           <div><strong>{detail.control.recipientBalanced === true ? '✓ Recipient count terkunci' : '⛔ Recipient count tidak sesuai'}</strong><span>Expected {Number(detail.control.expectedRecipientCount || 0).toLocaleString('id-ID')} · Snapshot {Number(detail.control.recipientCount || 0).toLocaleString('id-ID')} penerima</span></div>
-          <div><strong>{detail.paymentInstruction.content_hash ? '✓ Snapshot terverifikasi' : '⚠ Snapshot legacy'}</strong><span>{detail.paymentInstruction.content_hash ? `SHA-256 · ${detail.paymentInstruction.content_hash}` : 'Content hash tidak tersedia; regenerasi PI diperlukan untuk approval.'}</span></div>
+          <div><strong>{integrity.hashPresent ? '✓ Snapshot terverifikasi' : '⚠ Snapshot legacy'}</strong><span title={detail.paymentInstruction.content_hash || undefined}>{integrity.hashPresent ? `SHA-256 · ${shortPaymentHash(detail.paymentInstruction.content_hash)}` : 'Content hash tidak tersedia; regenerasi PI diperlukan untuk approval.'}</span></div>
         </section>
         {detail.paymentInstruction.rejection_reason ? <section className={`app-notice-bubble ${detail.paymentInstruction.status==='REVISION_REQUIRED'?'app-notice-error':'app-notice-info'}`} role="status"><strong>{detail.paymentInstruction.status==='REVISION_REQUIRED'?'PI dikembalikan untuk revisi':'Riwayat reject sebelumnya'}</strong><span>{detail.paymentInstruction.rejection_reason} · {detail.paymentInstruction.rejected_by || 'Payroll Controller'}</span></section> : null}
         <section className="pi-bank-section" aria-label="Breakdown bank">
@@ -936,15 +919,15 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
             <input aria-label="Cari penerima" value={detailQuery} onChange={(event)=>setDetailQuery(event.target.value)} placeholder="Cari nama, ID karyawan, rekening…" />
             <select aria-label="Filter bank penerima" value={detailBank} onChange={(event)=>setDetailBank(event.target.value)}><option value="ALL">Semua bank</option>{bankSummaries.map(([bank])=><option key={bank} value={bank}>{bank}</option>)}</select>
           </div>
-          <div className="pi-recipient-table-wrap"><table className="pi-recipient-table"><thead><tr><th>Penerima</th><th>Bank</th><th>Rekening</th><th>Nominal</th></tr></thead><tbody>{visibleDetailLines.map((line:any,index:number)=><tr key={`${line.employee_id || line.beneficiary_name}-${index}`}><td data-label="Penerima"><strong>{line.beneficiary_name || '-'}</strong><small>{line.employee_id || 'ID tidak tersedia'}</small></td><td data-label="Bank">{line.bank_code || line.bank_name || '-'}</td><td data-label="Rekening"><span className="pi-account-mask">•••• {line.account_last4 || '----'}</span></td><td data-label="Nominal"><strong>{formatIDR(Number(line.amount || 0))}</strong></td></tr>)}</tbody></table>{!visibleDetailLines.length?<div className="directory-empty">Penerima tidak ditemukan.</div>:null}</div>
+          <div className="pi-recipient-table-wrap"><table className="pi-recipient-table"><thead><tr><th>Penerima</th><th>Bank</th><th>Rekening</th><th>Nominal</th></tr></thead><tbody>{visibleDetailLines.map((line:PaymentInstructionLine,index:number)=><tr key={`${line.employee_id || line.beneficiary_name}-${index}`}><td data-label="Penerima"><strong>{line.beneficiary_name || '-'}</strong><small>{line.employee_id || 'ID tidak tersedia'}</small></td><td data-label="Bank">{line.bank_code || line.bank_name || '-'}</td><td data-label="Rekening"><span className="pi-account-mask">•••• {line.account_last4 || '----'}</span></td><td data-label="Nominal"><strong>{formatIDR(Number(line.amount || 0))}</strong></td></tr>)}</tbody></table>{!visibleDetailLines.length?<div className="directory-empty">Penerima tidak ditemukan.</div>:null}</div>
           <div className="pi-pagination"><span>Halaman {Math.min(detailPage,detailPageCount)} dari {detailPageCount}</span><div><button className="btn" disabled={detailPage<=1} onClick={()=>setDetailPage((page)=>page-1)}>← Sebelumnya</button><button className="btn" disabled={detailPage>=detailPageCount} onClick={()=>setDetailPage((page)=>page+1)}>Berikutnya →</button></div></div>
         </section>
-        <section className="pi-approval-section"><div className="pi-section-heading"><div><span>GOVERNANCE</span><h4>Approval trail</h4></div><small>{detail.approvals?.length || 0} aktivitas</small></div>{detail.approvals?.length ? <div className="pi-approval-list">{detail.approvals.map((approval:any)=><div key={approval.id}><i>✓</i><div><strong>{String(approval.status || '').replaceAll('_',' ')}</strong><span>{approval.approver_email || approval.approver_user_id || 'System'} · {date(approval.created_at)}</span></div></div>)}</div> : <p className="directory-hint">Belum ada approval yang tercatat.</p>}</section>
-        <section className="pi-approval-section"><div className="pi-section-heading"><div><span>OPERATIONAL AUDIT</span><h4>Activity trail</h4></div><small>{detail.activity?.length || 0} event terakhir</small></div>{detail.activity?.length ? <div className="pi-approval-list">{detail.activity.slice(0,20).map((item:any)=><div key={item.id}><i>•</i><div><strong>{String(item.action || '').replaceAll('_',' ')}</strong><span>{item.username || 'System'} · {date(item.timestamp)}</span>{item.detail?<small>{item.detail}</small>:null}</div></div>)}</div> : <p className="directory-hint">Belum ada aktivitas operasional yang tercatat.</p>}</section>
+        <section className="pi-approval-section"><div className="pi-section-heading"><div><span>GOVERNANCE</span><h4>Approval trail</h4></div><small>{detail.approvals?.length || 0} aktivitas</small></div>{detail.approvals?.length ? <div className="pi-approval-list">{detail.approvals.map((approval)=><div key={approval.id}><i>✓</i><div><strong>{String(approval.status || '').replaceAll('_',' ')}</strong><span>{approval.approver_email || approval.approver_user_id || 'System'} · {dateTime(approval.created_at)}</span></div></div>)}</div> : <p className="directory-hint">Belum ada approval yang tercatat.</p>}</section>
+        <section className="pi-approval-section"><div className="pi-section-heading"><div><span>OPERATIONAL AUDIT</span><h4>Activity trail</h4></div><small>{detail.activity?.length || 0} event terakhir</small></div>{detail.activity?.length ? <div className="pi-approval-list">{detail.activity.slice(0,20).map((item)=><div key={item.id}><i>•</i><div><strong>{paymentActivityLabel(item.action)}</strong><span>{item.username || 'System'} · {dateTime(item.timestamp)}</span>{item.detail?<small>{item.detail}</small>:null}</div></div>)}</div> : <p className="directory-hint">Belum ada aktivitas operasional yang tercatat.</p>}</section>
       </div>
       <footer className="pi-detail-footer">
         <div className="pi-export-actions"><a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">Unduh PDF resmi</a>{['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? ['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>) : null}</div>
-        {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Saya sudah memeriksa jumlah penerima, rekening, nominal, control total, dan content hash.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject PI</button><button className="btn btn-primary" disabled={!approvalConfirmed || !detail.control.balanced || detail.control.recipientBalanced !== true || !detail.paymentInstruction.content_hash} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>setDetail(null))}>Approve PI</button></div> : null}
+        {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Saya sudah memeriksa jumlah penerima, rekening, nominal, control total, dan content hash.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject PI</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>setDetail(null))}>Approve PI</button></div> : null}
       </footer>
     </div></div>, document.body) : null}
     {proofFor && <div className="card" style={{ padding:18 }}>
@@ -992,6 +975,7 @@ function Empty({ title, detail }: { title:string; detail?:string }) { return <di
 function Summary({ title,value,note }: { title:string; value:number; note:string }) { return <div className="card" style={{ padding:18 }}><span style={small}>{title}</span><div style={{ fontSize:26, fontWeight:750, margin:'6px 0' }}>{value}</div><span style={small}>{note}</span></div>; }
 function Badge({ text }: { text:string }) { return <span style={{ display:'inline-block', color:stateTone(text), background:`${stateTone(text)}14`, borderRadius:999, padding:'4px 9px', fontWeight:700, fontSize:10 }}>{text.replaceAll('_',' ')}</span>; }
 const date = (value:string) => value ? new Date(value).toLocaleDateString('id-ID') : '-';
+const dateTime = (value:string) => value ? new Date(value).toLocaleString('id-ID',{dateStyle:'medium',timeStyle:'short'}) : '-';
 const small: React.CSSProperties = { display:'block', color:'var(--text3)', fontSize:11, marginTop:3 };
 const th: React.CSSProperties = { textAlign:'left', padding:'11px 14px', background:'var(--bg-subtle)', color:'var(--text2)', fontSize:10.5, textTransform:'uppercase', whiteSpace:'nowrap' };
 const td: React.CSSProperties = { padding:'12px 14px', verticalAlign:'middle' };

@@ -47,12 +47,12 @@ test('internal payroll workspace filters and displays business stages instead of
 
 test('internal payment workspace uses business labels while technical PI states remain available in detail workflow', async()=>{
   const source=await read('src/components/OperatingWorkspace.tsx');
-  assert.match(source,/function paymentBusinessLabel/);
-  assert.match(source,/PAYMENT_APPROVAL_PENDING:'For Approval'/);
-  assert.match(source,/APPROVED_FOR_PAYMENT:'Ready to Pay'/);
-  assert.match(source,/DISBURSEMENT_PROCESSING:'Processing'/);
-  assert.match(source,/PROOF_UPLOADED:'Reconcile'/);
-  assert.match(source,/REVISION_REQUIRED:'Revision Required'/);
+  const presentation=await read('src/lib/payment-instruction-ui.ts');
+  assert.match(presentation,/PAYMENT_APPROVAL_PENDING:'For Approval'/);
+  assert.match(presentation,/APPROVED_FOR_PAYMENT:'Ready to Pay'/);
+  assert.match(presentation,/DISBURSEMENT_PROCESSING:'Processing'/);
+  assert.match(presentation,/PROOF_UPLOADED:'Reconcile'/);
+  assert.match(presentation,/REVISION_REQUIRED:'Revision Required'/);
   assert.match(source,/simplified\?paymentBusinessLabel\(r\.status\):r\.status/);
   assert.match(source,/detail\.paymentInstruction\.status === 'PAYMENT_APPROVAL_PENDING'/);
 });
