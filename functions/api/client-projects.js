@@ -69,11 +69,27 @@ function linkAttribute(tag, name) {
   return tag.match(new RegExp(`${name}\\s*=\\s*["']([^"']+)["']`, 'i'))?.[1] || '';
 }
 
+async function fetchSafe(url, options = {}, redirects = 0) {
+  const safe = safeWebsite(url);
+  if (!safe || redirects > 3) return null;
+  const response = await fetch(safe.toString(), { ...options, redirect: 'manual' });
+  if ([301,302,303,307,308].includes(response.status)) {
+    const location = response.headers.get('location');
+    if (!location) return null;
+    const next = new URL(location, safe);
+    if (!safeWebsite(next.toString())) return null;
+    return fetchSafe(next.toString(), options, redirects + 1);
+  }
+  if (!safeWebsite(response.url || safe.toString())) return null;
+  return response;
+}
+
 async function discoverPwaIcon(website) {
   const url = safeWebsite(website);
   if (!url) return null;
   try {
-    const response = await fetch(url.toString(), { redirect: 'follow', signal: AbortSignal.timeout(5000), headers: { Accept: 'text/html' } });
+    const response = await fetchSafe(url.toString(), { signal: AbortSignal.timeout(5000), headers: { Accept: 'text/html' } });
+    if (!response) return null;
     if (!response.ok || Number(response.headers.get('content-length') || 0) > 1_000_000) return null;
     const html = (await response.text()).slice(0, 1_000_000);
     const links = [...html.matchAll(/<link\b[^>]*>/gi)].map((match) => match[0]);
@@ -83,8 +99,8 @@ async function discoverPwaIcon(website) {
       if (href) {
         const manifestUrl = new URL(href, response.url || url);
         if (safeWebsite(manifestUrl.toString())) {
-          const manifestResponse = await fetch(manifestUrl.toString(), { signal: AbortSignal.timeout(5000), headers: { Accept: 'application/manifest+json, application/json' } });
-          if (manifestResponse.ok) {
+          const manifestResponse = await fetchSafe(manifestUrl.toString(), { signal: AbortSignal.timeout(5000), headers: { Accept: 'application/manifest+json, application/json' } });
+          if (manifestResponse?.ok) {
             const manifest = await manifestResponse.json();
             const icons = Array.isArray(manifest.icons) ? manifest.icons.filter((icon) => icon?.src) : [];
             const icon = icons.sort((a, b) => Number.parseInt(b.sizes || '0', 10) - Number.parseInt(a.sizes || '0', 10))[0];
@@ -156,6 +172,9 @@ export async function onRequest({ request, env }) {
       return respond({ ok: true, clients, projects, role: actor.role });
     }
     const raw = await request.json().catch(() => null);
+    const action = String(raw?.action || '');
+    const requiredPermission = action.endsWith('_CLIENT') ? 'client:write' : action.endsWith('_PROJECT') ? 'project:write' : '';
+    if (!requiredPermission || !actor.permissions?.includes(requiredPermission)) return respond({ error: 'Insufficient permission' }, 403);
     const validation = validateDirectoryAction(raw);
     if (!validation.ok) return respond({ error: validation.errors.join('; ') }, 422);
     const body = validation.value;
