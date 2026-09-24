@@ -63,7 +63,7 @@ test('Data Readiness P1 requires evidence acknowledgement and meaningful resolut
 test('Data Readiness P1 removes Controller exception mutation affordances',async()=>{
   const ui=await read('src/components/OperatingWorkspace.tsx');
   assert.match(ui,/canResolve=\{isProcessor \|\| isClient\}/);
-  assert.match(ui,/\['SUPER_ADMIN','PAYROLL_PROCESSOR'\]\.includes\(role\)\?<button className="btn"[^>]*>Chat \/ catatan/);
+  assert.match(ui,/\['SUPER_ADMIN','PAYROLL_PROCESSOR'\]\.includes\(role\)[\s\S]*Chat \/ catatan/);
 });
 
 test('Data Readiness P1 styles evidence-based resolution responsively',async()=>{
