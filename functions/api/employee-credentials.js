@@ -3,20 +3,14 @@ import {
   ISSUE_BATCH_SIZE, assignDefaultPasswords, isActiveEmployee,
 } from './_employee-auth.js';
 import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
+import { activeEmployeeSql } from './_employee-status.js';
 import {
   authorize, enforceRateLimit, handlePreflight, publicError, secureJson,
 } from './_security.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ISSUERS = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
-const ACTIVE_EMPLOYEE_SQL = `(e.status_aktif IS NULL OR trim(e.status_aktif)='' OR (
-  lower(e.status_aktif) NOT LIKE '%non%'
-  AND lower(e.status_aktif) NOT LIKE '%inaktif%'
-  AND lower(e.status_aktif) NOT LIKE '%inactive%'
-  AND lower(e.status_aktif) NOT LIKE '%resign%'
-  AND lower(e.status_aktif) NOT LIKE '%keluar%'
-  AND lower(e.status_aktif) NOT LIKE '%terminate%'
-))`;
+const ACTIVE_EMPLOYEE_SQL = activeEmployeeSql('e');
 
 function orgId(env) {
   return String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');

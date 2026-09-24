@@ -66,7 +66,7 @@ export default function EmployeeDirectory({ employees, actor, pageSize = 15, ini
       if (employeeIssue(employee).length) missing += 1;
       const end = employee.contractEnd ? Date.parse(employee.contractEnd) : Number.NaN;
       if (Number.isFinite(end) && end < now) expired += 1;
-      else if (/aktif|tetap|kontrak/i.test(text(employee.status))) active += 1;
+      else if (employee.isActive === true) active += 1;
     });
     return { total: employees.length, active, expired, missing };
   }, [employees]);
@@ -269,6 +269,7 @@ function EmployeeDetail({ employee, actor, maskSensitiveData, onClose, onSaved }
     setSaving(true); setMessage('');
     try {
       const response = await fetch('/api/employees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        action: 'UPDATE_ADMIN',
         id: employee.id,
         nik: form.nik,
         email: form.email,

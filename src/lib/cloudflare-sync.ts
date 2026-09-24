@@ -44,13 +44,29 @@ function projectsFromEmployees(employees: any[]) {
   });
 }
 
-export async function syncDatabaseFromCloudflare(db: any, options: SyncOptions = {}) {
-  const [response, stateResponse, directoryResponse, planResponse] = await Promise.all([
-    fetch('/api/employees', {
+async function fetchAllEmployees(signal?: AbortSignal) {
+  const employees: any[] = [];
+  let offset = 0;
+  for (let page = 0; page < 1000; page += 1) {
+    const response = await fetch(`/api/employees?limit=200&offset=${offset}`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
-      signal: options.signal,
-    }),
+      signal,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
+    employees.push(...(Array.isArray(data.employees) ? data.employees : []));
+    const nextOffset = data?.meta?.nextOffset;
+    if (nextOffset === null || nextOffset === undefined) return employees;
+    offset = Number(nextOffset);
+    if (!Number.isFinite(offset) || offset < 0) throw new Error('Invalid employee pagination metadata');
+  }
+  throw new Error('Employee pagination exceeded safety limit');
+}
+
+export async function syncDatabaseFromCloudflare(db: any, options: SyncOptions = {}) {
+  const [employees, stateResponse, directoryResponse, planResponse] = await Promise.all([
+    fetchAllEmployees(options.signal),
     fetch('/api/state', {
       method: 'GET',
       headers: { Accept: 'application/json' },
@@ -67,15 +83,11 @@ export async function syncDatabaseFromCloudflare(db: any, options: SyncOptions =
       signal: options.signal,
     }).catch(() => null),
   ]);
-  const [data, stateData, directoryData, planData] = await Promise.all([
-    response.json().catch(() => ({})),
+  const [stateData, directoryData, planData] = await Promise.all([
     stateResponse.json().catch(() => ({})),
     directoryResponse?.json().catch(() => ({})) || {},
     planResponse?.json().catch(() => ({})) || {},
   ]);
-  if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
-
-  const employees = Array.isArray(data.employees) ? data.employees : [];
   const directory = directoryData as any;
   const servicePlans = planResponse?.ok && Array.isArray((planData as any).servicePlans)
     ? (planData as any).servicePlans

@@ -3,6 +3,7 @@ import { applyEwaRepayments, markEwaRepaid } from './_ewa.js';
 import { handlePreflight, publicError, secureJson } from './_security.js';
 import { canTransition, resolveTierTransition, validateOperatingAction } from './operating-model-validation.js';
 import { canonicalBankCode, decryptAccountNumber, encryptAccountNumber, instructionContentHash, sha256Hex } from './payment-instruction-core.js';
+import { activeEmployeeSql } from './_employee-status.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const PROCESSOR_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
@@ -14,11 +15,7 @@ const ADJUSTMENT_PARENT_STATES = new Set([
   'RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED',
 ]);
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
-// HR master data contains employment types (TETAP/PKWT) as well as lifecycle
-// statuses. Only explicit exit/inactive values must be excluded from payroll.
-const ACTIVE_EMPLOYEE = `UPPER(TRIM(COALESCE(e.status_aktif,'ACTIVE'))) NOT IN
-  ('INACTIVE','NONACTIVE','NON-ACTIVE','NON AKTIF','NONAKTIF','TIDAK AKTIF','RESIGN','RESIGNED',
-   'TERMINATED','KELUAR','BERHENTI','PHK','PENSIUN','MENINGGAL','DECEASED','OFF','CANCELLED')`;
+const ACTIVE_EMPLOYEE = activeEmployeeSql('e');
 
 function orgId(env) {
   return String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');
