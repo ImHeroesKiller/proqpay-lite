@@ -4,9 +4,9 @@ import { ACCOUNT_ROLES, authenticateSession, hasActiveAccounts } from './_accoun
 export const ROLES = ACCOUNT_ROLES;
 
 const ROLE_PERMISSIONS = Object.freeze({
-  SUPER_ADMIN: ['read', 'employees:write', 'import:write', 'schema:write', 'settings:write', 'client:write', 'project:write', 'service-plan:write', 'submission:write', 'exception:write', 'payment:prepare', 'PAYMENT_APPROVER', 'payment:approve', 'reconciliation:write'],
-  PAYROLL_PROCESSOR: ['read', 'employees:write', 'import:write', 'submission:write', 'exception:write', 'payroll:write', 'payment:prepare', 'reconciliation:write'],
-  PAYROLL_CONTROLLER: ['read', 'approval:write', 'PAYMENT_APPROVER', 'payment:approve', 'reconciliation:write'],
+  SUPER_ADMIN: ['read', 'employees:write', 'import:write', 'schema:write', 'settings:write', 'client:write', 'project:write', 'service-plan:write', 'submission:write', 'exception:write', 'payment:prepare', 'PAYMENT_APPROVER', 'payment:approve', 'reconciliation:write', 'billing:prepare', 'billing:approve', 'ar:write'],
+  PAYROLL_PROCESSOR: ['read', 'employees:write', 'import:write', 'submission:write', 'exception:write', 'payroll:write', 'payment:prepare', 'reconciliation:write', 'billing:prepare'],
+  PAYROLL_CONTROLLER: ['read', 'approval:write', 'PAYMENT_APPROVER', 'payment:approve', 'reconciliation:write', 'billing:approve', 'ar:write'],
   CLIENT_USER: ['read'],
 });
 
