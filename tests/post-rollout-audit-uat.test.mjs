@@ -11,7 +11,7 @@ import { D1Mock } from './helpers/d1-mock.mjs';
 
 const origin='https://proqpay.test';
 const processor={id:'USR-AUD-P',email:'processor.audit@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:['submission:write','payroll:write','payment:prepare']};
-const controller={id:'USR-AUD-C',email:'controller.audit@proqpay.test',role:'PAYROLL_CONTROLLER',permissions:['payment:approve']};
+const controller={id:'USR-AUD-C',email:'controller.audit@proqpay.test',role:'PAYROLL_CONTROLLER',permissions:['payment:approve','reconciliation:write']};
 const client={id:'USR-AUD-CL',email:'client.audit@proqpay.test',role:'CLIENT_USER',permissions:['read'],clientIds:['CLI-AUD'],projectIds:['PRJ-AUD']};
 
 class R2Mock {
