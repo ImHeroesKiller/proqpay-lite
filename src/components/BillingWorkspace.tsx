@@ -4,18 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatIDR } from "@/lib/format";
 import { executeOperatingAction, getPayRunDetail, listOperatingResource } from "@/lib/operating-model-api";
+import { arControlSummary, billingDateLabel, billingModalTitle, billingPermission, type ArRecord, type BillablePayment, type BillingActor, type BillingClient, type BillingData, type BillingModalState, type BillingSection, type BillingSubmission, type InvoiceRecord } from "@/lib/billing-ui";
 
-type Actor = { email: string; role: string; permissions?: string[] };
-type Section = "invoice" | "tax" | "ar" | "close" | "setup";
-type BillingData = {
-  clients: any[];
-  billablePayments: any[];
-  invoices: any[];
-  arItems: any[];
-  submissions: any[];
-};
 
-const sections: Record<Section, string> = {
+const sections: Record<BillingSection, string> = {
   invoice: "Invoice",
   tax: "Faktur Pajak",
   ar: "AR Monitoring",
@@ -78,9 +70,9 @@ async function loadAllBillingPages(focusSubmissionId = ""): Promise<Omit<Billing
 }
 
 type BillingWorkspaceProps = {
-  actor: Actor | null;
+  actor: BillingActor | null;
   focusSubmissionId?: string;
-  focusSection?: Section;
+  focusSection?: BillingSection;
   onClearFocus?: () => void;
 };
 
@@ -90,18 +82,17 @@ export default function BillingWorkspace({
   focusSection,
   onClearFocus,
 }: BillingWorkspaceProps) {
-  const [section, setSection] = useState<Section>(focusSection || "invoice");
+  const [section, setSection] = useState<BillingSection>(focusSection || "invoice");
   const [data, setData] = useState<BillingData>(initialData);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
-  const [modal, setModal] = useState<{ kind: string; row: any } | null>(null);
+  const [modal, setModal] = useState<BillingModalState | null>(null);
   const [form, setForm] = useState<Record<string, any>>({});
 
   const role = actor?.role || "";
-  const permissions = actor?.permissions || [];
-  const canPrepare = ["SUPER_ADMIN", "PAYROLL_PROCESSOR"].includes(role) && permissions.includes("billing:prepare");
-  const canControl = ["SUPER_ADMIN", "PAYROLL_CONTROLLER"].includes(role) && permissions.includes("billing:approve");
-  const canWriteAr = ["SUPER_ADMIN", "PAYROLL_CONTROLLER"].includes(role) && permissions.includes("ar:write");
+  const canPrepare = billingPermission(actor, "billing:prepare", ["SUPER_ADMIN", "PAYROLL_PROCESSOR"]);
+  const canControl = billingPermission(actor, "billing:approve", ["SUPER_ADMIN", "PAYROLL_CONTROLLER"]);
+  const canWriteAr = billingPermission(actor, "ar:write", ["SUPER_ADMIN", "PAYROLL_CONTROLLER"]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,7 +107,7 @@ export default function BillingWorkspace({
       const submissions = [...(operating.submissions || [])];
       if (
         focused?.submission &&
-        !submissions.some((row: any) => String(row.id) === String(focused.submission.id))
+        !submissions.some((row: BillingSubmission) => String(row.id) === String(focused.submission.id))
       ) {
         submissions.unshift(focused.submission);
       }
@@ -299,8 +290,22 @@ export default function BillingWorkspace({
     setModal({ kind: "setup", row });
   }
 
-  async function closePayRun(row: any) {
-    if (!window.confirm(`Tutup payroll ${row.period} untuk ${row.client_name || row.client_id}? AR tetap dipantau setelah period close.`)) return;
+  function openClose(row: BillingSubmission) {
+    setForm({ confirmation: "TUTUP PERIODE" });
+    setModal({ kind: "close", row });
+  }
+
+  function openFollowUp(row: ArRecord) {
+    setForm({ notes: "", nextFollowUpAt: "", disputed: false });
+    setModal({ kind: "follow-up", row });
+  }
+
+  function openRevision(row: InvoiceRecord) {
+    setForm({ reviewNote: "" });
+    setModal({ kind: "revise", row });
+  }
+
+  async function confirmClose(row: BillingSubmission) {
     setNotice("Memproses…");
     try {
       await executeOperatingAction({
@@ -308,34 +313,13 @@ export default function BillingWorkspace({
         submissionId: row.id,
         confirmation: "TUTUP PERIODE",
       });
+      setModal(null);
+      setForm({});
       await load();
       setNotice("Payroll period berhasil ditutup. AR tetap aktif sampai pelunasan.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Period close gagal");
     }
-  }
-
-  async function followUp(row: any) {
-    const notes = window.prompt("Catatan follow-up untuk klien:");
-    if (!notes) return;
-    const nextFollowUpAt =
-      window.prompt("Tanggal follow-up berikutnya (YYYY-MM-DD), opsional:") ||
-      null;
-    await act(
-      "FOLLOW_UP_AR",
-      { arId: row.id, notes, nextFollowUpAt },
-      "Follow-up AR tersimpan.",
-    );
-  }
-
-  async function revise(row: any) {
-    const reviewNote = window.prompt("Tuliskan alasan revisi invoice:");
-    if (reviewNote)
-      await act(
-        "REVISE_INVOICE",
-        { invoiceId: row.id, reviewNote },
-        "Invoice dikembalikan untuk revisi.",
-      );
   }
 
   function exportCoretax() {
@@ -430,7 +414,7 @@ export default function BillingWorkspace({
       </div>
 
       <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>
-        {(Object.keys(sections) as Section[]).map((key) => (
+        {(Object.keys(sections) as BillingSection[]).map((key) => (
           <button
             key={key}
             type="button"
@@ -462,9 +446,9 @@ export default function BillingWorkspace({
           canControl={canControl}
           act={act}
           generate={openGenerate}
-          revise={revise}
+          revise={openRevision}
           tax={openTax}
-          detail={(row: any) => setModal({ kind: "detail", row })}
+          detail={(row: InvoiceRecord) => setModal({ kind: "detail", row })}
         />
       )}
       {section === "tax" && (
@@ -481,15 +465,15 @@ export default function BillingWorkspace({
           canControl={canWriteAr}
           canFollow={canWriteAr}
           payment={openPayment}
-          follow={followUp}
-          history={(row: any) => setModal({ kind: "ar-history", row })}
+          follow={openFollowUp}
+          history={(row: ArRecord) => setModal({ kind: "ar-history", row })}
         />
       )}
       {section === "close" && (
         <CloseSection
           rows={focusedData.submissions}
           canControl={canControl}
-          close={closePayRun}
+          close={openClose}
         />
       )}
       {section === "setup" && (
@@ -502,7 +486,7 @@ export default function BillingWorkspace({
 
       {modal && (
         <Modal
-          title={modalTitle(modal.kind)}
+          title={billingModalTitle(modal.kind)}
           close={() => {
             setModal(null);
             setForm({});
@@ -568,6 +552,45 @@ export default function BillingWorkspace({
           )}
           {modal.kind === "detail" && <InvoiceDetail row={modal.row} />}
           {modal.kind === "ar-history" && <ARHistory row={modal.row} />}
+          {modal.kind === "revise" && (
+            <ActionNoteForm
+              label="Alasan revisi"
+              value={String(form.reviewNote || "")}
+              onChange={(value) => setForm({ ...form, reviewNote: value })}
+              buttonText="Kembalikan untuk revisi"
+              submit={() =>
+                act(
+                  "REVISE_INVOICE",
+                  { invoiceId: modal.row.id, reviewNote: form.reviewNote },
+                  "Invoice dikembalikan untuk revisi.",
+                )
+              }
+            />
+          )}
+          {modal.kind === "follow-up" && (
+            <FollowUpForm
+              form={form}
+              setForm={setForm}
+              submit={() =>
+                act(
+                  "FOLLOW_UP_AR",
+                  {
+                    arId: modal.row.id,
+                    notes: form.notes,
+                    nextFollowUpAt: form.nextFollowUpAt || null,
+                    disputed: Boolean(form.disputed),
+                  },
+                  "Follow-up AR tersimpan.",
+                )
+              }
+            />
+          )}
+          {modal.kind === "close" && (
+            <CloseConfirmation
+              row={modal.row as BillingSubmission}
+              submit={() => confirmClose(modal.row as BillingSubmission)}
+            />
+          )}
         </Modal>
       )}
     </div>
@@ -845,16 +868,8 @@ function ARSection({ rows, canControl, canFollow, payment, follow, history }: an
         .reduce((n: number, r: any) => n + Number(r.balance || 0), 0),
     ]),
   );
-  const control = rows.reduce(
-    (acc: any, row: any) => ({
-      invoice: acc.invoice + Number(row.control?.invoiceTotal ?? row.amount ?? 0),
-      paid: acc.paid + Number(row.control?.paid ?? row.paid_amount ?? 0),
-      unapplied: acc.unapplied + Number(row.control?.unapplied ?? 0),
-      outstanding: acc.outstanding + Number(row.control?.outstanding ?? row.balance ?? 0),
-    }),
-    { invoice: 0, paid: 0, unapplied: 0, outstanding: 0 },
-  );
-  const appliedVariance = control.invoice - control.paid - control.outstanding;
+  const control = arControlSummary(rows as ArRecord[]);
+  const appliedVariance = control.variance;
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div
@@ -1254,6 +1269,71 @@ function InvoiceDetail({ row }: any) {
   );
 }
 
+function ActionNoteForm({ label, value, onChange, buttonText, submit }: { label: string; value: string; onChange: (value: string) => void; buttonText: string; submit: () => void }) {
+  return (
+    <Form submit={submit} buttonText={buttonText}>
+      <label style={labelStyle}>
+        {label}
+        <textarea
+          style={{ ...input, minHeight: 110, resize: "vertical" }}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          required
+        />
+      </label>
+    </Form>
+  );
+}
+
+function FollowUpForm({ form, setForm, submit }: any) {
+  return (
+    <Form submit={submit} buttonText="Simpan follow-up">
+      <label style={labelStyle}>
+        Catatan follow-up
+        <textarea
+          style={{ ...input, minHeight: 110, resize: "vertical" }}
+          value={form.notes || ""}
+          onChange={(event) => setForm({ ...form, notes: event.target.value })}
+          required
+        />
+      </label>
+      <Field
+        label="Tanggal follow-up berikutnya"
+        type="date"
+        value={form.nextFollowUpAt || ""}
+        onChange={(value: string) => setForm({ ...form, nextFollowUpAt: value })}
+        required={false}
+      />
+      <label style={{ ...labelStyle, display: "flex", gridTemplateColumns: undefined, alignItems: "center", gap: 8 }}>
+        <input
+          type="checkbox"
+          checked={Boolean(form.disputed)}
+          onChange={(event) => setForm({ ...form, disputed: event.target.checked })}
+        />
+        Tandai sebagai disputed
+      </label>
+    </Form>
+  );
+}
+
+function CloseConfirmation({ row, submit }: { row: BillingSubmission; submit: () => void }) {
+  return (
+    <Form submit={submit} buttonText="Tutup periode">
+      <div className="billing-confirmation-summary">
+        <Info label="Klien" value={String(row.client_name || row.client_id || "-")} />
+        <Info label="Project" value={String(row.project_name || "-")} />
+        <Info label="Periode" value={String(row.period || "-")} />
+        <Info label="Payment" value={String(row.payment_status || "-")} />
+        <Info label="Reconciliation" value={String(row.reconciliation_status || "-")} />
+        <Info label="Invoice" value={String(row.invoice_status || "-")} />
+      </div>
+      <p style={{ ...muted, margin: 0 }}>
+        Setelah payroll period ditutup, snapshot payroll tetap terkunci. Outstanding AR tetap aktif sampai pelunasan.
+      </p>
+    </Form>
+  );
+}
+
 function ARHistory({ row }: any) {
   const control = row.control || {};
   return (
@@ -1458,7 +1538,7 @@ function Form({ submit, buttonText, children }: any) {
     </form>
   );
 }
-function Field({ label, value, onChange, type = "text" }: any) {
+function Field({ label, value, onChange, type = "text", required }: any) {
   return (
     <label style={labelStyle}>
       {label}
@@ -1467,7 +1547,7 @@ function Field({ label, value, onChange, type = "text" }: any) {
         type={type}
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value)}
-        required={["email", "date"].includes(type)}
+        required={required ?? ["email", "date"].includes(type)}
       />
     </label>
   );
@@ -1505,19 +1585,8 @@ function Info({ label, value }: any) {
     </div>
   );
 }
-const date = (v: any) => (v ? new Date(v).toLocaleDateString("id-ID") : "-");
+const date = billingDateLabel;
 const csvCell = (v: any) => `"${String(v ?? "").replaceAll('"', '""')}"`;
-const modalTitle = (kind: string) =>
-  (
-    ({
-      generate: "Buat draft invoice",
-      tax: "Faktur Pajak / Coretax",
-      payment: "Catat penerimaan AR",
-      setup: "Billing profile klien",
-      detail: "Detail invoice",
-      "ar-history": "Riwayat AR",
-    }) as any
-  )[kind] || "Billing";
 const muted: any = { color: "var(--text3)", fontSize: 11 };
 const grid2: any = {
   display: "grid",
