@@ -4,10 +4,9 @@ import test from 'node:test';
 
 const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
-test('Phase 3 removes redundant static role card for Processor and Controller dashboards', async()=>{
+test('Phase 3 dashboard uses the operational control tower without a redundant static role card', async()=>{
   const page=await read('src/app/page.tsx');
-  assert.match(page,/const simplifiedInternal = \['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'\]\.includes\(actor\.role\)/);
-  assert.match(page,/!simplifiedInternal \? <RoleDashboard/);
+  assert.doesNotMatch(page,/RoleDashboard/);
   assert.match(page,/<PayrollControlTower actor=\{actor\}/);
 });
 
