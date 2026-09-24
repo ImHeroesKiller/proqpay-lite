@@ -505,3 +505,90 @@ textarea:focus-visible {
     background:var(--bg-surface);
   }
 }
+
+
+/* Dashboard P3 readability and density polish — 2026-09-24 */
+.control-panel-title > small,
+.control-kpi small,
+.action-list small,
+.deadline-list small,
+.portfolio-table,
+.portfolio-table td small,
+.control-pagination,
+.pipeline-grid > button > em,
+.pipeline-stage-hint,
+.pipeline-stage-hint b {
+  font-size: 10px;
+}
+
+.control-panel-title span,
+.control-kpi .control-kpi-label,
+.portfolio-snapshot,
+.portfolio-snapshot b,
+.portfolio-snapshot span,
+.portfolio-table th {
+  font-size: 9px;
+}
+
+.action-list > button,
+.deadline-list > button {
+  min-height: 48px;
+}
+
+.action-list small,
+.deadline-list small {
+  line-height: 1.45;
+}
+
+.portfolio-table th {
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+
+.portfolio-table td {
+  padding: 11px 12px;
+  line-height: 1.4;
+}
+
+.control-empty {
+  display: grid;
+  min-height: 92px;
+  place-items: center;
+  padding: 22px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb,var(--bg-subtle) 78%,transparent);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.control-refresh:disabled {
+  cursor: progress;
+  opacity: .72;
+}
+
+.control-pagination .btn {
+  min-width: 36px;
+  min-height: 36px;
+}
+
+@media (max-width:760px) {
+  .control-panel-title > small,
+  .control-kpi small,
+  .action-list small,
+  .deadline-list small,
+  .control-pagination,
+  .pipeline-grid > button > em,
+  .pipeline-stage-hint,
+  .pipeline-stage-hint b {
+    font-size: 10px;
+  }
+
+  .dashboard-responsive-table td::before {
+    font-size: 9.5px;
+  }
+
+  .dashboard-responsive-table td {
+    padding: 11px 12px;
+  }
+}
