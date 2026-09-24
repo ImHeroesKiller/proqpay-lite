@@ -2,7 +2,7 @@
 
 import { DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { parseIapWorkbook } from "@/lib/excel-iap";
 import { formatIDR } from "@/lib/format";
 import Sidebar, { type AppView } from "@/components/Sidebar";
@@ -44,6 +44,7 @@ type Preview = {
 
 export default function DataIntakePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
   const [actor, setActor] = useState<{ email: string; role: string } | null>(
     null,
@@ -58,7 +59,7 @@ export default function DataIntakePage() {
   const [form, setForm] = useState({
     clientId: "",
     projectId: "",
-    period: new Date().toISOString().slice(0, 7),
+    period: searchParams.get("period") || new Date().toISOString().slice(0, 7),
   });
   const [file, setFile] = useState<File | null>(null);
   const [parsed, setParsed] = useState<Parsed | null>(null);
@@ -251,7 +252,7 @@ export default function DataIntakePage() {
   }
 
   function navigate(view: AppView) {
-    router.push(`/?view=${view}`);
+    router.push(`/?view=${view}&period=${encodeURIComponent(form.period)}`);
   }
 
   return (
@@ -267,6 +268,7 @@ export default function DataIntakePage() {
         onMobileClose={() => setMobileNavOpen(false)}
         settingsOpen={settingsOpen}
         onSettingsOpen={setSettingsOpen}
+        period={form.period}
       />
       <main className="data-intake-page">
         <div className="data-intake-shell">
@@ -690,7 +692,10 @@ export default function DataIntakePage() {
                       Master, history, dan snapshot Pay Run telah tersimpan.
                     </span>
                   </div>
-                  <Link className="btn btn-primary" href="/?view=operations">
+                  <Link
+                    className="btn btn-primary"
+                    href={`/?view=operations&period=${encodeURIComponent(form.period)}`}
+                  >
                     Buka Pay Run →
                   </Link>
                 </div>
