@@ -13,6 +13,9 @@ export type PaymentGatewayTransaction = {
   provider_reference?: string | null;
   status: 'CREATED' | 'PENDING' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED' | 'EXPIRED' | 'CANCELLED';
   provider_status?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  execution_lock_until?: string | null;
   amount: number;
   currency: string;
   payment_method?: string | null;
@@ -43,6 +46,20 @@ export type PaymentGatewayItem = {
   last_checked_at?: string | null;
   error_code?: string | null;
   error_message?: string | null;
+};
+
+export type PaymentGatewayOperationalStatus = {
+  state: string;
+  stale: boolean;
+  staleMinutes: number;
+  needsReconciliation: boolean;
+  safeToRetry: boolean;
+  activeLease: boolean;
+  unresolvedItems: number;
+  failedItems: number;
+  retryableFailedItems?: number;
+  succeededItems: number;
+  lastActivityAt?: string | null;
 };
 
 export type HostedPaymentSession = {
@@ -79,6 +96,7 @@ export async function getPaymentGatewayStatus(paymentInstructionId?: string) {
     gateway: PaymentGatewayReadiness;
     transaction?: PaymentGatewayTransaction | null;
     items?: PaymentGatewayItem[];
+    operational?: PaymentGatewayOperationalStatus;
   }>;
 }
 

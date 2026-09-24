@@ -318,18 +318,21 @@ async function readResource(database, params, actor, env, organizationId) {
     if (!assertClientScope(actor, env, instruction.client_id) || !assertProjectScope(actor, instruction.project_id)) {
       return { status: 403, data: { error: 'Payment instruction scope denied' } };
     }
-    const [lines, approvals] = await Promise.all([
+    const [lines, approvals, activity] = await Promise.all([
       d1All(database, `SELECT id,employee_id,beneficiary_name,bank_name,bank_code,
         COALESCE(account_last4,substr(masked_account,-4)) AS account_last4,masked_account,amount,line_hash
         FROM payment_instruction_lines WHERE payment_instruction_id=? ORDER BY beneficiary_name,id LIMIT 5000`, [paymentInstructionId]),
       d1All(database, `SELECT pa.id,pa.status,pa.created_at,pa.action_hash,au.email AS approver_email
         FROM payment_approvals pa LEFT JOIN app_users au ON au.id=pa.approver_user_id
         WHERE pa.payment_instruction_id=? ORDER BY pa.created_at`, [paymentInstructionId]),
+      d1All(database, `SELECT id,username,role,action,detail,timestamp
+        FROM audit_logs WHERE org_id=? AND entity='payment_instruction' AND entity_id=?
+        ORDER BY timestamp DESC LIMIT 100`, [organizationId,paymentInstructionId]),
     ]);
     const total = lines.reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const expectedRecipients = Number(instruction.recipient_count || 0);
     const recipientBalanced = expectedRecipients === lines.length;
-    return { data: { ok: true, paymentInstruction: instruction, lines, approvals,
+    return { data: { ok: true, paymentInstruction: instruction, lines, approvals, activity,
       control: {
         recipientCount: lines.length,
         expectedRecipientCount: expectedRecipients,

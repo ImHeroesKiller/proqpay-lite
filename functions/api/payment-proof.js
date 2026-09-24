@@ -51,10 +51,15 @@ function sameProofPayload(existing, amount, transactionDate) {
 
 async function blockingGatewayTransaction(database, paymentInstructionId) {
   try {
-    return await d1First(database, `SELECT id,provider,status,provider_reference,created_at
+    return await d1First(database, `SELECT id,provider,status,provider_transaction_id,provider_reference,provider_status,error_code,created_at
       FROM payment_gateway_transactions WHERE payment_instruction_id=?
-      AND status IN ('CREATED','PENDING','PROCESSING','SUCCEEDED')
-      ORDER BY CASE WHEN status='SUCCEEDED' THEN 0 ELSE 1 END,created_at DESC LIMIT 1`, [paymentInstructionId]);
+      AND (
+        status IN ('CREATED','PENDING','PROCESSING','SUCCEEDED')
+        OR (status='FAILED' AND (
+          UPPER(COALESCE(error_code,'')) LIKE '%UNKNOWN%' OR UPPER(COALESCE(provider_status,'')) LIKE '%AWAITING%'
+        ))
+      )
+      ORDER BY CASE WHEN status='SUCCEEDED' THEN 0 WHEN status IN ('PENDING','PROCESSING') THEN 1 ELSE 2 END,created_at DESC LIMIT 1`, [paymentInstructionId]);
   } catch (error) {
     if (/no such table/i.test(String(error?.message || error))) return null;
     throw error;
@@ -129,7 +134,22 @@ export async function onRequest({ request, env }) {
       return respond({ error: 'Payment gateway sudah menyatakan transaksi berhasil. Rekonsiliasi harus mengikuti webhook provider, bukan bukti manual.', code: 'PAYMENT_GATEWAY_SETTLED' }, 409);
     }
     if (gateway) {
-      return respond({ error: `Transaksi gateway ${gateway.provider} masih ${gateway.status}. Selesaikan atau tunggu hasil gateway sebelum memakai fallback manual.`, code: 'PAYMENT_GATEWAY_ACTIVE' }, 409);
+      return respond({
+        error: gateway.status === 'FAILED'
+          ? `Transaksi gateway ${gateway.provider} memiliki jejak provider/hasil ambigu. Fallback manual diblokir sampai status provider dikonfirmasi.`
+          : `Transaksi gateway ${gateway.provider} masih ${gateway.status}. Selesaikan atau tunggu hasil gateway sebelum memakai fallback manual.`,
+        code: gateway.status === 'FAILED' ? 'PAYMENT_GATEWAY_AMBIGUOUS_FAILURE' : 'PAYMENT_GATEWAY_ACTIVE',
+      }, 409);
+    }
+    const currentProofTotal = await d1First(database, `SELECT COALESCE(SUM(amount),0) AS total FROM payment_proofs WHERE payment_instruction_id=?`, [paymentInstructionId]);
+    if (Number(currentProofTotal?.total || 0) + amount > Number(payment.expected_total || 0)) {
+      return respond({
+        error:'Total bukti pembayaran akan melebihi nilai Payment Instruction',
+        code:'PAYMENT_PROOF_TOTAL_EXCEEDS_PI',
+        currentTotal:Number(currentProofTotal?.total || 0),
+        attemptedAmount:amount,
+        expectedTotal:Number(payment.expected_total || 0),
+      },409);
     }
     const existing = await d1First(database, `SELECT * FROM payment_proofs
       WHERE payment_instruction_id=? AND UPPER(bank)=? AND UPPER(reference)=? LIMIT 1`, [paymentInstructionId, bank, reference]);
