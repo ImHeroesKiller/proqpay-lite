@@ -83,9 +83,9 @@ export async function onRequest({ request, env }) {
   const requestId = crypto.randomUUID();
   const bucket = env.FILES || env.PAYMENT_PROOFS;
   if (!bucket?.put || !bucket?.get) {
-    return respond({ error: 'Penyimpanan bukti pembayaran belum terhubung. Tambahkan R2 binding FILES di Cloudflare Pages.', requestId }, 503);
+    return respond({ error: 'Layanan penyimpanan bukti pembayaran belum tersedia. Hubungi administrator.', code:'PAYMENT_PROOF_STORAGE_UNAVAILABLE', requestId }, 503);
   }
-  if (!hasD1(env)) return respond({ error: 'Cloudflare D1 belum terhubung.', requestId }, 503);
+  if (!hasD1(env)) return respond({ error: 'Layanan data pembayaran belum tersedia. Hubungi administrator.', code:'PAYMENT_DATA_UNAVAILABLE', requestId }, 503);
   const database = env.DB;
   const organizationId = orgId(env);
 
@@ -102,7 +102,7 @@ export async function onRequest({ request, env }) {
         return respond({ error: 'Akun tidak memiliki akses ke bukti pembayaran ini' }, 403);
       }
       const object = await bucket.get(proof.uploaded_file_id);
-      if (!object) return respond({ error: 'File bukti pembayaran tidak ditemukan di R2' }, 404);
+      if (!object) return respond({ error: 'File bukti pembayaran tidak tersedia', code:'PAYMENT_PROOF_FILE_NOT_FOUND' }, 404);
       const headers = new Headers({
         'Cache-Control': 'private, no-store',
         'Content-Disposition': `attachment; filename="${safeProofFilename(object.customMetadata?.originalName || `${proof.id}.bin`)}"`,
