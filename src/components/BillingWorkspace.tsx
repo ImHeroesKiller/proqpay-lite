@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { formatIDR } from "@/lib/format";
 import { executeOperatingAction, getPayRunDetail, listOperatingResource } from "@/lib/operating-model-api";
 
-type Actor = { email: string; role: string };
+type Actor = { email: string; role: string; permissions?: string[] };
 type Section = "invoice" | "tax" | "ar" | "close" | "setup";
 type BillingData = {
   clients: any[];
@@ -52,8 +52,10 @@ export default function BillingWorkspace({
   const [form, setForm] = useState<Record<string, any>>({});
 
   const role = actor?.role || "";
-  const canPrepare = ["SUPER_ADMIN", "PAYROLL_PROCESSOR"].includes(role);
-  const canControl = ["SUPER_ADMIN", "PAYROLL_CONTROLLER"].includes(role);
+  const permissions = actor?.permissions || [];
+  const canPrepare = ["SUPER_ADMIN", "PAYROLL_PROCESSOR"].includes(role) && permissions.includes("billing:prepare");
+  const canControl = ["SUPER_ADMIN", "PAYROLL_CONTROLLER"].includes(role) && permissions.includes("billing:approve");
+  const canWriteAr = ["SUPER_ADMIN", "PAYROLL_CONTROLLER"].includes(role) && permissions.includes("ar:write");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -436,8 +438,8 @@ export default function BillingWorkspace({
       {section === "ar" && (
         <ARSection
           rows={focusedData.arItems}
-          canControl={canControl}
-          canFollow={canControl || canPrepare}
+          canControl={canWriteAr}
+          canFollow={canWriteAr}
           payment={openPayment}
           follow={followUp}
         />
