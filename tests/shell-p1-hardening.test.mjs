@@ -39,12 +39,14 @@ test('Processor and Controller allowed views match the visible shell and cannot 
   assert.match(source,/role === "SUPER_ADMIN".*NavGroup label="Employee Portal"/s);
 });
 
-test('sidebar production connectivity is derived from live health instead of a hardcoded green claim', async()=>{
+test('sidebar production connectivity is derived from canonical live health instead of a hardcoded green claim', async()=>{
   const source=await read('src/components/Sidebar.tsx');
-  assert.match(source,/fetch\("\/api\/health"/);
-  assert.match(source,/result\.ready === true \? "connected" : "degraded"/);
-  assert.match(source,/"offline"/);
-  assert.match(source,/Production · \{serviceState === "connected"/);
+  const health=await read('src/lib/service-health.ts');
+  assert.match(source,/useServiceHealth/);
+  assert.match(source,/serviceState\(health\)/);
+  assert.match(health,/fetch\("\/api\/health"/);
+  assert.match(health,/health\.ready === true.*"connected"/s);
+  assert.match(source,/Production · \{currentServiceState === "connected"/);
   assert.doesNotMatch(source,/Production · Connected\s*<\/span>/);
   const css=await read('src/app/globals.css');
   assert.match(css,/sidebar-health-connected/);

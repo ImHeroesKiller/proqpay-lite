@@ -18,7 +18,7 @@ type Props = {
   period: string;
   periods: string[];
   view: AppView;
-  clientCount: number;
+  clientCount: number | null;
   onPeriodChange: (period: string) => void;
   onNavigate: (view: AppView) => void;
   onHelp: () => void;
@@ -132,6 +132,7 @@ export default function AppHeader({
   const [profileOpen, setProfileOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [searchIndex, setSearchIndex] = useState(0);
   const [alerts, setAlerts] = useState({
     issues: 0,
     clientActions: 0,
@@ -141,6 +142,8 @@ export default function AppHeader({
   });
   const [alertsState, setAlertsState] = useState<"loading" | "ready" | "error">("loading");
   const shellRef = useRef<HTMLDivElement>(null);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const accountButtonRef = useRef<HTMLButtonElement>(null);
   const user = { ...actor, name: actor.name || actor.email.split("@")[0] };
   const refreshAlerts = useCallback(async () => {
     setAlertsState("loading");
@@ -232,6 +235,7 @@ export default function AppHeader({
         setAccountOpen(false);
         setAlertsOpen(false);
         setSearchOpen(false);
+        setProfileOpen(false);
       }
     };
     document.addEventListener("mousedown", close);
@@ -241,6 +245,47 @@ export default function AppHeader({
       document.removeEventListener("keydown", escape);
     };
   }, []);
+  useEffect(() => {
+    setSearchIndex(0);
+  }, [query, searchOpen]);
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const dialog = profileRef.current;
+    const focusable = () =>
+      Array.from(
+        dialog?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+        ) || [],
+      );
+    focusable()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setProfileOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      (accountButtonRef.current || previous)?.focus();
+    };
+  }, [profileOpen]);
+
   const matches = useMemo(() => {
     const allowed = new Set(allowedViewsForRole(actor.role));
     return SEARCH_ITEMS.filter(
@@ -288,7 +333,11 @@ export default function AppHeader({
           <div>
             <span>
               ProQPay /{" "}
-              {clientCount === 1 ? "1 Client" : `${clientCount} Clients`}
+              {clientCount == null
+                ? "Client scope"
+                : clientCount === 1
+                  ? "1 Client"
+                  : `${clientCount} Clients`}
             </span>
             <strong>{viewLabel(view, actor.role)}</strong>
           </div>
@@ -313,6 +362,7 @@ export default function AppHeader({
               type="button"
               aria-label="Cari modul"
               aria-expanded={searchOpen}
+              aria-controls="header-search-results"
               onClick={() => {
                 setSearchOpen((open) => !open);
                 setAlertsOpen(false);
@@ -322,34 +372,55 @@ export default function AppHeader({
               <IconSearch aria-hidden="true" /> <span>Search</span>
             </button>
             {searchOpen ? (
-              <div className="header-popover search-popover">
+              <div
+                id="header-search-results"
+                className="header-popover search-popover"
+              >
                 <input
                   autoFocus
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-controls="header-search-options"
+                  aria-expanded="true"
+                  aria-activedescendant={matches[searchIndex] ? `header-search-${matches[searchIndex].view}` : undefined}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Cari modul atau pekerjaan…"
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && matches[0]) {
-                      onNavigate(matches[0].view);
+                    if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      setSearchIndex((current) => matches.length ? (current + 1) % matches.length : 0);
+                    } else if (event.key === "ArrowUp") {
+                      event.preventDefault();
+                      setSearchIndex((current) => matches.length ? (current - 1 + matches.length) % matches.length : 0);
+                    } else if (event.key === "Enter" && matches[searchIndex]) {
+                      onNavigate(matches[searchIndex].view);
                       setSearchOpen(false);
                       setQuery("");
                     }
                   }}
                 />
-                {matches.map((item) => (
-                  <button
-                    type="button"
-                    key={item.view}
-                    onClick={() => {
-                      onNavigate(item.view);
-                      setSearchOpen(false);
-                      setQuery("");
-                    }}
-                  >
-                    <strong>{viewLabel(item.view, actor.role)}</strong>
-                    <small>{item.keywords}</small>
-                  </button>
-                ))}
+                <div id="header-search-options" role="listbox" aria-label="Hasil pencarian modul">
+                  {matches.map((item, index) => (
+                    <button
+                      id={`header-search-${item.view}`}
+                      type="button"
+                      role="option"
+                      aria-selected={index === searchIndex}
+                      className={index === searchIndex ? "header-search-active" : undefined}
+                      key={item.view}
+                      onMouseEnter={() => setSearchIndex(index)}
+                      onClick={() => {
+                        onNavigate(item.view);
+                        setSearchOpen(false);
+                        setQuery("");
+                      }}
+                    >
+                      <strong>{viewLabel(item.view, actor.role)}</strong>
+                      <small>{item.keywords}</small>
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : null}
           </div>
@@ -372,7 +443,7 @@ export default function AppHeader({
               {alertsState === "ready" && totalAlerts ? <b>{totalAlerts}</b> : null}
             </button>
             {alertsOpen ? (
-              <div className="header-popover">
+              <div className="header-popover" role="status" aria-live="polite">
                 <span>WORK QUEUE</span>
                 {alertsState === "loading" ? <small>Refreshing work queue…</small> : null}
                 {alertsState === "error" ? <>
@@ -440,6 +511,7 @@ export default function AppHeader({
           </button>
           <div className="header-account">
             <button
+              ref={accountButtonRef}
               type="button"
               aria-expanded={accountOpen}
               onClick={() => {
@@ -459,7 +531,7 @@ export default function AppHeader({
               <div className="header-popover account-popover">
                 <div>
                   <strong>{user.email}</strong>
-                  <small>{clientCount} client scope</small>
+                  <small>{clientCount == null ? "Canonical client scope" : `${clientCount} client scope`}</small>
                 </div>
                 <button
                   type="button"
@@ -497,6 +569,7 @@ export default function AppHeader({
           }}
         >
           <div
+            ref={profileRef}
             className="profile-card"
             role="dialog"
             aria-modal="true"

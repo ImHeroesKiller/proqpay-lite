@@ -75,6 +75,13 @@ export default function DataIntakePage() {
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
+    const requestedPeriod = new URLSearchParams(window.location.search).get("period");
+    if (requestedPeriod && /^\d{4}-\d{2}$/.test(requestedPeriod)) {
+      setForm((current) => ({ ...current, period: requestedPeriod }));
+    }
+  }, []);
+
+  useEffect(() => {
     const controller = new AbortController();
     void Promise.all([
       fetch("/api/me", { signal: controller.signal, cache: "no-store" })
@@ -251,7 +258,7 @@ export default function DataIntakePage() {
   }
 
   function navigate(view: AppView) {
-    router.push(`/?view=${view}`);
+    router.push(`/?view=${view}&period=${encodeURIComponent(form.period)}`);
   }
 
   return (
@@ -267,6 +274,7 @@ export default function DataIntakePage() {
         onMobileClose={() => setMobileNavOpen(false)}
         settingsOpen={settingsOpen}
         onSettingsOpen={setSettingsOpen}
+        period={form.period}
       />
       <main className="data-intake-page">
         <div className="data-intake-shell">
@@ -690,7 +698,10 @@ export default function DataIntakePage() {
                       Master, history, dan snapshot Pay Run telah tersimpan.
                     </span>
                   </div>
-                  <Link className="btn btn-primary" href="/?view=operations">
+                  <Link
+                    className="btn btn-primary"
+                    href={`/?view=operations&period=${encodeURIComponent(form.period)}`}
+                  >
                     Buka Pay Run →
                   </Link>
                 </div>
