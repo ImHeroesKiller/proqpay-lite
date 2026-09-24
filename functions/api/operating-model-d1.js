@@ -239,12 +239,13 @@ async function readResource(database, params, actor, env, organizationId) {
 
   if (resource === 'exceptions') {
     const rows = await d1All(database, `SELECT e.*, s.client_id, s.project_id, s.period, s.service_tier,
-      c.name AS client_name, p.name AS project_name,
+      c.name AS client_name, p.name AS project_name, emp.name AS employee_name,
       (SELECT au.email FROM app_users au JOIN user_client_scopes ucs ON ucs.user_id=au.id
        WHERE ucs.client_id=s.client_id AND au.role='CLIENT_USER' AND au.status='ACTIVE'
        ORDER BY au.created_at LIMIT 1) AS client_email
       FROM payroll_exceptions e JOIN payroll_submissions s ON s.id=e.submission_id
       JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id
+      LEFT JOIN employees emp ON emp.id=e.employee_id
       WHERE ${submissionScope.sql} ORDER BY e.created_at DESC LIMIT 2000`, submissionScope.bindings);
     return { data: { ok: true, exceptions: parseJsonFields(rows, ['source_value','canonical_value','suggested_value']) } };
   }
@@ -1127,23 +1128,59 @@ async function executeAction(database, body, actor, env, organizationId) {
       [body.exceptionId, organizationId]);
     if (!current) return { status: 404, data: { error: 'Exception not found' } };
     if (!assertClientScope(actor, env, current.client_id) || !assertProjectScope(actor, current.project_id)) return { status: 403, data: { error: 'Scope denied' } };
-    if (actor.role === 'CLIENT_USER') {
+
+    const clientAction = actor.role === 'CLIENT_USER';
+    if (clientAction) {
       if (!['ADD_EXCEPTION_NOTE','RESOLVE_EXCEPTION'].includes(body.action)) return { status:403, data:{ error:'Client User hanya dapat memberi catatan atau mengonfirmasi perbaikan exception' } };
       if (body.action === 'RESOLVE_EXCEPTION' && (body.status !== 'ACCEPTED' || current.status !== 'CLIENT_ACTION_REQUIRED')) {
         return { status:409, data:{ error:'Client hanya dapat mengonfirmasi exception yang sedang menunggu perbaikan klien', code:'CLIENT_EXCEPTION_STATE_REQUIRED' } };
       }
+    } else {
+      if (!actor.permissions?.includes('exception:write')) {
+        return { status:403, data:{ error:'Permission exception:write diperlukan', code:'EXCEPTION_WRITE_PERMISSION_REQUIRED' } };
+      }
+      if (body.action === 'RESOLVE_EXCEPTION' && body.status !== 'RESOLVED') {
+        return { status:422, data:{ error:'Operator internal hanya dapat menutup exception sebagai RESOLVED', code:'INTERNAL_EXCEPTION_RESOLUTION_INVALID' } };
+      }
     }
+
     let row;
     if (body.action === 'RESOLVE_EXCEPTION') {
       row = await d1First(database, `UPDATE payroll_exceptions SET status=?,resolution_note=?,resolved_at=${NOW},resolved_by=?
         WHERE id=? RETURNING *`, [body.status, body.resolutionNote, actor.email, body.exceptionId]);
-      if (actor.role === 'CLIENT_USER' && body.status === 'ACCEPTED') {
-        const remaining = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions
-          WHERE submission_id=? AND status='CLIENT_ACTION_REQUIRED' AND id<>?`, [current.submission_id, current.id]);
-        if (Number(remaining?.count || 0) === 0 && current.submission_state === 'CLIENT_ACTION_REQUIRED') {
+
+      const auditAction = clientAction ? 'CLIENT_EXCEPTION_ACCEPTED' : 'PAYROLL_EXCEPTION_RESOLVED';
+      await d1Batch(database, [
+        auditOperation(
+          organizationId,
+          actor,
+          auditAction,
+          `${current.category || 'VALIDATION'} · ${current.severity || 'UNKNOWN'} · ${String(body.resolutionNote || '').slice(0,1000)}`,
+          'payroll_exception',
+          current.id,
+        ),
+      ]);
+
+      if (clientAction && body.status === 'ACCEPTED' && current.submission_state === 'CLIENT_ACTION_REQUIRED') {
+        const remaining = await d1First(database, `SELECT
+          SUM(CASE WHEN status='CLIENT_ACTION_REQUIRED' AND id<>? THEN 1 ELSE 0 END) AS client_pending,
+          SUM(CASE WHEN status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED') AND id<>? THEN 1 ELSE 0 END) AS unresolved
+          FROM payroll_exceptions WHERE submission_id=?`,
+          [current.id, current.id, current.submission_id]);
+        if (Number(remaining?.client_pending || 0) === 0) {
+          const nextState = Number(remaining?.unresolved || 0) > 0 ? 'EXCEPTION_FOUND' : 'CLIENT_RESUBMITTED';
           await d1Batch(database, [
-            { statement:`UPDATE payroll_submissions SET state='CLIENT_RESUBMITTED',updated_at=${NOW} WHERE id=? AND state='CLIENT_ACTION_REQUIRED'`, bindings:[current.submission_id] },
-            auditOperation(organizationId, actor, 'CLIENT_PAYROLL_CORRECTION_CONFIRMED', 'Semua exception client action telah dikonfirmasi', 'payroll_submission', current.submission_id),
+            { statement:`UPDATE payroll_submissions SET state=?,updated_at=${NOW} WHERE id=? AND state='CLIENT_ACTION_REQUIRED'`, bindings:[nextState,current.submission_id] },
+            auditOperation(
+              organizationId,
+              actor,
+              nextState === 'CLIENT_RESUBMITTED' ? 'CLIENT_PAYROLL_CORRECTION_CONFIRMED' : 'CLIENT_CORRECTION_COMPLETED_INTERNAL_ISSUES_REMAIN',
+              nextState === 'CLIENT_RESUBMITTED'
+                ? 'Semua exception client action telah dikonfirmasi dan tidak ada exception unresolved lain'
+                : `${Number(remaining?.unresolved || 0)} exception internal masih unresolved setelah koreksi client`,
+              'payroll_submission',
+              current.submission_id,
+            ),
           ]);
         }
       }
@@ -1153,6 +1190,16 @@ async function executeAction(database, body, actor, env, organizationId) {
       const note = `${current.resolution_note ? `${current.resolution_note}\n` : ''}[${new Date().toISOString()}] ${actor.email}: ${String(body.message).slice(0,1000)}`;
       row = await d1First(database, 'UPDATE payroll_exceptions SET status=?,owner=?,resolution_note=? WHERE id=? RETURNING *',
         [status, owner, note, body.exceptionId]);
+      await d1Batch(database, [
+        auditOperation(
+          organizationId,
+          actor,
+          body.action === 'REQUEST_CLIENT_ACTION' ? 'PAYROLL_EXCEPTION_CLIENT_ACTION_REQUESTED' : 'PAYROLL_EXCEPTION_NOTE_ADDED',
+          String(body.message).slice(0,1000),
+          'payroll_exception',
+          current.id,
+        ),
+      ]);
       if (body.action === 'REQUEST_CLIENT_ACTION' && current.submission_state === 'EXCEPTION_FOUND') {
         await d1Batch(database, [
           { statement:`UPDATE payroll_submissions SET state='CLIENT_ACTION_REQUIRED',updated_at=${NOW} WHERE id=? AND state='EXCEPTION_FOUND'`, bindings:[current.submission_id] },

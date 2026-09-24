@@ -143,8 +143,8 @@ export function validateOperatingAction(input) {
     if (!String(input.message || '').trim()) errors.push('message wajib diisi');
   } else if (action === 'RESOLVE_EXCEPTION') {
     if (!validId(input.exceptionId)) errors.push('exceptionId tidak valid');
-    if (!['ACCEPTED', 'REJECTED', 'RESOLVED'].includes(input.status)) errors.push('status resolusi tidak valid');
-    if (!String(input.resolutionNote || '').trim()) errors.push('resolutionNote wajib diisi');
+    if (!['ACCEPTED', 'RESOLVED'].includes(input.status)) errors.push('status resolusi tidak valid');
+    if (String(input.resolutionNote || '').trim().length < 10 || String(input.resolutionNote || '').length > 1000) errors.push('resolutionNote wajib 10-1000 karakter');
   } else if (action === 'CREATE_PAYMENT_INSTRUCTION') {
     for (const key of ['clientId', 'idempotencyKey']) if (!validId(input[key])) errors.push(`${key} tidak valid`);
     if (!Array.isArray(input.lines) || !input.lines.length || input.lines.length > 1000) errors.push('lines wajib 1-1000 item');
