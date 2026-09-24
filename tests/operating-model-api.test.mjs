@@ -28,7 +28,7 @@ test('submission transition registry rejects skipped workflow states', () => {
   assert.equal(canTransition('CLIENT_APPROVAL_PENDING', 'CLIENT_APPROVED'), true);
   assert.equal(canTransition('CLIENT_APPROVED', 'PAYMENT_INSTRUCTION_READY'), true);
   assert.equal(validateOperatingAction({ action: 'TRANSITION_SUBMISSION', submissionId: 'SUB-1', toState: 'CONTROLLER_REVIEW', reviewConfirmed: true, reviewNote: 'Sudah diperiksa' }).ok, true);
-  assert.equal(validateOperatingAction({ action: 'UPDATE_SUBMISSION_PERIODS', submissionId: 'SUB-1', paymentPeriod: '2026-08', arrearsPeriods: ['2026-05','2026-06'] }).ok, true);
+  assert.equal(validateOperatingAction({ action: 'UPDATE_SUBMISSION_PERIODS', submissionId: 'SUB-1', paymentPeriod: '2026-08', paymentDate: '2026-08-25', arrearsPeriods: ['2026-05','2026-06'] }).ok, true);
   assert.equal(validateOperatingAction({ action: 'UPDATE_SUBMISSION_PERIODS', submissionId: 'SUB-1', paymentPeriod: 'Agustus', arrearsPeriods: [] }).ok, false);
   assert.equal(resolveTierTransition('TIER_1_PAYMENT_PROCESSING', 'SUBMITTED', 'INGESTING'), 'AI_VALIDATING');
   assert.equal(resolveTierTransition('TIER_1_PAYMENT_PROCESSING', 'DATA_APPROVED', 'PAYROLL_FINALIZED'), 'CLIENT_APPROVAL_PENDING');

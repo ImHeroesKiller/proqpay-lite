@@ -2,7 +2,7 @@ const ID = /^[A-Za-z0-9._:-]{1,120}$/;
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const RUN_TYPES = new Set(['REGULAR','OFF_CYCLE','ADJUSTMENT']);
-const SOURCE_MODES = new Set(['MASTER_CURRENT','COPY_PREVIOUS','UPLOAD_FINAL']);
+const SOURCE_MODES = new Set(['MASTER_CURRENT','COPY_PREVIOUS']);
 const TIERS = new Set([
   'TIER_1_PAYMENT_PROCESSING',
   'TIER_2_MANAGED_PAYROLL',
@@ -72,7 +72,8 @@ export function validateOperatingAction(input) {
     if (PERIOD.test(String(input.paymentPeriod || '')) && DATE.test(String(input.paymentDate || ''))
       && !String(input.paymentDate).startsWith(`${input.paymentPeriod}-`)) errors.push('paymentDate harus berada pada paymentPeriod yang dipilih');
     if (!RUN_TYPES.has(input.runType)) errors.push('runType tidak valid');
-    if (String(input.sourceMode || '').toUpperCase() === 'HRIS') errors.push('Integrasi HRIS belum aktif; gunakan UPLOAD_FINAL, MASTER_CURRENT, atau COPY_PREVIOUS');
+    if (String(input.sourceMode || '').toUpperCase() === 'UPLOAD_FINAL') errors.push('UPLOAD_FINAL dipindahkan ke Data Intake canonical workflow');
+    else if (String(input.sourceMode || '').toUpperCase() === 'HRIS') errors.push('Integrasi HRIS belum aktif; gunakan MASTER_CURRENT atau COPY_PREVIOUS');
     else if (!SOURCE_MODES.has(input.sourceMode)) errors.push('sourceMode tidak valid');
     if (input.parentSubmissionId && !validId(input.parentSubmissionId)) errors.push('parentSubmissionId tidak valid');
   } else if (action === 'UPDATE_PAY_RUN_LINE') {
@@ -80,6 +81,7 @@ export function validateOperatingAction(input) {
     for (const key of ['grossAmount','deductionAmount','netAmount']) if (!Number.isSafeInteger(input[key]) || input[key] < 0) errors.push(`${key} tidak valid`);
     if (input.netAmount !== input.grossAmount - input.deductionAmount) errors.push('netAmount harus sama dengan grossAmount dikurangi deductionAmount');
     if (input.included !== undefined && typeof input.included !== 'boolean') errors.push('included tidak valid');
+    if (String(input.changeReason || '').trim().length < 10 || String(input.changeReason || '').length > 500) errors.push('changeReason wajib 10-500 karakter');
   } else if (action === 'REFRESH_PAY_RUN_FROM_MASTER') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
   } else if (action === 'DELETE_PAY_RUN') {
@@ -117,6 +119,9 @@ export function validateOperatingAction(input) {
   } else if (action === 'UPDATE_SUBMISSION_PERIODS') {
     if (!validId(input.submissionId)) errors.push('submissionId tidak valid');
     if (!PERIOD.test(String(input.paymentPeriod || ''))) errors.push('paymentPeriod tidak valid');
+    if (!DATE.test(String(input.paymentDate || ''))) errors.push('paymentDate tidak valid');
+    if (PERIOD.test(String(input.paymentPeriod || '')) && DATE.test(String(input.paymentDate || ''))
+      && !String(input.paymentDate).startsWith(`${input.paymentPeriod}-`)) errors.push('paymentDate harus berada pada paymentPeriod yang dipilih');
     if (!Array.isArray(input.arrearsPeriods) || input.arrearsPeriods.length > 24
       || input.arrearsPeriods.some((period) => !PERIOD.test(String(period)))) errors.push('arrearsPeriods tidak valid');
   } else if (action === 'GENERATE_PAYMENT_INSTRUCTION' || action === 'APPROVE_PAYROLL_AND_GENERATE_PI') {

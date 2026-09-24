@@ -126,6 +126,24 @@ async function guardBusinessProcessActions(body, actor, env) {
     }
   }
 
+  if (body.action === 'CREATE_PAY_RUN') {
+    if (!SNAPSHOT_ROLES.has(actor.role) || !actor.permissions?.includes('submission:write')) {
+      return { status:403, data:{ error:'Hanya Payroll Processor yang dapat membuat Pay Run', code:'PAY_RUN_CREATE_PERMISSION_REQUIRED' } };
+    }
+    if (String(body.sourceMode || '').toUpperCase() === 'UPLOAD_FINAL') {
+      return { status:409, data:{
+        error:'Upload payroll final diproses melalui Data Intake agar provenance file, checksum, control total, dan snapshot canonical tetap utuh.',
+        code:'PAY_RUN_UPLOAD_FINAL_MOVED_TO_DATA_INTAKE',
+      } };
+    }
+  }
+
+  if (body.action === 'FINALIZE_PAY_RUN_INPUT') {
+    if (!SNAPSHOT_ROLES.has(actor.role) || !actor.permissions?.includes('submission:write')) {
+      return { status:403, data:{ error:'Hanya Payroll Processor yang dapat memfinalisasi input Pay Run', code:'PAY_RUN_FINALIZE_PERMISSION_REQUIRED' } };
+    }
+  }
+
   if (body.action === 'CREATE_VALIDATION_BATCH') {
     if (!SNAPSHOT_ROLES.has(actor.role)) {
       return { status: 403, data: { error: 'Hanya Payroll Processor yang dapat menulis hasil validasi', code: 'VALIDATION_ROLE_REQUIRED' } };

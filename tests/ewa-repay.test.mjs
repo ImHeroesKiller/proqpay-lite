@@ -15,7 +15,7 @@ const request = (path, options = {}) => new Request(`${origin}${path}`, {
   ...options,
   headers: { Origin: origin, 'Sec-Fetch-Site': 'same-origin', 'Content-Type': 'application/json', ...(options.headers || {}) },
 });
-const actor = { id: 'USR-PROC', email: 'processor@proqpay.test', role: 'SUPER_ADMIN', permissions: ['payment:prepare', 'payment:approve'] };
+const actor = { id: 'USR-PROC', email: 'processor@proqpay.test', role: 'SUPER_ADMIN', permissions: ['submission:write', 'payroll:write', 'payment:prepare', 'payment:approve'] };
 
 function seedPayRun(DB) {
   DB.sqlite.exec(`
@@ -65,12 +65,12 @@ test('FINALIZE_PAY_RUN_INPUT deducts disbursed EWA then PI uses the new net', as
   const submissionId = created.payload.submission.id;
   await action(DB, {
     action: 'UPDATE_PAY_RUN_LINE', submissionId, employeeId: 'EMP-A',
-    grossAmount: 5_500_000, deductionAmount: 500_000, netAmount: 5_000_000, included: true,
+    grossAmount: 5_500_000, deductionAmount: 500_000, netAmount: 5_000_000, included: true, changeReason: 'Koreksi payroll untuk pengujian EWA',
     components: { basicSalary: 5_500_000, taxDeduction: 500_000 },
   });
   await action(DB, {
     action: 'UPDATE_PAY_RUN_LINE', submissionId, employeeId: 'EMP-B',
-    grossAmount: 6_500_000, deductionAmount: 500_000, netAmount: 6_000_000, included: true,
+    grossAmount: 6_500_000, deductionAmount: 500_000, netAmount: 6_000_000, included: true, changeReason: 'Koreksi payroll untuk pengujian EWA',
   });
 
   const finalized = await action(DB, { action: 'FINALIZE_PAY_RUN_INPUT', submissionId, confirmation: 'DATA PAYROLL FINAL' });
@@ -148,11 +148,11 @@ test('EWA repayment fails closed when remaining net would be zero or negative', 
   const submissionId = created.payload.submission.id;
   await action(DB, {
     action: 'UPDATE_PAY_RUN_LINE', submissionId, employeeId: 'EMP-A',
-    grossAmount: 5_000_000, deductionAmount: 0, netAmount: 5_000_000, included: true,
+    grossAmount: 5_000_000, deductionAmount: 0, netAmount: 5_000_000, included: true, changeReason: 'Koreksi payroll untuk pengujian EWA',
   });
   await action(DB, {
     action: 'UPDATE_PAY_RUN_LINE', submissionId, employeeId: 'EMP-B',
-    grossAmount: 6_000_000, deductionAmount: 0, netAmount: 6_000_000, included: true,
+    grossAmount: 6_000_000, deductionAmount: 0, netAmount: 6_000_000, included: true, changeReason: 'Koreksi payroll untuk pengujian EWA',
   });
   await assert.rejects(applyEwaRepayments(DB, submissionId), /EWA_REPAYMENT_EXCEEDS_NET:EWA-1/);
   const line = DB.sqlite.prepare('SELECT net_amount, components FROM payroll_run_lines WHERE submission_id=? AND employee_id=?').get(submissionId, 'EMP-A');

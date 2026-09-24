@@ -10,7 +10,7 @@ import { derivePayrollNextAction } from '../src/lib/payroll-next-action-core.js'
 import { D1Mock } from './helpers/d1-mock.mjs';
 
 const origin='https://proqpay.test';
-const processor={id:'USR-AUD-P',email:'processor.audit@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:['payment:prepare']};
+const processor={id:'USR-AUD-P',email:'processor.audit@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:['submission:write','payroll:write','payment:prepare']};
 const controller={id:'USR-AUD-C',email:'controller.audit@proqpay.test',role:'PAYROLL_CONTROLLER',permissions:['payment:approve']};
 const client={id:'USR-AUD-CL',email:'client.audit@proqpay.test',role:'CLIENT_USER',permissions:['read'],clientIds:['CLI-AUD'],projectIds:['PRJ-AUD']};
 
@@ -115,7 +115,7 @@ test('audit: Controller cannot execute Processor-owned legacy submission or vali
 
   result=await operating(DB,env,controller,{
     action:'UPDATE_SUBMISSION_PERIODS',submissionId:'SUB-VALIDATE',
-    paymentPeriod:'2026-10',arrearsPeriods:['2026-08'],
+    paymentPeriod:'2026-10',paymentDate:'2026-10-25',arrearsPeriods:['2026-08'],
   });
   assert.equal(result.response.status,403,JSON.stringify(result.payload));
 });
@@ -233,7 +233,7 @@ test('UAT E2E: Processor → Controller → Client → PI → payment → billin
 
   const locked=await operating(DB,env,processor,{
     action:'UPDATE_PAY_RUN_LINE',submissionId,employeeId:'EMP-AUD',
-    grossAmount:5000000,deductionAmount:0,netAmount:5000000,included:true,
+    grossAmount:5000000,deductionAmount:0,netAmount:5000000,included:true,changeReason:'Percobaan perubahan payroll yang sudah ditutup',
   });
   assert.equal(locked.response.status,409,'closed payroll snapshot must remain immutable');
 });
@@ -250,5 +250,5 @@ test('UI audit: intake notes, client close context, and infrastructure health vi
   assert.match(page,/actor\.role === 'SUPER_ADMIN' \? <SystemHealthBubble \/> : null/);
 
   const workspace=await readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
-  assert.match(workspace,/\['SUPER_ADMIN','PAYROLL_PROCESSOR'\]\.includes\(role\)\?<><div className="directory-form-grid">/);
+  assert.match(workspace,/\['SUPER_ADMIN','PAYROLL_PROCESSOR'\]\.includes\(role\)\?\(\['DRAFT'[\s\S]*Payment terms terkunci/);
 });

@@ -5,7 +5,7 @@ import { D1Mock } from './helpers/d1-mock.mjs';
 
 const origin='https://proqpay.test';
 function request(path,body) { return new Request(`${origin}${path}`,body?{method:'POST',headers:{Origin:origin,'Sec-Fetch-Site':'same-origin','Content-Type':'application/json'},body:JSON.stringify(body)}:{headers:{Origin:origin,'Sec-Fetch-Site':'same-origin'}}); }
-const actor={id:'USR-PROC',email:'processor@proqpay.test',role:'SUPER_ADMIN',permissions:['payment:prepare','payment:approve']};
+const actor={id:'USR-PROC',email:'processor@proqpay.test',role:'SUPER_ADMIN',permissions:['submission:write','payroll:write','payment:prepare','payment:approve']};
 
 function seed(database) {
   database.sqlite.exec(`
@@ -48,7 +48,7 @@ test('Pay Run snapshots monthly data, compares variance, and controls period lif
   assert.deepEqual(refreshed.payload.summary,{recipients:2,calculated:2,missingSalary:0,totalGross:12_000_000,totalDeduction:0,totalNet:12_000_000});
 
   for (const [employeeId,gross,deduction] of [['EMP-A',5_500_000,500_000],['EMP-B',6_500_000,500_000]]) {
-    const updated=await action(DB,{action:'UPDATE_PAY_RUN_LINE',submissionId:firstId,employeeId,grossAmount:gross,deductionAmount:deduction,netAmount:gross-deduction,included:true});
+    const updated=await action(DB,{action:'UPDATE_PAY_RUN_LINE',submissionId:firstId,employeeId,grossAmount:gross,deductionAmount:deduction,netAmount:gross-deduction,included:true,changeReason:'Koreksi nominal payroll untuk UAT'});
     assert.equal(updated.response.status,200,JSON.stringify(updated.payload));
   }
   const finalized=await action(DB,{action:'FINALIZE_PAY_RUN_INPUT',submissionId:firstId,confirmation:'DATA PAYROLL FINAL'});
@@ -71,7 +71,7 @@ test('Pay Run snapshots monthly data, compares variance, and controls period lif
   assert.equal(second.response.status,201,JSON.stringify(second.payload));
   const secondId=second.payload.submission.id;
   assert.equal(second.payload.submission.input_status,'READY');
-  const changed=await action(DB,{action:'UPDATE_PAY_RUN_LINE',submissionId:secondId,employeeId:'EMP-A',grossAmount:6_000_000,deductionAmount:500_000,netAmount:5_500_000,included:true});
+  const changed=await action(DB,{action:'UPDATE_PAY_RUN_LINE',submissionId:secondId,employeeId:'EMP-A',grossAmount:6_000_000,deductionAmount:500_000,netAmount:5_500_000,included:true,changeReason:'Penyesuaian nominal periode Agustus'});
   assert.equal(changed.response.status,200);
   await action(DB,{action:'FINALIZE_PAY_RUN_INPUT',submissionId:secondId,confirmation:'DATA PAYROLL FINAL'});
   const detailResponse=await handleD1OperatingModel({request:request(`/api/operating-model?resource=pay-run-detail&submissionId=${secondId}`),env:{DB,DEFAULT_ORG_ID:'ORG-OTSINDO'}},actor);
@@ -84,7 +84,7 @@ test('Pay Run snapshots monthly data, compares variance, and controls period lif
   assert.equal(prematureClose.response.status,409);
   assert.equal(prematureClose.payload.code,'CLOSE_READINESS_REQUIRED');
   assert.ok(prematureClose.payload.readiness.reasons.includes('PAYROLL_NOT_RECONCILED'));
-  const locked=await action(DB,{action:'UPDATE_PAY_RUN_LINE',submissionId:secondId,employeeId:'EMP-B',grossAmount:1,deductionAmount:0,netAmount:1,included:true});
+  const locked=await action(DB,{action:'UPDATE_PAY_RUN_LINE',submissionId:secondId,employeeId:'EMP-B',grossAmount:1,deductionAmount:0,netAmount:1,included:true,changeReason:'Percobaan perubahan setelah payroll terkunci'});
   assert.equal(locked.response.status,409);
 
   // Legacy/admin-only closed periods without payment can still be reopened for correction.
