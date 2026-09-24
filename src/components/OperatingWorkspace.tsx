@@ -382,7 +382,6 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
   const [workflowDialogOpen,setWorkflowDialogOpen]=useState(false);
   const reviewDialogRef=useRef<HTMLDivElement>(null);
   const previousFocusRef=useRef<HTMLElement|null>(null);
-  if (!rows.length) return <Empty title="Belum ada payroll submission" detail="Submission baru akan tampil setelah service plan klien aktif dan data periode dikirim." />;
   const instructionBySubmission=new Map(instructions.map((row)=>[row.submission_id,row]));
   function nextActionFor(row:any) {
     const instruction=instructionBySubmission.get(row.id);
@@ -430,6 +429,7 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
     return()=>{cancelAnimationFrame(frame);document.removeEventListener('keydown',onKey);document.body.style.overflow=oldOverflow;previousFocusRef.current?.focus();};
   },[selected,workflowDialogOpen]);
 
+  if (!rows.length) return <Empty title="Belum ada payroll submission" detail="Submission baru akan tampil setelah service plan klien aktif dan data periode dikirim." />;
   const simpleHeaders=role==='CLIENT_USER'?['Payroll','Stage','Net / THP','Payment','Next']:['Klien / Periode','Stage','Net / THP','Next action'];
   const table = <CardTable headers={simplified?simpleHeaders:['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={rows.map((r) => {
     const nextAction=nextActionFor(r);
