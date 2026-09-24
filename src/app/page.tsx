@@ -12,8 +12,9 @@ import RoleDashboard from '@/components/RoleDashboard';
 import SystemHealthBubble from '@/components/SystemHealthBubble';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
-import { listOperatingPeriods } from '@/lib/operating-model-api';
+import { listOperatingDashboard, listOperatingPeriods } from '@/lib/operating-model-api';
 import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
+import AppFooter from '@/components/AppFooter';
 
 const OperatingWorkspace = dynamic(() => import('@/components/OperatingWorkspace'), { loading: () => <ViewLoading /> });
 const EmployeeDirectory = dynamic(() => import('@/components/EmployeeDirectory'), { loading: () => <ViewLoading /> });
@@ -55,6 +56,7 @@ export default function Home() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [canonicalPeriods, setCanonicalPeriods] = useState<string[]>([]);
+  const [canonicalClientCount, setCanonicalClientCount] = useState<number | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -62,7 +64,9 @@ export default function Home() {
     writeSystemLog('INFO', 'APP', 'APPLICATION_STARTED', 'ProQPay dashboard dimuat');
     const data = loadDatabase();
     const st = loadSettings();
-    const requestedView = new URLSearchParams(window.location.search).get('view') as AppView | null;
+    const params = new URLSearchParams(window.location.search);
+    const requestedView = params.get('view') as AppView | null;
+    const requestedPeriod = params.get('period');
     setDb(data);
     setSettings(st);
     void fetch('/api/me', { signal: controller.signal, headers: { Accept: 'application/json' } })
@@ -78,8 +82,14 @@ export default function Home() {
             const merged=[...new Set(results.flatMap((result:any)=>Array.isArray(result.periods)?result.periods:[]))]
               .map(String).sort((a,b)=>b.localeCompare(a));
             setCanonicalPeriods(merged);
-            const preferred=String(data?.meta?.currentPeriod || st.defaultPeriod || '');
-            if(merged.length && !merged.includes(preferred)) setPeriod(merged[0]);
+            const preferred=String(requestedPeriod || data?.meta?.currentPeriod || st.defaultPeriod || '');
+            if (requestedPeriod && (merged.length === 0 || merged.includes(requestedPeriod))) {
+              setPeriod(requestedPeriod);
+            } else if(merged.length && !merged.includes(preferred)) {
+              setPeriod(merged[0]);
+            } else if (preferred) {
+              setPeriod(preferred);
+            }
           })
           .catch(()=>setCanonicalPeriods([]));
         const allowedViews = allowedViewsForRole(authenticatedActor.role);
@@ -103,7 +113,8 @@ export default function Home() {
         }
       })
       .finally(() => setAuthChecked(true));
-    if (data?.meta?.currentPeriod) setPeriod(data.meta.currentPeriod);
+    if (requestedPeriod) setPeriod(requestedPeriod);
+    else if (data?.meta?.currentPeriod) setPeriod(data.meta.currentPeriod);
     else if (st.defaultPeriod) setPeriod(st.defaultPeriod);
 
     const unsub = onDbChange(() => {
@@ -121,6 +132,25 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!actor) return;
+    if (actor.role === 'CLIENT_USER') {
+      setCanonicalClientCount(actor.clientIds?.length ?? 0);
+      return;
+    }
+    let cancelled = false;
+    void listOperatingDashboard(undefined, period)
+      .then((result) => {
+        if (cancelled) return;
+        const clients = Number(result.portfolioSummary?.clients);
+        setCanonicalClientCount(Number.isFinite(clients) ? clients : null);
+      })
+      .catch(() => {
+        if (!cancelled) setCanonicalClientCount(null);
+      });
+    return () => { cancelled = true; };
+  }, [actor, period]);
+
+  useEffect(() => {
     const minutes = settings?.autoRefreshMinutes || 0;
     if (!minutes) return;
     const timer = window.setInterval(() => {
@@ -135,6 +165,9 @@ export default function Home() {
   function handlePeriodChange(p: string) {
     writeSystemLog('INFO', 'DASHBOARD', 'PERIOD_CHANGED', `Periode aktif diubah ke ${p}`);
     setPeriod(p);
+    const url = new URL(window.location.href);
+    url.searchParams.set('period', p);
+    window.history.replaceState({}, '', url);
     if (!db) return;
     const next = { ...db, meta: { ...db.meta, currentPeriod: p } };
     saveDatabase(next);
@@ -154,6 +187,7 @@ export default function Home() {
     setView(safeView);
     const url = new URL(window.location.href);
     url.searchParams.set('view', safeView);
+    url.searchParams.set('period', period);
     window.history.replaceState({}, '', url);
   }
 
@@ -200,10 +234,11 @@ export default function Home() {
         settingsOpen={settingsOpen}
         onSettingsOpen={setSettingsOpen}
         lastSyncAt={db.meta?.lastCloudflareSyncAt}
+        period={period}
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-        <AppHeader period={period} periods={periods} view={view} clientCount={actor.role==='CLIENT_USER'?(actor.clientIds?.length||0):(db.companies || []).length} onPeriodChange={handlePeriodChange} onNavigate={navigate} onHelp={() => setHelpOpen(true)} onMenu={() => setMobileNavOpen(true)} actor={actor} />
+        <AppHeader period={period} periods={periods} view={view} clientCount={canonicalClientCount} onPeriodChange={handlePeriodChange} onNavigate={navigate} onHelp={() => setHelpOpen(true)} onMenu={() => setMobileNavOpen(true)} actor={actor} />
 
         <main style={{ flex: 1, overflowY: 'auto', padding: pad }}>
           <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
@@ -243,6 +278,10 @@ export default function Home() {
             {view === 'reports' && (actor.role === 'CLIENT_USER' ? <ClientDocumentsWorkspace actor={actor} /> : <ReportsWorkspace />)}
           </div>
         </main>
+        <AppFooter
+          lastSyncAt={db.meta?.lastCloudflareSyncAt}
+          onSupport={() => setHelpOpen(true)}
+        />
       </div>
       {actor.mustChangePassword && ['database', 'session', 'd1'].includes(actor.authMode || '') ? <ChangePasswordModal forced /> : null}
 
