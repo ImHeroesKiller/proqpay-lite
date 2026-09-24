@@ -175,8 +175,16 @@ async function guardBusinessProcessActions(body, actor, env) {
   return null;
 }
 
-async function guardSensitivePaymentActions(body, env) {
+async function guardSensitivePaymentActions(body, actor, env) {
   if (!body) return null;
+  if (['GENERATE_PAYMENT_INSTRUCTION','SUBMIT_PAYMENT_INSTRUCTION'].includes(body.action)
+    && (!['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(actor.role) || !actor.permissions?.includes('payment:prepare'))) {
+    return { status:403, data:{ error:'Aksi Payment Instruction membutuhkan role Payroll Processor dan izin payment:prepare', code:'PAYMENT_PREPARE_PERMISSION_REQUIRED' } };
+  }
+  if (['APPROVE_PAYMENT','REJECT_PAYMENT'].includes(body.action)
+    && (!['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(actor.role) || !actor.permissions?.includes('payment:approve'))) {
+    return { status:403, data:{ error:'Approval Payment Instruction membutuhkan role Payroll Controller dan izin payment:approve', code:'PAYMENT_APPROVE_PERMISSION_REQUIRED' } };
+  }
   if (body.action === 'APPROVE_PAYROLL_AND_GENERATE_PI') {
     return { status: 409, data: {
       error: 'Controller approval tidak lagi dapat langsung membuat Payment Instruction. Payroll wajib melewati approval Client terlebih dahulu.',
@@ -286,7 +294,7 @@ export async function onRequest(context) {
   if (legacyControllerApproval) return legacyControllerApproval;
   const businessGuard = await guardBusinessProcessActions(body, authorization.actor, env);
   if (businessGuard) return secureJson(businessGuard.data, businessGuard.status, request, env, METHODS);
-  const guarded = await guardSensitivePaymentActions(body, env);
+  const guarded = await guardSensitivePaymentActions(body, authorization.actor, env);
   if (guarded) return secureJson(guarded.data, guarded.status, request, env, METHODS);
   const snapshotGuard = await validateSnapshotCapture(body, authorization.actor, env);
   if (snapshotGuard) return secureJson(snapshotGuard.data, snapshotGuard.status, request, env, METHODS);
