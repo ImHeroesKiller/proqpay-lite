@@ -13,6 +13,9 @@ export type PaymentGatewayTransaction = {
   provider_reference?: string | null;
   status: 'CREATED' | 'PENDING' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED' | 'EXPIRED' | 'CANCELLED';
   provider_status?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  execution_lock_until?: string | null;
   amount: number;
   currency: string;
   payment_method?: string | null;
