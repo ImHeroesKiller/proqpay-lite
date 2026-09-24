@@ -5,18 +5,14 @@ import { createPortal } from 'react-dom';
 import { executeOperatingAction, getExceptionHistory, getPayRunDetail, getPaymentInstructionDetail, listAllOperatingExceptions, listAllPaginatedOperatingResource, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
+import { PaymentEvidenceRegister, PaymentReconciliationControl } from '@/components/PaymentEvidenceReconciliation';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
 import {
   filterPaymentInstructionLines,
   paymentActivityLabel,
   paymentBusinessLabel,
-  paymentEvidenceCoverage,
   paymentInstructionIntegrity,
-  paymentProofFileLabel,
-  reconciliationControl,
-  settlementSourceLabel,
-  shortEvidenceFingerprint,
   shortPaymentHash,
   summarizePaymentBanks,
   type PaymentInstructionDetail,
@@ -864,9 +860,6 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
   const bankSummaries = useMemo(() => summarizePaymentBanks(detailLines), [detailLines]);
   const filteredDetailLines = useMemo(() => filterPaymentInstructionLines(detailLines,detailQuery,detailBank), [detailLines, detailBank, detailQuery]);
   const integrity = useMemo(() => paymentInstructionIntegrity(detail), [detail]);
-  const latestReconciliation = useMemo(() => detail?.reconciliationHistory?.[0] || reconciliations.find((row)=>row.payment_instruction_id===detail?.paymentInstruction.id) || null, [detail, reconciliations]);
-  const reconciliationSummary = useMemo(() => reconciliationControl(latestReconciliation), [latestReconciliation]);
-  const proofCoverage = useMemo(() => paymentEvidenceCoverage(Number(detail?.control.expectedTotal||0), Number(detail?.proofSummary?.proof_total||0)), [detail]);
   const detailPageSize = 25;
   const detailPageCount = Math.max(1, Math.ceil(filteredDetailLines.length / detailPageSize));
   const visibleDetailLines = filteredDetailLines.slice((detailPage - 1) * detailPageSize, detailPage * detailPageSize);
@@ -934,18 +927,8 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
           <div className="pi-recipient-table-wrap"><table className="pi-recipient-table"><thead><tr><th>Penerima</th><th>Bank</th><th>Rekening</th><th>Nominal</th></tr></thead><tbody>{visibleDetailLines.map((line:PaymentInstructionLine,index:number)=><tr key={`${line.employee_id || line.beneficiary_name}-${index}`}><td data-label="Penerima"><strong>{line.beneficiary_name || '-'}</strong><small>{line.employee_id || 'ID tidak tersedia'}</small></td><td data-label="Bank">{line.bank_code || line.bank_name || '-'}</td><td data-label="Rekening"><span className="pi-account-mask">•••• {line.account_last4 || '----'}</span></td><td data-label="Nominal"><strong>{formatIDR(Number(line.amount || 0))}</strong></td></tr>)}</tbody></table>{!visibleDetailLines.length?<div className="directory-empty">Penerima tidak ditemukan.</div>:null}</div>
           <div className="pi-pagination"><span>Halaman {Math.min(detailPage,detailPageCount)} dari {detailPageCount}</span><div><button className="btn" disabled={detailPage<=1} onClick={()=>setDetailPage((page)=>page-1)}>← Sebelumnya</button><button className="btn" disabled={detailPage>=detailPageCount} onClick={()=>setDetailPage((page)=>page+1)}>Berikutnya →</button></div></div>
         </section>
-        <section className="pi-approval-section" aria-label="Payment reconciliation control">
-  <div className="pi-section-heading"><div><span>RECONCILIATION CONTROL</span><h4>Expected vs settlement</h4></div><small>{detail.reconciliationHistory?.length || 0} review attempt</small></div>
-  <div className="pi-detail-summary">
-    <div><span>Expected PI</span><strong>{formatIDR(Number(detail.control.expectedTotal||0))}</strong></div>
-    <div><span>Evidence recorded</span><strong>{formatIDR(proofCoverage.evidence)}</strong><small>{proofCoverage.percent}% coverage</small></div>
-    <div><span>Settlement source</span><strong>{reconciliationSummary?.source ? settlementSourceLabel(reconciliationSummary.source) : "Belum ditetapkan"}</strong></div>
-    <div className="pi-detail-total"><span>Difference</span><strong>{formatIDR(reconciliationSummary?.difference ?? (proofCoverage.evidence-Number(detail.control.expectedTotal||0)))}</strong></div>
-  </div>
-  {reconciliationSummary ? <div className={`app-notice-bubble ${reconciliationSummary.matched ? "app-notice-info" : "app-notice-error"}`}><strong>{reconciliationSummary.matched ? "Settlement matched" : "Settlement perlu perhatian"}</strong><span>{reconciliationSummary.reviewer || "Controller"} · {dateTime(reconciliationSummary.createdAt)}</span></div> : <p className="directory-hint">Rekonsiliasi final belum dilakukan.</p>}
-  {detail.reconciliationHistory?.length ? <div className="pi-approval-list">{detail.reconciliationHistory.slice(0,10).map((attempt)=><div key={attempt.id}><i>{attempt.status==="MATCHED"?"✓":"!"}</i><div><strong>{attempt.status} · {settlementSourceLabel(attempt.settlement_source)}</strong><span>{attempt.reviewed_by} · {dateTime(attempt.created_at)}</span><small>Expected {formatIDR(Number(attempt.expected_total||0))} · Settlement {formatIDR(Number(attempt.settlement_total||0))} · Difference {formatIDR(Number(attempt.difference||0))}</small></div></div>)}</div> : null}
-</section>
-<section className="pi-approval-section"><div className="pi-section-heading"><div><span>GOVERNANCE</span><h4>Approval trail</h4></div><small>{detail.approvals?.length || 0} aktivitas</small></div>{detail.approvals?.length ? <div className="pi-approval-list">{detail.approvals.map((approval)=><div key={approval.id}><i>✓</i><div><strong>{String(approval.status || '').replaceAll('_',' ')}</strong><span>{approval.approver_email || approval.approver_user_id || 'System'} · {dateTime(approval.created_at)}</span></div></div>)}</div> : <p className="directory-hint">Belum ada approval yang tercatat.</p>}</section>
+        <PaymentReconciliationControl detail={detail} current={reconciliations.find((row)=>row.payment_instruction_id===detail.paymentInstruction.id) || null} />
+        <section className="pi-approval-section"><div className="pi-section-heading"><div><span>GOVERNANCE</span><h4>Approval trail</h4></div><small>{detail.approvals?.length || 0} aktivitas</small></div>{detail.approvals?.length ? <div className="pi-approval-list">{detail.approvals.map((approval)=><div key={approval.id}><i>✓</i><div><strong>{String(approval.status || '').replaceAll('_',' ')}</strong><span>{approval.approver_email || approval.approver_user_id || 'System'} · {dateTime(approval.created_at)}</span></div></div>)}</div> : <p className="directory-hint">Belum ada approval yang tercatat.</p>}</section>
         <section className="pi-approval-section"><div className="pi-section-heading"><div><span>OPERATIONAL AUDIT</span><h4>Activity trail</h4></div><small>{detail.activity?.length || 0} event terakhir</small></div>{detail.activity?.length ? <div className="pi-approval-list">{detail.activity.slice(0,20).map((item)=><div key={item.id}><i>•</i><div><strong>{paymentActivityLabel(item.action)}</strong><span>{item.username || 'System'} · {dateTime(item.timestamp)}</span>{item.detail?<small>{item.detail}</small>:null}</div></div>)}</div> : <p className="directory-hint">Belum ada aktivitas operasional yang tercatat.</p>}</section>
       </div>
       <footer className="pi-detail-footer">
@@ -968,8 +951,9 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
     </div>}
     <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>
       <div className="card" style={{ padding:18 }}><span style={small}>Bukti Pembayaran</span><div style={{ fontSize:26, fontWeight:750, margin:'6px 0' }}>{proofs.length}</div>{proofs.length ? <><small style={small}>{formatIDR(proofs.reduce((sum,row)=>sum+Number(row.amount||0),0))} tercatat · {proofs[0].uploaded_by || 'Uploader legacy'}</small><a style={{ ...actionButton, display:'inline-block', textDecoration:'none', background:'var(--bg-subtle)', color:'var(--accent)', marginTop:8 }} href={`/api/payment-proof?id=${encodeURIComponent(proofs[0].id)}`} target="_blank" rel="noreferrer">Unduh bukti terbaru</a></> : <span style={small}>Belum ada bukti</span>}</div>
-      <Summary title="Rekonsiliasi" value={reconciliations.length} note={reconciliations.length ? `${reconciliations[0].status} · Selisih ${formatIDR(Number(reconciliations[0].difference || 0))}` : 'Belum direkonsiliasi'} />
+      <Summary title="Rekonsiliasi" value={reconciliations.length} note={reconciliations.length ? `${paymentBusinessLabel(reconciliations[0].status)} · Selisih ${formatIDR(Number(reconciliations[0].difference || 0))}` : 'Belum direkonsiliasi'} />
     </div>
+    <PaymentEvidenceRegister proofs={proofs} />
   </div>;
 }
 
