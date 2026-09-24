@@ -2,18 +2,22 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { serviceState, useServiceHealth } from "@/lib/service-health";
 import { useEffect, useRef, useState } from "react";
 import {
-  IconDashboard,
-  IconUsers,
+  IconAlertTriangle,
+  IconArrowUpRight,
   IconBuilding,
   IconChart,
-  IconSettings,
-  IconTerminal,
-  IconWallet,
-  IconMessage,
+  IconChevronDown,
+  IconClock,
+  IconDashboard,
   IconFile,
+  IconLayers,
+  IconMessage,
+  IconSettings,
+  IconShieldCheck,
+  IconUsers,
+  IconWallet,
 } from "./Icons";
 
 const SettingsModal = dynamic(() => import("./SettingsModal"));
@@ -85,7 +89,6 @@ type Props = {
   onMobileClose: () => void;
   settingsOpen: boolean;
   onSettingsOpen: (open: boolean) => void;
-  lastSyncAt?: number;
   activePath?: "data-intake";
   period?: string;
 };
@@ -101,31 +104,21 @@ export default function Sidebar({
   onMobileClose,
   settingsOpen,
   onSettingsOpen,
-  lastSyncAt,
   activePath,
   period,
 }: Props) {
   const allowed = new Set(allowedViewsForRole(role));
   const asideRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  const [now, setNow] = useState(() => Date.now());
   const go = (next: AppView) => {
     onView(next);
     onMobileClose();
   };
-  const canIntake = [
-    "SUPER_ADMIN",
-    "PAYROLL_PROCESSOR",
-  ].includes(role || "");
-  const simplifiedInternal = ["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role || "");
+  const canIntake = ["SUPER_ADMIN", "PAYROLL_PROCESSOR"].includes(role || "");
+  const simplifiedInternal = ["PAYROLL_PROCESSOR", "PAYROLL_CONTROLLER"].includes(role || "");
   const clientExperience = role === "CLIENT_USER";
-  const { health } = useServiceHealth();
-  const currentServiceState = serviceState(health);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const employeeServicesActive = ["ewa", "portalAudit", "portalSettings"].includes(view);
+  const systemActive = ["integrations", "logs"].includes(view);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -182,17 +175,9 @@ export default function Sidebar({
       >
         <div className="sidebar-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            className="sidebar-brand-logo"
-            src="/assets/proqpay-logo-v2.svg"
-            alt="ProQPay"
-          />
+          <img className="sidebar-brand-logo" src="/assets/proqpay-logo-v2.svg" alt="ProQPay" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            className="sidebar-brand-icon"
-            src="/assets/proqpay-192.png"
-            alt="ProQPay"
-          />
+          <img className="sidebar-brand-icon" src="/assets/proqpay-192.png" alt="ProQPay" />
           <button
             type="button"
             className="sidebar-mobile-close"
@@ -202,219 +187,158 @@ export default function Sidebar({
             ✕
           </button>
         </div>
-        {clientExperience ? <NavGroup label="Workspace">
-          <NavBtn
-            active={view === "dashboard"}
-            icon={<IconDashboard />}
-            title="Home"
-            onClick={() => go("dashboard")}
-          />
-          <NavBtn
-            active={view === "operations"}
-            icon={<IconWallet />}
-            title="Payroll"
-            onClick={() => go("operations")}
-          />
-          <NavBtn
-            active={view === "reports"}
-            icon={<IconFile />}
-            title="Documents"
-            onClick={() => go("reports")}
-          />
-        </NavGroup> : <>
-        <NavGroup label="Overview">
-          <NavBtn
-            active={view === "dashboard"}
-            icon={<IconDashboard />}
-            title="Dashboard"
-            onClick={() => go("dashboard")}
-          />
-        </NavGroup>
-        <NavGroup label={simplifiedInternal ? "Work" : "Workflow"}>
-          {allowed.has("clients") && !simplifiedInternal ? (
-            <NavBtn
-              active={view === "clients"}
-              icon={<IconBuilding />}
-              title="Clients & Projects"
-              onClick={() => go("clients")}
-            />
-          ) : null}
-          {canIntake ? (
-            <Link
-              className={`sidebar-nav-button${activePath === "data-intake" ? " sidebar-nav-active" : ""}`}
-              href={period ? `/data-intake?period=${encodeURIComponent(period)}` : "/data-intake"}
-              title="Data Intake"
-              aria-label="Data Intake"
-              aria-current={activePath === "data-intake" ? "page" : undefined}
-              onClick={onMobileClose}
-            >
-              <IconFile />
-              <span>Data Intake</span>
-            </Link>
-          ) : null}
-          {allowed.has("exceptions") && role !== "CLIENT_USER" ? (
-            <NavBtn
-              active={view === "exceptions"}
-              icon={<IconMessage />}
-              title={simplifiedInternal ? "Issues" : "Data Readiness"}
-              onClick={() => go("exceptions")}
-            />
-          ) : null}
-          {allowed.has("operations") ? (
-            <NavBtn
-              active={view === "operations" && activePath !== "data-intake"}
-              icon={<IconWallet />}
-              title={role === "CLIENT_USER" ? "Payroll Status" : simplifiedInternal ? "Payroll" : "Pay Runs"}
-              onClick={() => go("operations")}
-            />
-          ) : null}
-          {allowed.has("payments") ? (
-            <NavBtn
-              active={view === "payments"}
-              icon={<IconFile />}
-              title={
-                role === "CLIENT_USER"
-                  ? "Payment Status"
-                  : simplifiedInternal
-                    ? "Payments"
-                    : "Payment Instructions"
-              }
-              onClick={() => go("payments")}
-            />
-          ) : null}
-          {allowed.has("billing") ? (
-            <NavBtn
-              active={view === "billing"}
-              icon={<IconWallet />}
-              title={role === "CLIENT_USER" ? "Invoices" : simplifiedInternal ? "Close & Billing" : "Billing & AR"}
-              onClick={() => go("billing")}
-            />
-          ) : null}
-        </NavGroup>
-        <NavGroup label={simplifiedInternal ? "Reference & Reports" : "People & Insight"}>
-          {allowed.has("clients") && simplifiedInternal ? (
-            <NavBtn
-              active={view === "clients"}
-              icon={<IconBuilding />}
-              title="Clients & Projects"
-              onClick={() => go("clients")}
-            />
-          ) : null}
-          {allowed.has("reports") ? (
-            <NavBtn
-              active={view === "reports"}
-              icon={<IconChart />}
-              title="Reports"
-              onClick={() => go("reports")}
-            />
-          ) : null}
-          {allowed.has("employees") ? (
-            <NavBtn
-              active={view === "employees"}
-              icon={<IconUsers />}
-              title="Employees"
-              onClick={() => go("employees")}
-            />
-          ) : null}
-        </NavGroup>
-        {role === "SUPER_ADMIN" && (allowed.has("ewa") ||
-        allowed.has("portalAudit") ||
-        allowed.has("portalSettings")) ? (
-          <NavGroup label="Employee Portal">
-            {allowed.has("ewa") ? (
-              <NavBtn
-                active={view === "ewa"}
-                icon={<IconWallet />}
-                title="Advance Salary"
-                onClick={() => go("ewa")}
-              />
-            ) : null}
-            {allowed.has("portalSettings") ? (
-              <NavBtn
-                active={view === "portalSettings"}
-                icon={<IconSettings />}
-                title="Portal Settings"
-                onClick={() => go("portalSettings")}
-              />
-            ) : null}
-            {allowed.has("portalAudit") ? (
-              <NavBtn
-                active={view === "portalAudit"}
-                icon={<IconTerminal />}
-                title="Portal Audit"
-                onClick={() => go("portalAudit")}
-              />
-            ) : null}
+
+        {clientExperience ? (
+          <NavGroup label="Workspace">
+            <NavBtn active={view === "dashboard"} icon={<IconDashboard />} title="Home" onClick={() => go("dashboard")} />
+            <NavBtn active={view === "operations"} icon={<IconWallet />} title="Payroll" onClick={() => go("operations")} />
+            <NavBtn active={view === "reports"} icon={<IconFile />} title="Documents" onClick={() => go("reports")} />
           </NavGroup>
-        ) : null}
-        {role === "SUPER_ADMIN" ? (
-          <NavGroup label="Administration">
-            {allowed.has("integrations") ? (
-              <NavBtn
-                active={view === "integrations"}
-                icon={<IconTerminal />}
-                title="Integrations"
-                onClick={() => go("integrations")}
-              />
+        ) : (
+          <>
+            <NavGroup label="Overview">
+              <NavBtn active={view === "dashboard"} icon={<IconDashboard />} title="Dashboard" onClick={() => go("dashboard")} />
+            </NavGroup>
+
+            <NavGroup label={simplifiedInternal ? "Work" : "Payroll Operations"}>
+              {allowed.has("clients") && !simplifiedInternal ? (
+                <NavBtn active={view === "clients"} icon={<IconBuilding />} title="Clients & Projects" onClick={() => go("clients")} />
+              ) : null}
+              {canIntake ? (
+                <Link
+                  className={`sidebar-nav-button${activePath === "data-intake" ? " sidebar-nav-active" : ""}`}
+                  href={period ? `/data-intake?period=${encodeURIComponent(period)}` : "/data-intake"}
+                  title="Data Intake"
+                  aria-label="Data Intake"
+                  aria-current={activePath === "data-intake" ? "page" : undefined}
+                  onClick={onMobileClose}
+                >
+                  <IconFile />
+                  <span>Data Intake</span>
+                </Link>
+              ) : null}
+              {allowed.has("exceptions") ? (
+                <NavBtn
+                  active={view === "exceptions"}
+                  icon={<IconAlertTriangle />}
+                  title={simplifiedInternal ? "Issues" : "Data Readiness"}
+                  onClick={() => go("exceptions")}
+                />
+              ) : null}
+              {allowed.has("operations") ? (
+                <NavBtn
+                  active={view === "operations" && activePath !== "data-intake"}
+                  icon={<IconClock />}
+                  title={simplifiedInternal ? "Payroll" : "Pay Runs"}
+                  onClick={() => go("operations")}
+                />
+              ) : null}
+              {allowed.has("payments") ? (
+                <NavBtn
+                  active={view === "payments"}
+                  icon={<IconArrowUpRight />}
+                  title={simplifiedInternal ? "Payments" : "Payment Instructions"}
+                  onClick={() => go("payments")}
+                />
+              ) : null}
+              {allowed.has("billing") ? (
+                <NavBtn
+                  active={view === "billing"}
+                  icon={<IconWallet />}
+                  title={simplifiedInternal ? "Close & Billing" : "Billing & AR"}
+                  onClick={() => go("billing")}
+                />
+              ) : null}
+            </NavGroup>
+
+            <NavGroup label={simplifiedInternal ? "Reference & Reports" : "People & Reporting"}>
+              {allowed.has("clients") && simplifiedInternal ? (
+                <NavBtn active={view === "clients"} icon={<IconBuilding />} title="Clients & Projects" onClick={() => go("clients")} />
+              ) : null}
+              {allowed.has("employees") ? (
+                <NavBtn active={view === "employees"} icon={<IconUsers />} title="Employees" onClick={() => go("employees")} />
+              ) : null}
+              {allowed.has("reports") ? (
+                <NavBtn active={view === "reports"} icon={<IconChart />} title="Reports" onClick={() => go("reports")} />
+              ) : null}
+            </NavGroup>
+
+            {role === "SUPER_ADMIN" && (allowed.has("ewa") || allowed.has("portalAudit") || allowed.has("portalSettings")) ? (
+              <NavGroup
+                label="Employee Services"
+                collapsible={!compact}
+                defaultOpen={false}
+                active={employeeServicesActive}
+              >
+                {allowed.has("ewa") ? (
+                  <NavBtn active={view === "ewa"} icon={<IconWallet />} title="Advance Salary" onClick={() => go("ewa")} />
+                ) : null}
+                {allowed.has("portalSettings") ? (
+                  <NavBtn active={view === "portalSettings"} icon={<IconSettings />} title="Portal Settings" onClick={() => go("portalSettings")} />
+                ) : null}
+                {allowed.has("portalAudit") ? (
+                  <NavBtn active={view === "portalAudit"} icon={<IconShieldCheck />} title="Portal Audit" onClick={() => go("portalAudit")} />
+                ) : null}
+              </NavGroup>
             ) : null}
-            <NavBtn
-              active={view === "logs"}
-              icon={<IconTerminal />}
-              title="Audit Logs"
-              onClick={() => go("logs")}
-            />
-            <NavBtn
-              active={settingsOpen}
-              icon={<IconSettings />}
-              title="Settings"
+
+            {role === "SUPER_ADMIN" ? (
+              <NavGroup label="System" collapsible={!compact} defaultOpen={false} active={systemActive}>
+                {allowed.has("integrations") ? (
+                  <NavBtn active={view === "integrations"} icon={<IconLayers />} title="Integrations" onClick={() => go("integrations")} />
+                ) : null}
+                <NavBtn active={view === "logs"} icon={<IconShieldCheck />} title="Audit Logs" onClick={() => go("logs")} />
+              </NavGroup>
+            ) : null}
+          </>
+        )}
+
+        <div className="sidebar-spacer" />
+
+        <div className="sidebar-utilities" aria-label="Utility">
+          {!clientExperience ? (
+            <button
+              type="button"
+              className="sidebar-utility-button sidebar-ida"
+              onClick={() => {
+                onOpenIda();
+                onMobileClose();
+              }}
+            >
+              <IconMessage />
+              <span>Ask IDA</span>
+            </button>
+          ) : null}
+          {role === "SUPER_ADMIN" ? (
+            <button
+              type="button"
+              className={`sidebar-utility-button${settingsOpen ? " sidebar-nav-active" : ""}`}
+              aria-haspopup="dialog"
+              aria-expanded={settingsOpen}
               onClick={() => {
                 onSettingsOpen(true);
                 onMobileClose();
               }}
-            />
-          </NavGroup>
-        ) : null}
-        </>}
-        <div className="sidebar-spacer" />
-        {!clientExperience ? <button
-          type="button"
-          className="sidebar-ida"
-          onClick={() => {
-            onOpenIda();
-            onMobileClose();
-          }}
-        >
-          <IconMessage />
-          <span>Ask IDA</span>
-        </button> : null}
-        <div className="sidebar-system-meta">
-          <span>
-            <i className={`sidebar-health-dot sidebar-health-${currentServiceState}`} />
-            Production · {currentServiceState === "connected"
-              ? "Connected"
-              : currentServiceState === "degraded"
-                ? "Degraded"
-                : currentServiceState === "offline"
-                  ? "Unavailable"
-                  : "Checking"}
-          </span>
-          <small>ProQPay · {syncLabel(lastSyncAt, now)}</small>
+            >
+              <IconSettings />
+              <span>Settings</span>
+            </button>
+          ) : null}
           <button
             type="button"
+            className="sidebar-utility-button"
             onClick={() => {
               onOpenHelp();
               onMobileClose();
             }}
           >
-            Support
+            <IconShieldCheck />
+            <span>Support</span>
           </button>
         </div>
       </aside>
-      {settingsOpen ? <SettingsModal
-        open
-        onClose={() => onSettingsOpen(false)}
-        role={role}
-      /> : null}
+
+      {settingsOpen ? <SettingsModal open onClose={() => onSettingsOpen(false)} role={role} /> : null}
     </>
   );
 }
@@ -422,17 +346,41 @@ export default function Sidebar({
 function NavGroup({
   label,
   children,
+  collapsible = false,
+  defaultOpen = true,
+  active = false,
 }: {
   label: string;
   children: React.ReactNode;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+  active?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(defaultOpen);
+  const open = !collapsible || active || expanded;
+
   return (
-    <nav className="sidebar-group" aria-label={label}>
-      <div className="sidebar-label">{label}</div>
-      {children}
+    <nav className={`sidebar-group${collapsible ? " sidebar-group-collapsible" : ""}`} aria-label={label}>
+      {collapsible ? (
+        <button
+          type="button"
+          className="sidebar-group-toggle"
+          aria-expanded={open}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <span>{label}</span>
+          <IconChevronDown className={open ? "open" : ""} />
+        </button>
+      ) : (
+        <div className="sidebar-label">{label}</div>
+      )}
+      <div className="sidebar-group-items" hidden={!open}>
+        {children}
+      </div>
     </nav>
   );
 }
+
 function NavBtn({
   icon,
   title,
@@ -457,9 +405,4 @@ function NavBtn({
       <span>{title}</span>
     </button>
   );
-}
-function syncLabel(value?: number, now = Date.now()) {
-  if (!value) return "Belum sinkron";
-  const minutes = Math.max(0, Math.round((now - value) / 60000));
-  return minutes < 1 ? "Sync baru saja" : `Sync ${minutes}m lalu`;
 }
