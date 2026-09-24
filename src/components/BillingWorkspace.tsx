@@ -240,12 +240,12 @@ export default function BillingWorkspace({
       r.state === "COMPLETED" &&
       r.payment_status === "COMPLETED" &&
       r.reconciliation_status === "MATCHED" &&
-      ["ISSUED", "PARTIALLY_PAID", "PAID"].includes(r.invoice_status),
+      ["ISSUED", "PARTIALLY_PAID", "PAID"].includes(String(r.invoice_status || "")),
     ).length;
     return {
       billable: focusedData.billablePayments.length,
       review: focusedData.invoices.filter((r) =>
-        ["DRAFT", "UNDER_REVIEW"].includes(r.status),
+        ["DRAFT", "UNDER_REVIEW"].includes(String(r.status || "")),
       ).length,
       closeReady,
       outstanding: open.reduce((n, r) => n + Number(r.balance || 0), 0),
