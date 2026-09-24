@@ -1562,7 +1562,9 @@ async function executeAction(database, body, actor, env, organizationId) {
   if (body.action === 'UPLOAD_PAYMENT_PROOF') return { status: 409, data: { error: 'Use /api/payment-proof multipart upload so evidence is stored in R2' } };
 
   if (body.action === 'RECONCILE_PAYMENT') {
-    if (!PROCESSOR_ROLES.has(actor.role) && !CONTROLLER_ROLES.has(actor.role)) return { status: 403, data: { error: 'Role tidak dapat melakukan rekonsiliasi' } };
+    if (!CONTROLLER_ROLES.has(actor.role) || !actor.permissions?.includes('reconciliation:write')) {
+      return { status:403, data:{ error:'Rekonsiliasi pembayaran membutuhkan role Payroll Controller dan izin reconciliation:write', code:'PAYMENT_RECONCILE_PERMISSION_REQUIRED' } };
+    }
     const payment = await d1First(database, `SELECT pi.id,pi.submission_id,pi.status,pi.expected_total,
       COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total,
       COALESCE((SELECT SUM(amount) FROM payment_proofs WHERE payment_instruction_id=pi.id),0) AS manual_proof_total,
@@ -1579,11 +1581,18 @@ async function executeAction(database, body, actor, env, organizationId) {
         paymentStatus:paymentState,
       } };
     }
-    const settlementTotal = Number(payment.manual_proof_total || 0) > 0
-      ? Number(payment.manual_proof_total)
-      : Number(payment.gateway_total || 0);
-    const settlementSource = Number(payment.manual_proof_total || 0) > 0 ? 'MANUAL_PROOF' : 'PAYMENT_GATEWAY';
-    const difference = settlementTotal - Number(payment.expected_total);
+    const expectedTotal=Number(payment.expected_total || 0);
+    const manualProofTotal=Number(payment.manual_proof_total || 0);
+    const gatewayTotal=Number(payment.gateway_total || 0);
+    if (manualProofTotal > 0 && manualProofTotal !== expectedTotal) {
+      return { status:409, data:{ error:'Bukti pembayaran belum lengkap untuk rekonsiliasi final', code:'RECONCILIATION_EVIDENCE_INCOMPLETE', proofTotal:manualProofTotal, expectedTotal } };
+    }
+    if (manualProofTotal <= 0 && gatewayTotal > 0 && gatewayTotal !== expectedTotal) {
+      return { status:409, data:{ error:'Settlement gateway belum sesuai dengan nilai Payment Instruction', code:'RECONCILIATION_EVIDENCE_INCOMPLETE', gatewayTotal, expectedTotal } };
+    }
+    const settlementTotal = manualProofTotal > 0 ? manualProofTotal : gatewayTotal;
+    const settlementSource = manualProofTotal > 0 ? 'MANUAL_PROOF' : 'PAYMENT_GATEWAY';
+    const difference = settlementTotal - expectedTotal;
     const status = difference === 0 && Number(payment.instruction_total) === Number(payment.expected_total) ? 'MATCHED' : 'EXCEPTION';
     const id = `REC-${crypto.randomUUID()}`;
     await d1Batch(database, [

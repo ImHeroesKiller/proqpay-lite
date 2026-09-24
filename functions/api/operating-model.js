@@ -229,12 +229,19 @@ async function guardSensitivePaymentActions(body, actor, env) {
     } };
   }
   if (body.action !== 'RECONCILE_PAYMENT') return null;
+  if (!['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(actor.role) || !actor.permissions?.includes('reconciliation:write')) {
+    return { status:403, data:{ error:'Rekonsiliasi pembayaran membutuhkan role Payroll Controller dan izin reconciliation:write', code:'PAYMENT_RECONCILE_PERMISSION_REQUIRED' } };
+  }
   const paymentInstructionId = String(body.paymentInstructionId || '').trim();
   if (!paymentInstructionId) return { status: 422, data: { error: 'paymentInstructionId wajib diisi' } };
-  const payment = await d1First(env.DB, `SELECT pi.id,pi.status,pi.submission_id,
+  const payment = await d1First(env.DB, `SELECT pi.id,pi.status,pi.submission_id,pi.expected_total,
     COALESCE((SELECT COUNT(*) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0) AS proof_count,
+    COALESCE((SELECT SUM(amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0) AS proof_total,
     COALESCE((SELECT COUNT(*) FROM payment_gateway_transactions pgt
-      WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'),0) AS gateway_success_count
+      WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'),0) AS gateway_success_count,
+    COALESCE((SELECT amount FROM payment_gateway_transactions pgt
+      WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
+      ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC LIMIT 1),0) AS gateway_total
     FROM payment_instructions pi WHERE pi.id=? AND pi.org_id=? LIMIT 1`,
   [paymentInstructionId, String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO')]);
   if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
@@ -247,6 +254,15 @@ async function guardSensitivePaymentActions(body, actor, env) {
     return { status: 409, data: { error: `PI berstatus ${payment.status || 'UNKNOWN'} belum dapat direkonsiliasi` } };
   }
   if (Number(payment.proof_count || 0) <= 0 && Number(payment.gateway_success_count || 0) <= 0) return { status: 409, data: { error: 'Bukti pembayaran belum tersedia dan settlement gateway belum berhasil untuk rekonsiliasi' } };
+  const expectedTotal=Number(payment.expected_total || 0);
+  const proofTotal=Number(payment.proof_total || 0);
+  const gatewayTotal=Number(payment.gateway_total || 0);
+  if (proofTotal > 0 && proofTotal !== expectedTotal) {
+    return { status:409, data:{ error:'Bukti pembayaran belum lengkap untuk rekonsiliasi final', code:'RECONCILIATION_EVIDENCE_INCOMPLETE', proofTotal, expectedTotal } };
+  }
+  if (proofTotal <= 0 && gatewayTotal > 0 && gatewayTotal !== expectedTotal) {
+    return { status:409, data:{ error:'Settlement gateway belum sesuai dengan nilai Payment Instruction', code:'RECONCILIATION_EVIDENCE_INCOMPLETE', gatewayTotal, expectedTotal } };
+  }
   return null;
 }
 

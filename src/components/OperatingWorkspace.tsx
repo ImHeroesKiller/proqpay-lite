@@ -311,7 +311,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} payRuns={visibleSubmissions} role={role} canResolve={isProcessor || isClient} act={act} />}
-          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canReview={isProcessor || isController} canApprove={canApprovePayment && isController} act={act} />}
+          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isProcessor} canReconcile={isController && Boolean(actor?.permissions?.includes('reconciliation:write') || role==='SUPER_ADMIN')} canApprove={canApprovePayment && isController} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace
             actor={actor}
             focusSubmissionId={focusSubmissionId}
@@ -838,7 +838,7 @@ function Exceptions({ rows, payRuns, role, canResolve, act }: { rows: any[]; pay
     </div></div> : null}
   </div>;
 }
-function Payments({ instructions, proofs, reconciliations, role, simplified, canReview, canApprove, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; role:string; simplified:boolean; canReview:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
+function Payments({ instructions, proofs, reconciliations, role, simplified, canRecordProof, canReconcile, canApprove, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; role:string; simplified:boolean; canRecordProof:boolean; canReconcile:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
   const [proofFor, setProofFor] = useState<string | null>(null);
   const [proof, setProof] = useState({ bank:'BCA', reference:'', transactionDate:new Date().toISOString().slice(0,10), amount:'' });
   const [file, setFile] = useState<File | null>(null);
@@ -881,8 +881,8 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
       else if (r.status === 'PAYMENT_APPROVAL_PENDING') action = canApprove
         ? <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview & Approve</button>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button>;
-      else if (canReview && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
-      else if (canReview && ['PROOF_UPLOADED','RECONCILIATION'].includes(r.status)) action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
+      else if (canRecordProof && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
+      else if (canReconcile && ['PROOF_UPLOADED','RECONCILIATION'].includes(r.status)) action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
       else if (r.status === 'REVISION_REQUIRED') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
         ? <a className="btn btn-primary" href={`?view=operations&submissionId=${encodeURIComponent(r.submission_id)}`}>Perbaiki Pay Run</a>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
@@ -930,7 +930,7 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
         {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Saya sudah memeriksa jumlah penerima, rekening, nominal, control total, dan content hash.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject PI</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>setDetail(null))}>Approve PI</button></div> : null}
       </footer>
     </div></div>, document.body) : null}
-    {proofFor && <div className="card" style={{ padding:18 }}>
+    {proofFor && canRecordProof && <div className="card" style={{ padding:18 }}>
       <div style={{ display:'flex', justifyContent:'space-between', gap:12 }}><strong>Bukti Pembayaran · {proofFor}</strong><button type="button" onClick={() => setProofFor(null)} style={{ border:0, background:'transparent', cursor:'pointer' }}>✕</button></div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:10, marginTop:14 }}>
         <select aria-label="Bank" value={proof.bank} onChange={(e) => setProof({ ...proof, bank:e.target.value })} style={input}><option>BCA</option><option>Mandiri</option><option>BRI</option><option>BNI</option><option>Lainnya</option></select>

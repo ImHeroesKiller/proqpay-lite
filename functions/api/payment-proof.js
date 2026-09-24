@@ -3,12 +3,12 @@ import {
   authorize, enforceRateLimit, handlePreflight, publicError, secureJson,
 } from './_security.js';
 import {
-  paymentProofObjectKey, safeProofFilename, validatePaymentProofFile,
+  paymentProofObjectKey, safeProofFilename, validatePaymentProofContent, validatePaymentProofFile, validPaymentProofDate,
 } from './payment-proof-validation.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const READ_ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER'];
-const WRITE_ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
+const WRITE_ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR'];
 const MANUAL_PROOF_STATUSES = new Set(['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION']);
 
 function orgId(env) {
@@ -32,16 +32,17 @@ function canAccessClient(actor, env, clientId) {
   return !scope || scope.has(String(clientId));
 }
 
+function canAccessProject(actor, projectId) {
+  if (actor.role !== 'CLIENT_USER' || !Array.isArray(actor.projectIds) || !actor.projectIds.length) return true;
+  return Boolean(projectId && actor.projectIds.map(String).includes(String(projectId)));
+}
+
 function field(form, name) {
   return String(form.get(name) || '').trim();
 }
 
 function normalizedKey(value) {
   return String(value || '').trim().toUpperCase();
-}
-
-function validDate(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 function sameProofPayload(existing, amount, transactionDate) {
@@ -92,11 +93,14 @@ export async function onRequest({ request, env }) {
     if (request.method === 'GET') {
       const proofId = new URL(request.url).searchParams.get('id');
       if (!proofId) return respond({ error: 'ID bukti pembayaran wajib diisi' }, 400);
-      const proof = await d1First(database, `SELECT pp.*, pi.org_id, pi.client_id FROM payment_proofs pp
+      const proof = await d1First(database, `SELECT pp.*, pi.org_id, pi.client_id, s.project_id FROM payment_proofs pp
         JOIN payment_instructions pi ON pi.id=pp.payment_instruction_id
+        JOIN payroll_submissions s ON s.id=pi.submission_id
         WHERE pp.id=? AND pi.org_id=? LIMIT 1`, [proofId, organizationId]);
       if (!proof) return respond({ error: 'Bukti pembayaran tidak ditemukan' }, 404);
-      if (!canAccessClient(authorization.actor, env, proof.client_id)) return respond({ error: 'Akun tidak memiliki akses ke data klien ini' }, 403);
+      if (!canAccessClient(authorization.actor, env, proof.client_id) || !canAccessProject(authorization.actor, proof.project_id)) {
+        return respond({ error: 'Akun tidak memiliki akses ke bukti pembayaran ini' }, 403);
+      }
       const object = await bucket.get(proof.uploaded_file_id);
       if (!object) return respond({ error: 'File bukti pembayaran tidak ditemukan di R2' }, 404);
       const headers = new Headers({
@@ -114,18 +118,28 @@ export async function onRequest({ request, env }) {
     const file = form.get('file');
     const validation = validatePaymentProofFile(file);
     if (!validation.ok) return respond({ error: validation.errors.join('; ') }, 422);
+    const fileBytes = await file.arrayBuffer();
+    const contentValidation = validatePaymentProofContent(file, fileBytes);
+    if (!contentValidation.ok) return respond({ error: contentValidation.errors.join('; '), code:'PAYMENT_PROOF_FILE_SIGNATURE_INVALID' }, 422);
     const paymentInstructionId = field(form, 'paymentInstructionId');
     const bank = normalizedKey(field(form, 'bank'));
     const reference = normalizedKey(field(form, 'reference'));
     const transactionDate = field(form, 'transactionDate');
     const amount = Number(field(form, 'amount'));
-    if (!paymentInstructionId || !bank || !reference || !validDate(transactionDate) || !Number.isSafeInteger(amount) || amount <= 0) {
+    if (!paymentInstructionId || !bank || !reference || !validPaymentProofDate(transactionDate) || !Number.isSafeInteger(amount) || amount <= 0) {
       return respond({ error: 'Metadata bukti pembayaran tidak valid' }, 422);
     }
 
-    const payment = await d1First(database, 'SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1', [paymentInstructionId, organizationId]);
+    const payment = await d1First(database, `SELECT pi.*,s.project_id FROM payment_instructions pi
+      JOIN payroll_submissions s ON s.id=pi.submission_id
+      WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [paymentInstructionId, organizationId]);
     if (!payment) return respond({ error: 'Payment instruction tidak ditemukan' }, 404);
-    if (!canAccessClient(authorization.actor, env, payment.client_id)) return respond({ error: 'Akun tidak memiliki akses ke data klien ini' }, 403);
+    if (!canAccessClient(authorization.actor, env, payment.client_id) || !canAccessProject(authorization.actor, payment.project_id)) {
+      return respond({ error: 'Akun tidak memiliki akses ke Payment Instruction ini' }, 403);
+    }
+    if (!['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(authorization.actor.role) || !authorization.actor.permissions?.includes('payment:prepare')) {
+      return respond({ error:'Pencatatan bukti pembayaran membutuhkan role Payroll Processor dan izin payment:prepare', code:'PAYMENT_PROOF_WRITE_PERMISSION_REQUIRED' },403);
+    }
     if (!MANUAL_PROOF_STATUSES.has(String(payment.status || '').toUpperCase())) {
       return respond({ error: 'Payment instruction belum disetujui atau belum siap menerima bukti pembayaran' }, 409);
     }
@@ -141,6 +155,12 @@ export async function onRequest({ request, env }) {
         code: gateway.status === 'FAILED' ? 'PAYMENT_GATEWAY_AMBIGUOUS_FAILURE' : 'PAYMENT_GATEWAY_ACTIVE',
       }, 409);
     }
+    const existing = await d1First(database, `SELECT * FROM payment_proofs
+      WHERE payment_instruction_id=? AND UPPER(bank)=? AND UPPER(reference)=? LIMIT 1`, [paymentInstructionId, bank, reference]);
+    if (existing) {
+      if (!sameProofPayload(existing, amount, transactionDate)) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
+      return respond({ ok: true, paymentProof: existing, idempotentReplay: true });
+    }
     const currentProofTotal = await d1First(database, `SELECT COALESCE(SUM(amount),0) AS total FROM payment_proofs WHERE payment_instruction_id=?`, [paymentInstructionId]);
     if (Number(currentProofTotal?.total || 0) + amount > Number(payment.expected_total || 0)) {
       return respond({
@@ -151,16 +171,12 @@ export async function onRequest({ request, env }) {
         expectedTotal:Number(payment.expected_total || 0),
       },409);
     }
-    const existing = await d1First(database, `SELECT * FROM payment_proofs
-      WHERE payment_instruction_id=? AND UPPER(bank)=? AND UPPER(reference)=? LIMIT 1`, [paymentInstructionId, bank, reference]);
-    if (existing) {
-      if (!sameProofPayload(existing, amount, transactionDate)) return respond({ error: 'Referensi bank sudah digunakan dengan metadata berbeda' }, 409);
-      return respond({ ok: true, paymentProof: existing, idempotentReplay: true });
-    }
     const proofId = `PP-${crypto.randomUUID()}`;
     const key = paymentProofObjectKey(organizationId, paymentInstructionId, file.name);
-    await bucket.put(key, await file.arrayBuffer(), {
-      httpMetadata: { contentType: file.type },
+    const nextProofTotal = Number(currentProofTotal?.total || 0) + amount;
+    const evidenceComplete = nextProofTotal === Number(payment.expected_total || 0);
+    await bucket.put(key, fileBytes, {
+      httpMetadata: { contentType: contentValidation.detectedType || file.type },
       customMetadata: {
         originalName: safeProofFilename(file.name),
         paymentInstructionId,
@@ -172,15 +188,17 @@ export async function onRequest({ request, env }) {
         { statement: `INSERT INTO payment_proofs
           (id, payment_instruction_id, bank, reference, transaction_date, amount, uploaded_file_id)
           VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`, bindings: [proofId, paymentInstructionId, bank, reference, transactionDate, amount, key] },
-        { statement: `UPDATE payment_instructions SET status='PROOF_UPLOADED',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings: [paymentInstructionId] },
-        { statement: `UPDATE payroll_submissions SET state='PROOF_UPLOADED',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-          WHERE id=(SELECT submission_id FROM payment_instructions WHERE id=?)`, bindings: [paymentInstructionId] },
+        { statement: `UPDATE payment_instructions SET status=CASE WHEN ?=1 THEN 'PROOF_UPLOADED' ELSE status END,
+          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings: [evidenceComplete ? 1 : 0, paymentInstructionId] },
+        { statement: `UPDATE payroll_submissions SET state=CASE WHEN ?=1 THEN 'PROOF_UPLOADED' ELSE state END,
+          updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id=(SELECT submission_id FROM payment_instructions WHERE id=?)`, bindings: [evidenceComplete ? 1 : 0, paymentInstructionId] },
         { statement: `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
           VALUES (?,?,?,?,'PAYMENT_PROOF_UPLOADED',?,'payment_proof',?)`,
           bindings: [`AUD-${crypto.randomUUID()}`, organizationId, authorization.actor.email, authorization.actor.role,
             `${bank} · ${reference} · ${file.size} bytes`, proofId] },
       ]);
-      return respond({ ok: true, paymentProof: results[0]?.results?.[0] }, 201);
+      return respond({ ok: true, paymentProof: results[0]?.results?.[0], evidenceComplete, proofTotal:nextProofTotal, expectedTotal:Number(payment.expected_total || 0) }, 201);
     } catch (error) {
       await bucket.delete(key);
       if (/UNIQUE constraint|payment_proofs/i.test(String(error?.message || error))) {
