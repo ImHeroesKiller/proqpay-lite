@@ -11,11 +11,18 @@ import {
   filterPaymentInstructionLines,
   paymentActivityLabel,
   paymentBusinessLabel,
+  paymentEvidenceCoverage,
   paymentInstructionIntegrity,
+  paymentProofFileLabel,
+  reconciliationControl,
+  settlementSourceLabel,
+  shortEvidenceFingerprint,
   shortPaymentHash,
   summarizePaymentBanks,
   type PaymentInstructionDetail,
   type PaymentInstructionLine,
+  type PaymentProofRecord,
+  type ReconciliationRecord,
 } from '@/lib/payment-instruction-ui';
 
 type WorkspaceMode = 'payruns' | 'actions' | 'payments' | 'billing';
@@ -840,7 +847,7 @@ function Exceptions({ rows, payRuns, role, canResolve, act }: { rows: any[]; pay
     </div></div> : null}
   </div>;
 }
-function Payments({ instructions, proofs, reconciliations, role, simplified, canRecordProof, canReconcile, canApprove, act }: { instructions:any[]; proofs:any[]; reconciliations:any[]; role:string; simplified:boolean; canRecordProof:boolean; canReconcile:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
+function Payments({ instructions, proofs, reconciliations, role, simplified, canRecordProof, canReconcile, canApprove, act }: { instructions:any[]; proofs:PaymentProofRecord[]; reconciliations:ReconciliationRecord[]; role:string; simplified:boolean; canRecordProof:boolean; canReconcile:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
   const [proofFor, setProofFor] = useState<string | null>(null);
   const [proof, setProof] = useState({ bank:'BCA', reference:'', transactionDate:new Date().toISOString().slice(0,10), amount:'' });
   const [file, setFile] = useState<File | null>(null);
@@ -857,6 +864,9 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
   const bankSummaries = useMemo(() => summarizePaymentBanks(detailLines), [detailLines]);
   const filteredDetailLines = useMemo(() => filterPaymentInstructionLines(detailLines,detailQuery,detailBank), [detailLines, detailBank, detailQuery]);
   const integrity = useMemo(() => paymentInstructionIntegrity(detail), [detail]);
+  const latestReconciliation = useMemo(() => detail?.reconciliationHistory?.[0] || reconciliations.find((row)=>row.payment_instruction_id===detail?.paymentInstruction.id) || null, [detail, reconciliations]);
+  const reconciliationSummary = useMemo(() => reconciliationControl(latestReconciliation), [latestReconciliation]);
+  const proofCoverage = useMemo(() => paymentEvidenceCoverage(Number(detail?.control.expectedTotal||0), Number(detail?.proofSummary?.proof_total||0)), [detail]);
   const detailPageSize = 25;
   const detailPageCount = Math.max(1, Math.ceil(filteredDetailLines.length / detailPageSize));
   const visibleDetailLines = filteredDetailLines.slice((detailPage - 1) * detailPageSize, detailPage * detailPageSize);
