@@ -5,7 +5,7 @@ import {
 } from './payment-instruction-core.js';
 
 const METHODS = 'GET, OPTIONS';
-const ROLES = ['SUPER_ADMIN','PAYROLL_CONTROLLER'];
+const ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
 
 function orgId(env) { return String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO'); }
 function safeFilename(value) { return String(value || 'payment-instruction').replace(/[^A-Za-z0-9._-]+/g,'-').slice(0,120); }
@@ -31,10 +31,17 @@ export async function onRequest(context) {
     JOIN clients c ON c.id=pi.client_id LEFT JOIN projects p ON p.id=s.project_id
     WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [id, orgId(env)]);
   if (!instruction) return respond({error:'Payment instruction tidak ditemukan'},404);
-  if (!['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(instruction.status)) {
+  if (authorization.actor.role === 'PAYROLL_PROCESSOR' && format !== 'PDF') {
+    return respond({error:'Payroll Processor hanya dapat mengunduh preview PDF; file bank tersedia setelah approval Controller'},403);
+  }
+  if (!['PAYMENT_INSTRUCTION_READY','PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(instruction.status)) {
     return respond({error:'Payment instruction belum dapat diekspor'},409);
   }
   const lines = await d1All(env.DB, 'SELECT * FROM payment_instruction_lines WHERE payment_instruction_id=? ORDER BY employee_id,id', [id]);
+  const snapshotTotal = lines.reduce((sum,line) => sum + Number(line.amount || 0),0);
+  if (lines.length !== Number(instruction.recipient_count || 0) || snapshotTotal !== Number(instruction.expected_total || 0)) {
+    return respond({error:'Control total atau jumlah penerima PI tidak sesuai; export diblokir',code:'PI_EXPORT_CONTROL_MISMATCH'},409);
+  }
   const approvals = await d1All(env.DB, `SELECT pa.*,au.email AS approver_email FROM payment_approvals pa
     LEFT JOIN app_users au ON au.id=pa.approver_user_id WHERE pa.payment_instruction_id=? ORDER BY pa.created_at`, [id]);
   if (format === 'PDF') {
