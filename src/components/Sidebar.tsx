@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconDashboard,
   IconUsers,
@@ -85,6 +86,7 @@ type Props = {
   onSettingsOpen: (open: boolean) => void;
   lastSyncAt?: number;
   activePath?: "data-intake";
+  period?: string;
 };
 
 export default function Sidebar({
@@ -100,8 +102,12 @@ export default function Sidebar({
   onSettingsOpen,
   lastSyncAt,
   activePath,
+  period,
 }: Props) {
   const allowed = new Set(allowedViewsForRole(role));
+  const asideRef = useRef<HTMLElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const go = (next: AppView) => {
     onView(next);
     onMobileClose();
@@ -136,7 +142,52 @@ export default function Sidebar({
       if (document.visibilityState === "visible") void refreshHealth();
     };
     document.addEventListener("visibilitychange", visible);
+    useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const root = asideRef.current;
+    const focusable = () =>
+      Array.from(
+        root?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+        ) || [],
+      );
+    focusable()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onMobileClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
     return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+      previousFocusRef.current?.focus();
+    };
+  }, [mobileOpen, onMobileClose]);
+
+  return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", visible);
     };
@@ -151,6 +202,7 @@ export default function Sidebar({
         onClick={onMobileClose}
       />
       <aside
+        ref={asideRef}
         className={`app-sidebar${compact ? " app-sidebar-compact" : ""}${mobileOpen ? " mobile-open" : ""}`}
         aria-label="Navigasi utama"
       >
@@ -214,15 +266,17 @@ export default function Sidebar({
             />
           ) : null}
           {canIntake ? (
-            <a
+            <Link
               className={`sidebar-nav-button${activePath === "data-intake" ? " sidebar-nav-active" : ""}`}
-              href="/data-intake"
+              href={period ? `/data-intake?period=${encodeURIComponent(period)}` : "/data-intake"}
               title="Data Intake"
+              aria-label="Data Intake"
               aria-current={activePath === "data-intake" ? "page" : undefined}
+              onClick={onMobileClose}
             >
               <IconFile />
               <span>Data Intake</span>
-            </a>
+            </Link>
           ) : null}
           {allowed.has("exceptions") && role !== "CLIENT_USER" ? (
             <NavBtn
@@ -370,7 +424,7 @@ export default function Sidebar({
                   ? "Unavailable"
                   : "Checking"}
           </span>
-          <small>ProQPay · {syncLabel(lastSyncAt)}</small>
+          <small>ProQPay · {syncLabel(lastSyncAt, now)}</small>
           <button
             type="button"
             onClick={() => {
@@ -382,11 +436,11 @@ export default function Sidebar({
           </button>
         </div>
       </aside>
-      <SettingsModal
-        open={settingsOpen}
+      {settingsOpen ? <SettingsModal
+        open
         onClose={() => onSettingsOpen(false)}
         role={role}
-      />
+      /> : null}
     </>
   );
 }
@@ -419,6 +473,7 @@ function NavBtn({
   return (
     <button
       title={title}
+      aria-label={title}
       type="button"
       onClick={onClick}
       className={`sidebar-nav-button${active ? " sidebar-nav-active" : ""}`}
@@ -429,8 +484,8 @@ function NavBtn({
     </button>
   );
 }
-function syncLabel(value?: number) {
+function syncLabel(value?: number, now = Date.now()) {
   if (!value) return "Belum sinkron";
-  const minutes = Math.max(0, Math.round((Date.now() - value) / 60000));
+  const minutes = Math.max(0, Math.round((now - value) / 60000));
   return minutes < 1 ? "Sync baru saja" : `Sync ${minutes}m lalu`;
 }
