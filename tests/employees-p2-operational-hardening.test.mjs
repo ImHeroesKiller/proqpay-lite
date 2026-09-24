@@ -100,8 +100,9 @@ test('Employees P2: frontend sync aggregates all API pages and directory uses se
   assert.match(sync,/async function fetchAllEmployees/);
   assert.match(sync,/\/api\/employees\?limit=200&offset=/);
   assert.match(sync,/data\?\.meta\?\.nextOffset/);
-  assert.match(directory,/employee\.isActive === true/);
-  assert.match(directory,/action: 'UPDATE_ADMIN'/);
+  assert.match(directory,/employee\.isActive\s*===\s*true/);
+  const detail=await readFile(new URL('../src/components/EmployeeDetailDrawer.tsx',import.meta.url),'utf8');
+  assert.match(detail,/action:'UPDATE_ADMIN'/);
 });
 
 test('Employees P2: employee directory query uses CTE joins and dedicated indexes instead of fixed LIMIT 500',async()=>{
