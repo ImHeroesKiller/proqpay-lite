@@ -286,6 +286,20 @@ export async function onRequest({request,env}) {
       if (!ar) return respond({error:'AR tidak ditemukan'},404);
       const existingPayment=await d1First(database,'SELECT * FROM ar_payments WHERE ar_id=? AND reference=? LIMIT 1',[ar.id,reference]);
       const existingUnapplied=await d1First(database,"SELECT * FROM unapplied_cash WHERE ar_id=? AND reference=? AND status<>'VOID' LIMIT 1",[ar.id,reference]);
+      const crossArReference=await d1First(database,`SELECT existing_ar.id AS ar_id,existing_ar.invoice_id
+        FROM (
+          SELECT ap.ar_id,ap.reference FROM ar_payments ap
+          UNION ALL
+          SELECT uc.ar_id,uc.reference FROM unapplied_cash uc WHERE uc.status<>'VOID'
+        ) receipt
+        JOIN ar_monitor existing_ar ON existing_ar.id=receipt.ar_id
+        WHERE existing_ar.client_id=? AND existing_ar.id<>? AND receipt.reference=? LIMIT 1`,[ar.client_id,ar.id,reference]);
+      if (crossArReference) return respond({
+        error:'Reference pembayaran sudah digunakan pada piutang lain untuk klien yang sama',
+        code:'AR_REFERENCE_ALREADY_ALLOCATED',
+        existingArId:crossArReference.ar_id,
+        existingInvoiceId:crossArReference.invoice_id,
+      },409);
       if (existingPayment||existingUnapplied) {
         const current=await d1First(database,'SELECT * FROM ar_monitor WHERE id=? LIMIT 1',[ar.id]);
         return respond({ok:true,applied:Number(existingPayment?.amount||0),unapplied:Number(existingUnapplied?.amount||0),balance:Number(current?.balance||0),status:current?.status,idempotentReplay:true});
@@ -317,6 +331,9 @@ export async function onRequest({request,env}) {
       ];
       try { await d1Batch(database,operations); }
       catch (paymentError) {
+        if (/AR payment reference already allocated to another receivable/i.test(String(paymentError?.message||paymentError))) {
+          return respond({error:'Reference pembayaran sudah digunakan pada piutang lain untuk klien yang sama',code:'AR_REFERENCE_ALREADY_ALLOCATED'},409);
+        }
         if (/idx_ar_payment_reference|idx_unapplied_cash_reference|UNIQUE constraint/i.test(String(paymentError?.message||paymentError))) {
           const replayPayment=await d1First(database,'SELECT * FROM ar_payments WHERE ar_id=? AND reference=? LIMIT 1',[ar.id,reference]);
           const replayUnapplied=await d1First(database,"SELECT * FROM unapplied_cash WHERE ar_id=? AND reference=? AND status<>'VOID' LIMIT 1",[ar.id,reference]);
