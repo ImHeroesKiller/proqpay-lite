@@ -128,9 +128,13 @@ test('Employees P0: client and project relationships must belong to active organ
 });
 
 test('Employees P0: directory UI no longer lets CLIENT_USER edit and sends only explicit admin patch fields',async()=>{
-  const source=await readFile(new URL('../src/components/EmployeeDirectory.tsx',import.meta.url),'utf8');
-  assert.match(source,/const canEdit = \['SUPER_ADMIN', 'PAYROLL_PROCESSOR'\]/);
-  assert.doesNotMatch(source,/\.\.\.employee, \.\.\.form/);
-  assert.match(source,/id: employee\.id,\s*nik: form\.nik,/s);
-  assert.doesNotMatch(source,/clientId: employee\.clientId, name: employee\.name/);
+  const directory=await readFile(new URL('../src/components/EmployeeDirectory.tsx',import.meta.url),'utf8');
+  const detail=await readFile(new URL('../src/components/EmployeeDetailDrawer.tsx',import.meta.url),'utf8');
+  const ui=await readFile(new URL('../src/lib/employee-ui.ts',import.meta.url),'utf8');
+  assert.match(ui,/\['SUPER_ADMIN','PAYROLL_PROCESSOR'\]\.includes\(actor\.role\)/);
+  assert.match(detail,/const canEdit=canManageEmployees\(actor\)/);
+  assert.doesNotMatch(detail,/\.\.\.employee, \.\.\.form/);
+  assert.match(detail,/action:'UPDATE_ADMIN',id:employee\.id,\.\.\.form/);
+  assert.doesNotMatch(detail,/clientId:employee\.clientId/);
+  assert.match(directory,/EmployeeDetailDrawer/);
 });
