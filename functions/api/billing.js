@@ -1,6 +1,7 @@
 import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { billingSlaSchemaAvailable, materializeInvoiceSla } from './billing-sla-service.js';
+import { validPaymentProofDate } from './payment-proof-validation.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER'];
@@ -12,6 +13,14 @@ function text(value,max=500) { return String(value||'').trim().slice(0,max)||nul
 function integer(value,min=0,max=Number.MAX_SAFE_INTEGER) { const n=Number(value); return Number.isSafeInteger(n)&&n>=min&&n<=max?n:null; }
 function processor(role) { return ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role); }
 function controller(role) { return ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role); }
+function hasPermission(actor,permission) { return Boolean(actor?.permissions?.includes(permission)); }
+function canPrepareBilling(actor) { return processor(actor.role)&&hasPermission(actor,'billing:prepare'); }
+function canApproveBilling(actor) { return controller(actor.role)&&hasPermission(actor,'billing:approve'); }
+function canWriteAr(actor) { return controller(actor.role)&&hasPermission(actor,'ar:write'); }
+async function recordAudit(database,organizationId,actor,action,entity,entityId,detail='') {
+  await database.prepare(`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id,timestamp)
+    VALUES(?,?,?,?,?,?,?,?,${NOW})`).bind(`AUD-${crypto.randomUUID()}`,organizationId,actor.email,actor.role,action,String(detail||''),entity,entityId).run();
+}
 function parseJson(value) { try { return JSON.parse(value||'[]'); } catch { return []; } }
 function parseObject(value) { try { const parsed=JSON.parse(value||'{}'); return parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{}; } catch { return {}; } }
 
@@ -75,7 +84,7 @@ export async function onRequest({request,env}) {
   const limited=await enforceRateLimit(request,env,authorization.actor,'billing-ar',METHODS);
   if (limited) return limited;
   const respond=(data,status=200)=>secureJson(data,status,request,env,METHODS),requestId=crypto.randomUUID();
-  if (!hasD1(env)) return respond({error:'Cloudflare D1 belum terhubung',requestId},503);
+  if (!hasD1(env)) return respond({error:'Layanan data Billing & AR belum tersedia. Hubungi administrator.',code:'BILLING_DATA_UNAVAILABLE',requestId},503);
   const database=env.DB,actor=authorization.actor,organizationId=orgId(env);
   try {
     if (request.method==='GET') {
@@ -132,7 +141,7 @@ export async function onRequest({request,env}) {
     const body=await request.json().catch(()=>null),error=validate(body);
     if (error) return respond({error},422);
     if (body.action==='UPDATE_BILLING_PROFILE') {
-      if (!processor(actor.role)) return respond({error:'Hanya Super Admin atau Payroll Processor yang dapat mengubah profil billing'},403);
+      if (!canPrepareBilling(actor)) return respond({error:'Aksi ini membutuhkan izin billing:prepare',code:'BILLING_PREPARE_PERMISSION_REQUIRED'},403);
       const method=String(body.billingMethod||''),terms=integer(body.paymentTermsDays,0,365),rate=Number(body.billingRate),
         admin=integer(body.billingAdminFee??body.adminFee,0),taxRate=Number(body.billingTaxRate??body.taxRate),taxStatus=String(body.taxStatus||'NON_PKP');
       if (!['PER_EMPLOYEE','FIXED','PERCENTAGE_OF_PAYROLL'].includes(method)||terms===null||!Number.isFinite(rate)||rate<0||admin===null||!Number.isFinite(taxRate)||taxRate<0||taxRate>100||!['PKP','NON_PKP'].includes(taxStatus)) return respond({error:'Nilai billing tidak valid'},422);
@@ -143,7 +152,7 @@ export async function onRequest({request,env}) {
       return client?respond({ok:true,client}):respond({error:'Klien tidak ditemukan'},404);
     }
     if (body.action==='GENERATE_INVOICE') {
-      if (!processor(actor.role)) return respond({error:'Hanya Payroll Processor yang dapat menyiapkan invoice'},403);
+      if (!canPrepareBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Processor dan izin billing:prepare',code:'BILLING_PREPARE_PERMISSION_REQUIRED'},403);
       const item=await d1First(database,`SELECT pi.*,c.code,c.name,c.billing_method,c.billing_rate,c.billing_admin_fee,c.billing_tax_rate,
         c.payment_terms_days,c.tax_status,c.purchase_order,s.period,s.payment_period,s.project_id,
         (SELECT COUNT(*) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id) AS employee_count
@@ -184,26 +193,26 @@ export async function onRequest({request,env}) {
     }
     const transition=async(sql,bindings,message)=>{const invoice=await d1First(database,sql,bindings);return invoice?respond({ok:true,invoice}):respond({error:message},409);};
     if (body.action==='SUBMIT_INVOICE') {
-      if (!processor(actor.role)) return respond({error:'Hanya Payroll Processor yang dapat mengajukan review'},403);
+      if (!canPrepareBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Processor dan izin billing:prepare',code:'BILLING_PREPARE_PERMISSION_REQUIRED'},403);
       return transition(`UPDATE invoices SET status='UNDER_REVIEW',reviewed_at=${NOW},reviewed_by=?,updated_at=${NOW} WHERE id=? AND org_id=? AND status='DRAFT' RETURNING *`,[actor.email,body.invoiceId,organizationId],'Invoice tidak berada pada status DRAFT');
     }
     if (body.action==='APPROVE_INVOICE') {
-      if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat menyetujui invoice'},403);
+      if (!canApproveBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Controller dan izin billing:approve',code:'BILLING_APPROVE_PERMISSION_REQUIRED'},403);
       return transition(`UPDATE invoices SET status='APPROVED',approved_at=${NOW},approved_by=?,updated_at=${NOW} WHERE id=? AND org_id=? AND status='UNDER_REVIEW' AND created_by<>? RETURNING *`,[actor.email,body.invoiceId,organizationId,actor.email],'Invoice belum diajukan atau maker tidak boleh menyetujui invoice sendiri');
     }
     if (body.action==='REVISE_INVOICE') {
-      if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat meminta revisi'},403);
+      if (!canApproveBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Controller dan izin billing:approve',code:'BILLING_APPROVE_PERMISSION_REQUIRED'},403);
       return transition(`UPDATE invoices SET status='DRAFT',updated_at=${NOW},review_note=? WHERE id=? AND org_id=? AND status='UNDER_REVIEW' RETURNING *`,[text(body.reviewNote??body.note,1000),body.invoiceId,organizationId],'Invoice tidak dapat direvisi pada status ini');
     }
     if (body.action==='RECORD_TAX_INVOICE') {
-      if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat mencatat faktur pajak'},403);
+      if (!canApproveBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Controller dan izin billing:approve',code:'BILLING_APPROVE_PERMISSION_REQUIRED'},403);
       const status=String(body.taxInvoiceStatus??body.status??'');
       if (!['SUBMITTED','APPROVED','REJECTED'].includes(status)) return respond({error:'Status faktur pajak tidak valid'},422);
-      if (status==='APPROVED'&&(!text(body.taxInvoiceNumber,120)||!/^\d{4}-\d{2}-\d{2}$/.test(String(body.taxInvoiceDate||'')))) return respond({error:'Nomor dan tanggal faktur pajak wajib diisi'},422);
+      if (status==='APPROVED'&&(!text(body.taxInvoiceNumber,120)||!validPaymentProofDate(body.taxInvoiceDate))) return respond({error:'Nomor dan tanggal faktur pajak yang valid wajib diisi',code:'TAX_INVOICE_DATE_INVALID'},422);
       return transition(`UPDATE invoices SET tax_invoice_status=?,tax_invoice_number=?,tax_invoice_date=?,coretax_reference=?,updated_at=${NOW} WHERE id=? AND org_id=? AND status IN ('APPROVED','ISSUED','PARTIALLY_PAID','PAID') RETURNING *`,[status,text(body.taxInvoiceNumber,120),body.taxInvoiceDate||null,text(body.coretaxReference,160),body.invoiceId,organizationId],'Invoice belum disetujui');
     }
     if (body.action==='ISSUE_INVOICE') {
-      if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat menerbitkan invoice'},403);
+      if (!canApproveBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Controller dan izin billing:approve',code:'BILLING_APPROVE_PERMISSION_REQUIRED'},403);
       let invoice=await d1First(database,`SELECT i.*,c.payment_terms_days,c.tax_status FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.id=? AND i.org_id=? LIMIT 1`,[body.invoiceId,organizationId]);
       if (!invoice) return respond({error:'Invoice tidak ditemukan'},404);
       if (invoice.status!=='ISSUED') {
@@ -225,9 +234,9 @@ export async function onRequest({request,env}) {
       return respond({ok:true,invoiceId:invoice.id,arId:legacy.ar?.id||null,idempotentReplay:Boolean(legacy.idempotentReplay),legacySla:true});
     }
     if (body.action==='RECORD_AR_PAYMENT') {
-      if (!controller(actor.role)) return respond({error:'Hanya Payroll Controller yang dapat mencatat pembayaran AR'},403);
+      if (!canWriteAr(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Controller dan izin ar:write',code:'AR_WRITE_PERMISSION_REQUIRED'},403);
       const amount=integer(body.amount,1),paymentDate=body.paidAt??body.paymentDate,reference=text(body.reference,120);
-      if (amount===null||!/^\d{4}-\d{2}-\d{2}$/.test(String(paymentDate||''))||!reference) return respond({error:'Data pembayaran AR tidak valid'},422);
+      if (amount===null||!validPaymentProofDate(paymentDate)||!reference) return respond({error:'Data pembayaran AR tidak valid',code:'AR_PAYMENT_DATE_INVALID'},422);
       const ar=await d1First(database,'SELECT * FROM ar_monitor WHERE id=? AND org_id=? LIMIT 1',[body.arId,organizationId]);
       if (!ar) return respond({error:'AR tidak ditemukan'},404);
       const existingPayment=await d1First(database,'SELECT * FROM ar_payments WHERE ar_id=? AND reference=? LIMIT 1',[ar.id,reference]);
@@ -278,8 +287,9 @@ export async function onRequest({request,env}) {
       return respond({ok:true,applied:Number(recorded?.amount||0),unapplied:Number(unapplied?.amount||0),balance:Number(current?.balance||0),status:current?.status});
     }
     if (body.action==='FOLLOW_UP_AR') {
-      if (!processor(actor.role)&&!controller(actor.role)) return respond({error:'Role tidak dapat melakukan follow-up AR'},403);
+      if (!canWriteAr(actor)) return respond({error:'Aksi follow-up AR membutuhkan izin ar:write',code:'AR_WRITE_PERMISSION_REQUIRED'},403);
       const note=text(body.notes??body.note,1000);if (!note) return respond({error:'Catatan follow-up wajib diisi'},422);
+      if (body.nextFollowUpAt && !validPaymentProofDate(body.nextFollowUpAt)) return respond({error:'Tanggal follow-up berikutnya tidak valid',code:'AR_FOLLOW_UP_DATE_INVALID'},422);
       const ar=await d1First(database,'SELECT * FROM ar_monitor WHERE id=? AND org_id=? LIMIT 1',[body.arId,organizationId]);if (!ar) return respond({error:'AR tidak ditemukan'},404);
       const status=body.disputed?'DISPUTED':ar.status;
       await d1Batch(database,[{statement:'INSERT INTO ar_follow_ups(id,ar_id,note,next_follow_up_at,created_by) VALUES(?,?,?,?,?)',bindings:[`ARF-${crypto.randomUUID()}`,body.arId,note,body.nextFollowUpAt||null,actor.email]},
