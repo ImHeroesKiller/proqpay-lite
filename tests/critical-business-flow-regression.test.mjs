@@ -94,7 +94,7 @@ test('Successful gateway settlement can reconcile without a manual proof',async(
       VALUES('PGT-GW','ORG-OTSINDO','CLI-CRIT','PI-GW','E2PAY','E2-TX','SUCCEEDED',5000000,'IDR','DISBURSEMENT','PGT-GW-key','${'c'.repeat(64)}','processor@proqpay.test','2026-09-22T09:00:00.000Z');
     INSERT INTO app_users
       (id,org_id,name,email,role,status,password_hash,password_salt,password_iterations,must_change_password,payment_approver,created_by)
-      VALUES('USR-REC','ORG-OTSINDO','Reconciliation Processor','processor@proqpay.test','PAYROLL_PROCESSOR','ACTIVE','test-hash','test-salt',100000,0,0,'seed');
+      VALUES('USR-REC','ORG-OTSINDO','Reconciliation Controller','controller@proqpay.test','PAYROLL_CONTROLLER','ACTIVE','test-hash','test-salt',100000,0,1,'seed');
   `);
   const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
   const session=await createSession(DB,'USR-REC',env);
