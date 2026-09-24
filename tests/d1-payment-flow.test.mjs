@@ -57,7 +57,7 @@ test('D1 processes 396 recipients through PI approval, proof, and reconciliation
   seed396(DB);
   const env = { DB, FILES: new R2Mock(), DEFAULT_ORG_ID: 'ORG-OTSINDO', PI_ENCRYPTION_KEY: 'uat-native-cloudflare-key-32-bytes-minimum' };
   const maker = { id: 'USR-MAKER', email: 'maker@proqpay.test', role: 'PAYROLL_PROCESSOR', permissions: ['payment:prepare'] };
-  const approver = { id: 'USR-APPROVER', email: 'approver@proqpay.test', role: 'PAYROLL_CONTROLLER', permissions: ['payment:approve'] };
+  const approver = { id: 'USR-APPROVER', email: 'approver@proqpay.test', role: 'PAYROLL_CONTROLLER', permissions: ['payment:approve','reconciliation:write'] };
 
   const dashboardResponse = await handleD1OperatingModel({ request: request('/api/operating-model?resource=dashboard', { method: 'GET' }), env }, maker);
   assert.equal(dashboardResponse.status, 200, await dashboardResponse.clone().text());
