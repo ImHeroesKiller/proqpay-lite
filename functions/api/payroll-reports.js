@@ -136,7 +136,7 @@ export async function onRequest({ request, env }) {
     const reportBindings=[...bindings];
     if(status){reportClauses.push('pi.status=?');reportBindings.push(status);}
     if(query){reportClauses.push("(LOWER(COALESCE(l.employee_name,'')) LIKE ? OR LOWER(COALESCE(l.employee_id,'')) LIKE ? OR LOWER(c.name) LIKE ? OR LOWER(COALESCE(p.name,'')) LIKE ? OR LOWER(COALESCE(pi.document_no,'')) LIKE ?)");const like=`%${query.toLowerCase()}%`;reportBindings.push(like,like,like,like,like);}
-    facets.statuses=(await d1All(env.DB,`SELECT DISTINCT pi.status FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id WHERE ${scopeWhere} AND pi.status IS NOT NULL ORDER BY pi.status`,scopeBindings)).map((row)=>String(row.status));
+    facets.statuses=(await d1All(env.DB,`SELECT DISTINCT pi.status FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id LEFT JOIN reconciliations r ON r.payment_instruction_id=pi.id WHERE ${scopeWhere} AND pi.status='COMPLETED' AND COALESCE(r.status,'')='MATCHED' ORDER BY pi.status`,scopeBindings)).map((row)=>String(row.status));
     const where=reportClauses.join(' AND ');
     const rows = await d1All(env.DB, `SELECT s.id AS submission_id,s.period,s.run_type,c.name AS client_name,p.name AS project_name,
       l.employee_id,l.employee_name,l.gross_amount,l.deduction_amount,l.net_amount,l.source_batch_id,
