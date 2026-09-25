@@ -135,33 +135,56 @@ export default function EmployeeDetailDrawer({
           <div><span>PROFIL KARYAWAN</span><h2 id="employee-detail-title">{employee.name}</h2><p>{employee.position||'Posisi belum diisi'} · {employee.company||'-'}</p></div>
           <button ref={closeRef} type="button" onClick={requestClose} aria-label="Tutup detail">✕</button>
         </div>
-        {canEdit||canResetPortal?<div className="employee-drawer-actions">
-          {canResetPortal?<button className="btn" type="button" disabled={resetting} onClick={()=>setResetConfirm(true)}>{resetting?'Menerbitkan…':'Reset password portal'}</button>:null}
-          {canEdit?<button className="btn" type="button" onClick={()=>editing?cancelEditing():setEditing(true)}>{editing?'Batal edit':'Edit data kurang'}</button>:null}
-        </div>:null}
 
-        {discardConfirm?<div className="employee-inline-confirm employee-discard-confirm" role="alertdialog" aria-modal="true">
-          <strong>Perubahan belum disimpan</strong>
-          <span>Keluar sekarang akan membuang perubahan administrasi yang belum disimpan.</span>
-          <div><button type="button" className="btn" onClick={()=>setDiscardConfirm(false)}>Lanjut edit</button><button type="button" className="btn btn-danger" onClick={discardChanges}>Buang perubahan</button></div>
-        </div>:null}
+        <div className="employee-drawer-body">
+          <div className="employee-profile-hero">
+            <div>
+              <span>Gaji pokok</span>
+              <strong>{formatIDR(Number(employee.salaryGross||0))}</strong>
+              <small>{employee.bankName||'Bank belum diisi'} · {employeeMasked(employee.accountNo,maskSensitiveData)||'Rekening belum diisi'}</small>
+            </div>
+            <div>
+              <em className={`status-pill status-${employeeStatusTone(employee.status)}`}>{employee.status||'Belum diisi'}</em>
+              <small>{employee.employmentType||'Tipe kerja belum diisi'}</small>
+            </div>
+          </div>
 
-        {resetConfirm?<div className="employee-inline-confirm" role="alertdialog" aria-modal="true">
-          <strong>Terbitkan ulang password portal?</strong>
-          <span>Password lama akan langsung tidak berlaku. Password baru hanya ditampilkan sekali.</span>
-          <div><button type="button" className="btn" disabled={resetting} onClick={()=>setResetConfirm(false)}>Batal</button><button type="button" className="btn btn-primary" disabled={resetting} onClick={()=>void resetPortalPassword()}>{resetting?'Menerbitkan…':'Reset password'}</button></div>
-        </div>:null}
+          {canEdit||canResetPortal?<div className="employee-drawer-actions">
+            {canResetPortal?<button className="btn" type="button" disabled={resetting} onClick={()=>setResetConfirm(true)}>{resetting?'Menerbitkan…':'Reset password portal'}</button>:null}
+            {canEdit?<button className="btn" type="button" onClick={()=>editing?cancelEditing():setEditing(true)}>{editing?'Batal edit':'Edit administrasi'}</button>:null}
+          </div>:null}
 
-        {portalPassword?<div className="account-credential employee-portal-password" role="status"><div><strong>Password portal — hanya sekali</strong><span>{employee.employeeCode||employee.id}</span></div><code>{portalPassword}</code><button type="button" className="btn" onClick={()=>void navigator.clipboard.writeText(portalPassword)}>Salin</button></div>:null}
+          {discardConfirm?<div className="employee-inline-confirm employee-discard-confirm" role="alertdialog" aria-modal="true">
+            <strong>Perubahan belum disimpan</strong>
+            <span>Keluar sekarang akan membuang perubahan administrasi yang belum disimpan.</span>
+            <div><button type="button" className="btn" onClick={()=>setDiscardConfirm(false)}>Lanjut edit</button><button type="button" className="btn btn-danger" onClick={discardChanges}>Buang perubahan</button></div>
+          </div>:null}
 
-        {editing?<div className="card employee-admin-form">
-          {(Object.entries({nik:'NIK (16 digit)',email:'Email',bankName:'Nama bank',accountNo:'Nomor rekening',bpjsKesehatanNo:'BPJS Kesehatan',jamsostekNo:'BPJS Ketenagakerjaan'}) as Array<[keyof EmployeeAdminForm,string]>).map(([key,label])=><label key={key}>{label}<input value={form[key]} onChange={(event)=>setForm({...form,[key]:event.target.value})}/></label>)}
-          {message?<p className="employee-form-error">{message}</p>:null}
-          <button className="btn btn-primary" type="button" disabled={saving} onClick={()=>void save()}>{saving?'Menyimpan…':'Simpan perubahan'}</button>
-        </div>:null}
+          {resetConfirm?<div className="employee-inline-confirm" role="alertdialog" aria-modal="true">
+            <strong>Terbitkan ulang password portal?</strong>
+            <span>Password lama akan langsung tidak berlaku. Password baru hanya ditampilkan sekali.</span>
+            <div><button type="button" className="btn" disabled={resetting} onClick={()=>setResetConfirm(false)}>Batal</button><button type="button" className="btn btn-primary" disabled={resetting} onClick={()=>void resetPortalPassword()}>{resetting?'Menerbitkan…':'Reset password'}</button></div>
+          </div>:null}
 
-        <div className="employee-drawer-pay"><span>Gaji pokok</span><strong>{formatIDR(Number(employee.salaryGross||0))}</strong><em className={`status-pill status-${employeeStatusTone(employee.status)}`}>{employee.status||'Belum diisi'}</em></div>
-        <div className="employee-detail-groups">{groups.map((group)=><section key={group.title}><h3>{group.title}</h3><dl>{group.fields.map(([label,value])=><div key={String(label)}><dt>{label}</dt><dd>{employeeText(value)||'-'}</dd></div>)}</dl></section>)}</div>
+          {portalPassword?<div className="account-credential employee-portal-password" role="status"><div><strong>Password portal — hanya sekali</strong><span>{employee.employeeCode||employee.id}</span></div><code>{portalPassword}</code><button type="button" className="btn" onClick={()=>void navigator.clipboard.writeText(portalPassword)}>Salin</button></div>:null}
+
+          {editing?<div className="employee-edit-shell">
+            <div className="employee-edit-heading">
+              <div><span>ADMINISTRASI</span><strong>Lengkapi data utama</strong></div>
+              {dirty?<small>Perubahan belum disimpan</small>:<small>Belum ada perubahan</small>}
+            </div>
+            <div className="employee-admin-form">
+              {(Object.entries({nik:'NIK (16 digit)',email:'Email',bankName:'Nama bank',accountNo:'Nomor rekening',bpjsKesehatanNo:'BPJS Kesehatan',jamsostekNo:'BPJS Ketenagakerjaan'}) as Array<[keyof EmployeeAdminForm,string]>).map(([key,label])=><label key={key}>{label}<input value={form[key]} onChange={(event)=>setForm({...form,[key]:event.target.value})}/></label>)}
+              {message?<p className="employee-form-error">{message}</p>:null}
+            </div>
+            <div className="employee-edit-footer">
+              <button type="button" className="btn" disabled={saving} onClick={cancelEditing}>Batal</button>
+              <button className="btn btn-primary" type="button" disabled={saving||!dirty} onClick={()=>void save()}>{saving?'Menyimpan…':'Simpan perubahan'}</button>
+            </div>
+          </div>:null}
+
+          <div className="employee-detail-groups">{groups.map((group)=><section key={group.title}><h3>{group.title}</h3><dl>{group.fields.map(([label,value])=><div key={String(label)}><dt>{label}</dt><dd>{employeeText(value)||'-'}</dd></div>)}</dl></section>)}</div>
+        </div>
       </aside>
     </div>
   );
