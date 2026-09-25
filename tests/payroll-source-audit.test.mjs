@@ -72,8 +72,8 @@ test('canonical final payslips are keyed by submission and require matched recon
   const source = read('functions/api/employee/payslips.js');
   assert.match(source, /submissionId/);
   assert.match(source, /runType/);
-  assert.match(source, /pi\.status='COMPLETED'/);
-  assert.match(source, /r\.status='MATCHED'/);
+  assert.match(source, /pi2\.status='COMPLETED'/);
+  assert.match(source, /r2\.status='MATCHED'/);
   assert.doesNotMatch(source, /seen\.has\(.*period/);
 });
 
