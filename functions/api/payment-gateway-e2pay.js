@@ -146,7 +146,16 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
       try { body = JSON.parse(text); }
       catch { throw new E2PayRequestError('Response E2Pay bukan JSON valid', 'E2PAY_INVALID_JSON', response.status); }
     }
-    if (!response.ok) throw new E2PayRequestError(`E2Pay HTTP ${response.status}`, 'E2PAY_HTTP_ERROR', response.status);
+    if (!response.ok) {
+      const providerMessage = String(
+        body?.message || body?.error_description || body?.error || body?.responseMessage || ''
+      ).trim().slice(0, 240);
+      throw new E2PayRequestError(
+        `E2Pay HTTP ${response.status}${providerMessage ? ` · ${providerMessage}` : ''}`,
+        'E2PAY_HTTP_ERROR',
+        response.status,
+      );
+    }
     return body;
   } catch (error) {
     if (error?.name === 'AbortError') throw new E2PayRequestError('Request E2Pay timeout', 'E2PAY_TIMEOUT');
@@ -313,9 +322,13 @@ export async function e2payBankListPage(env, accessToken, options = {}, fetchImp
     method:'GET',
     headers:bearer(accessToken),
   }, fetchImpl);
+  const rows=Array.isArray(result?.data) ? result.data.map((row)=>({
+    ...row,
+    active: row?.active ?? row?.status ?? true,
+  })) : [];
   return {
-    rowCount:Number(result?.rowCount || 0),
-    data:Array.isArray(result?.data) ? result.data : [],
+    rowCount:Number(result?.rowCount || rows.length || 0),
+    data:rows,
   };
 }
 
@@ -409,24 +422,44 @@ export async function e2payDisburse(env, accessToken, input, fetchImpl = fetch) 
 }
 
 export async function e2payTransactionHistoryList(env, accessToken, filters = {}, fetchImpl = fetch) {
-  const params = new URLSearchParams({
-    limit:String(Math.max(1,Math.min(200,Number(filters.limit || 50) || 50))),
-    offset:String(Math.max(0,Number(filters.offset || 0) || 0)),
-    sortField:String(filters.sortField || 'transactionTimestamp'),
-    sortOrder:String(filters.sortOrder || 'DESCENDING'),
-  });
+  const limit=String(Math.max(1,Math.min(200,Number(filters.limit || 50) || 50)));
+  const offset=String(Math.max(0,Number(filters.offset || 0) || 0));
   const allowed=['accountTransactionId','clientRef','description','transactionCode','transactionName','senderAccountId','senderAccountName','receiverAccountId','receiverAccountName','journalId','refJournalId','responseCode','responseMessage','transactionTimestampFrom','transactionTimestampUntil'];
-  for (const key of allowed) {
-    const value=filters[key];
-    if (value !== undefined && value !== null && String(value).trim()) params.set(key,String(value).trim());
+
+  const buildParams=(includeSort=true)=>{
+    const params=new URLSearchParams({ limit, offset });
+    if(includeSort){
+      if(filters.sortField) params.set('sortField',String(filters.sortField));
+      if(filters.sortOrder) params.set('sortOrder',String(filters.sortOrder));
+    }
+    for (const key of allowed) {
+      const value=filters[key];
+      if (value !== undefined && value !== null && String(value).trim()) params.set(key,String(value).trim());
+    }
+    return params;
+  };
+
+  async function requestHistory(params){
+    return requestJson(env, `/b2b/merchant/me/transaction?${params}`, {
+      method:'GET',
+      headers:bearer(accessToken),
+    }, fetchImpl);
   }
-  const result = await requestJson(env, `/b2b/merchant/me/transaction?${params}`, {
-    method:'GET',
-    headers:bearer(accessToken),
-  }, fetchImpl);
+
+  let result;
+  try {
+    result=await requestHistory(buildParams(true));
+  } catch (error) {
+    // E2Pay UAT rejects some sort-field combinations with HTTP 400 even though
+    // sortField/sortOrder are documented query parameters. Retry the same
+    // read-only query without optional sorting; never drop business filters.
+    if (!(error instanceof E2PayRequestError) || error.httpStatus !== 400) throw error;
+    result=await requestHistory(buildParams(false));
+  }
+  const rows=Array.isArray(result?.data) ? result.data : [];
   return {
-    rowCount:Number(result?.rowCount || 0),
-    data:Array.isArray(result?.data) ? result.data : [],
+    rowCount:Number(result?.rowCount || rows.length || 0),
+    data:rows,
   };
 }
 
