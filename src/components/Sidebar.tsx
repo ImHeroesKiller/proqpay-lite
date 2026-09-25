@@ -274,10 +274,10 @@ export default function Sidebar({
                   <NavBtn active={view === "ewa"} icon={<IconWallet />} title="Advance Salary" onClick={() => go("ewa")} />
                 ) : null}
                 {allowed.has("portalSettings") ? (
-                  <NavBtn active={view === "portalSettings"} icon={<IconSettings />} title="Portal Settings" onClick={() => go("portalSettings")} />
+                  <NavBtn active={view === "portalSettings"} icon={<IconSettings />} title="Portal Configuration" onClick={() => go("portalSettings")} />
                 ) : null}
                 {allowed.has("portalAudit") ? (
-                  <NavBtn active={view === "portalAudit"} icon={<IconShieldCheck />} title="Portal Audit" onClick={() => go("portalAudit")} />
+                  <NavBtn active={view === "portalAudit"} icon={<IconShieldCheck />} title="Portal Activity" onClick={() => go("portalAudit")} />
                 ) : null}
               </NavGroup>
             ) : null}
