@@ -64,15 +64,14 @@ test('Employee Services P1: EWA ops supports bounded filters and pagination',asy
   assert.match(ui,/function disburse\(id: string\)/);
 });
 
-test('Employee Services P1: Portal Audit is scoped, searchable and excludes generic employee-master noise',async()=>{
-  const api=await read('functions/api/portal-audit.js');
-  assert.match(api,/kindRaw/);
+test('Employee Services P1: portal audit is consolidated into org-scoped unified Audit Logs',async()=>{
+  const api=await read('functions/api/audit-logs.js');
+  const ui=await read('src/components/SystemLogs.tsx');
+  assert.match(api,/WHERE org_id=\?/);
+  assert.match(api,/portal_login_attempts/);
   assert.match(api,/LIMIT \? OFFSET \?/);
-  assert.match(api,/entity IN \('ewa_request','employee_credentials'\)/);
-  assert.doesNotMatch(api,/entity IN \('ewa_request', 'employee_credentials', 'employee'\)/);
-  assert.match(api,/EMPLOYEE_PORTAL_PASSWORDS_ISSUED/);
-  const ui=await read('src/components/PortalAudit.tsx');
-  assert.match(ui,/Cari audit portal/);
+  assert.match(api,/EMPLOYEE_PORTAL_LOGIN_FAILED/);
+  assert.match(ui,/Audit Logs Control Center/);
   assert.match(ui,/Berikutnya/);
 });
 

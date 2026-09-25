@@ -34,7 +34,6 @@ export type AppView =
   | "reports"
   | "logs"
   | "ewa"
-  | "portalAudit"
   | "portalSettings";
 
 const ROLE_VIEWS: Record<string, AppView[]> = {
@@ -50,7 +49,6 @@ const ROLE_VIEWS: Record<string, AppView[]> = {
     "reports",
     "logs",
     "ewa",
-    "portalAudit",
     "portalSettings",
   ],
   PAYROLL_PROCESSOR: [
@@ -117,7 +115,7 @@ export default function Sidebar({
   const canIntake = ["SUPER_ADMIN", "PAYROLL_PROCESSOR"].includes(role || "");
   const simplifiedInternal = ["PAYROLL_PROCESSOR", "PAYROLL_CONTROLLER"].includes(role || "");
   const clientExperience = role === "CLIENT_USER";
-  const employeeServicesActive = ["ewa", "portalAudit", "portalSettings"].includes(view);
+  const employeeServicesActive = ["ewa", "portalSettings"].includes(view);
   const systemActive = ["integrations", "logs"].includes(view);
 
   useEffect(() => {
@@ -263,7 +261,7 @@ export default function Sidebar({
               ) : null}
             </NavGroup>
 
-            {role === "SUPER_ADMIN" && (allowed.has("ewa") || allowed.has("portalAudit") || allowed.has("portalSettings")) ? (
+            {role === "SUPER_ADMIN" && (allowed.has("ewa") || allowed.has("portalSettings")) ? (
               <NavGroup
                 label="Employee Services"
                 collapsible={!compact}
@@ -275,9 +273,6 @@ export default function Sidebar({
                 ) : null}
                 {allowed.has("portalSettings") ? (
                   <NavBtn active={view === "portalSettings"} icon={<IconSettings />} title="Portal Configuration" onClick={() => go("portalSettings")} />
-                ) : null}
-                {allowed.has("portalAudit") ? (
-                  <NavBtn active={view === "portalAudit"} icon={<IconShieldCheck />} title="Portal Activity" onClick={() => go("portalAudit")} />
                 ) : null}
               </NavGroup>
             ) : null}
