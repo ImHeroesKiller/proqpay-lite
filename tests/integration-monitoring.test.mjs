@@ -44,9 +44,12 @@ test('API monitoring persists only request metadata and exposes Super Admin summ
 
 test('Payment Gateway integration panel reflects encrypted Settings-based E2Pay configuration', async () => {
   const panel = await readFile(new URL('../src/components/PaymentGatewayIntegrationPanel.tsx', import.meta.url), 'utf8');
-  assert.match(panel, /E2Pay B2B Disbursement/);
+  const consoleSource = await readFile(new URL('../src/components/E2PayOperationsConsole.tsx', import.meta.url), 'utf8');
+  assert.match(panel, /E2Pay Disbursement/);
   assert.match(panel, /Settings → Payment Gateway/);
-  assert.match(panel, /Credential UAT dan Production disimpan sebagai profile terpisah/);
+  assert.match(panel, /integration-runtime-strip/);
+  assert.match(consoleSource, /Available balance/);
+  assert.match(consoleSource, /Advanced administration/);
   assert.doesNotMatch(panel, /E2PAY_CLIENT_ID \/ E2PAY_CLIENT_SECRET<\/code> — Cloudflare Secret/);
 });
 
@@ -129,13 +132,18 @@ test('P2 Integrations UI exposes actionable health filtering recovery and mobile
   assert.match(styles, /\.integration-filter-panel/);
 });
 
-test('P2 Payment Gateway integration shows diagnostics and safe recovery guidance', async () => {
+test('Payment Gateway integration keeps primary operations visible and hides advanced detail by default', async () => {
   const panel = await readFile(new URL('../src/components/PaymentGatewayIntegrationPanel.tsx', import.meta.url), 'utf8');
-  assert.match(panel, /Runtime health/);
-  assert.match(panel, /Operational recovery path/);
+  const consoleSource = await readFile(new URL('../src/components/E2PayOperationsConsole.tsx', import.meta.url), 'utf8');
+  assert.match(panel, /Refresh status/);
+  assert.match(panel, /Action required/);
   assert.match(panel, /Test Connection/);
   assert.match(panel, /Activate/);
-  assert.match(panel, /reconciliation/i);
-  assert.match(panel, /Retry readiness/);
-  assert.match(panel, /Runtime diagnostics/);
+  assert.match(consoleSource, /Transaction history/);
+  assert.match(consoleSource, /Bank directory/);
+  assert.match(consoleSource, /API endpoint coverage/);
+  assert.match(consoleSource, /Advanced administration/);
+  assert.match(consoleSource, /Disbursement tetap dijalankan melalui approved Payment Instruction/);
+  assert.doesNotMatch(panel, /Operational recovery path/);
+  assert.doesNotMatch(panel, /Runtime diagnostics/);
 });

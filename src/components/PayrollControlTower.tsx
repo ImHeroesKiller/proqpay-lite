@@ -221,22 +221,28 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
         <b>{Number(portfolio.projects||0).toLocaleString('id-ID')} project</b><i aria-hidden="true" />
         <b>{Number(portfolio.bankCoveragePercent||0)}% rekening utama</b>
       </div> : null}
-      <div className="control-kpis" aria-label="KPI dashboard payroll">
-        {simplifiedInternal ? <>
-          <Kpi label="My work" value={String(actions.length)} note="Tindakan yang membutuhkan Anda" tone="blue" icon={<IconLayers />} onClick={()=>actions[0]?openContext(actions[0].view,actions[0].submissionId):openContext('operations')} />
-          <Kpi label="Need attention" value={String(attentionRuns)} note={`${blockers} blocker kritis · ${openExceptions} exception`} tone="red" icon={<IconAlertTriangle />} onClick={()=>{const item=actions.find((row)=>row.tone==='danger');item?openContext(item.view,item.submissionId):openContext('exceptions');}} />
-          <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval sesuai role Anda" tone="amber" icon={<IconClock />} onClick={()=>{const item=actions.find((row)=>row.category==='APPROVAL');item?openContext(item.view,item.submissionId):openContext('operations');}} />
-          <Kpi label="Active payroll" value={String(activeRuns)} note={`${visible.length} payroll pada filter`} tone="navy" icon={<IconWallet />} onClick={()=>openContext('operations')} />
-          <Kpi label="E2Pay balance" value={gatewayBalanceLoading?'…':gatewayAccount?.balance!==null&&gatewayAccount?.balance!==undefined?formatIDRShort(Number(gatewayAccount.balance)):'—'} note={gatewayBalanceError ? gatewayBalanceError : gatewayAccount?.environment ? `${gatewayAccount.environment} · ${gatewayAccount.merchantStatus||'status unavailable'}` : 'Payment gateway balance'} tone="green" icon={<IconWallet />} onClick={()=>openContext(actor.role==='SUPER_ADMIN'?'integrations':'payments')} />
-        </> : <>
-          <Kpi label="Active pay runs" value={String(activeRuns)} note={`${visible.length} pay run terfilter`} tone="blue" icon={<IconLayers />} onClick={()=>openContext('operations')} />
-          <Kpi label="Need attention" value={String(attentionRuns)} note={`${blockers} blocker kritis · ${openExceptions} exception`} tone="red" icon={<IconAlertTriangle />} onClick={()=>{const item=actions.find((row)=>row.tone==='danger');item?openContext(item.view,item.submissionId):openContext('exceptions');}} />
-          <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval yang membutuhkan role Anda" tone="amber" icon={<IconClock />} onClick={()=>{const item=actions.find((row)=>row.category==='APPROVAL');item?openContext(item.view,item.submissionId):openContext('operations');}} />
-          <Kpi label="Payment due" value={formatIDRShort(paymentDue)} note={`${paymentDueRecipients.toLocaleString('id-ID')} penerima siap / sedang dibayar`} tone="navy" icon={<IconWallet />} featured onClick={()=>openContext('payments')} />
-          <Kpi label="E2Pay balance" value={gatewayBalanceLoading?'…':gatewayAccount?.balance!==null&&gatewayAccount?.balance!==undefined?formatIDRShort(Number(gatewayAccount.balance)):'—'} note={gatewayBalanceError ? gatewayBalanceError : gatewayAccount?.refreshedAt ? `${gatewayAccount.environment||'E2PAY'} · update ${new Date(gatewayAccount.refreshedAt).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})}` : 'Saldo merchant account'} tone="green" icon={<IconWallet />} onClick={()=>openContext('integrations')} />
-          <Kpi label="Paid & matched" value={String(matched)} note={`${reconciliationPending} menunggu reconciliation`} tone="green" icon={<IconCheckCircle />} onClick={()=>openContext('billing',undefined,'CLOSE')} />
-          <Kpi label="Open exceptions" value={String(openExceptions)} note="Belum resolved / accepted" tone="violet" icon={<IconShieldCheck />} onClick={()=>openContext('exceptions')} />
-        </>}
+      <div className={`dashboard-summary-layout${simplifiedInternal?' dashboard-summary-layout-simple':''}`} aria-label="Ringkasan dashboard payroll">
+        <div className="control-kpis" aria-label="KPI dashboard payroll">
+          {simplifiedInternal ? <>
+            <Kpi label="My work" value={String(actions.length)} note="Tindakan yang membutuhkan Anda" tone="blue" icon={<IconLayers />} onClick={()=>actions[0]?openContext(actions[0].view,actions[0].submissionId):openContext('operations')} />
+            <Kpi label="Need attention" value={String(attentionRuns)} note={`${blockers} blocker kritis · ${openExceptions} exception`} tone="red" icon={<IconAlertTriangle />} onClick={()=>{const item=actions.find((row)=>row.tone==='danger');item?openContext(item.view,item.submissionId):openContext('exceptions');}} />
+            <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval sesuai role Anda" tone="amber" icon={<IconClock />} onClick={()=>{const item=actions.find((row)=>row.category==='APPROVAL');item?openContext(item.view,item.submissionId):openContext('operations');}} />
+            <Kpi label="Active payroll" value={String(activeRuns)} note={`${visible.length} payroll pada filter`} tone="navy" icon={<IconWallet />} onClick={()=>openContext('operations')} />
+          </> : <>
+            <Kpi label="Active pay runs" value={String(activeRuns)} note={`${visible.length} pay run terfilter`} tone="blue" icon={<IconLayers />} onClick={()=>openContext('operations')} />
+            <Kpi label="Need attention" value={String(attentionRuns)} note={`${blockers} blocker kritis · ${openExceptions} exception`} tone="red" icon={<IconAlertTriangle />} onClick={()=>{const item=actions.find((row)=>row.tone==='danger');item?openContext(item.view,item.submissionId):openContext('exceptions');}} />
+            <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval yang membutuhkan role Anda" tone="amber" icon={<IconClock />} onClick={()=>{const item=actions.find((row)=>row.category==='APPROVAL');item?openContext(item.view,item.submissionId):openContext('operations');}} />
+            <Kpi label="Payment due" value={formatIDRShort(paymentDue)} note={`${paymentDueRecipients.toLocaleString('id-ID')} penerima siap / sedang dibayar`} tone="navy" icon={<IconWallet />} featured onClick={()=>openContext('payments')} />
+            <Kpi label="Paid & matched" value={String(matched)} note={`${reconciliationPending} menunggu reconciliation`} tone="green" icon={<IconCheckCircle />} onClick={()=>openContext('billing',undefined,'CLOSE')} />
+            <Kpi label="Open exceptions" value={String(openExceptions)} note="Belum resolved / accepted" tone="violet" icon={<IconShieldCheck />} onClick={()=>openContext('exceptions')} />
+          </>}
+        </div>
+        <GatewayBalanceWidget
+          account={gatewayAccount}
+          loading={gatewayBalanceLoading}
+          error={gatewayBalanceError}
+          onClick={()=>openContext(actor.role==='SUPER_ADMIN'?'integrations':'payments')}
+        />
       </div>
       <div className={simplifiedInternal?'':'control-priority-grid'}>
         <section className="card action-center"><PanelTitle eyebrow="PRIORITY QUEUE" title={simplifiedInternal?'My Work':'Action Center'} meta={`${actions.length} tindakan`} />
@@ -276,6 +282,18 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
         <section className="card trend-panel"><PanelTitle eyebrow="OPERATIONAL HEALTH" title="Performa periode" meta="Portfolio" /><div className="health-list"><div><span>No critical blocker</span><strong>{visible.length?Math.round((visible.filter((row)=>!Number(row.blocking_count||0)).length/visible.length)*100):0}%</strong></div><div><span>Reconciliation match</span><strong>{visible.filter((row)=>row.business.stage==='CLOSE').length?Math.round((matched/visible.filter((row)=>row.business.stage==='CLOSE').length)*100):0}%</strong></div><div><span>Pay runs with exception</span><strong>{visible.length?((affectedExceptionRuns/visible.length)*100).toFixed(1):'0.0'}%</strong></div></div><div className="role-focus"><span>{actor.role.replaceAll('_',' ')}</span><p>{roleFocus(actor.role)}</p></div></section></div> : null}
     </>}
   </section>;
+}
+
+function GatewayBalanceWidget({account,loading,error,onClick}:{account:E2PayAccountSnapshot|null;loading:boolean;error:string;onClick:()=>void}) {
+  const value=loading?'…':account?.balance!==null&&account?.balance!==undefined?formatIDR(Number(account.balance)):'—';
+  const status=error||account?.merchantStatus||'Status unavailable';
+  const updated=account?.refreshedAt ? new Date(account.refreshedAt).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) : null;
+  return <button type="button" className="gateway-balance-widget" onClick={onClick} aria-label={`E2Pay balance ${value}`}>
+    <div className="gateway-balance-widget-head"><span>PAYMENT GATEWAY</span><i className={error?'error':account?.readiness?.configured?'ready':'idle'}>{error?'Issue':account?.environment||'E2PAY'}</i></div>
+    <div className="gateway-balance-widget-icon"><IconWallet aria-hidden="true" /></div>
+    <div className="gateway-balance-widget-body"><small>Available balance</small><strong>{value}</strong><span>{status}</span></div>
+    <div className="gateway-balance-widget-foot"><span>{updated?`Updated ${updated}`:'Live merchant balance'}</span><b>Open →</b></div>
+  </button>;
 }
 
 function Kpi({label,value,note,tone,icon,featured=false,onClick}:{label:string;value:string;note:string;tone:string;icon:React.ReactNode;featured?:boolean;onClick:()=>void}) { return <button type="button" className={`control-kpi ${tone}${featured?' featured':''}`} onClick={onClick}><span className="control-kpi-icon" aria-hidden="true">{icon}</span><span className="control-kpi-label">{label}</span><strong>{value}</strong><small>{note}</small><i aria-hidden="true">↗</i></button>; }
