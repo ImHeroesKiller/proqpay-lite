@@ -80,6 +80,9 @@ export default function Sidebar({
   const canIntake = roleHasCapability(role || "", "data-intake");
   const simplifiedInternal = ["PAYROLL_PROCESSOR", "PAYROLL_CONTROLLER"].includes(role || "");
   const clientExperience = role === "CLIENT_USER";
+  const canManageSettings = roleHasCapability(role || "", "settings");
+  const canViewAudit = roleHasCapability(role || "", "audit:view");
+  const canManageEmployeeServices = roleHasCapability(role || "", "employee-services:manage");
   const employeeServicesActive = ["ewa", "portalSettings"].includes(view);
   const systemActive = ["integrations", "logs"].includes(view);
 
@@ -226,7 +229,7 @@ export default function Sidebar({
               ) : null}
             </NavGroup>
 
-            {role === "SUPER_ADMIN" && (allowed.has("ewa") || allowed.has("portalSettings")) ? (
+            {canManageEmployeeServices && (allowed.has("ewa") || allowed.has("portalSettings")) ? (
               <NavGroup
                 label="Employee Services"
                 collapsible={!compact}
@@ -242,7 +245,7 @@ export default function Sidebar({
               </NavGroup>
             ) : null}
 
-            {role === "SUPER_ADMIN" ? (
+            {canViewAudit ? (
               <NavGroup label="System" collapsible={!compact} defaultOpen={false} active={systemActive}>
                 {allowed.has("integrations") ? (
                   <NavBtn active={view === "integrations"} icon={<IconLayers />} title="Integrations" onClick={() => go("integrations")} />
@@ -269,7 +272,7 @@ export default function Sidebar({
               <span>Ask IDA</span>
             </button>
           ) : null}
-          {role === "SUPER_ADMIN" ? (
+          {canManageSettings ? (
             <button
               type="button"
               className={`sidebar-utility-button${settingsOpen ? " sidebar-nav-active" : ""}`}
