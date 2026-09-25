@@ -2889,7 +2889,7 @@ textarea:focus-visible {
 }
 
 
-/* Reports P2 — operational UX hardening */
+/* Reports operational UX hardening */
 .report-type-tabs {
   position:relative;
   padding:4px;
