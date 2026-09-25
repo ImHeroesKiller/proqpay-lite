@@ -19,7 +19,7 @@ test('Reports business audit: payment CSV separates payment and reconciliation d
   const source=await read('src/components/ReportsWorkspace.tsx');
   assert.match(source,/payment_difference:paymentDifference\(row\)/);
   assert.match(source,/reconciliation_difference:row\.difference/);
-  assert.doesNotMatch(source,/difference:row\.difference/);
+  assert.doesNotMatch(source,/[,{]difference:row\.difference/);
 });
 
 test('Reports maintainability audit: tab changes reset filters in one event path instead of a type-reset effect',async()=>{
