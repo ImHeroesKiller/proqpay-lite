@@ -97,7 +97,7 @@ export async function onRequest({request,env}) {
       const submissionFilter=focusSubmissionId?{sql:' AND s.id=?',bindings:[focusSubmissionId]}:{sql:'',bindings:[]};
       const cs=clientFilter(actor,'id'),is=clientFilter(actor,'i.client_id'),as=clientFilter(actor,'ar.client_id'),
         ips=projectFilter(actor,'i.project_id'),aps=projectFilter(actor,'ar.project_id');
-      const [clients,billablePayments,invoices,arItems]=await Promise.all([
+      const [clients,billablePayments,invoices,arItems,issuerProfile]=await Promise.all([
         d1All(database,`SELECT id,code,name,npwp,nitku,billing_address,billing_email,billing_cc_email,payment_terms_days,tax_status,
           purchase_order,billing_method,billing_rate,billing_admin_fee,billing_tax_rate,ar_payment_block_mode,ar_warning_days FROM clients
           WHERE org_id=?${cs.sql} ORDER BY name`,[organizationId,...cs.bindings]),
@@ -146,6 +146,7 @@ export async function onRequest({request,env}) {
           LEFT JOIN payroll_submissions s ON s.id=pi_link.submission_id
           LEFT JOIN projects p ON p.id=ar.project_id WHERE ar.org_id=?${as.sql}${aps.sql}${submissionFilter.sql}
           ORDER BY ar.due_date DESC,ar.id DESC LIMIT ? OFFSET ?`,[organizationId,...as.bindings,...aps.bindings,...submissionFilter.bindings,pageLimit+1,arOffset]),
+        d1First(database,`SELECT * FROM billing_issuer_profiles WHERE org_id=? LIMIT 1`,[organizationId]),
       ]);
       const billableTruncated=billablePayments.length>pageLimit;
       const invoiceTruncated=invoices.length>pageLimit;
@@ -187,7 +188,7 @@ export async function onRequest({request,env}) {
           ...ar.audit_activity.map((entry)=>({...entry,type:'AUDIT',at:entry.timestamp})),
         ].sort((left,right)=>String(right.at||'').localeCompare(String(left.at||'')));
       }
-      return respond({ok:true,clients,billablePayments:billablePage,invoices:invoicePage,arItems:arPage,
+      return respond({ok:true,clients,billablePayments:billablePage,invoices:invoicePage,arItems:arPage,issuerProfile:issuerProfile||null,
         meta:{
           billable:{offset:billableOffset,limit:pageLimit,returned:billablePage.length,nextOffset:billableTruncated?billableOffset+pageLimit:null,truncated:billableTruncated},
           invoices:{offset:invoiceOffset,limit:pageLimit,returned:invoicePage.length,nextOffset:invoiceTruncated?invoiceOffset+pageLimit:null,truncated:invoiceTruncated},
@@ -210,6 +211,21 @@ export async function onRequest({request,env}) {
       if (!client) return respond({error:'Klien tidak ditemukan'},404);
       await recordAudit(database,organizationId,actor,'BILLING_PROFILE_UPDATED','client',client.id,JSON.stringify({billingMethod:method,paymentTermsDays:terms,taxStatus,arBlockMode,arWarningDays}));
       return respond({ok:true,client});
+    }
+    if (body.action==='UPDATE_ISSUER_PROFILE') {
+      if (actor.role!=='SUPER_ADMIN') return respond({error:'Hanya Super Admin yang dapat mengubah profil penerbit invoice',code:'ISSUER_PROFILE_ADMIN_REQUIRED'},403);
+      const legalName=text(body.legalName,180);
+      if (!legalName) return respond({error:'Nama legal penerbit wajib diisi'},422);
+      const profile=await d1First(database,`INSERT INTO billing_issuer_profiles
+        (org_id,legal_name,address,npwp,email,phone,bank_name,bank_account_name,bank_account_no,payment_notes,updated_by,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,${NOW})
+        ON CONFLICT(org_id) DO UPDATE SET legal_name=excluded.legal_name,address=excluded.address,npwp=excluded.npwp,
+          email=excluded.email,phone=excluded.phone,bank_name=excluded.bank_name,bank_account_name=excluded.bank_account_name,
+          bank_account_no=excluded.bank_account_no,payment_notes=excluded.payment_notes,updated_by=excluded.updated_by,updated_at=${NOW}
+        RETURNING *`,[organizationId,legalName,text(body.address,1200),text(body.npwp,40),text(body.email,254),text(body.phone,60),
+          text(body.bankName,120),text(body.bankAccountName,180),text(body.bankAccountNo,80),text(body.paymentNotes,500),actor.email]);
+      await recordAudit(database,organizationId,actor,'BILLING_ISSUER_PROFILE_UPDATED','organization',organizationId,JSON.stringify({legalName,bankName:text(body.bankName,120)}));
+      return respond({ok:true,issuerProfile:profile});
     }
     if (body.action==='GENERATE_INVOICE') {
       if (!canPrepareBilling(actor)) return respond({error:'Aksi ini membutuhkan role Payroll Processor dan izin billing:prepare',code:'BILLING_PREPARE_PERMISSION_REQUIRED'},403);
