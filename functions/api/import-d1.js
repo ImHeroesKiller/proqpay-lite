@@ -1,6 +1,5 @@
-import { d1All, d1Batch, d1First } from './_d1.js';
-import { applyEwaRepayments } from './_ewa.js';
-import { clientIdsFor, projectIdsFor, publicError } from './_security.js';
+import { d1All, d1Batch } from './_d1.js';
+import { publicError } from './_security.js';
 
 const MAX_BINDINGS=90;
 function slug(value) { return String(value||'X').toUpperCase().replace(/[^A-Z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40); }
@@ -17,56 +16,9 @@ function unique(rows,key) { const map=new Map(); for(const row of rows) map.set(
 
 export async function importRowsD1({env,actor,body,rows,respond,requestId}) {
   const database=env.DB,organizationId=String(env.DEFAULT_ORG_ID||'ORG-OTSINDO');
-  const context=body.context&&typeof body.context==='object'?body.context:null;
-  const clientId=context?.clientId?String(context.clientId):null,servicePlanId=context?.servicePlanId?String(context.servicePlanId):null,
-    serviceTier=context?.tier?String(context.tier):null,projectId=context?.projectId?String(context.projectId):null,
-    requestedSubmissionId=context?.submissionId?String(context.submissionId):null,
-    period=/^\d{4}-(0[1-9]|1[0-2])$/.test(String(context?.period||''))?String(context.period):new Date().toISOString().slice(0,7);
-  const rowClientId=(row)=>clientId||`CLI-${slug(row.clientCode||row.client||row.company||'GEN')}`;
+  const period=/^\d{4}-(0[1-9]|1[0-2])$/.test(String(body?.period||''))?String(body.period):new Date().toISOString().slice(0,7);
+  const rowClientId=(row)=>`CLI-${slug(row.clientCode||row.client||row.company||'GEN')}`;
   try {
-    let verifiedPlan=null,targetSubmission=null;
-    if (context) {
-      if (!clientId||!servicePlanId||!serviceTier) return respond({error:'Klien dan service tier wajib ditentukan sebelum import.'},409);
-      const effectiveDate=`${period}-01`;
-      verifiedPlan=await d1First(database,`SELECT sp.* FROM client_service_plans sp JOIN clients c ON c.id=sp.client_id
-        WHERE sp.id=? AND sp.client_id=? AND sp.tier=? AND (sp.project_id IS NULL OR sp.project_id=?) AND sp.status='ACTIVE' AND c.org_id=?
-        AND sp.effective_from<date(?,'+1 month') AND (sp.effective_until IS NULL OR sp.effective_until>=?) LIMIT 1`,
-        [servicePlanId,clientId,serviceTier,projectId||null,organizationId,effectiveDate,effectiveDate]);
-      if (!verifiedPlan) return respond({error:`Service tier klien tidak aktif atau tidak cocok untuk periode payroll ${period}.`},409);
-      if (projectId) {
-        const project=await d1First(database,'SELECT id FROM projects WHERE id=? AND client_id=? AND org_id=? LIMIT 1',[projectId,clientId,organizationId]);
-        if (!project) return respond({error:'Project import tidak sesuai dengan klien.'},409);
-      }
-      if (requestedSubmissionId) {
-        targetSubmission=await d1First(database,`SELECT * FROM payroll_submissions WHERE id=? AND org_id=? AND client_id=?
-          AND project_id=? AND service_plan_id=? AND period=? LIMIT 1`,
-          [requestedSubmissionId,organizationId,clientId,projectId,servicePlanId,period]);
-        if (!targetSubmission) return respond({error:'Pay Run tujuan upload tidak ditemukan atau scope tidak cocok.'},404);
-        if (targetSubmission.source_mode!=='UPLOAD_FINAL' || targetSubmission.state!=='DRAFT' || targetSubmission.period_status==='CLOSED') {
-          return respond({error:'Upload hanya dapat mengganti input Pay Run UPLOAD_FINAL yang masih DRAFT dan OPEN.'},409);
-        }
-      }
-      let affected=0;
-      for (const group of chunks(rows.map((row)=>String(row.nrk)),80)) {
-        const result=await d1First(database,`SELECT COUNT(*) AS count FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id
-          JOIN payroll_submissions s ON s.client_id=e.client_id AND (s.project_id IS NULL OR s.project_id=e.project_id)
-          WHERE e.id IN (${group.map(()=>'?').join(',')}) AND ec.payroll_source_period=? AND s.period=?
-          AND s.state IN ('PAYMENT_INSTRUCTION_READY','PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','COMPLETED')`,
-          [...group,period,period]);
-        affected+=Number(result?.count||0);
-      }
-      if (affected) return respond({error:`${affected} karyawan pada file ini sudah masuk payroll ${period} yang terkunci; gunakan alur revisi controller.`,code:'LOCKED_PAYROLL_EMPLOYEE_CONFLICT',affectedEmployees:affected},409);
-    }
-    if (actor.role==='CLIENT_USER') {
-      const allowedClients=clientIdsFor(actor,env)||[],allowedProjects=projectIdsFor(actor)||[];
-      const requested=[...new Set(rows.map(rowClientId))];
-      if (!allowedClients.length||requested.some((id)=>!allowedClients.includes(id))) return respond({error:'Import hanya boleh untuk klien yang ditetapkan pada akun Anda.'},403);
-      if (allowedProjects.length&&(!projectId||!allowedProjects.includes(projectId))) return respond({error:'Import hanya boleh untuk project yang ditetapkan pada akun Anda.'},403);
-      for (const group of chunks(rows.map((row)=>String(row.nrk)),80)) {
-        const found=await d1All(database,`SELECT id,client_id FROM employees WHERE id IN (${group.map(()=>'?').join(',')})`,group);
-        if (found.some((employee)=>!allowedClients.includes(employee.client_id))) return respond({error:'Import memuat ID karyawan milik klien lain.'},403);
-      }
-    }
     const existingIds=new Set();
     for (const group of chunks(rows.map((row)=>String(row.nrk)),80)) {
       for (const found of await d1All(database,`SELECT id FROM employees WHERE id IN (${group.map(()=>'?').join(',')})`,group)) existingIds.add(found.id);
@@ -94,31 +46,9 @@ export async function importRowsD1({env,actor,body,rows,respond,requestId}) {
     operations.push(...bulk('employee_bank_accounts',['id','employee_id','bank_name','account_no','is_primary'],bankRows.map((r)=>[`BNK-${r.nrk}`,r.nrk,r.bank||null,r.accountNo||null,1]),'ON CONFLICT(id) DO UPDATE SET bank_name=excluded.bank_name,account_no=excluded.account_no,is_primary=1'));
     const education=rows.filter((r)=>r.educationLevel||r.school);
     operations.push(...bulk('employee_education',['id','employee_id','level','school_name','major','graduate_year','is_highest'],education.map((r)=>[`EDU-${r.nrk}`,r.nrk,r.educationLevel||null,r.school||null,r.major||null,r.graduateYear||null,1]),'ON CONFLICT(id) DO UPDATE SET level=excluded.level,school_name=excluded.school_name,major=excluded.major,graduate_year=excluded.graduate_year,is_highest=1'));
-    const submissionId=targetSubmission?.id||(verifiedPlan?`SUB-${crypto.randomUUID()}`:null);
-    if (submissionId) {
-      if (targetSubmission) {
-        operations.push({statement:'DELETE FROM payroll_exceptions WHERE submission_id=?',bindings:[submissionId]});
-        operations.push({statement:'DELETE FROM submission_versions WHERE submission_id=?',bindings:[submissionId]});
-        operations.push({statement:'DELETE FROM payroll_run_lines WHERE submission_id=?',bindings:[submissionId]});
-        operations.push({statement:`UPDATE payroll_submissions SET input_status='READY',state='DRAFT',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,bindings:[submissionId]});
-      } else {
-        operations.push({statement:`INSERT INTO payroll_submissions
-          (id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,run_type,source_mode,input_status,state,created_by)
-          VALUES(?,?,?,?,?,?,?,?,'REGULAR','UPLOAD_FINAL','READY','DRAFT',?)`,bindings:[submissionId,organizationId,clientId,projectId,servicePlanId,serviceTier,period,period,actor.email]});
-      }
-      operations.push(...bulk('payroll_run_lines',
-        ['id','submission_id','employee_id','employee_code','employee_name','employment_status','bank_name','account_last4','gross_amount','deduction_amount','net_amount','components','source','included'],
-        rows.map((row)=>[`PRL-${crypto.randomUUID()}`,submissionId,String(row.nrk),`EMP-${slug(row.nrk)}`,row.name,row.statusAktif||'ACTIVE',row.bank||null,String(row.accountNo||'').slice(-4)||null,row.grossPay||0,row.totalDeductions||0,row.netPay||0,JSON.stringify(row.payrollComponents||{}),'UPLOAD_FINAL',1])));
-    }
-    operations.push({statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity) VALUES(?,?,?,?,?,?,?)`,bindings:[`LOG-IMP-${crypto.randomUUID()}`,organizationId,actor.email,actor.role,targetSubmission?'PAY_RUN_INPUT_REPLACED':'EMPLOYEE_IMPORT',`Import ${inserted} new, ${updated} updated, 0 errors${targetSubmission?` · ${submissionId}`:''}`,targetSubmission?'payroll_submission':'Employee']});
+    operations.push({statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity) VALUES(?,?,?,?,?,?,?)`,bindings:[`LOG-IMP-${crypto.randomUUID()}`,organizationId,actor.email,actor.role,'EMPLOYEE_IMPORT',`Import ${inserted} new, ${updated} updated, 0 errors`,'Employee']});
     await d1Batch(database,operations);
-    if (submissionId) {
-      try { await applyEwaRepayments(database, submissionId); }
-      catch (error) {
-        if (!/no such table|no such column/i.test(String(error?.message || error))) throw error;
-      }
-    }
-    return respond({ok:true,atomic:true,inserted,updated,errors:0,errorSamples:[],provinceStats,total:rows.length,submissionId,serviceTier,clientId,projectId});
+    return respond({ok:true,atomic:true,inserted,updated,errors:0,errorSamples:[],provinceStats,total:rows.length});
   } catch(error) {
     return respond({ok:false,atomic:true,error:'Import transaction failed',...publicError(error,requestId)},500);
   }
