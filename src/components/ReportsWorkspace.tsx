@@ -139,7 +139,7 @@ export default function ReportsWorkspace({clientMode=false}:Props = {}) {
     } else downloadRows(`${type}-${period === 'ALL' ? 'all' : period}.csv`, filteredPayroll);
   }
 
-  return <section>
+  return <section className="reports-workspace">
     {!clientMode ? <PayrollSourceUpload /> : null}
     <div className="reports-heading"><div><h2>{clientMode?'Reports':'Payroll & Payment Reports'}</h2><p>{clientMode?'Laporan payroll dan pembayaran yang tersedia untuk scope akun Anda.':'Audit trail dari raw source, canonical payroll snapshot, payslip final, pembayaran dan rekonsiliasi.'}</p></div><button className="btn btn-primary" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div>
     <div className="report-type-tabs">{reportTypes.map((item)=><button key={item} type="button" className={`btn ${type===item?'btn-primary':''}`} onClick={()=>setType(item)}>{clientMode&&item==='payments'?'Payment History':REPORT_LABELS[item]}</button>)}</div>
