@@ -27,6 +27,7 @@ type AuditRow = {
 
 type ApiPage = { offset: number; limit: number; total: number; hasMore: boolean; nextOffset: number };
 type Summary = { total: number; errors: number; warnings: number; employeeServices: number; failedLogins: number };
+type Health = { gatewayFailed:number; gatewayActive:number; connectedApps:number; apiErrors24h:number };
 
 const SOURCE_LABELS: Record<string, string> = {
   BUSINESS: "Business",
@@ -98,6 +99,7 @@ export default function SystemLogs() {
     failedLogins: 0,
   });
   const [sources, setSources] = useState<Array<{ source: string; total: number }>>([]);
+  const [health, setHealth] = useState<Health>({gatewayFailed:0,gatewayActive:0,connectedApps:0,apiErrors24h:0});
   const [page, setPage] = useState<ApiPage>({
     offset: 0,
     limit: 50,
@@ -151,6 +153,12 @@ export default function SystemLogs() {
         failedLogins: Number(data.summary?.failedLogins || 0),
       });
       setSources(data.sources || []);
+      setHealth({
+        gatewayFailed:Number(data.health?.gatewayFailed||0),
+        gatewayActive:Number(data.health?.gatewayActive||0),
+        connectedApps:Number(data.health?.connectedApps||0),
+        apiErrors24h:Number(data.health?.apiErrors24h||0),
+      });
       setPage({
         offset: Number(data.page?.offset || 0),
         limit: Number(data.page?.limit || limit),
@@ -255,6 +263,13 @@ export default function SystemLogs() {
         <div className="audit-kpi audit-kpi-warn"><span>Warning</span><strong>{summary.warnings}</strong><small>perlu perhatian</small></div>
         <div className="audit-kpi audit-kpi-ess"><span>Employee Services</span><strong>{summary.employeeServices}</strong><small>termasuk portal login</small></div>
       </div>
+
+      <section className="audit-health-strip" aria-label="Status operasional">
+        <div><span>Payment Gateway</span><strong className={health.gatewayFailed?"bad":health.gatewayActive?"warn":"ok"}>{health.gatewayFailed ? health.gatewayFailed+" gagal" : health.gatewayActive ? health.gatewayActive+" aktif" : "Normal"}</strong></div>
+        <div><span>Connected Apps</span><strong>{health.connectedApps}</strong></div>
+        <div><span>API error 24 jam</span><strong className={health.apiErrors24h?"bad":"ok"}>{health.apiErrors24h}</strong></div>
+        <div><span>ESS failed login</span><strong className={summary.failedLogins?"warn":"ok"}>{summary.failedLogins}</strong></div>
+      </section>
 
       <section className="card audit-filter-panel">
         <div className="audit-filter-head"><div><strong>Filter console</strong><span>Semua event canonical tersedia dari satu endpoint D1.</span></div>{hasFilters ? <button type="button" className="btn" onClick={resetFilters}>Reset filter</button> : null}</div>
