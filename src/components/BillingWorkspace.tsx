@@ -349,11 +349,12 @@ export default function BillingWorkspace({
   function openIssuer() {
     const row = data.issuerProfile || {};
     setForm({
-      legalName: row.legal_name || "",
-      address: row.address || "",
+      legalName: "PT Mandiri Semesta Gemilang",
+      address: row.address || "Graha MSG, Jl. Raya Pos Pengumben Raya No.Kav 188, Klp. Dua, Kec. Kb. Jeruk, Kota Jakarta Barat, Daerah Khusus Ibukota Jakarta 11550",
       npwp: row.npwp || "",
-      email: row.email || "",
-      phone: row.phone || "",
+      email: row.email || "rizal@msg-os.com",
+      phone: row.phone || "+62 856-9766-6101",
+      website: row.website || "www.msg-os.com",
       bankName: row.bank_name || "",
       bankAccountName: row.bank_account_name || "",
       bankAccountNo: row.bank_account_no || "",
@@ -1076,12 +1077,15 @@ function SetupSection({ clients, issuerProfile, canEdit, canManageIssuer, open, 
         action={canManageIssuer ? <button style={secondary} onClick={openIssuer}>{issuerProfile ? "Edit profil" : "Lengkapi profil"}</button> : null}
       >
         {issuerProfile ? <div style={grid2}>
-          <Info label="Nama legal" value={issuerProfile.legal_name || "-"} />
-          <Info label="NPWP" value={issuerProfile.npwp || "-"} />
-          <Info label="Email" value={issuerProfile.email || "-"} />
-          <Info label="Bank" value={issuerProfile.bank_name || "-"} />
-          <Info label="Nama rekening" value={issuerProfile.bank_account_name || "-"} />
-          <Info label="No. rekening" value={issuerProfile.bank_account_no || "-"} />
+          <Info label="Nama legal" value="PT Mandiri Semesta Gemilang" />
+          <Info label="Alamat" value={issuerProfile.address || "Graha MSG, Jl. Raya Pos Pengumben Raya No.Kav 188, Jakarta Barat 11550"} />
+          <Info label="Email" value={issuerProfile.email || "rizal@msg-os.com"} />
+          <Info label="Telepon" value={issuerProfile.phone || "+62 856-9766-6101"} />
+          <Info label="Website" value={issuerProfile.website || "www.msg-os.com"} />
+          <Info label="NPWP" value={issuerProfile.npwp || "Belum diisi"} />
+          <Info label="Bank" value={issuerProfile.bank_name || "Belum diisi"} />
+          <Info label="Nama rekening" value={issuerProfile.bank_account_name || "Belum diisi"} />
+          <Info label="No. rekening" value={issuerProfile.bank_account_no || "Belum diisi"} />
         </div> : <Empty text="Profil penerbit belum dilengkapi. PDF tetap dapat dibuat, tetapi detail legal/rekening akan terbatas." />}
       </Panel>
       <Panel
@@ -1332,19 +1336,26 @@ function SetupForm({ form, setForm, submit }: any) {
 
 function IssuerProfileForm({ form, setForm, submit }: any) {
   return (
-    <Form submit={submit} buttonText="Simpan profil penerbit">
-      <Field label="Nama legal perusahaan" value={form.legalName || ""} onChange={(v:any)=>setForm({...form,legalName:v})} />
-      <Field label="Alamat perusahaan" value={form.address || ""} onChange={(v:any)=>setForm({...form,address:v})} />
-      <div style={grid2}>
-        <Field label="NPWP" value={form.npwp || ""} onChange={(v:any)=>setForm({...form,npwp:v})} />
-        <Field label="Telepon" value={form.phone || ""} onChange={(v:any)=>setForm({...form,phone:v})} required={false} />
+    <Form submit={submit} buttonText="Simpan detail invoice">
+      <div className="app-notice-bubble app-notice-info">
+        <strong>Issuer canonical · PT Mandiri Semesta Gemilang</strong>
+        <span>Nama legal, alamat, email, telepon, website, dan branding ProQPay mengikuti Company Profile MSG 2026 dan tidak diedit dari billing setup.</span>
       </div>
-      <Field label="Email billing perusahaan" type="email" value={form.email || ""} onChange={(v:any)=>setForm({...form,email:v})} required={false} />
       <div style={grid2}>
-        <Field label="Bank penerimaan" value={form.bankName || ""} onChange={(v:any)=>setForm({...form,bankName:v})} />
-        <Field label="Nomor rekening" value={form.bankAccountNo || ""} onChange={(v:any)=>setForm({...form,bankAccountNo:v})} />
+        <Info label="Nama legal" value="PT Mandiri Semesta Gemilang" />
+        <Info label="Website" value={form.website || "www.msg-os.com"} />
       </div>
-      <Field label="Nama pemilik rekening" value={form.bankAccountName || ""} onChange={(v:any)=>setForm({...form,bankAccountName:v})} />
+      <Info label="Alamat" value={form.address || "Graha MSG, Jl. Raya Pos Pengumben Raya No.Kav 188, Jakarta Barat 11550"} />
+      <div style={grid2}>
+        <Info label="Email" value={form.email || "rizal@msg-os.com"} />
+        <Info label="Telepon" value={form.phone || "+62 856-9766-6101"} />
+      </div>
+      <Field label="NPWP" value={form.npwp || ""} onChange={(v:any)=>setForm({...form,npwp:v})} required={false} />
+      <div style={grid2}>
+        <Field label="Bank penerimaan" value={form.bankName || ""} onChange={(v:any)=>setForm({...form,bankName:v})} required={false} />
+        <Field label="Nomor rekening" value={form.bankAccountNo || ""} onChange={(v:any)=>setForm({...form,bankAccountNo:v})} required={false} />
+      </div>
+      <Field label="Nama pemilik rekening" value={form.bankAccountName || ""} onChange={(v:any)=>setForm({...form,bankAccountName:v})} required={false} />
       <Field label="Catatan pembayaran" value={form.paymentNotes || ""} onChange={(v:any)=>setForm({...form,paymentNotes:v})} required={false} />
     </Form>
   );
