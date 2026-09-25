@@ -20,20 +20,34 @@ function downloadPortalCsv(rows: PortalCredentialRow[]) {
 export default function EmployeeCredentialsPanel({ actor }: { actor: EmployeeActor | null }) {
   const canIssue = canManageEmployees(actor);
   const [summary, setSummary] = useState<PortalCredentialSummary | null>(null);
+  const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [issued, setIssued] = useState<PortalCredentialRow[]>([]);
   const [panelOpen, setPanelOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  async function loadSummary() {
+    if (!canIssue || loading) return;
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch('/api/employee-credentials', { headers: { Accept: 'application/json' } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.ok) throw new Error(data.error || 'Status akses ESS tidak dapat dimuat');
+      setSummary({ total: data.total, issued: data.issued, pending: data.pending, formula: data.formula });
+    } catch (cause) {
+      setSummary(null);
+      setError(cause instanceof Error ? cause.message : 'Status akses ESS tidak dapat dimuat');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!canIssue) return;
-    fetch('/api/employee-credentials', { headers: { Accept: 'application/json' } })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data?.ok) setSummary({ total: data.total, issued: data.issued, pending: data.pending, formula: data.formula });
-      })
-      .catch(() => {});
+    void loadSummary();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canIssue]);
 
   useEffect(() => {
@@ -106,16 +120,16 @@ export default function EmployeeCredentialsPanel({ actor }: { actor: EmployeeAct
               <div><span>Belum diterbitkan</span><strong>{summary?.pending ?? '—'}</strong></div>
             </div>
 
-            {error ? <p className="portal-credentials-error">{error}</p> : null}
+            {error ? <div className="employee-ess-error" role="alert"><span>{error}</span><button type="button" className="btn" disabled={loading} onClick={() => void loadSummary()}>{loading?'Memuat…':'Coba lagi'}</button></div> : null}
 
             <div className="employee-ess-modal-actions">
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={busy || summary == null || summary.pending === 0}
+                disabled={busy || loading || summary == null || summary.pending === 0}
                 onClick={() => setConfirmOpen(true)}
               >
-                {busy ? 'Menerbitkan…' : summary == null ? 'Memuat status…' : 'Terbitkan password'}
+                {busy ? 'Menerbitkan…' : loading ? 'Memuat status…' : summary == null ? 'Status belum tersedia' : 'Terbitkan password'}
               </button>
             </div>
 
