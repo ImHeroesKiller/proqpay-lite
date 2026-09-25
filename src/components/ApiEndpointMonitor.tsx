@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getIntegrationMonitor, type IntegrationMonitorResponse } from '@/lib/integration-monitor-api';
+import { getIntegrationMonitor, updateIntegrationAppStatus, type IntegrationMonitorResponse } from '@/lib/integration-monitor-api';
 
 function fmtDate(value?: string | null) {
   if (!value) return '-';
@@ -22,6 +22,7 @@ export default function ApiEndpointMonitor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [appBusy, setAppBusy] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,13 +43,26 @@ export default function ApiEndpointMonitor() {
   }, [load]);
 
   const summary = data?.summary || {
-    connectedApps:0, requests24h:0, dataPulls24h:0, errors24h:0, lastActivityAt:null,
+    connectedApps:0, trustedApps:0, observedApps:0, requests24h:0, dataPulls24h:0, errors24h:0, lastActivityAt:null,
   };
   const base = data?.baseEndpoint || (typeof window === 'undefined' ? '/api' : window.location.origin + '/api');
   const apps = data?.apps || [];
   const events = data?.events || [];
   const endpoints = data?.endpoints || [];
   const recentPull = useMemo(() => events.find((row) => row.event_type === 'DATA_PULL'), [events]);
+
+  async function changeAppStatus(appId: string, action: 'ACTIVATE' | 'DEACTIVATE' | 'REVOKE') {
+    setAppBusy(appId + ':' + action);
+    setError('');
+    try {
+      await updateIntegrationAppStatus(appId, action);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Status aplikasi gagal diubah');
+    } finally {
+      setAppBusy('');
+    }
+  }
 
   async function copyBase() {
     try {
@@ -76,7 +90,8 @@ export default function ApiEndpointMonitor() {
     {data?.pendingMigration ? <div className="app-notice-bubble app-notice-info"><strong>Monitoring disiapkan</strong><span>Migration observability belum aktif pada database ini.</span></div> : null}
 
     <div className="operations-summary-grid" style={{ margin:0 }}>
-      <div><span>Connected apps</span><strong>{summary.connectedApps}</strong><small>App ID yang pernah terlihat</small></div>
+      <div><span>Trusted apps</span><strong>{summary.trustedApps ?? summary.connectedApps}</strong><small>ACTIVE oleh Super Admin</small></div>
+      <div><span>Observed apps</span><strong>{summary.observedApps ?? 0}</strong><small>Terlihat, belum dipercaya</small></div>
       <div><span>Requests 24 jam</span><strong>{summary.requests24h.toLocaleString('id-ID')}</strong><small>Traffic aplikasi eksternal</small></div>
       <div><span>Data pulls 24 jam</span><strong>{summary.dataPulls24h.toLocaleString('id-ID')}</strong><small>GET sukses ke endpoint data</small></div>
       <div><span>Errors 24 jam</span><strong>{summary.errors24h.toLocaleString('id-ID')}</strong><small>HTTP 4xx / 5xx</small></div>
@@ -96,15 +111,23 @@ export default function ApiEndpointMonitor() {
     <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:12 }}>
       <div style={{ border:'1px solid var(--border-soft)', borderRadius:12, overflow:'hidden' }}>
         <div style={{ padding:'11px 13px', background:'var(--bg-subtle)', display:'flex', justifyContent:'space-between', gap:8 }}>
-          <strong style={{ fontSize:11.5 }}>Connected applications</strong>
+          <strong style={{ fontSize:11.5 }}>External applications</strong>
           <small style={{ color:'var(--text3)' }}>{apps.length}</small>
         </div>
         {apps.length ? <div style={{ maxHeight:300, overflow:'auto' }}>
-          {apps.map((app) => <div key={app.app_id} style={{ padding:'11px 13px', borderTop:'1px solid var(--border-soft)', display:'grid', gap:4 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', gap:10 }}><strong style={{ fontSize:11.5 }}>{app.app_name}</strong><span style={{ fontSize:10, color:statusTone(app.last_status_code) }}>{app.last_status_code || '-'}</span></div>
+          {apps.map((app) => <div key={app.app_id} style={{ padding:'11px 13px', borderTop:'1px solid var(--border-soft)', display:'grid', gap:6 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', gap:10 }}>
+              <strong style={{ fontSize:11.5 }}>{app.app_name}</strong>
+              <span style={{ fontSize:10, fontWeight:750 }}>{app.status}</span>
+            </div>
             <code style={{ color:'var(--text3)', fontSize:9.5 }}>{app.app_id}</code>
-            <span style={{ color:'var(--text3)', fontSize:10.5 }}>{app.last_endpoint || '-'} · {fmtDate(app.last_seen_at)}</span>
+            <span style={{ color:'var(--text3)', fontSize:10.5 }}>{app.last_endpoint || '-'} · HTTP <span style={{ color:statusTone(app.last_status_code) }}>{app.last_status_code || '-'}</span> · {fmtDate(app.last_seen_at)}</span>
             <small style={{ color:'var(--text3)' }}>{Number(app.request_count).toLocaleString('id-ID')} request · {Number(app.data_pull_count).toLocaleString('id-ID')} data pull · {Number(app.error_count).toLocaleString('id-ID')} error</small>
+            <small style={{ color:'var(--text3)' }}>{app.status === 'ACTIVE' ? 'Trusted untuk observability; autentikasi endpoint tetap wajib.' : app.status === 'REVOKED' ? 'Revoked bersifat terminal. Gunakan App ID baru untuk reconnect.' : 'Belum dianggap trusted oleh operator.'}</small>
+            {app.status !== 'REVOKED' ? <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+              {app.status !== 'ACTIVE' ? <button type="button" className="btn" disabled={Boolean(appBusy)} onClick={() => void changeAppStatus(app.app_id, 'ACTIVATE')}>{appBusy === app.app_id + ':ACTIVATE' ? 'Updating…' : 'Mark Active'}</button> : <button type="button" className="btn" disabled={Boolean(appBusy)} onClick={() => void changeAppStatus(app.app_id, 'DEACTIVATE')}>{appBusy === app.app_id + ':DEACTIVATE' ? 'Updating…' : 'Deactivate'}</button>}
+              <button type="button" className="btn" disabled={Boolean(appBusy)} onClick={() => void changeAppStatus(app.app_id, 'REVOKE')}>{appBusy === app.app_id + ':REVOKE' ? 'Revoking…' : 'Revoke'}</button>
+            </div> : null}
           </div>)}
         </div> : <div style={{ padding:18, color:'var(--text3)', fontSize:11.5 }}>Belum ada aplikasi eksternal yang teridentifikasi.</div>}
       </div>
@@ -128,9 +151,9 @@ export default function ApiEndpointMonitor() {
       <summary style={{ cursor:'pointer', fontSize:12, fontWeight:650 }}>Recent external API activity</summary>
       <div style={{ overflowX:'auto', marginTop:10 }}>
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
-          <thead><tr><th style={th}>Waktu</th><th style={th}>App</th><th style={th}>Method</th><th style={th}>Endpoint</th><th style={th}>Type</th><th style={th}>Status</th><th style={th}>Latency</th></tr></thead>
+          <thead><tr><th style={th}>Waktu</th><th style={th}>App</th><th style={th}>Method</th><th style={th}>Endpoint</th><th style={th}>Type</th><th style={th}>Status</th><th style={th}>Latency</th><th style={th}>Correlation</th></tr></thead>
           <tbody>{events.slice(0,40).map((row, index) => <tr key={row.created_at + row.app_id + index} style={{ borderBottom:'1px solid var(--border-soft)' }}>
-            <td style={td}>{fmtDate(row.created_at)}</td><td style={td}>{row.app_name}</td><td style={td}>{row.method}</td><td style={td}><code>{row.endpoint}</code></td><td style={td}>{row.event_type.replaceAll('_',' ')}</td><td style={{ ...td, color:statusTone(row.status_code), fontWeight:700 }}>{row.status_code}</td><td style={td}>{row.duration_ms} ms</td>
+            <td style={td}>{fmtDate(row.created_at)}</td><td style={td}>{row.app_name}</td><td style={td}>{row.method}</td><td style={td}><code>{row.endpoint}</code></td><td style={td}>{row.event_type.replaceAll('_',' ')}</td><td style={{ ...td, color:statusTone(row.status_code), fontWeight:700 }}>{row.status_code}</td><td style={td}>{row.duration_ms} ms</td><td style={td}><code>{row.correlation_id || '-'}</code></td>
           </tr>)}</tbody>
         </table>
         {!events.length ? <div style={{ padding:16, color:'var(--text3)', fontSize:11.5 }}>Belum ada aktivitas API eksternal.</div> : null}
@@ -138,7 +161,7 @@ export default function ApiEndpointMonitor() {
     </details>
 
     <small style={{ color:'var(--text3)' }}>
-      Last activity: {fmtDate(summary.lastActivityAt)}{recentPull ? ' · Last data pull: ' + fmtDate(recentPull.created_at) : ''}
+      Last activity: {fmtDate(summary.lastActivityAt)}{recentPull ? ' · Last data pull: ' + fmtDate(recentPull.created_at) : ''}{data?.retentionDays ? ' · Retention: ' + data.retentionDays + ' hari' : ''}
     </small>
   </section>;
 }
