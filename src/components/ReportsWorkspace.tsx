@@ -20,6 +20,14 @@ import {
 
 type Props = { clientMode?: boolean; hideHeading?: boolean };
 
+const MOBILE_FIELDS:Record<Exclude<ReportType,'payments'>,string[]>={
+  register:['period','employee_id','gross_amount','deduction_amount','net_amount','state'],
+  control:['period','employee_count','payroll_net','pi_total','reconciliation_difference','state'],
+  uploads:['period','original_filename','accepted_row_count','source_total_net','status','uploaded_by'],
+  payslips:['period','employee_id','net_amount','document_no','payment_status','reconciliation_status'],
+  exceptions:['period','employee_id','severity','code','status','message'],
+};
+
 function csvCell(value: unknown) {
   const raw = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
   return `"${raw.replaceAll('"','""')}"`;
@@ -172,15 +180,17 @@ export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Pr
 
 function PaymentTable({rows}:{rows:PaymentReport[]}) {
   return <div className="card report-table-wrap">
-    <table className="report-table report-desktop-table"><thead><tr><th>Klien / Project</th><th>Periode</th><th>Karyawan</th><th>Nilai</th><th>Pembayaran</th><th>Status</th></tr></thead><tbody>{rows.map((row)=>{
+    <table className="report-table report-desktop-table report-payment-table"><thead><tr><th className="report-sticky-col">Klien / Project</th><th>Periode</th><th className="report-num">Karyawan</th><th className="report-num">Expected</th><th className="report-num">Dibayar</th><th className="report-num">Selisih</th><th>Pembayaran</th><th>Status</th></tr></thead><tbody>{rows.map((row)=>{
       const conflict=row.settlement_source==='CONFLICT';
-      return <tr key={row.id}><td><strong>{row.client_name||'-'}</strong><small>{row.project_name||row.id}</small></td><td><strong>{row.payroll_period||'-'}</strong><small>Bayar {row.payment_period||'-'}</small></td><td>{Number(row.employee_count||0)}</td><td><strong>{formatIDR(Number(row.expected_total||0))}</strong><small>{conflict?`Manual ${formatIDR(Number(row.manual_proof_total||0))} · Gateway ${formatIDR(Number(row.gateway_total||0))}`:`Dibayar ${formatIDR(Number(row.paid_total||0))}`}</small></td><td>{conflict?'Konflik sumber settlement':row.payment_date?new Date(row.payment_date).toLocaleDateString('id-ID'):'-'}<small>{row.reconciliation_status||'Belum rekonsiliasi'}{row.difference?` · ${formatIDR(Number(row.difference))}`:''}</small></td><td><span className={`report-status report-status-${reportStatusTone(conflict?'SETTLEMENT_CONFLICT':row.status)}`}>{reportStatusLabel(conflict?'SETTLEMENT_CONFLICT':row.status)}</span></td></tr>;
+      const difference=conflict?null:Number(row.expected_total||0)-Number(row.paid_total||0);
+      return <tr key={row.id}><td className="report-sticky-col"><strong>{row.client_name||'-'}</strong><small>{row.project_name||row.id}</small></td><td><strong>{row.payroll_period||'-'}</strong><small>Bayar {row.payment_period||'-'}</small></td><td className="report-num">{Number(row.employee_count||0)}</td><td className="report-num"><strong>{formatIDR(Number(row.expected_total||0))}</strong></td><td className="report-num"><strong>{conflict?'Periksa sumber':formatIDR(Number(row.paid_total||0))}</strong>{conflict?<small>Manual {formatIDR(Number(row.manual_proof_total||0))} · Gateway {formatIDR(Number(row.gateway_total||0))}</small>:null}</td><td className="report-num">{difference==null?'-':formatIDR(difference)}</td><td>{conflict?'Konflik sumber settlement':row.payment_date?new Date(row.payment_date).toLocaleDateString('id-ID'):'-'}<small>{row.reconciliation_status||'Belum rekonsiliasi'}{row.difference?` · ${formatIDR(Number(row.difference))}`:''}</small></td><td><span className={`report-status report-status-${reportStatusTone(conflict?'SETTLEMENT_CONFLICT':row.status)}`}>{reportStatusLabel(conflict?'SETTLEMENT_CONFLICT':row.status)}</span></td></tr>;
     })}</tbody></table>
     <div className="report-mobile-list">{rows.map((row)=>{
       const conflict=row.settlement_source==='CONFLICT';
       return <article className="report-mobile-card" key={row.id}>
         <div className="report-mobile-head"><div><strong>{row.client_name||'-'}</strong><small>{row.project_name||row.id}</small></div><span className={`report-status report-status-${reportStatusTone(conflict?'CONFLICT':row.status)}`}>{reportStatusLabel(conflict?'CONFLICT':row.status)}</span></div>
-        <div className="report-mobile-grid"><div><span>Periode</span><strong>{row.payment_period||row.payroll_period||'-'}</strong></div><div><span>Karyawan</span><strong>{Number(row.employee_count||0)}</strong></div><div><span>Nilai</span><strong>{formatIDR(Number(row.expected_total||0))}</strong></div><div><span>Dibayar</span><strong>{conflict?'Periksa sumber':formatIDR(Number(row.paid_total||0))}</strong></div></div>
+        <div className="report-mobile-grid"><MobileValue label="Periode" value={row.payment_period||row.payroll_period||'-'} /><MobileValue label="Karyawan" value={Number(row.employee_count||0)} /><MobileValue label="Expected" value={formatIDR(Number(row.expected_total||0))} /><MobileValue label="Dibayar" value={conflict?'Periksa sumber':formatIDR(Number(row.paid_total||0))} /></div>
+        <details className="report-mobile-details"><summary>Lihat detail pembayaran</summary><div className="report-mobile-detail-grid"><MobileValue label="Rekonsiliasi" value={row.reconciliation_status||'Belum rekonsiliasi'} /><MobileValue label="Selisih" value={formatIDR(Number(row.difference||0))} />{conflict?<><MobileValue label="Bukti manual" value={formatIDR(Number(row.manual_proof_total||0))} /><MobileValue label="Payment gateway" value={formatIDR(Number(row.gateway_total||0))} /></>:null}</div></details>
       </article>;
     })}</div>
   </div>;
@@ -188,18 +198,28 @@ function PaymentTable({rows}:{rows:PaymentReport[]}) {
 
 function GenericTable({rows,type}:{rows:ReportRow[];type:Exclude<ReportType,'payments'>}) {
   const columns=REPORT_COLUMNS[type].filter((key)=>rows.some((row)=>key in row));
-  const primaryKeys=columns.slice(0,6);
+  const mobileKeys=MOBILE_FIELDS[type].filter((key)=>columns.includes(key));
+  const detailKeys=columns.filter((key)=>!mobileKeys.includes(key));
   return <div className="card report-table-wrap">
-    <table className="report-table report-desktop-table"><thead><tr>{columns.map((key)=><th key={key}>{reportColumnLabel(key)}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={`${String(row.submission_id||row.id||'row')}-${String(row.employee_id||index)}-${index}`}>{columns.map((key)=>{
+    <table className={`report-table report-desktop-table report-generic-table report-type-${type}`}><thead><tr>{columns.map((key,index)=><th key={key} className={`${index===0?'report-sticky-col ':''}${isMoneyColumn(key)||key==='employee_count'?'report-num':''}`}>{reportColumnLabel(key)}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={`${String(row.submission_id||row.id||'row')}-${String(row.employee_id||index)}-${index}`}>{columns.map((key,columnIndex)=>{
       const value=row[key];
-      if(key==='status'||key==='state'||key==='payment_status'||key==='reconciliation_status') return <td key={key}><span className={`report-status report-status-${reportStatusTone(value)}`}>{reportStatusLabel(value)}</span></td>;
-      return <td key={key}>{typeof value==='number'&&isMoneyColumn(key)?formatIDR(value):typeof value==='object'&&value!==null?JSON.stringify(value):String(value??'-')}</td>;
+      const className=`${columnIndex===0?'report-sticky-col ':''}${isMoneyColumn(key)||key==='employee_count'?'report-num':''}`;
+      if(key==='status'||key==='state'||key==='payment_status'||key==='reconciliation_status') return <td className={className} key={key}><span className={`report-status report-status-${reportStatusTone(value)}`}>{reportStatusLabel(value)}</span></td>;
+      return <td className={className} key={key}>{formatReportValue(key,value)}</td>;
     })}</tr>)}</tbody></table>
-    <div className="report-mobile-list">{rows.map((row,index)=><article className="report-mobile-card" key={`mobile-${String(row.submission_id||row.id||index)}-${index}`}><div className="report-mobile-head"><div><strong>{reportPrimaryTitle(row)}</strong><small>{reportSecondaryTitle(row)}</small></div>{(row.status||row.state||row.payment_status)?<span className={`report-status report-status-${reportStatusTone(row.status||row.state||row.payment_status)}`}>{reportStatusLabel(row.status||row.state||row.payment_status)}</span>:null}</div><div className="report-mobile-grid">{primaryKeys.map((key)=>{
-      const value=row[key];
-      return <div key={key}><span>{reportColumnLabel(key)}</span><strong>{typeof value==='number'&&isMoneyColumn(key)?formatIDR(value):String(value??'-')}</strong></div>;
-    })}</div></article>)}</div>
+    <div className="report-mobile-list">{rows.map((row,index)=><article className="report-mobile-card" key={`mobile-${String(row.submission_id||row.id||index)}-${index}`}><div className="report-mobile-head"><div><strong>{reportPrimaryTitle(row)}</strong><small>{reportSecondaryTitle(row)}</small></div>{(row.status||row.state||row.payment_status)?<span className={`report-status report-status-${reportStatusTone(row.status||row.state||row.payment_status)}`}>{reportStatusLabel(row.status||row.state||row.payment_status)}</span>:null}</div><div className="report-mobile-grid">{mobileKeys.map((key)=><MobileValue key={key} label={reportColumnLabel(key)} value={formatReportValue(key,row[key])} />)}</div>{detailKeys.length?<details className="report-mobile-details"><summary>Lihat detail laporan</summary><div className="report-mobile-detail-grid">{detailKeys.map((key)=><MobileValue key={key} label={reportColumnLabel(key)} value={formatReportValue(key,row[key])} />)}</div></details>:null}</article>)}</div>
   </div>;
 }
 
-function Summary({label,value}:{label:string;value:string}) { return <div className="card report-summary"><span>{label}</span><strong>{value}</strong></div>; }
+function formatReportValue(key:string,value:unknown){
+  if((key==='status'||key==='state'||key==='payment_status'||key==='reconciliation_status')&&value) return reportStatusLabel(value);
+  if(typeof value==='number'&&isMoneyColumn(key)) return formatIDR(value);
+  if(typeof value==='object'&&value!==null) return JSON.stringify(value);
+  return String(value??'-');
+}
+
+function MobileValue({label,value}:{label:string;value:unknown}) {
+  return <div><span>{label}</span><strong>{String(value??'-')}</strong></div>;
+}
+
+function Summary({label,value}:{label:string;value:string}) { return <div className="card report-summary"><span>{label}</span><strong title={value}>{value}</strong></div>; }
