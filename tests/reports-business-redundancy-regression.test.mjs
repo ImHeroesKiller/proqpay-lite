@@ -37,11 +37,12 @@ test('Client Documents audit: invoice table and mobile cards share bounded pagin
   assert.match(source,/PanelPagination/);
 });
 
-test('Payroll redundancy audit: obsolete upload surface and endpoint are removed, Data Intake remains canonical',async()=>{
+test('Payroll redundancy audit: Data Intake is the canonical payroll file ingestion surface',async()=>{
   const intake=await read('src/app/data-intake/page.tsx');
-  assert.match(intake,/fetch\("\/api\/payroll-intake"/);
-  await assert.rejects(()=>read('src/components/PayrollSourceUpload.tsx'),/ENOENT/);
-  await assert.rejects(()=>read('functions/api/payroll-upload.js'),/ENOENT/);
+  const reports=await read('src/components/ReportsWorkspace.tsx');
   const validation=await read('functions/api/payroll-intake-validation.js');
+  assert.match(intake,/fetch\("\/api\/payroll-intake"/);
+  assert.match(intake,/Data Intake Payroll/);
+  assert.doesNotMatch(reports,/type="file"/);
   assert.match(validation,/validatePayrollControlRows/);
 });
