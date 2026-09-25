@@ -70,7 +70,7 @@ async function snapshot(database,organizationId,environment){
 async function saveSnapshot(database,organizationId,environment,account,bankCount=null){
   await d1Run(database,`INSERT INTO payment_gateway_provider_snapshots
     (org_id,provider,environment,account_id,account_name,merchant_status,account_type_name,account_group_name,balance,phone_masked,bank_count,source,refreshed_at)
-    VALUES(?,'E2PAY',?,?,?,?,?,?,?,?,?,?,'PROVIDER',strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    VALUES(?,'E2PAY',?,?,?,?,?,?,?,?,?,'PROVIDER',strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     ON CONFLICT(org_id,provider,environment) DO UPDATE SET
       account_id=excluded.account_id,account_name=excluded.account_name,merchant_status=excluded.merchant_status,
       account_type_name=excluded.account_type_name,account_group_name=excluded.account_group_name,balance=excluded.balance,
