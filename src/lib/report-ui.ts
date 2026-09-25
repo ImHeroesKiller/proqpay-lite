@@ -26,12 +26,12 @@ export type PaymentReport={
 export type ReportFacets={periods:string[];statuses:string[]};
 
 export const REPORT_LABELS:Record<ReportType,string>={
-  payments:'Payment Report',
-  register:'Payroll Register',
-  control:'Control Report',
-  uploads:'Upload Audit',
-  payslips:'Payslip Register',
-  exceptions:'Exception Report',
+  payments:'Laporan Pembayaran',
+  register:'Register Payroll',
+  control:'Laporan Kontrol',
+  uploads:'Audit Upload',
+  payslips:'Register Slip Gaji',
+  exceptions:'Laporan Exception',
 };
 
 export const REPORT_COLUMNS:Record<Exclude<ReportType,'payments'>,string[]>={
