@@ -10,6 +10,7 @@ import {
   hostedStateHash,
 } from './payment-gateway-hosted-core.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
+import { arGateMessage, evaluateClientArGate } from './ar-payment-control.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER'];
@@ -112,6 +113,11 @@ export async function onRequest(context) {
     existing = await expireHostedSession(database, existing);
     if (existing && LIVE_HOSTED_STATUSES.has(String(existing.status || ''))) {
       return secureJson({ ok:true,session:existing,hosted:readiness,idempotentReplay:true },200,request,env,METHODS);
+    }
+
+    const arGate = await evaluateClientArGate(database, organizationId, payment.client_id);
+    if (arGate.blocked) {
+      return secureJson({ error:arGateMessage(arGate), code:arGate.code, arGate },409,request,env,METHODS);
     }
 
     const activeTransaction = await d1First(database, `SELECT id,payment_method,status FROM payment_gateway_transactions
