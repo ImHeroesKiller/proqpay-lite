@@ -2360,7 +2360,24 @@ textarea:focus-visible {
 
 
 
-/* Reports P2 — operational UX hardening */
+/* Reports UI — consolidated final layout */
+.reports-workspace {
+  min-width:0;
+}
+.reports-heading {
+  align-items:center;
+  margin-bottom:14px;
+}
+.reports-heading > div {
+  min-width:0;
+}
+.reports-heading h2 {
+  letter-spacing:-.02em;
+}
+.reports-heading .btn-primary {
+  flex:0 0 auto;
+  min-height:38px;
+}
 .report-type-tabs {
   display:flex;
   flex-wrap:wrap;
@@ -2369,6 +2386,47 @@ textarea:focus-visible {
 }
 .report-type-tabs .btn {
   min-height:36px;
+  padding-inline:12px;
+}
+.report-summary-grid {
+  gap:9px !important;
+  margin:14px 0 12px !important;
+}
+.report-summary {
+  gap:4px !important;
+  min-width:0;
+  padding:13px 14px !important;
+  border-color:var(--border-soft);
+  box-shadow:var(--shadow-xs);
+}
+.report-summary span {
+  font-size:9px !important;
+  font-weight:750;
+  letter-spacing:.03em;
+  text-transform:uppercase;
+}
+.report-summary strong {
+  overflow:hidden;
+  font-size:18px !important;
+  letter-spacing:-.02em;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.report-filter {
+  position:sticky;
+  top:0;
+  z-index:7;
+  grid-template-columns:minmax(240px,1fr) minmax(150px,.35fr) minmax(170px,.4fr) !important;
+  gap:8px !important;
+  margin-bottom:12px !important;
+  padding:10px !important;
+  background:color-mix(in srgb,var(--bg-surface) 96%,transparent);
+  backdrop-filter:blur(12px);
+}
+.report-filter input,
+.report-filter select {
+  min-height:38px;
 }
 .report-error {
   display:flex;
@@ -2385,6 +2443,45 @@ textarea:focus-visible {
   min-width:0;
   font-size:10px;
   line-height:1.45;
+}
+
+.report-table-wrap {
+  max-height:min(64vh,760px);
+  overflow:auto !important;
+  overscroll-behavior:contain;
+}
+.report-table {
+  min-width:920px;
+  table-layout:auto;
+}
+.report-table th {
+  position:sticky;
+  top:0;
+  z-index:4;
+  padding:9px 11px !important;
+  box-shadow:0 1px 0 var(--border);
+  white-space:nowrap;
+}
+.report-table td {
+  max-width:260px;
+  padding:10px 11px !important;
+  line-height:1.35;
+}
+.report-table td:not(:first-child) {
+  white-space:nowrap;
+}
+.report-table td:first-child,
+.report-table td:nth-child(2),
+.report-table td:nth-child(3) {
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.report-status {
+  line-height:1.15;
+}
+.report-status-neutral {
+  color:var(--text2);
+  background:var(--bg-subtle);
 }
 .report-mobile-list {
   display:none;
@@ -2415,7 +2512,9 @@ textarea:focus-visible {
   text-overflow:ellipsis;
   white-space:nowrap;
 }
-.report-mobile-head strong { font-size:11px; }
+.report-mobile-head strong {
+  font-size:11px;
+}
 .report-mobile-head small {
   color:var(--text3);
   font-size:8.5px;
@@ -2444,19 +2543,59 @@ textarea:focus-visible {
 .report-mobile-grid strong {
   overflow:hidden;
   font-size:9.5px;
+  line-height:1.3;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
 
+@media (max-width:900px) {
+  .report-summary-grid {
+    grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  }
+  .report-filter {
+    grid-template-columns:1fr 1fr !important;
+  }
+  .report-filter input {
+    grid-column:1/-1;
+  }
+}
+
 @media (max-width:760px) {
+  .reports-heading {
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .reports-heading .btn-primary {
+    width:100%;
+    min-height:42px;
+  }
   .report-type-tabs {
     flex-wrap:nowrap;
     overflow-x:auto;
-    padding-bottom:2px;
+    margin-inline:-4px;
+    padding:0 4px 3px;
+    scrollbar-width:thin;
   }
   .report-type-tabs .btn {
     flex:0 0 auto;
     min-height:40px;
+  }
+  .report-summary-grid {
+    grid-template-columns:1fr 1fr !important;
+  }
+  .report-summary {
+    padding:11px 12px !important;
+  }
+  .report-summary strong {
+    font-size:16px !important;
+  }
+  .report-filter {
+    position:static;
+    grid-template-columns:1fr !important;
+    backdrop-filter:none;
+  }
+  .report-filter input {
+    grid-column:auto;
   }
   .report-error {
     align-items:stretch;
@@ -2475,6 +2614,17 @@ textarea:focus-visible {
     padding:10px;
   }
   .report-table-wrap {
-    overflow:visible;
+    max-height:none;
+    overflow:visible !important;
   }
 }
+
+@media (max-width:480px) {
+  .report-summary-grid {
+    grid-template-columns:1fr 1fr !important;
+  }
+  .report-mobile-grid {
+    grid-template-columns:1fr;
+  }
+}
+
