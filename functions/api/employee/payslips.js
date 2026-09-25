@@ -17,9 +17,17 @@ export async function onRequest({ request, env }) {
       pi.id AS payment_instruction_id,pi.document_no,pi.status AS pi_status,pi.execution_date,
       r.status AS reconciliation_status
       FROM payroll_run_lines l JOIN payroll_submissions s ON s.id=l.submission_id
-      JOIN payment_instructions pi ON pi.submission_id=s.id
-      JOIN reconciliations r ON r.payment_instruction_id=pi.id
-      WHERE l.employee_id=? AND l.included=1 AND pi.status='COMPLETED' AND r.status='MATCHED'
+      JOIN payment_instructions pi ON pi.id=(
+        SELECT pi2.id FROM payment_instructions pi2
+        WHERE pi2.submission_id=s.id AND pi2.status='COMPLETED'
+        ORDER BY pi2.updated_at DESC,pi2.created_at DESC,pi2.id DESC LIMIT 1
+      )
+      JOIN reconciliations r ON r.id=(
+        SELECT r2.id FROM reconciliations r2
+        WHERE r2.payment_instruction_id=pi.id AND r2.status='MATCHED'
+        ORDER BY r2.created_at DESC,r2.id DESC LIMIT 1
+      )
+      WHERE l.employee_id=? AND l.included=1
       ORDER BY s.period DESC,s.created_at DESC LIMIT 36`, [actor.id]);
     const payslips = lines.map((line) => ({
       id: line.submission_id,
