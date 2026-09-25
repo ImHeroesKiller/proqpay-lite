@@ -21,6 +21,7 @@ const initialData: BillingData = {
   invoices: [],
   arItems: [],
   submissions: [],
+  issuerProfile: null,
 };
 
 async function loadAllBillingPages(focusSubmissionId = ""): Promise<Omit<BillingData, "submissions">> {
@@ -28,6 +29,7 @@ async function loadAllBillingPages(focusSubmissionId = ""): Promise<Omit<Billing
   const billablePayments = new Map<string, any>();
   const invoices = new Map<string, any>();
   const arItems = new Map<string, any>();
+  let issuerProfile: any = null;
   let billableOffset = 0;
   let invoiceOffset = 0;
   let arOffset = 0;
@@ -51,6 +53,7 @@ async function loadAllBillingPages(focusSubmissionId = ""): Promise<Omit<Billing
     for (const row of body.billablePayments || []) billablePayments.set(String(row.id), row);
     for (const row of body.invoices || []) invoices.set(String(row.id), row);
     for (const row of body.arItems || []) arItems.set(String(row.id), row);
+    if (body.issuerProfile) issuerProfile = body.issuerProfile;
 
     const meta = body.meta || {};
     billableDone = meta.billable?.nextOffset == null;
@@ -66,6 +69,7 @@ async function loadAllBillingPages(focusSubmissionId = ""): Promise<Omit<Billing
     billablePayments: [...billablePayments.values()],
     invoices: [...invoices.values()],
     arItems: [...arItems.values()],
+    issuerProfile,
   };
 }
 
@@ -93,6 +97,7 @@ export default function BillingWorkspace({
   const canPrepare = billingPermission(actor, "billing:prepare", ["SUPER_ADMIN", "PAYROLL_PROCESSOR"]);
   const canControl = billingPermission(actor, "billing:approve", ["SUPER_ADMIN", "PAYROLL_CONTROLLER"]);
   const canWriteAr = billingPermission(actor, "ar:write", ["SUPER_ADMIN", "PAYROLL_CONTROLLER"]);
+  const canManageIssuer = role === "SUPER_ADMIN";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -341,6 +346,22 @@ export default function BillingWorkspace({
     setModal({ kind: "setup", row });
   }
 
+  function openIssuer() {
+    const row = data.issuerProfile || {};
+    setForm({
+      legalName: row.legal_name || "",
+      address: row.address || "",
+      npwp: row.npwp || "",
+      email: row.email || "",
+      phone: row.phone || "",
+      bankName: row.bank_name || "",
+      bankAccountName: row.bank_account_name || "",
+      bankAccountNo: row.bank_account_no || "",
+      paymentNotes: row.payment_notes || "",
+    });
+    setModal({ kind: "issuer", row });
+  }
+
   function openClose(row: BillingSubmission) {
     setForm({ confirmation: "TUTUP PERIODE" });
     setModal({ kind: "close", row });
@@ -532,8 +553,11 @@ export default function BillingWorkspace({
       {section === "setup" && (
         <SetupSection
           clients={focusedData.clients}
+          issuerProfile={data.issuerProfile}
           canEdit={canPrepare}
+          canManageIssuer={canManageIssuer}
           open={openSetup}
+          openIssuer={openIssuer}
         />
       )}
 
@@ -640,6 +664,19 @@ export default function BillingWorkspace({
                     disputed: Boolean(form.disputed),
                   },
                   "Follow-up AR tersimpan.",
+                )
+              }
+            />
+          )}
+          {modal.kind === "issuer" && (
+            <IssuerProfileForm
+              form={form}
+              setForm={setForm}
+              submit={() =>
+                act(
+                  "UPDATE_ISSUER_PROFILE",
+                  form,
+                  "Profil penerbit invoice tersimpan.",
                 )
               }
             />
@@ -997,6 +1034,11 @@ function ARSection({ rows, canControl, canFollow, payment, follow, history }: an
               formatIDR(Number(r.control?.unapplied || 0)),
               formatIDR(Number(r.balance || 0)),
               <Badge key="s" text={r.display_status || r.status} />,
+              <div key="g" style={{ display: "grid", gap: 3 }}>
+                <Badge text={r.payment_gate_state || "CLEAR"} />
+                {r.payment_gate_state === "BLOCKED" ? <small>{formatIDR(Number(r.client_overdue || r.client_outstanding || 0))}</small> : null}
+                {r.payment_gate_state === "WARNING" ? <small>{formatIDR(Number(r.client_outstanding || 0))} outstanding</small> : null}
+              </div>,
               <div
                 key="a"
                 style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
@@ -1025,12 +1067,27 @@ function ARSection({ rows, canControl, canFollow, payment, follow, history }: an
   );
 }
 
-function SetupSection({ clients, canEdit, open }: any) {
+function SetupSection({ clients, issuerProfile, canEdit, canManageIssuer, open, openIssuer }: any) {
   return (
-    <Panel
-      title="Billing profile klien"
-      detail="NPWP, status pajak, TOP, alamat tagihan, dan formula fee menjadi sumber invoice otomatis."
-    >
+    <div style={{ display:"grid", gap:16 }}>
+      <Panel
+        title="Profil penerbit invoice"
+        detail="Identitas legal dan rekening penerimaan yang dicetak pada PDF A4 invoice."
+        action={canManageIssuer ? <button style={secondary} onClick={openIssuer}>{issuerProfile ? "Edit profil" : "Lengkapi profil"}</button> : null}
+      >
+        {issuerProfile ? <div style={grid2}>
+          <Info label="Nama legal" value={issuerProfile.legal_name || "-"} />
+          <Info label="NPWP" value={issuerProfile.npwp || "-"} />
+          <Info label="Email" value={issuerProfile.email || "-"} />
+          <Info label="Bank" value={issuerProfile.bank_name || "-"} />
+          <Info label="Nama rekening" value={issuerProfile.bank_account_name || "-"} />
+          <Info label="No. rekening" value={issuerProfile.bank_account_no || "-"} />
+        </div> : <Empty text="Profil penerbit belum dilengkapi. PDF tetap dapat dibuat, tetapi detail legal/rekening akan terbatas." />}
+      </Panel>
+      <Panel
+        title="Billing profile klien"
+        detail="NPWP, email, TOP, formula fee, warning AR, dan payment block menjadi sumber billing otomatis."
+      >
       {clients.length ? (
         <Table
           headers={[
@@ -1068,7 +1125,8 @@ function SetupSection({ clients, canEdit, open }: any) {
       ) : (
         <Empty text="Belum ada klien." />
       )}
-    </Panel>
+      </Panel>
+    </div>
   );
 }
 
@@ -1268,6 +1326,26 @@ function SetupForm({ form, setForm, submit }: any) {
         value={form.billingTaxRate}
         onChange={(v: any) => setForm({ ...form, billingTaxRate: v })}
       />
+    </Form>
+  );
+}
+
+function IssuerProfileForm({ form, setForm, submit }: any) {
+  return (
+    <Form submit={submit} buttonText="Simpan profil penerbit">
+      <Field label="Nama legal perusahaan" value={form.legalName || ""} onChange={(v:any)=>setForm({...form,legalName:v})} />
+      <Field label="Alamat perusahaan" value={form.address || ""} onChange={(v:any)=>setForm({...form,address:v})} />
+      <div style={grid2}>
+        <Field label="NPWP" value={form.npwp || ""} onChange={(v:any)=>setForm({...form,npwp:v})} />
+        <Field label="Telepon" value={form.phone || ""} onChange={(v:any)=>setForm({...form,phone:v})} required={false} />
+      </div>
+      <Field label="Email billing perusahaan" type="email" value={form.email || ""} onChange={(v:any)=>setForm({...form,email:v})} required={false} />
+      <div style={grid2}>
+        <Field label="Bank penerimaan" value={form.bankName || ""} onChange={(v:any)=>setForm({...form,bankName:v})} />
+        <Field label="Nomor rekening" value={form.bankAccountNo || ""} onChange={(v:any)=>setForm({...form,bankAccountNo:v})} />
+      </div>
+      <Field label="Nama pemilik rekening" value={form.bankAccountName || ""} onChange={(v:any)=>setForm({...form,bankAccountName:v})} />
+      <Field label="Catatan pembayaran" value={form.paymentNotes || ""} onChange={(v:any)=>setForm({...form,paymentNotes:v})} required={false} />
     </Form>
   );
 }
