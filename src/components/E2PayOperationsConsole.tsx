@@ -37,7 +37,9 @@ export default function E2PayOperationsConsole({canManage}:Props){
   const [account,setAccount]=useState<E2PayAccountSnapshot|null>(null);
   const [catalog,setCatalog]=useState<E2PayCatalogItem[]>([]);
   const [banks,setBanks]=useState<Array<{id:string;name:string;active:string|boolean}>>([]);
+  const [banksLoaded,setBanksLoaded]=useState(false);
   const [transactions,setTransactions]=useState<E2PayTransactionRow[]>([]);
+  const [transactionsLoaded,setTransactionsLoaded]=useState(false);
   const [transactionCount,setTransactionCount]=useState(0);
   const [loading,setLoading]=useState(false);
   const [actionLoading,setActionLoading]=useState('');
@@ -57,11 +59,14 @@ export default function E2PayOperationsConsole({canManage}:Props){
 
   const loadOverview=useCallback(async(force=false)=>{
     setLoading(true);setError('');
-    try{
-      const [overview,catalogResult]=await Promise.all([getE2PayOverview(force),getE2PayCatalog()]);
-      setAccount(overview.account);setCatalog(catalogResult.catalog);
-    }catch(cause){setError(cause instanceof Error?cause.message:'E2Pay overview gagal dimuat');}
-    finally{setLoading(false);}
+    const [overviewResult,catalogResult]=await Promise.allSettled([getE2PayOverview(force),getE2PayCatalog()]);
+    if(catalogResult.status==='fulfilled') setCatalog(catalogResult.value.catalog);
+    if(overviewResult.status==='fulfilled') setAccount(overviewResult.value.account);
+    else setError(overviewResult.reason instanceof Error?overviewResult.reason.message:'E2Pay overview gagal dimuat');
+    if(catalogResult.status==='rejected' && overviewResult.status==='fulfilled'){
+      setError(catalogResult.reason instanceof Error?catalogResult.reason.message:'Catalog E2Pay gagal dimuat');
+    }
+    setLoading(false);
   },[]);
   useEffect(()=>{void loadOverview(false);},[loadOverview]);
 
@@ -81,8 +86,11 @@ export default function E2PayOperationsConsole({canManage}:Props){
 
   async function loadBanks(){
     setActionLoading('BANKS');setError('');
-    try{const result=await getE2PayBanks({name:bankSearch||undefined,limit:1000});setBanks(result.data);}
-    catch(cause){setError(cause instanceof Error?cause.message:'Bank list gagal dimuat');}
+    try{
+      const result=await getE2PayBanks({name:bankSearch||undefined,limit:1000});
+      setBanks(result.data);setBanksLoaded(true);
+    }
+    catch(cause){setBanksLoaded(false);setError(cause instanceof Error?cause.message:'Bank list gagal dimuat');}
     finally{setActionLoading('');}
   }
 
@@ -96,8 +104,8 @@ export default function E2PayOperationsConsole({canManage}:Props){
         transactionTimestampFrom:txFrom ? txFrom+' 00:00:00' : undefined,
         transactionTimestampUntil:txUntil ? txUntil+' 23:59:59' : undefined,
       });
-      setTransactions(result.data);setTransactionCount(result.rowCount);
-    }catch(cause){setError(cause instanceof Error?cause.message:'Transaction history gagal dimuat');}
+      setTransactions(result.data);setTransactionCount(result.rowCount);setTransactionsLoaded(true);
+    }catch(cause){setTransactionsLoaded(false);setError(cause instanceof Error?cause.message:'Transaction history gagal dimuat');}
     finally{setActionLoading('');}
   }
 
@@ -146,13 +154,13 @@ export default function E2PayOperationsConsole({canManage}:Props){
           <Field label="Until" type="date" value={txUntil} onChange={setTxUntil} />
         </div>
         <button type="button" className="btn" disabled={actionLoading==='TRANSACTIONS'} onClick={()=>void loadTransactions()}>{actionLoading==='TRANSACTIONS'?'Loading…':'Load transaction history'}</button>
-        <div className="e2pay-resource-list">{transactions.slice(0,50).map((row,index)=><article key={row.accountTransactionId||row.journalId||index}><div><strong>{row.transactionName||row.description||'Transaction'}</strong><span>{row.responseCode||'—'}</span></div><small>{row.clientRef||'No clientRef'} · {dateTime(row.transactionTimestamp)}</small><b>{formatIDR(Number(row.amount||0))}</b><em>{row.responseMessage||row.journalId||'—'}</em></article>)}{!transactions.length?<div className="integration-empty">Load transaction history untuk melihat data provider.</div>:null}</div>
+        <div className="e2pay-resource-list">{transactions.slice(0,50).map((row,index)=><article key={row.accountTransactionId||row.journalId||index}><div><strong>{row.transactionName||row.description||'Transaction'}</strong><span>{row.responseCode||'—'}</span></div><small>{row.clientRef||'No clientRef'} · {dateTime(row.transactionTimestamp)}</small><b>{formatIDR(Number(row.amount||0))}</b><em>{row.responseMessage||row.journalId||'—'}</em></article>)}{!transactions.length?<div className="integration-empty">{transactionsLoaded?'Tidak ada transaksi pada filter ini.':'Load transaction history untuk melihat data provider.'}</div>:null}</div>
       </section>
 
       <section className="integration-panel">
         <div className="integration-panel-head"><div><strong>Bank directory</strong><small>/b2b/bank/sdp</small></div><span>{banks.length}</span></div>
         <div className="e2pay-inline-search"><input value={bankSearch} onChange={(e)=>setBankSearch(e.target.value)} placeholder="Cari nama bank…" /><button type="button" className="btn" disabled={actionLoading==='BANKS'} onClick={()=>void loadBanks()}>{actionLoading==='BANKS'?'Loading…':'Load banks'}</button></div>
-        <div className="e2pay-bank-list">{banks.slice(0,100).map((row)=><div key={row.id}><code>{row.id}</code><strong>{row.name}</strong><span>{String(row.active).toLowerCase()==='false'?'Inactive':'Active'}</span></div>)}{!banks.length?<div className="integration-empty">Bank list belum dimuat.</div>:null}</div>
+        <div className="e2pay-bank-list">{banks.slice(0,100).map((row)=><div key={row.id}><code>{row.id}</code><strong>{row.name}</strong><span>{String(row.active).toLowerCase()==='false'?'Inactive':'Active'}</span></div>)}{!banks.length?<div className="integration-empty">{banksLoaded?'Tidak ada bank yang cocok.':'Bank list belum dimuat.'}</div>:null}</div>
       </section>
     </div>
 

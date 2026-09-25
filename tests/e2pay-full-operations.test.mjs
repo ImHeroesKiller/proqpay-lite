@@ -148,3 +148,54 @@ test('E2Pay provider snapshot migration stores only masked public account metada
   assert.match(migration,/phone_masked/);
   assert.doesNotMatch(migration,/access_token|refresh_token|client_secret|password/i);
 });
+
+
+test('E2Pay live-read hardening prevents snapshot bind regression and tolerates UAT sort rejection',async()=>{
+  const operationsSource=await read('functions/api/e2pay-operations.js');
+  assert.match(
+    operationsSource,
+    /VALUES\(\?,'E2PAY',\?,\?,\?,\?,\?,\?,\?,\?,\?,'PROVIDER'/,
+    'snapshot insert must bind exactly org + 9 provider fields',
+  );
+  assert.doesNotMatch(
+    operationsSource,
+    /VALUES\(\?,'E2PAY',\?,\?,\?,\?,\?,\?,\?,\?,\?,\?,'PROVIDER'/,
+    'snapshot insert must not regress to 14 values for 13 columns',
+  );
+
+  const calls=[];
+  const fetchImpl=async(url,init={})=>{
+    calls.push({url:String(url),init});
+    if(calls.length===1){
+      return new Response(JSON.stringify({message:'invalid sort'}),{
+        status:400,
+        headers:{'Content-Type':'application/json'},
+      });
+    }
+    return new Response(JSON.stringify({rowCount:1,data:[{clientRef:'PQP-1',responseCode:'00'}]}),{
+      status:200,
+      headers:{'Content-Type':'application/json'},
+    });
+  };
+  const result=await e2payTransactionHistoryList(
+    env,
+    'user',
+    {limit:5,sortField:'transactionTimestamp',sortOrder:'DESCENDING',clientRef:'PQP-1'},
+    fetchImpl,
+  );
+  assert.equal(calls.length,2);
+  assert.match(calls[0].url,/sortField=transactionTimestamp/);
+  assert.doesNotMatch(calls[1].url,/sortField=/);
+  assert.match(calls[1].url,/clientRef=PQP-1/);
+  assert.equal(result.rowCount,1);
+});
+
+test('E2Pay bank directory normalizes provider status to active',async()=>{
+  const {fetchImpl}=mockJson({rowCount:2,data:[
+    {id:'aceh_syr',name:'BANK ACEH SYARIAH',status:false},
+    {id:'airpay',name:'BANK AIRPAY INTERNATIONAL',status:true},
+  ]});
+  const result=await e2payBankListPage(env,'user',{limit:5},fetchImpl);
+  assert.equal(result.data[0].active,false);
+  assert.equal(result.data[1].active,true);
+});
