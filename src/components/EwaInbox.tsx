@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import {
   EwaDetailPanel,
   EwaStatusBadge,
@@ -63,6 +64,7 @@ export default function EwaInbox() {
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("SUBMITTED");
   const [q, setQ] = useState("");
+  const qDebounced = useDebouncedValue(q, 300);
   const [period, setPeriod] = useState("");
   const [clientId, setClientId] = useState("");
   const [clients, setClients] = useState<ClientFacet[]>([]);
@@ -78,7 +80,7 @@ export default function EwaInbox() {
     setLoading(true);
     setMessage("");
     const params = new URLSearchParams({ status, offset: String(offset), limit: "50" });
-    if (q.trim()) params.set("q", q.trim());
+    if (qDebounced.trim()) params.set("q", qDebounced.trim());
     if (/^\d{4}-\d{2}$/.test(period)) params.set("period", period);
     if (clientId) params.set("clientId", clientId);
     try {
@@ -101,7 +103,7 @@ export default function EwaInbox() {
     } finally {
       setLoading(false);
     }
-  }, [status, q, period, clientId, offset]);
+  }, [status, qDebounced, period, clientId, offset]);
 
   useEffect(() => {
     void load();
