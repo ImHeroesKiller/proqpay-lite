@@ -176,7 +176,7 @@ export async function onRequest({ request, env }) {
     const bank = await d1First(
       env.DB,
       `SELECT bank_name, account_no FROM employee_bank_accounts
-        WHERE employee_id=? AND is_primary=1 ORDER BY updated_at DESC, id DESC LIMIT 1`,
+        WHERE employee_id=? AND is_primary=1 ORDER BY created_at DESC, id DESC LIMIT 1`,
       [actor.id],
     );
     const accountDigits = String(bank?.account_no || '').replace(/\D/g, '');
