@@ -186,6 +186,54 @@ export default function BillingWorkspace({
     }
   }
 
+  async function sendInvoiceEmail(row: any, force = false) {
+    setNotice("Mengirim invoice…");
+    try {
+      const response = await fetch("/api/invoice-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ invoiceId: row.id, force }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      await load();
+      setNotice(`Invoice ${row.invoice_number || ""} terkirim ke ${body.recipient}.`);
+    } catch (error) {
+      await load();
+      setNotice(error instanceof Error ? error.message : "Email invoice gagal dikirim");
+    }
+  }
+
+  async function issueAndSendInvoice(row: any) {
+    setNotice("Menerbitkan invoice…");
+    try {
+      const response = await fetch("/api/billing", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ action: "ISSUE_INVOICE", invoiceId: row.id }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      const emailResponse = await fetch("/api/invoice-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ invoiceId: row.id }),
+      });
+      const emailBody = await emailResponse.json();
+      await load();
+      if (!emailResponse.ok) {
+        setNotice(`Invoice sudah diterbitkan, tetapi email belum terkirim: ${emailBody.error || `HTTP ${emailResponse.status}`}`);
+        return;
+      }
+      setNotice(`Invoice diterbitkan dan terkirim ke ${emailBody.recipient}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Penerbitan invoice gagal");
+    }
+  }
+
   async function saveTaxInvoice(row: any) {
     setNotice("Memproses…");
     try {
@@ -286,6 +334,9 @@ export default function BillingWorkspace({
       billingRate: row.billing_rate || 0,
       billingAdminFee: row.billing_admin_fee || 0,
       billingTaxRate: row.billing_tax_rate ?? 11,
+      billingCcEmail: row.billing_cc_email || "",
+      arPaymentBlockMode: row.ar_payment_block_mode || "OVERDUE",
+      arWarningDays: row.ar_warning_days ?? 7,
     });
     setModal({ kind: "setup", row });
   }
@@ -449,6 +500,8 @@ export default function BillingWorkspace({
           revise={openRevision}
           tax={openTax}
           detail={(row: InvoiceRecord) => setModal({ kind: "detail", row })}
+          send={sendInvoiceEmail}
+          issueAndSend={issueAndSendInvoice}
         />
       )}
       {section === "tax" && (
@@ -544,7 +597,13 @@ export default function BillingWorkspace({
               submit={() =>
                 act(
                   "UPDATE_BILLING_PROFILE",
-                  { clientId: modal.row.id, ...form },
+                  {
+                    clientId: modal.row.id,
+                    ...form,
+                    billingCcEmail: form.billingCcEmail || form.billing_cc_email || "",
+                    arPaymentBlockMode: form.arPaymentBlockMode || "OVERDUE",
+                    arWarningDays: Number(form.arWarningDays ?? 7),
+                  },
                   "Billing profile klien tersimpan.",
                 )
               }
@@ -645,6 +704,8 @@ function InvoiceSection({
   revise,
   tax,
   detail,
+  send,
+  issueAndSend,
 }: any) {
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -697,6 +758,7 @@ function InvoiceSection({
               "Nilai",
               "Faktur",
               "Status",
+              "Delivery",
               "Aksi",
             ]}
             rows={data.invoices.map((r: any) => [
@@ -718,6 +780,10 @@ function InvoiceSection({
                 }
               />,
               <Badge key="s" text={r.status} />,
+              <div key="d" style={{ display:"grid", gap:3 }}>
+                <Badge text={r.email_status === "SENT" ? "EMAIL SENT" : r.email_status || "NOT SENT"} />
+                {r.email_recipient ? <small>{r.email_recipient}</small> : <small>{r.billing_email || "Email belum diatur"}</small>}
+              </div>,
               <div
                 key="a"
                 style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
@@ -769,21 +835,18 @@ function InvoiceSection({
                     r.tax_invoice_status === "APPROVED") && (
                     <button
                       style={button}
-                      onClick={() =>
-                        act(
-                          "ISSUE_INVOICE",
-                          { invoiceId: r.id },
-                          "Invoice diterbitkan dan AR terbentuk.",
-                        )
-                      }
+                      onClick={() => issueAndSend(r)}
                     >
-                      Terbitkan
+                      Terbitkan & kirim
                     </button>
                   )}
                 {!["DRAFT", "UNDER_REVIEW", "APPROVED"].includes(r.status) && (
-                  <button style={secondary} onClick={() => detail(r)}>
-                    Lihat
-                  </button>
+                  <>
+                    <button style={secondary} onClick={() => detail(r)}>Lihat</button>
+                    <a style={{ ...secondary, textDecoration:"none" }} href={`/api/invoice-document?invoiceId=${encodeURIComponent(r.id)}`}>PDF A4</a>
+                    {canControl && r.email_status !== "SENT" ? <button style={button} onClick={() => send(r)}>Kirim email</button> : null}
+                    {canControl && r.email_status === "SENT" ? <button style={secondary} onClick={() => send(r, true)}>Kirim ulang</button> : null}
+                  </>
                 )}
               </div>,
             ])}
@@ -903,8 +966,8 @@ function ARSection({ rows, canControl, canFollow, payment, follow, history }: an
         ))}
       </div>
       <Panel
-        title="Monitoring piutang"
-        detail="Pembayaran parsial otomatis mengurangi saldo. Aging dihitung dari tanggal jatuh tempo."
+        title="Monitoring piutang & payment gate"
+        detail="Outstanding dipantau per jatuh tempo. Warning muncul sebelum due date dan payment baru diblokir sesuai policy klien."
       >
         {rows.length ? (
           <Table
@@ -918,6 +981,7 @@ function ARSection({ rows, canControl, canFollow, payment, follow, history }: an
               "Unapplied",
               "Saldo",
               "Status",
+              "Payment gate",
               "Aksi",
             ]}
             rows={rows.map((r: any) => [
@@ -976,6 +1040,7 @@ function SetupSection({ clients, canEdit, open }: any) {
             "TOP",
             "Metode",
             "Rate",
+            "AR control",
             "Aksi",
           ]}
           rows={clients.map((r: any) => [
@@ -990,6 +1055,7 @@ function SetupSection({ clients, canEdit, open }: any) {
             r.billing_method === "PERCENTAGE_OF_PAYROLL"
               ? `${Number(r.billing_rate || 0).toLocaleString("id-ID")}%`
               : formatIDR(Number(r.billing_rate || 0)),
+            <div key="g"><Badge text={r.ar_payment_block_mode || "OVERDUE"} /><small>Warning H-{r.ar_warning_days ?? 7}</small></div>,
             canEdit ? (
               <button key="a" style={secondary} onClick={() => open(r)}>
                 Atur billing
@@ -1131,6 +1197,30 @@ function SetupForm({ form, setForm, submit }: any) {
           setForm({ ...form, billingEmail: v, billing_email: v })
         }
       />
+      <Field
+        label="CC email tagihan"
+        type="email"
+        value={form.billingCcEmail || form.billing_cc_email || ""}
+        onChange={(v: any) =>
+          setForm({ ...form, billingCcEmail: v, billing_cc_email: v })
+        }
+        required={false}
+      />
+      <div style={grid2}>
+        <Select
+          label="Payment block AR"
+          value={form.arPaymentBlockMode || "OVERDUE"}
+          options={["OFF", "OVERDUE", "ANY_OUTSTANDING"]}
+          onChange={(v: any) => setForm({ ...form, arPaymentBlockMode: v })}
+        />
+        <Field
+          label="Warning sebelum jatuh tempo (hari)"
+          type="number"
+          value={form.arWarningDays ?? 7}
+          onChange={(v: any) => setForm({ ...form, arWarningDays: v })}
+        />
+      </div>
+      <small style={muted}>OVERDUE memblokir payment baru setelah invoice lewat jatuh tempo. ANY_OUTSTANDING memblokir selama masih ada saldo AR. Reconciliation/payment yang sudah berjalan tetap dapat diselesaikan.</small>
       <div style={grid2}>
         <Field
           label="TOP (hari)"
@@ -1253,17 +1343,14 @@ function InvoiceDetail({ row }: any) {
           marginTop: 14,
         }}
       >
-        {row.billing_email && (
-          <a
-            style={{ ...button, textDecoration: "none" }}
-            href={`mailto:${row.billing_email}?subject=Invoice%20${encodeURIComponent(row.invoice_number || "ProQPay")}`}
-          >
-            Email klien
-          </a>
-        )}
-        <button style={secondary} onClick={() => window.print()}>
-          Cetak / Simpan PDF
-        </button>
+        {row.email_status === "SENT" ? <Badge text="EMAIL SENT" /> : <Badge text={row.email_status || "NOT SENT"} />}
+        <a
+          style={{ ...button, textDecoration: "none" }}
+          href={`/api/invoice-document?invoiceId=${encodeURIComponent(row.id)}`}
+        >
+          Unduh PDF A4
+        </a>
+        <button style={secondary} onClick={() => window.print()}>Print preview</button>
       </div>
     </div>
   );
