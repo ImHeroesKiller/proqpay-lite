@@ -45,7 +45,7 @@ export default function EwaInbox() {
     );
   }, [load]);
 
-  async function act(id: string, action: string) {
+  async function act(id: string, action: string, extra: Record<string, string> = {}) {
     if (busy) return;
     setBusy(id + action);
     setMessage("");
@@ -53,7 +53,7 @@ export default function EwaInbox() {
       const response = await fetch("/api/ewa", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, action }),
+        body: JSON.stringify({ id, action, ...extra }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok)
@@ -66,6 +66,16 @@ export default function EwaInbox() {
     }
   }
 
+  async function disburse(id: string) {
+    const source = window.prompt("Sumber pencairan (contoh: E2PAY, BANK_TRANSFER):", "BANK_TRANSFER")?.trim();
+    if (!source) return;
+    const reference = window.prompt("Nomor referensi transaksi:")?.trim();
+    if (!reference) return;
+    const transactionDate = window.prompt("Tanggal transaksi (YYYY-MM-DD):", new Date().toISOString().slice(0, 10))?.trim();
+    if (!transactionDate) return;
+    await act(id, "DISBURSE", { source, reference, transactionDate });
+  }
+
   return (
     <section className="portal-workspace">
       <div className="page-heading">
@@ -73,9 +83,10 @@ export default function EwaInbox() {
           <span className="page-eyebrow">Employee portal</span>
           <h1>Advance Salary</h1>
           <p>
-            Pengajuan EWA dari portal karyawan. Persetujuan dan pencairan tidak
-            mengubah PI atau billing. Potongan masuk ke pay run saat input
-            difinalisasi.
+            Pengajuan EWA dari portal karyawan. Persetujuan dan pencairan memakai
+            maker-checker; pencairan wajib memiliki bukti transaksi. Potongan masuk
+            ke pay run saat input difinalisasi dan status lunas hanya berasal dari
+            rekonsiliasi payroll.
           </p>
         </div>
         <span className="status-pill">{pending} menunggu</span>
