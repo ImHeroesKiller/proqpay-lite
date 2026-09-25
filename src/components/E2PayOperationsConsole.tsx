@@ -162,7 +162,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
     </div>
 
     <details className="e2pay-collapsible">
-      <summary><span>API coverage</span><b>{catalog.length} endpoint</b></summary>
+      <summary><span>API endpoint coverage</span><b>{catalog.length} endpoint</b></summary>
       <div className="e2pay-endpoint-summary">
         <span>{endpointCounts.get('LIVE_READ')||0} live read</span>
         <span>{endpointCounts.get('ADMIN_ACTION')||0} admin action</span>
