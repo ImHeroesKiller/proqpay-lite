@@ -142,7 +142,7 @@ export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Pr
   const employees = completed.reduce((sum,row) => sum + Number(row.employee_count || 0), 0);
 
   const filtersActive = Boolean(query.trim() || period !== 'ALL' || status !== 'ALL');
-  const paymentFollowUp = filteredPayments.filter((row) => ['PAYMENT_EXCEPTION','PROOF_UPLOADED'].includes(row.status)).length + settlementConflicts.length;
+  const paymentFollowUp = filteredPayments.filter((row) => ['PAYMENT_EXCEPTION','PROOF_UPLOADED'].includes(row.status) || row.settlement_source === 'CONFLICT').length;
   const controlBalanced = filteredPayroll.filter((row)=>Number(row.payroll_gross||0)-Number(row.payroll_deduction||0)===Number(row.payroll_net||0)).length;
   const controlPiMismatch = filteredPayroll.filter((row)=>Number(row.pi_total||0)&&Number(row.pi_total)!==Number(row.payroll_net||0)).length;
   const controlReconDiff = filteredPayroll.filter((row)=>Number(row.reconciliation_difference||0)!==0).length;
@@ -183,7 +183,7 @@ function PaymentTable({rows}:{rows:PaymentReport[]}) {
   return <div className="card report-table-wrap">
     <table className="report-table report-desktop-table report-payment-table"><thead><tr><th className="report-sticky-col">Klien / Project</th><th>Periode</th><th className="report-num">Karyawan</th><th className="report-num">Expected</th><th className="report-num">Dibayar</th><th className="report-num">Selisih</th><th>Pembayaran</th><th>Status</th></tr></thead><tbody>{rows.map((row)=>{
       const conflict=row.settlement_source==='CONFLICT';
-      const difference=conflict?null:Number(row.expected_total||0)-Number(row.paid_total||0);
+      const difference=paymentDifference(row);
       return <tr key={row.id}><td className="report-sticky-col"><strong>{row.client_name||'-'}</strong><small>{row.project_name||row.id}</small></td><td><strong>{row.payroll_period||'-'}</strong><small>Bayar {row.payment_period||'-'}</small></td><td className="report-num">{Number(row.employee_count||0)}</td><td className="report-num"><strong>{formatIDR(Number(row.expected_total||0))}</strong></td><td className="report-num"><strong>{conflict?'Periksa sumber':formatIDR(Number(row.paid_total||0))}</strong>{conflict?<small>Manual {formatIDR(Number(row.manual_proof_total||0))} · Gateway {formatIDR(Number(row.gateway_total||0))}</small>:null}</td><td className="report-num">{difference==null?'-':formatIDR(difference)}</td><td>{conflict?'Konflik sumber settlement':row.payment_date?new Date(row.payment_date).toLocaleDateString('id-ID'):'-'}<small>{row.reconciliation_status||'Belum rekonsiliasi'}{row.difference?` · ${formatIDR(Number(row.difference))}`:''}</small></td><td><span className={`report-status report-status-${reportStatusTone(conflict?'SETTLEMENT_CONFLICT':row.status)}`}>{reportStatusLabel(conflict?'SETTLEMENT_CONFLICT':row.status)}</span></td></tr>;
     })}</tbody></table>
     <div className="report-mobile-list">{rows.map((row)=>{
@@ -191,7 +191,7 @@ function PaymentTable({rows}:{rows:PaymentReport[]}) {
       return <article className="report-mobile-card" key={row.id}>
         <div className="report-mobile-head"><div><strong>{row.client_name||'-'}</strong><small>{row.project_name||row.id}</small></div><span className={`report-status report-status-${reportStatusTone(conflict?'CONFLICT':row.status)}`}>{reportStatusLabel(conflict?'CONFLICT':row.status)}</span></div>
         <div className="report-mobile-grid"><MobileValue label="Periode" value={row.payment_period||row.payroll_period||'-'} /><MobileValue label="Karyawan" value={Number(row.employee_count||0)} /><MobileValue label="Expected" value={formatIDR(Number(row.expected_total||0))} /><MobileValue label="Dibayar" value={conflict?'Periksa sumber':formatIDR(Number(row.paid_total||0))} /></div>
-        <details className="report-mobile-details"><summary>Lihat detail pembayaran</summary><div className="report-mobile-detail-grid"><MobileValue label="Rekonsiliasi" value={row.reconciliation_status||'Belum rekonsiliasi'} /><MobileValue label="Selisih" value={formatIDR(Number(row.difference||0))} />{conflict?<><MobileValue label="Bukti manual" value={formatIDR(Number(row.manual_proof_total||0))} /><MobileValue label="Payment gateway" value={formatIDR(Number(row.gateway_total||0))} /></>:null}</div></details>
+        <details className="report-mobile-details"><summary>Lihat detail pembayaran</summary><div className="report-mobile-detail-grid"><MobileValue label="Rekonsiliasi" value={row.reconciliation_status||'Belum rekonsiliasi'} /><MobileValue label="Selisih" value={paymentDifference(row)==null?'-':formatIDR(paymentDifference(row) as number)} />{conflict?<><MobileValue label="Bukti manual" value={formatIDR(Number(row.manual_proof_total||0))} /><MobileValue label="Payment gateway" value={formatIDR(Number(row.gateway_total||0))} /></>:null}</div></details>
       </article>;
     })}</div>
   </div>;
@@ -210,6 +210,11 @@ function GenericTable({rows,type}:{rows:ReportRow[];type:Exclude<ReportType,'pay
     })}</tr>)}</tbody></table>
     <div className="report-mobile-list">{rows.map((row,index)=><article className="report-mobile-card" key={`mobile-${String(row.submission_id||row.id||index)}-${index}`}><div className="report-mobile-head"><div><strong>{reportPrimaryTitle(row)}</strong><small>{reportSecondaryTitle(row)}</small></div>{(row.status||row.state||row.payment_status)?<span className={`report-status report-status-${reportStatusTone(row.status||row.state||row.payment_status)}`}>{reportStatusLabel(row.status||row.state||row.payment_status)}</span>:null}</div><div className="report-mobile-grid">{mobileKeys.map((key)=><MobileValue key={key} label={reportColumnLabel(key)} value={formatReportValue(key,row[key])} />)}</div>{detailKeys.length?<details className="report-mobile-details"><summary>Lihat detail laporan</summary><div className="report-mobile-detail-grid">{detailKeys.map((key)=><MobileValue key={key} label={reportColumnLabel(key)} value={formatReportValue(key,row[key])} />)}</div></details>:null}</article>)}</div>
   </div>;
+}
+
+function paymentDifference(row:PaymentReport){
+  if(row.settlement_source==='CONFLICT') return null;
+  return Number(row.expected_total||0)-Number(row.paid_total||0);
 }
 
 function formatReportValue(key:string,value:unknown){
