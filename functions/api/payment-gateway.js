@@ -11,6 +11,7 @@ import {
 import { executeE2PayBatch, reconcileE2PayBatch } from './payment-gateway-e2pay-service.js';
 import { e2payLoginReadiness } from './payment-gateway-e2pay.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
+import { arGateMessage, evaluateClientArGate } from './ar-payment-control.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER'];
@@ -170,7 +171,8 @@ export async function onRequest(context) {
             FROM payment_gateway_items WHERE payment_gateway_transaction_id=? ORDER BY created_at,id`, [transaction.id])
         : [];
       const operational = gatewayOperationalStatus(transaction,items);
-      return secureJson({ ok: true, gateway: readiness, transaction:publicTransaction(transaction), items, operational }, 200, request, env, METHODS);
+      const arGate = await evaluateClientArGate(database, organizationId, payment.client_id);
+      return secureJson({ ok: true, gateway: readiness, transaction:publicTransaction(transaction), items, operational, arGate }, 200, request, env, METHODS);
     }
 
     if (!authorization.actor.permissions?.includes('payment:prepare')) {
@@ -199,6 +201,14 @@ export async function onRequest(context) {
     let transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE idempotency_key=? LIMIT 1', [idempotencyKey]);
     if (transaction && transaction.provider !== readiness.provider) {
       return secureJson({ error: 'Provider gateway berbeda dari execution ledger yang sudah ada', code: 'PAYMENT_GATEWAY_PROVIDER_MISMATCH' }, 409, request, env, METHODS);
+    }
+    if (action === 'EXECUTE' && !transaction) {
+      const arGate = await evaluateClientArGate(database, organizationId, payment.client_id);
+      if (arGate.blocked) {
+        await d1Batch(database,[auditOperation(organizationId,authorization.actor,'PAYMENT_BLOCKED_BY_AR',
+          JSON.stringify({mode:arGate.mode,outstanding:arGate.outstanding,overdue:arGate.overdue,oldestDueDate:arGate.oldestDueDate}),payment.id)]);
+        return secureJson({ error:arGateMessage(arGate), code:arGate.code, arGate },409,request,env,METHODS);
+      }
     }
     if (action === 'RECONCILE') {
       if (readiness.provider !== 'E2PAY') return secureJson({ error: 'Reconcile polling hanya tersedia untuk adapter E2Pay' }, 422, request, env, METHODS);
