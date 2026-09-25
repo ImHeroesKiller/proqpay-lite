@@ -2931,7 +2931,9 @@ textarea:focus-visible {
   .report-mobile-detail-grid span {
     font-size:10px;
   }
-  .report-mobile-grid strong,
+  .report-mobile-grid strong {
+    font-size:12px;
+  }
   .report-mobile-detail-grid strong {
     font-size:12px;
   }
