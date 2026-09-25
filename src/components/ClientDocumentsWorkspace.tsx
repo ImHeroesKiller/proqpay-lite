@@ -83,7 +83,7 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
       <div className="card report-summary"><span>Invoice tersedia</span><strong>{invoices.length}</strong></div>
       <div className="card report-summary"><span>Total invoice</span><strong>{formatIDR(total)}</strong></div>
       <div className="card report-summary"><span>Lunas</span><strong>{invoices.filter((row)=>row.status==='PAID').length}</strong></div>
-      <div className="card report-summary"><span>Perlu pembayaran</span><strong>{invoices.filter((row)=>['ISSUED','PARTIALLY_PAID'].includes(row.status)).length}</strong></div>
+      <div className="card report-summary"><span>Perlu pembayaran</span><strong>{invoices.filter((row)=>['ISSUED','PARTIALLY_PAID'].includes(row.status||'')).length}</strong></div>
     </div>
 
     <section className="card client-invoice-section">
@@ -95,9 +95,9 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
           <td><strong>{row.invoice_number||'Invoice'}</strong><small>{row.client_name||row.company||'-'} · {row.project_name||'-'}</small></td>
           <td>{row.period||'-'}</td>
           <td><strong>{formatIDR(Number(row.total_amount||0))}</strong></td>
-          <td>{dateLabel(row.due_date)}</td>
-          <td><span className="stage-pill">{statusLabel(row.status)}</span></td>
-          <td>{row.tax_invoice_number ? <><strong>{row.tax_invoice_number}</strong><small>{dateLabel(row.tax_invoice_date)}</small></> : row.tax_status==='NON_PKP' ? 'Non-PKP' : 'Belum tersedia'}</td>
+          <td>{dateLabel(row.due_date||'')}</td>
+          <td><span className="stage-pill">{statusLabel(row.status||'')}</span></td>
+          <td>{row.tax_invoice_number ? <><strong>{row.tax_invoice_number}</strong><small>{dateLabel(row.tax_invoice_date||'')}</small></> : row.tax_status==='NON_PKP' ? 'Non-PKP' : 'Belum tersedia'}</td>
         </tr>)}</tbody>
       </table><div className="report-mobile-list client-invoice-mobile-list">{invoices.map((row)=><article className="report-mobile-card" key={`mobile-${row.id}`}><div className="report-mobile-head"><div><strong>{row.invoice_number||'Invoice'}</strong><small>{row.client_name||row.company||'-'} · {row.project_name||'-'}</small></div><span className="stage-pill">{statusLabel(row.status||'')}</span></div><div className="report-mobile-grid"><div><span>Periode</span><strong>{row.period||'-'}</strong></div><div><span>Nilai</span><strong>{formatIDR(Number(row.total_amount||0))}</strong></div><div><span>Jatuh tempo</span><strong>{dateLabel(row.due_date||'')}</strong></div><div><span>Faktur pajak</span><strong>{row.tax_invoice_number|| (row.tax_status==='NON_PKP'?'Non-PKP':'Belum tersedia')}</strong></div></div></article>)}</div></div> : <div className="control-empty">Belum ada invoice yang diterbitkan untuk akun ini.</div>}
     </section>
