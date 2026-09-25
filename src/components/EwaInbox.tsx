@@ -209,9 +209,9 @@ export default function EwaInbox() {
                         type="button"
                         className="btn"
                         disabled={Boolean(busy)}
-                        onClick={() => void act(row.id, "DISBURSE")}
+                        onClick={() => void disburse(row.id)}
                       >
-                        Tandai cair
+                        Catat pencairan
                       </button>
                     ) : null}
                   </td>
