@@ -13,10 +13,12 @@ test('Employee Services UI P2: Advance Salary supports scalable page sizing',asy
 
 test('Employee Services UI P2: Portal Audit uses scalable table controls and side drawer detail',async()=>{
   const ui=await read('src/components/PortalAudit.tsx');
+  const styles=await read('src/app/employee-services.css');
   assert.match(ui,/Jumlah baris per halaman/);
   assert.match(ui,/100 baris/);
   assert.match(ui,/pa-table-wrap/);
-  assert.match(ui,/position:fixed|position:"fixed"|position: "fixed"/);
+  assert.match(ui,/es-drawer-backdrop/);
+  assert.match(styles,/position:fixed/);
   assert.match(ui,/aria-modal="true"/);
   assert.match(ui,/Detail audit/);
 });
