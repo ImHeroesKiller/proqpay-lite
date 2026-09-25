@@ -1,3 +1,5 @@
+import { authenticateSession } from './_account-auth.js';
+
 function clean(value, max = 180) {
   return String(value || '').trim().replace(/[\r\n\t]+/g, ' ').slice(0, max);
 }
@@ -24,8 +26,18 @@ function eventType(request, response) {
   return 'REQUEST';
 }
 
-async function persist(database, env, request, response, startedAt, identity) {
-  const organizationId = String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');
+async function resolveOrganizationId(request, env) {
+  try {
+    const actor = await authenticateSession(request, env);
+    if (actor?.orgId) return String(actor.orgId);
+  } catch {
+    // Observability must never change endpoint authentication behavior.
+  }
+  return String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');
+}
+
+async function persist(database, env, request, response, startedAt, identity, correlationId) {
+  const organizationId = await resolveOrganizationId(request, env);
   const endpoint = clean(new URL(request.url).pathname, 220);
   const userAgent = clean(request.headers.get('User-Agent') || '', 220);
   const type = eventType(request, response);
@@ -58,8 +70,8 @@ async function persist(database, env, request, response, startedAt, identity) {
         userAgent || null,
       ),
     database.prepare(`INSERT INTO api_endpoint_events
-      (id,org_id,app_id,app_name,event_type,method,endpoint,status_code,duration_ms,user_agent)
-      VALUES(?,?,?,?,?,?,?,?,?,?)`)
+      (id,org_id,app_id,app_name,event_type,method,endpoint,status_code,duration_ms,user_agent,correlation_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
       .bind(
         'APIEVT-' + crypto.randomUUID(),
         organizationId,
@@ -71,6 +83,7 @@ async function persist(database, env, request, response, startedAt, identity) {
         response.status,
         durationMs,
         userAgent || null,
+        correlationId,
       ),
   ]);
 }
@@ -78,20 +91,34 @@ async function persist(database, env, request, response, startedAt, identity) {
 export async function onRequest(context) {
   const startedAt = Date.now();
   const identity = appIdentity(context.request);
+  const correlationId = clean(
+    context.request.headers.get('X-Request-Id')
+      || context.request.headers.get('X-Correlation-Id')
+      || crypto.randomUUID(),
+    120,
+  );
   const response = await context.next();
 
   // Monitoring headers are metadata only: they do not grant access and do not
-  // bypass normal ProQPay authentication. The underlying endpoint stays authoritative.
+  // bypass normal ProQPay authentication. ACTIVE means operator-trusted for
+  // observability, not authenticated/authorized for endpoint access.
   if (identity && context.env?.DB?.prepare && context.env?.DB?.batch) {
-    const task = persist(context.env.DB, context.env, context.request, response, startedAt, identity)
+    const task = persist(context.env.DB, context.env, context.request, response, startedAt, identity, correlationId)
       .catch((error) => console.error(JSON.stringify({
         level:'warn',
         source:'api-monitor',
+        correlationId,
         message:error instanceof Error ? error.message : String(error),
       })));
     if (typeof context.waitUntil === 'function') context.waitUntil(task);
     else await task;
   }
 
-  return response;
+  const headers = new Headers(response.headers);
+  headers.set('X-Request-Id', correlationId);
+  return new Response(response.body, {
+    status:response.status,
+    statusText:response.statusText,
+    headers,
+  });
 }
