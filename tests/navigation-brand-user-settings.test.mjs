@@ -9,6 +9,7 @@ const manifest = readFileSync("public/manifest.webmanifest", "utf8");
 const intake = readFileSync("src/app/data-intake/page.tsx", "utf8");
 const accounts = readFileSync("functions/api/accounts.js", "utf8");
 const migration = readFileSync("migrations/0019_app_user_profiles.sql", "utf8");
+const authority = readFileSync("shared/authority-matrix.js", "utf8");
 
 test("sidebar presents the role-filtered business workflow in operational order", () => {
   const labels = [
@@ -30,7 +31,9 @@ test("sidebar presents the role-filtered business workflow in operational order"
   assert.match(sidebar, /NavGroup label="Overview"/);
   assert.match(sidebar, /label="Employee Services"/);
   assert.match(sidebar, /label="System"/);
-  assert.match(sidebar, /role === "SUPER_ADMIN"/);
+  assert.match(sidebar, /canManageEmployeeServices/);
+  assert.match(sidebar, /canViewAudit/);
+  assert.match(authority, /SUPER_ADMIN:[\s\S]*?'employee-services:manage'/);
 });
 
 
