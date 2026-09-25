@@ -1,0 +1,83 @@
+name: Employee Services Cross-App Regression
+
+on:
+  pull_request:
+    paths:
+      - "employee-services-contract.json"
+      - "functions/api/employee/**"
+      - "functions/api/_employee-**"
+      - "functions/api/_ewa.js"
+      - "functions/api/ewa.js"
+      - "functions/api/portal-*.js"
+      - "src/components/EwaInbox.tsx"
+      - "src/components/PortalAudit.tsx"
+      - "src/components/PortalSettings.tsx"
+      - "src/components/employee-services/**"
+      - "src/lib/employee-services.ts"
+      - "tests/employee-service*.test.mjs"
+      - ".github/workflows/employee-services-cross-app.yml"
+  push:
+    branches: [main]
+    paths:
+      - "employee-services-contract.json"
+      - "functions/api/employee/**"
+      - "functions/api/_employee-**"
+      - "functions/api/_ewa.js"
+      - "functions/api/ewa.js"
+      - "functions/api/portal-*.js"
+      - "src/components/EwaInbox.tsx"
+      - "src/components/PortalAudit.tsx"
+      - "src/components/PortalSettings.tsx"
+      - "src/components/employee-services/**"
+      - "src/lib/employee-services.ts"
+      - "tests/employee-service*.test.mjs"
+      - ".github/workflows/employee-services-cross-app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: employee-services-cross-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout ProQPay Lite
+        uses: actions/checkout@v4
+        with:
+          path: lite
+
+      - name: Checkout ESS main
+        uses: actions/checkout@v4
+        with:
+          repository: ImHeroesKiller/proqpay-ess
+          ref: main
+          path: ess
+
+      - name: Assert contract manifest parity
+        run: cmp lite/employee-services-contract.json ess/employee-services-contract.json
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Lite dependencies
+        working-directory: lite
+        run: npm ci
+
+      - name: Run Lite Employee Services regression
+        working-directory: lite
+        run: node --test tests/employee-service*.test.mjs
+
+      - name: Install ESS dependencies
+        working-directory: ess
+        run: npm ci
+
+      - name: Run ESS contract and architecture regression
+        working-directory: ess
+        run: npm test
