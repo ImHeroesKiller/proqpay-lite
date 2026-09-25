@@ -160,12 +160,19 @@ export async function onRequest({request,env}) {
         invoice.activity=invoice.audit_activity.map((entry)=>({...entry,type:'AUDIT',at:entry.timestamp}));
       }
       const clientGateSummary=new Map();
+      const todayUtc=new Date();todayUtc.setUTCHours(0,0,0,0);
       for (const ar of arPage) {
         const key=String(ar.client_id||'');
-        const current=clientGateSummary.get(key)||{outstanding:0,overdue:0,mode:String(ar.ar_payment_block_mode||'OVERDUE')};
+        const warningDays=Math.max(0,Math.min(90,Number(ar.ar_warning_days||7)));
+        const current=clientGateSummary.get(key)||{outstanding:0,overdue:0,dueSoon:0,mode:String(ar.ar_payment_block_mode||'OVERDUE'),warningDays};
         if (Number(ar.balance||0)>0 && String(ar.status||'')!=='PAID') {
-          current.outstanding += Number(ar.balance||0);
-          if (ar.due_date && new Date(String(ar.due_date)+'T00:00:00Z').getTime() < Date.now()) current.overdue += Number(ar.balance||0);
+          const balance=Number(ar.balance||0);
+          current.outstanding += balance;
+          if (ar.due_date) {
+            const dueMs=new Date(String(ar.due_date)+'T00:00:00Z').getTime();
+            if (dueMs < todayUtc.getTime()) current.overdue += balance;
+            else if (dueMs <= todayUtc.getTime()+(warningDays*86_400_000)) current.dueSoon += balance;
+          }
         }
         clientGateSummary.set(key,current);
       }
@@ -178,7 +185,7 @@ export async function onRequest({request,env}) {
         ar.control={invoiceTotal,paid,unapplied,outstanding,agingDays:Number(ar.aging_days||0),appliedDifference:invoiceTotal-paid-outstanding};
         const gate=clientGateSummary.get(String(ar.client_id||''))||{outstanding:0,overdue:0,mode:'OVERDUE'};
         ar.payment_gate_state=gate.mode==='ANY_OUTSTANDING'&&gate.outstanding>0?'BLOCKED':
-          gate.mode==='OVERDUE'&&gate.overdue>0?'BLOCKED':gate.outstanding>0?'WARNING':'CLEAR';
+          gate.mode==='OVERDUE'&&gate.overdue>0?'BLOCKED':gate.dueSoon>0?'WARNING':'CLEAR';
         ar.client_outstanding=gate.outstanding;
         ar.client_overdue=gate.overdue;
         ar.activity=[
