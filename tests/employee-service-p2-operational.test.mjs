@@ -12,27 +12,30 @@ test('Employee Service EWA inbox keeps pending summary independent from status f
 });
 
 test('Employee Service EWA inbox exposes cancelled lifecycle records',async()=>{
-  const ui=await read('src/components/EwaInbox.tsx');
-  assert.match(ui,/"CANCELLED"/);
+  const shared=await read('src/lib/employee-services.ts');
+  assert.match(shared,/"CANCELLED"/);
 });
 
 
 test('Employee Service P2: EWA admin exposes lifecycle facets, retry and responsive mobile cards',async()=>{
   const api=await read('functions/api/ewa.js');
   const ui=await read('src/components/EwaInbox.tsx');
+  const states=await read('src/components/employee-services/OperationalState.tsx');
+  const details=await read('src/components/employee-services/EwaLifecycle.tsx');
   assert.match(api,/statusCounts/);
   assert.match(api,/SELECT DISTINCT c\.id,c\.name/);
-  assert.match(ui,/Coba lagi/);
-  assert.match(ui,/aria-busy="true"/);
+  assert.match(states,/Coba lagi/);
+  assert.match(states,/aria-busy="true"/);
   assert.match(ui,/ewa-mobile-card/);
-  assert.match(ui,/Detail lifecycle advance/);
+  assert.match(details,/Detail lifecycle advance/);
   assert.match(ui,/Perbarui|Refresh/);
 });
 
 test('Employee Service P2: Portal Audit has explicit loading, recovery, empty and mobile states',async()=>{
   const ui=await read('src/components/PortalAudit.tsx');
+  const states=await read('src/components/employee-services/OperationalState.tsx');
   assert.match(ui,/Memuat jejak audit portal/);
-  assert.match(ui,/Coba lagi/);
+  assert.match(states,/Coba lagi/);
   assert.match(ui,/Belum ada jejak audit/);
   assert.match(ui,/pa-mobile/);
   assert.match(ui,/Detail audit/);
