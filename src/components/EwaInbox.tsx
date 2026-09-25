@@ -88,6 +88,7 @@ export default function EwaInbox() {
           "REPAYING",
           "REPAID",
           "REJECTED",
+          "CANCELLED",
           "",
         ].map((value) => (
           <button
