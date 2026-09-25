@@ -1,10 +1,10 @@
 import {
   countRecentFailures, createEmployeeSession, employeeHandlePreflight, employeeJson,
-  findEmployeeForLogin, isActiveEmployee, portalMutationAllowed, recordLoginAttempt,
+  enforceEmployeeRateLimit, findEmployeeForLogin, isActiveEmployee, portalMutationAllowed, recordLoginAttempt,
   verifyEmployeeSecret,
 } from '../_employee-auth.js';
 import { d1First, d1Run, hasD1 } from '../_d1.js';
-import { enforceRateLimit, publicError } from '../_security.js';
+import { publicError } from '../_security.js';
 
 const METHODS = 'POST, OPTIONS';
 
@@ -15,7 +15,7 @@ export async function onRequest({ request, env }) {
     return employeeJson({ error: 'Origin not allowed' }, 403, request, env, METHODS);
   }
 
-  const limited = await enforceRateLimit(
+  const limited = await enforceEmployeeRateLimit(
     request,
     env,
     { id: request.headers.get('CF-Connecting-IP') || 'anonymous-employee-login' },
