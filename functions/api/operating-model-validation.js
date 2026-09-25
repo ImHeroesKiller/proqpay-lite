@@ -72,7 +72,7 @@ export function validateOperatingAction(input) {
     if (PERIOD.test(String(input.paymentPeriod || '')) && DATE.test(String(input.paymentDate || ''))
       && !String(input.paymentDate).startsWith(`${input.paymentPeriod}-`)) errors.push('paymentDate harus berada pada paymentPeriod yang dipilih');
     if (!RUN_TYPES.has(input.runType)) errors.push('runType tidak valid');
-    if (String(input.sourceMode || '').toUpperCase() === 'UPLOAD_FINAL') errors.push('UPLOAD_FINAL dipindahkan ke Data Intake canonical workflow');
+    if (String(input.sourceMode || '').toUpperCase() === 'UPLOAD_FINAL') errors.push('Pembuatan Pay Run dari file hanya tersedia melalui Data Intake');
     else if (String(input.sourceMode || '').toUpperCase() === 'HRIS') errors.push('Integrasi HRIS belum aktif; gunakan MASTER_CURRENT atau COPY_PREVIOUS');
     else if (!SOURCE_MODES.has(input.sourceMode)) errors.push('sourceMode tidak valid');
     if (input.parentSubmissionId && !validId(input.parentSubmissionId)) errors.push('parentSubmissionId tidak valid');
