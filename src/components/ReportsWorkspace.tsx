@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useDeferredValue, useEffect, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import PanelPagination from '@/components/PanelPagination';
 import PayrollSourceUpload from '@/components/PayrollSourceUpload';
@@ -96,24 +96,29 @@ export default function ReportsWorkspace({clientMode=false}:Props = {}) {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const loadRequestRef = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId=++loadRequestRef.current;
     setLoading(true); setError('');
     try {
       const filters={period,status,query:deferredQuery};
       if (type === 'payments') {
         const result=await loadAllPaymentReports(filters);
+        if(requestId!==loadRequestRef.current) return;
         setPaymentRows(result.rows);
         setFacets(result.facets);
       } else {
         const result=await loadAllPayrollReport(type,filters);
+        if(requestId!==loadRequestRef.current) return;
         setPayrollRows(result.rows);
         setFacets(result.facets);
       }
     } catch (caught) {
+      if(requestId!==loadRequestRef.current) return;
       setError(caught instanceof Error ? caught.message : 'Gagal memuat laporan');
     } finally {
-      setLoading(false);
+      if(requestId===loadRequestRef.current) setLoading(false);
     }
   }, [type,period,status,deferredQuery]);
 
