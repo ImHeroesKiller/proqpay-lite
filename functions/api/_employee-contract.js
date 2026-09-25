@@ -1,1 +1,11 @@
 export const EMPLOYEE_SERVICES_CONTRACT_VERSION = '2026-09-v1';
+
+export const EMPLOYEE_SERVICES_EWA_STATUSES = Object.freeze([
+  'SUBMITTED',
+  'APPROVED',
+  'DISBURSED',
+  'REPAYING',
+  'REPAID',
+  'REJECTED',
+  'CANCELLED',
+]);
