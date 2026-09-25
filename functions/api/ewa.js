@@ -29,18 +29,44 @@ export async function onRequest({ request, env }) {
 
   try {
     if (request.method === 'GET') {
-      const status = new URL(request.url).searchParams.get('status') || '';
+      const params = new URL(request.url).searchParams;
+      const allowedStatuses = new Set(['SUBMITTED','APPROVED','DISBURSED','REPAYING','REPAID','REJECTED','CANCELLED']);
+      const requestedStatus = String(params.get('status') || '').trim().toUpperCase();
+      const status = requestedStatus && allowedStatuses.has(requestedStatus) ? requestedStatus : '';
+      const clientId = String(params.get('clientId') || '').trim().slice(0, 80);
+      const periodRaw = String(params.get('period') || '').trim();
+      const period = /^\d{4}-\d{2}$/.test(periodRaw) ? periodRaw : '';
+      const q = String(params.get('q') || '').trim().slice(0, 80);
+      const offset = Math.max(0, Number.parseInt(params.get('offset') || '0', 10) || 0);
+      const limit = Math.min(100, Math.max(1, Number.parseInt(params.get('limit') || '50', 10) || 50));
+      const clauses = ['r.org_id=?'];
+      const bindings = [organizationId];
+      if (status) { clauses.push('r.status=?'); bindings.push(status); }
+      if (clientId) { clauses.push('r.client_id=?'); bindings.push(clientId); }
+      if (period) { clauses.push('r.period=?'); bindings.push(period); }
+      if (q) {
+        clauses.push('(lower(e.name) LIKE ? OR lower(e.employee_code) LIKE ? OR lower(r.id) LIKE ?)');
+        const like = `%${q.toLowerCase()}%`;
+        bindings.push(like, like, like);
+      }
+      const where = clauses.join(' AND ');
       const rows = await d1All(
         env.DB,
         `SELECT r.*, e.name AS employee_name, e.employee_code, c.name AS client_name
          FROM ewa_requests r
          JOIN employees e ON e.id=r.employee_id
          LEFT JOIN clients c ON c.id=r.client_id
-         WHERE r.org_id=?
-           AND (?='' OR r.status=?)
-         ORDER BY r.created_at DESC
-         LIMIT 100`,
-        [organizationId, status, status],
+         WHERE ${where}
+         ORDER BY r.created_at DESC, r.id DESC
+         LIMIT ? OFFSET ?`,
+        [...bindings, limit, offset],
+      );
+      const filtered = await d1First(
+        env.DB,
+        `SELECT COUNT(*) AS total
+          FROM ewa_requests r JOIN employees e ON e.id=r.employee_id
+          WHERE ${where}`,
+        bindings,
       );
       const summary = await d1First(
         env.DB,
@@ -50,11 +76,15 @@ export async function onRequest({ request, env }) {
          FROM ewa_requests WHERE org_id=?`,
         [organizationId],
       );
+      const filteredTotal = Number(filtered?.total || 0);
       return respond({
         ok: true,
         pending: Number(summary?.pending || 0),
         total: Number(summary?.total || 0),
+        filteredTotal,
         requests: rows,
+        page: { offset, limit, hasMore: offset + rows.length < filteredTotal, nextOffset: offset + rows.length },
+        filters: { status, clientId, period, q },
       });
     }
 
