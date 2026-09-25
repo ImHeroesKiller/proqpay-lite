@@ -48,6 +48,20 @@ export type PaymentGatewayItem = {
   error_message?: string | null;
 };
 
+export type ArPaymentGate = {
+  state: 'CLEAR' | 'WARNING' | 'BLOCKED';
+  blocked: boolean;
+  warning: boolean;
+  mode: 'OFF' | 'OVERDUE' | 'ANY_OUTSTANDING';
+  outstanding: number;
+  overdue: number;
+  dueSoon?: number;
+  outstandingCount?: number;
+  overdueCount?: number;
+  oldestDueDate?: string | null;
+  code?: string | null;
+};
+
 export type PaymentGatewayOperationalStatus = {
   state: string;
   stale: boolean;
@@ -97,6 +111,7 @@ export async function getPaymentGatewayStatus(paymentInstructionId?: string) {
     transaction?: PaymentGatewayTransaction | null;
     items?: PaymentGatewayItem[];
     operational?: PaymentGatewayOperationalStatus;
+    arGate?: ArPaymentGate;
   }>;
 }
 

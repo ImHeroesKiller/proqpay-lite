@@ -13,6 +13,7 @@ import {
   type PaymentGatewayReadiness,
   type PaymentGatewayTransaction,
   type PaymentGatewayOperationalStatus,
+  type ArPaymentGate,
 } from '@/lib/payment-gateway-api';
 
 type Props = {
@@ -29,6 +30,7 @@ type Runtime = {
   items: PaymentGatewayItem[];
   session: HostedPaymentSession | null;
   operational: PaymentGatewayOperationalStatus | null;
+  arGate: ArPaymentGate | null;
 };
 
 const activeTransaction = (value: PaymentGatewayTransaction | null) => value && ['CREATED','PENDING','PROCESSING'].includes(value.status);
@@ -37,7 +39,7 @@ const activeHosted = (value: HostedPaymentSession | null) => Boolean(value
   && new Date(value.expires_at).getTime() > Date.now());
 
 export default function PaymentGatewayExecutionActions({ paymentInstructionId, canExecuteGateway, onManualProof, onChanged }: Props) {
-  const [runtime, setRuntime] = useState<Runtime>({ seamless:null, hosted:null, transaction:null, items:[], session:null, operational:null });
+  const [runtime, setRuntime] = useState<Runtime>({ seamless:null, hosted:null, transaction:null, items:[], session:null, operational:null, arGate:null });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -57,6 +59,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
         items: seamless.items || [],
         session: hosted.session || null,
         operational: seamless.operational || null,
+        arGate: seamless.arGate || null,
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Status gateway gagal dimuat');
@@ -155,17 +158,24 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
   const e2payRetryable = runtime.items.filter((item) => item.status === 'FAILED' && (Number(item.attempt_count || 0) === 0 || String(item.response_code || '').trim() === '99')).length;
   const operational = runtime.operational;
   const staleReconcile = Boolean(isE2Pay && operational?.stale && operational.needsReconciliation);
+  const arBlocked = Boolean(runtime.arGate?.blocked && !transactionActive && !hostedActive);
 
   return <div style={{ display:'grid', gap:6, minWidth:190 }}>
     <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
-      {canExecuteGateway && seamlessReady && ((!transactionActive && (!isE2Pay || e2payFailed === 0)) || (isE2Pay && e2payReady > 0 && e2payFailed === 0)) && !hostedActive ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void seamless()}>{busy === 'seamless' ? 'Memproses…' : isE2Pay ? (transactionActive ? 'Lanjut E2Pay' : 'Bayar via E2Pay') : 'Seamless'}</button> : null}
+      {canExecuteGateway && !arBlocked && seamlessReady && ((!transactionActive && (!isE2Pay || e2payFailed === 0)) || (isE2Pay && e2payReady > 0 && e2payFailed === 0)) && !hostedActive ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void seamless()}>{busy === 'seamless' ? 'Memproses…' : isE2Pay ? (transactionActive ? 'Lanjut E2Pay' : 'Bayar via E2Pay') : 'Seamless'}</button> : null}
       {canExecuteGateway && isE2Pay && transactionActive && e2payUnresolved > 0 ? <button className={staleReconcile ? 'btn btn-primary' : 'btn'} type="button" disabled={Boolean(busy)} onClick={() => void reconcileE2Pay()}>{busy === 'reconcile' ? 'Sinkron…' : staleReconcile ? 'Sync status sekarang' : 'Sync E2Pay'}</button> : null}
       {canExecuteGateway && isE2Pay && e2payRetryable > 0 && e2payUnresolved === 0 ? <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void retryFailedE2Pay()}>{busy === 'retry-failed' ? 'Retry…' : `Retry ${e2payRetryable} Gagal`}</button> : null}
-      {canExecuteGateway && hostedReady && !transactionActive && !hostedActive ? <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void hosted()}>{busy === 'hosted' ? 'Membuka…' : 'Hosted'}</button> : null}
+      {canExecuteGateway && !arBlocked && hostedReady && !transactionActive && !hostedActive ? <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void hosted()}>{busy === 'hosted' ? 'Membuka…' : 'Hosted'}</button> : null}
       {canExecuteGateway && hostedCanContinue ? <button className="btn btn-primary" type="button" onClick={() => window.location.assign(String(runtime.session?.checkout_url))}>Lanjut Hosted</button> : null}
       {onManualProof ? <button className="btn" type="button" onClick={onManualProof}>Catat Bukti</button> : null}
       <button className="btn" type="button" disabled={loading} onClick={() => void load()} aria-label="Refresh status gateway">↻</button>
     </div>
+    {arBlocked ? <div className="app-notice-bubble app-notice-error" role="alert" style={{ margin:0 }}>
+      <strong>Payment blocked · Outstanding AR</strong>
+      <span>{runtime.arGate?.mode === 'ANY_OUTSTANDING'
+        ? `Outstanding klien ${Number(runtime.arGate?.outstanding||0).toLocaleString('id-ID')} masih belum dibayar.`
+        : `Overdue AR ${Number(runtime.arGate?.overdue||0).toLocaleString('id-ID')} harus diselesaikan sebelum payment baru.`}</span>
+    </div> : runtime.arGate?.warning ? <small style={{ color:'#b45309' }}>Warning AR: outstanding klien {Number(runtime.arGate.outstanding||0).toLocaleString('id-ID')}.</small> : null}
     {transactionActive ? <small style={{ color:'var(--text3)' }}>Gateway {runtime.transaction?.provider} · {runtime.transaction?.status}{operational?.activeLease ? ' · request aktif' : ''}</small> : null}
     {operational?.stale ? <small style={{ color:'#b45309' }}><strong>Status gateway stale {operational.staleMinutes} menit.</strong> {isE2Pay ? 'Sinkronkan status provider sebelum retry atau tindakan manual.' : 'Jangan retry sampai status provider dikonfirmasi.'}</small> : null}
     {operational?.state === 'RECONCILE' && !operational.stale ? <small style={{ color:'#b45309' }}>Status provider belum final. Selesaikan reconciliation sebelum retry.</small> : null}
