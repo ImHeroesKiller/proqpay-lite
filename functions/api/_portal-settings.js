@@ -1,4 +1,4 @@
-import { d1All, d1First, d1Run } from './_d1.js';
+import { d1All, d1Batch, d1First } from './_d1.js';
 import { DEFAULT_EWA_POLICY, policyToRules } from './_ewa.js';
 
 export const DEFAULT_PORTAL_COPY = Object.freeze({
@@ -291,10 +291,18 @@ export async function loadPortalSettingsForOps(database, orgId, clientId) {
 
 export async function savePortalSettings(database, { orgId, clientId, actor, policy, copy, features, adsPlatform, ads, reset }) {
   const nowActor = actor?.email || actor?.id || 'ops';
+  const auditId = `AUD-${crypto.randomUUID()}`;
   if (reset && clientId) {
-    await d1Run(database, 'DELETE FROM portal_ads WHERE org_id=? AND client_id=?', [orgId, clientId]);
-    await d1Run(database, 'DELETE FROM portal_settings WHERE org_id=? AND client_id=?', [orgId, clientId]);
-    await d1Run(database, 'DELETE FROM ewa_policies WHERE org_id=? AND client_id=?', [orgId, clientId]);
+    await d1Batch(database, [
+      { statement: 'DELETE FROM portal_ads WHERE org_id=? AND client_id=?', bindings: [orgId, clientId] },
+      { statement: 'DELETE FROM portal_settings WHERE org_id=? AND client_id=?', bindings: [orgId, clientId] },
+      { statement: 'DELETE FROM ewa_policies WHERE org_id=? AND client_id=?', bindings: [orgId, clientId] },
+      {
+        statement: `INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
+          VALUES (?, ?, ?, ?, 'PORTAL_SETTINGS_RESET', ?, 'portal_settings', ?)`,
+        bindings: [auditId, orgId, nowActor, actor?.role || 'SUPER_ADMIN', `${clientId} · kembali ke default organisasi`, clientId],
+      },
+    ]);
     return loadPortalSettingsForOps(database, orgId, clientId);
   }
 
@@ -309,86 +317,87 @@ export async function savePortalSettings(database, { orgId, clientId, actor, pol
     `SELECT id FROM ewa_policies WHERE ${scopeSql(clientId)} LIMIT 1`,
     scopeBindings(orgId, clientId),
   );
-  if (existingPolicy) {
-    await d1Run(
-      database,
-      `UPDATE ewa_policies SET enabled=?, fee_rate=?, min_fee=?, min_fee_amount=?, max_percent=?,
-        max_tenor_months=?, min_days_worked=?, min_tenure_months=?, min_tenure_days=?,
-        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        WHERE id=?`,
-      [
-        nextPolicy.enabled, nextPolicy.fee_rate, nextPolicy.min_fee, nextPolicy.min_fee_amount, nextPolicy.max_percent,
-        nextPolicy.max_tenor_months, nextPolicy.min_days_worked, nextPolicy.min_tenure_months, nextPolicy.min_tenure_days,
-        existingPolicy.id,
-      ],
-    );
-  } else {
-    await d1Run(
-      database,
-      `INSERT INTO ewa_policies (
-        id, org_id, client_id, enabled, fee_rate, min_fee, min_fee_amount, max_percent,
-        max_tenor_months, min_days_worked, min_tenure_months, min_tenure_days
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        `EWP-${crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`,
-        orgId, clientId || null, nextPolicy.enabled, nextPolicy.fee_rate, nextPolicy.min_fee, nextPolicy.min_fee_amount,
-        nextPolicy.max_percent, nextPolicy.max_tenor_months, nextPolicy.min_days_worked, nextPolicy.min_tenure_months,
-        nextPolicy.min_tenure_days,
-      ],
-    );
-  }
-
   const existingSettings = await d1First(
     database,
     `SELECT id FROM portal_settings WHERE ${scopeSql(clientId)} LIMIT 1`,
     scopeBindings(orgId, clientId),
   );
+
+  const operations = [];
+  if (existingPolicy) {
+    operations.push({
+      statement: `UPDATE ewa_policies SET enabled=?, fee_rate=?, min_fee=?, min_fee_amount=?, max_percent=?,
+        max_tenor_months=?, min_days_worked=?, min_tenure_months=?, min_tenure_days=?,
+        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id=? AND org_id=?`,
+      bindings: [
+        nextPolicy.enabled, nextPolicy.fee_rate, nextPolicy.min_fee, nextPolicy.min_fee_amount, nextPolicy.max_percent,
+        nextPolicy.max_tenor_months, nextPolicy.min_days_worked, nextPolicy.min_tenure_months, nextPolicy.min_tenure_days,
+        existingPolicy.id, orgId,
+      ],
+    });
+  } else {
+    operations.push({
+      statement: `INSERT INTO ewa_policies (
+        id, org_id, client_id, enabled, fee_rate, min_fee, min_fee_amount, max_percent,
+        max_tenor_months, min_days_worked, min_tenure_months, min_tenure_days
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      bindings: [
+        `EWP-${crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`,
+        orgId, clientId || null, nextPolicy.enabled, nextPolicy.fee_rate, nextPolicy.min_fee, nextPolicy.min_fee_amount,
+        nextPolicy.max_percent, nextPolicy.max_tenor_months, nextPolicy.min_days_worked, nextPolicy.min_tenure_months,
+        nextPolicy.min_tenure_days,
+      ],
+    });
+  }
+
   const copyJson = JSON.stringify(nextCopy);
   const featuresJson = JSON.stringify(nextFeatures);
   const platformJson = JSON.stringify(nextPlatform);
   if (existingSettings) {
-    await d1Run(
-      database,
-      `UPDATE portal_settings SET copy_json=?, features_json=?, ads_platform_json=?, updated_by=?,
-        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,
-      [copyJson, featuresJson, platformJson, nowActor, existingSettings.id],
-    );
+    operations.push({
+      statement: `UPDATE portal_settings SET copy_json=?, features_json=?, ads_platform_json=?, updated_by=?,
+        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,
+      bindings: [copyJson, featuresJson, platformJson, nowActor, existingSettings.id, orgId],
+    });
   } else {
-    await d1Run(
-      database,
-      `INSERT INTO portal_settings (id, org_id, client_id, copy_json, features_json, ads_platform_json, updated_by)
+    operations.push({
+      statement: `INSERT INTO portal_settings (id, org_id, client_id, copy_json, features_json, ads_platform_json, updated_by)
         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
+      bindings: [
         `PST-${crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`,
         orgId, clientId || null, copyJson, featuresJson, platformJson, nowActor,
       ],
-    );
+    });
   }
 
-  await d1Run(database, `DELETE FROM portal_ads WHERE ${scopeSql(clientId)}`, scopeBindings(orgId, clientId));
+  operations.push({
+    statement: `DELETE FROM portal_ads WHERE ${scopeSql(clientId)}`,
+    bindings: scopeBindings(orgId, clientId),
+  });
   for (const ad of nextAds) {
-    await d1Run(
-      database,
-      `INSERT INTO portal_ads (
+    operations.push({
+      statement: `INSERT INTO portal_ads (
         id, org_id, client_id, enabled, sort_order, placement, provider, action, tag, title, description, cta,
         href, bg, image_url, impression_url, click_url
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+      bindings: [
         ad.id, orgId, clientId || null, ad.enabled, ad.sort_order, ad.placement, ad.provider, ad.action,
         ad.tag, ad.title, ad.description, ad.cta, ad.href || null, ad.bg, ad.image_url || null,
         ad.impression_url || null, ad.click_url || null,
       ],
-    );
+    });
   }
-
-  await d1Run(
-    database,
-    `INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity)
-      VALUES (?, ?, ?, ?, 'PORTAL_SETTINGS_SAVED', ?, 'portal_settings')`,
-    [
-      `AUD-${crypto.randomUUID()}`, orgId, nowActor, actor?.role || 'SUPER_ADMIN',
+  operations.push({
+    statement: `INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
+      VALUES (?, ?, ?, ?, 'PORTAL_SETTINGS_SAVED', ?, 'portal_settings', ?)`,
+    bindings: [
+      auditId, orgId, nowActor, actor?.role || 'SUPER_ADMIN',
       `${clientId || 'ORG'} · EWA ${Math.round(nextPolicy.max_percent * 100)}% · ${nextAds.length} banner`,
+      clientId || orgId,
     ],
-  );
+  });
+
+  await d1Batch(database, operations);
   return loadPortalSettingsForOps(database, orgId, clientId);
 }
