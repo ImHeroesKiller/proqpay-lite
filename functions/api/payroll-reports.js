@@ -21,6 +21,16 @@ function scopeSql(actor, env, alias = 's') {
   return { denied: false, sql: clauses.join(' AND '), bindings };
 }
 
+function pageRows(rows, offset, limit) {
+  const truncated = rows.length > limit;
+  const page = truncated ? rows.slice(0, limit) : rows;
+  return { page, meta: { offset, limit, returned: page.length, nextOffset: truncated ? offset + limit : null, truncated } };
+}
+
+function parseJson(value, fallback = {}) {
+  try { return JSON.parse(value || JSON.stringify(fallback)); } catch { return fallback; }
+}
+
 export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
   if (request.method !== 'GET') return secureJson({ error: 'GET only' }, 405, request, env, METHODS);
@@ -29,19 +39,22 @@ export async function onRequest({ request, env }) {
   const limited = await enforceRateLimit(request, env, authorization.actor, 'payroll-reports', METHODS);
   if (limited) return limited;
   const respond = (data, status = 200) => secureJson(data, status, request, env, METHODS);
-  if (!hasD1(env)) return respond({ error: 'Cloudflare D1 binding unavailable', code: 'D1_REQUIRED' }, 503);
+  if (!hasD1(env)) return respond({ error: 'Layanan laporan payroll belum tersedia. Hubungi administrator.', code: 'REPORT_DATA_UNAVAILABLE' }, 503);
 
   const params = new URL(request.url).searchParams;
   const type = String(params.get('type') || 'register').toLowerCase();
   const period = params.get('period');
   const clientId = params.get('clientId');
+  const offset = Math.max(0, Number.parseInt(params.get('offset') || '0', 10) || 0);
+  const limit = Math.min(500, Math.max(1, Number.parseInt(params.get('limit') || '200', 10) || 200));
   const base = scopeSql(authorization.actor, env, 's');
-  if (base.denied) return respond({ ok: true, type, rows: [] });
+  if (base.denied) return respond({ ok: true, type, rows: [], meta: { offset, limit, returned: 0, nextOffset: null, truncated: false } });
   const clauses = [base.sql];
   const bindings = [...base.bindings];
   if (period && /^\d{4}-\d{2}$/.test(period)) { clauses.push('s.period=?'); bindings.push(period); }
   if (clientId) { clauses.push('s.client_id=?'); bindings.push(clientId); }
   const where = clauses.join(' AND ');
+  const paging = [limit + 1, offset];
 
   if (type === 'register') {
     const rows = await d1All(env.DB, `SELECT s.id AS submission_id,s.period,s.payment_period,s.run_type,s.source_mode,s.state,
@@ -50,8 +63,10 @@ export async function onRequest({ request, env }) {
       l.source_batch_id,l.source_row_no,l.source_row_hash
       FROM payroll_run_lines l JOIN payroll_submissions s ON s.id=l.submission_id
       JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id
-      WHERE ${where} ORDER BY s.period DESC,c.name,p.name,l.employee_name LIMIT 10000`, bindings);
-    return respond({ ok: true, type, rows: rows.map((row) => ({ ...row, components: (() => { try { return JSON.parse(row.components || '{}'); } catch { return {}; } })() })) });
+      WHERE ${where} AND l.included=1
+      ORDER BY s.period DESC,c.name,p.name,l.employee_name,l.employee_id,s.id LIMIT ? OFFSET ?`, [...bindings, ...paging]);
+    const { page, meta } = pageRows(rows, offset, limit);
+    return respond({ ok: true, type, rows: page.map((row) => ({ ...row, components: parseJson(row.components, {}) })), meta });
   }
 
   if (type === 'control') {
@@ -60,24 +75,26 @@ export async function onRequest({ request, env }) {
       COALESCE(SUM(CASE WHEN l.included=1 THEN l.gross_amount ELSE 0 END),0) AS payroll_gross,
       COALESCE(SUM(CASE WHEN l.included=1 THEN l.deduction_amount ELSE 0 END),0) AS payroll_deduction,
       COALESCE(SUM(CASE WHEN l.included=1 THEN l.net_amount ELSE 0 END),0) AS payroll_net,
-      COALESCE((SELECT source_total_gross FROM payroll_upload_batches b WHERE b.submission_id=s.id AND b.status='IMPORTED' ORDER BY b.uploaded_at DESC LIMIT 1),0) AS source_gross,
-      COALESCE((SELECT source_total_deduction FROM payroll_upload_batches b WHERE b.submission_id=s.id AND b.status='IMPORTED' ORDER BY b.uploaded_at DESC LIMIT 1),0) AS source_deduction,
-      COALESCE((SELECT source_total_net FROM payroll_upload_batches b WHERE b.submission_id=s.id AND b.status='IMPORTED' ORDER BY b.uploaded_at DESC LIMIT 1),0) AS source_net,
-      COALESCE((SELECT expected_total FROM payment_instructions pi WHERE pi.submission_id=s.id AND pi.status<>'REJECTED' ORDER BY pi.created_at DESC LIMIT 1),0) AS pi_total,
+      COALESCE((SELECT source_total_gross FROM payroll_upload_batches b WHERE b.submission_id=s.id AND b.status='IMPORTED' ORDER BY b.uploaded_at DESC,b.id DESC LIMIT 1),0) AS source_gross,
+      COALESCE((SELECT source_total_deduction FROM payroll_upload_batches b WHERE b.submission_id=s.id AND b.status='IMPORTED' ORDER BY b.uploaded_at DESC,b.id DESC LIMIT 1),0) AS source_deduction,
+      COALESCE((SELECT source_total_net FROM payroll_upload_batches b WHERE b.submission_id=s.id AND b.status='IMPORTED' ORDER BY b.uploaded_at DESC,b.id DESC LIMIT 1),0) AS source_net,
+      COALESCE((SELECT expected_total FROM payment_instructions pi WHERE pi.submission_id=s.id AND pi.status<>'REJECTED' ORDER BY pi.updated_at DESC,pi.created_at DESC,pi.id DESC LIMIT 1),0) AS pi_total,
       COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp JOIN payment_instructions pi2 ON pi2.id=pp.payment_instruction_id WHERE pi2.submission_id=s.id),0) AS proof_total,
-      COALESCE((SELECT r.difference FROM reconciliations r JOIN payment_instructions pi3 ON pi3.id=r.payment_instruction_id WHERE pi3.submission_id=s.id ORDER BY r.created_at DESC LIMIT 1),0) AS reconciliation_difference
+      COALESCE((SELECT r.difference FROM reconciliations r JOIN payment_instructions pi3 ON pi3.id=r.payment_instruction_id WHERE pi3.submission_id=s.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1),0) AS reconciliation_difference
       FROM payroll_submissions s JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id
       LEFT JOIN payroll_run_lines l ON l.submission_id=s.id WHERE ${where}
-      GROUP BY s.id ORDER BY s.period DESC,s.created_at DESC LIMIT 2000`, bindings);
-    return respond({ ok: true, type, rows });
+      GROUP BY s.id ORDER BY s.period DESC,s.created_at DESC,s.id DESC LIMIT ? OFFSET ?`, [...bindings, ...paging]);
+    const { page, meta } = pageRows(rows, offset, limit);
+    return respond({ ok: true, type, rows: page, meta });
   }
 
   if (type === 'uploads') {
     const rows = await d1All(env.DB, `SELECT b.*,c.name AS client_name,p.name AS project_name,s.period,s.run_type
       FROM payroll_upload_batches b JOIN payroll_submissions s ON s.id=b.submission_id
       JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id
-      WHERE ${where} ORDER BY b.uploaded_at DESC LIMIT 2000`, bindings);
-    return respond({ ok: true, type, rows: rows.map((row) => ({ ...row, validation_summary: (() => { try { return JSON.parse(row.validation_summary || '{}'); } catch { return {}; } })() })) });
+      WHERE ${where} ORDER BY b.uploaded_at DESC,b.id DESC LIMIT ? OFFSET ?`, [...bindings, ...paging]);
+    const { page, meta } = pageRows(rows, offset, limit);
+    return respond({ ok: true, type, rows: page.map((row) => ({ ...row, validation_summary: parseJson(row.validation_summary, {}) })), meta });
   }
 
   if (type === 'payslips') {
@@ -89,16 +106,18 @@ export async function onRequest({ request, env }) {
       JOIN payment_instructions pi ON pi.submission_id=s.id
       LEFT JOIN reconciliations r ON r.payment_instruction_id=pi.id
       WHERE ${where} AND l.included=1 AND pi.status='COMPLETED' AND COALESCE(r.status,'')='MATCHED'
-      ORDER BY s.period DESC,l.employee_name LIMIT 10000`, bindings);
-    return respond({ ok: true, type, rows });
+      ORDER BY s.period DESC,l.employee_name,l.employee_id,s.id LIMIT ? OFFSET ?`, [...bindings, ...paging]);
+    const { page, meta } = pageRows(rows, offset, limit);
+    return respond({ ok: true, type, rows: page, meta });
   }
 
   if (type === 'exceptions') {
     const rows = await d1All(env.DB, `SELECT pe.*,s.period,s.run_type,c.name AS client_name,p.name AS project_name
       FROM payroll_exceptions pe JOIN payroll_submissions s ON s.id=pe.submission_id
       JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id
-      WHERE ${where} ORDER BY pe.created_at DESC LIMIT 5000`, bindings);
-    return respond({ ok: true, type, rows });
+      WHERE ${where} ORDER BY pe.created_at DESC,pe.id DESC LIMIT ? OFFSET ?`, [...bindings, ...paging]);
+    const { page, meta } = pageRows(rows, offset, limit);
+    return respond({ ok: true, type, rows: page, meta });
   }
 
   return respond({ error: 'Unknown report type' }, 422);
