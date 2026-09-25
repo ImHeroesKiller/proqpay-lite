@@ -137,14 +137,19 @@ export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Pr
   const activeRows:Array<PaymentReport|ReportRow> = type === 'payments' ? paymentRows : payrollRows;
   const filteredPayments = paymentRows;
   const filteredPayroll = payrollRows;
-  const pageCount = Math.max(1, Math.ceil(activeRows.length / 15));
-  const visible = activeRows.slice((page - 1) * 15, page * 15);
+  const pageSize = 15;
+  const pageCount = Math.max(1, Math.ceil(activeRows.length / pageSize));
+  const visible = activeRows.slice((page - 1) * pageSize, page * pageSize);
   const completed = filteredPayments.filter((row) => row.status === 'COMPLETED' && row.settlement_source !== 'CONFLICT');
   const settlementConflicts = filteredPayments.filter((row)=>row.settlement_source === 'CONFLICT');
   const paidTotal = completed.reduce((sum,row) => sum + Number(row.paid_total || 0), 0);
   const employees = completed.reduce((sum,row) => sum + Number(row.employee_count || 0), 0);
 
   const filtersActive = Boolean(query.trim() || period !== 'ALL' || status !== 'ALL');
+  const paymentFollowUp = filteredPayments.filter((row) => ['PAYMENT_EXCEPTION','PROOF_UPLOADED'].includes(row.status)).length + settlementConflicts.length;
+  const controlBalanced = filteredPayroll.filter((row)=>Number(row.payroll_gross||0)-Number(row.payroll_deduction||0)===Number(row.payroll_net||0)).length;
+  const controlPiMismatch = filteredPayroll.filter((row)=>Number(row.pi_total||0)&&Number(row.pi_total)!==Number(row.payroll_net||0)).length;
+  const controlReconDiff = filteredPayroll.filter((row)=>Number(row.reconciliation_difference||0)!==0).length;
   const reportTypes:ReportType[] = clientMode ? ['payments','register','payslips'] : (Object.keys(REPORT_LABELS) as ReportType[]);
 
   function resetFilters() {
@@ -163,17 +168,17 @@ export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Pr
 
   return <section className="reports-workspace">
     {!hideHeading ? <div className="reports-heading"><div><span className="workspace-eyebrow">{clientMode?'REPORTS':'REPORTING & AUDIT'}</span><h2>{clientMode?'Payroll & Payment Reports':'Laporan Payroll & Pembayaran'}</h2><p>{clientMode?'Laporan payroll dan pembayaran sesuai scope akun Anda.':'Jejak audit dari sumber payroll, snapshot final, slip gaji, pembayaran, dan rekonsiliasi.'}</p></div><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div> : <div className="reports-inline-actions"><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div>}
-    <div className="report-type-tabs">{reportTypes.map((item)=><button key={item} type="button" className={`btn ${type===item?'btn-primary':''}`} onClick={()=>setType(item)}>{clientMode&&item==='payments'?'Riwayat Pembayaran':REPORT_LABELS[item]}</button>)}</div>
+    <div className="report-type-tabs" role="tablist" aria-label="Jenis laporan">{reportTypes.map((item)=><button key={item} type="button" role="tab" aria-selected={type===item} className={`btn ${type===item?'btn-primary':''}`} onClick={()=>setType(item)}>{clientMode&&item==='payments'?'Riwayat Pembayaran':REPORT_LABELS[item]}</button>)}</div>
 
-    {type === 'payments' ? <div className="report-summary-grid"><Summary label="Pembayaran selesai" value={String(completed.length)} /><Summary label="Total dibayarkan" value={formatIDR(paidTotal)} /><Summary label="Karyawan dibayar" value={String(employees)} /><Summary label="Perlu tindak lanjut" value={String(filteredPayments.filter((row) => ['PAYMENT_EXCEPTION','PROOF_UPLOADED'].includes(row.status)).length + settlementConflicts.length)} /></div>
-      : type === 'control' ? <div className="report-summary-grid"><Summary label="Pay Run" value={String(filteredPayroll.length)} /><Summary label="Sesuai kontrol" value={String(filteredPayroll.filter((row)=>Number(row.payroll_gross||0)-Number(row.payroll_deduction||0)===Number(row.payroll_net||0)).length)} /><Summary label="Selisih PI" value={String(filteredPayroll.filter((row)=>Number(row.pi_total||0)&&Number(row.pi_total)!==Number(row.payroll_net||0)).length)} /><Summary label="Selisih rekonsiliasi" value={String(filteredPayroll.filter((row)=>Number(row.reconciliation_difference||0)!==0).length)} /></div>
+    {type === 'payments' ? <div className="report-summary-grid"><Summary label="Pembayaran selesai" value={String(completed.length)} note="Settlement selesai tanpa konflik sumber." tone="success" /><Summary label="Total dibayarkan" value={formatIDR(paidTotal)} note="Akumulasi pembayaran selesai pada filter aktif." /><Summary label="Karyawan dibayar" value={String(employees)} note="Jumlah penerima pada pembayaran selesai." /><Summary label="Perlu tindak lanjut" value={String(paymentFollowUp)} note="Exception, bukti pending, atau konflik settlement." tone={paymentFollowUp?'warning':'success'} /></div>
+      : type === 'control' ? <div className="report-summary-grid"><Summary label="Pay Run" value={String(filteredPayroll.length)} note="Jumlah Pay Run pada filter aktif." /><Summary label="Sesuai kontrol" value={String(controlBalanced)} note="Gross - potongan sama dengan netto." tone="success" /><Summary label="Selisih PI" value={String(controlPiMismatch)} note="PI berbeda dengan payroll net." tone={controlPiMismatch?'warning':'success'} /><Summary label="Selisih rekonsiliasi" value={String(controlReconDiff)} note="Settlement belum balance." tone={controlReconDiff?'warning':'success'} /></div>
       : <div className="report-summary-grid"><Summary label={REPORT_LABELS[type]} value={String(filteredPayroll.length)} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /><Summary label="Terhubung ke sumber" value={String(filteredPayroll.filter((row)=>row.source_batch_id || row.file_sha256).length)} /><Summary label="Baris ditampilkan" value={String(activeRows.length)} /></div>}
 
     <div className="card report-filter"><label><span>Cari</span><input value={query} placeholder="Cari karyawan, klien, project, batch, pay run…" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></label><label><span>Periode</span><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }}><option value="ALL">Semua periode</option>{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span>Status</span><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">Semua status</option>{statusOptions.map((item) => <option key={item} value={item}>{reportStatusLabel(item)}</option>)}</select></label><button type="button" className="btn report-reset-btn" disabled={!filtersActive} onClick={resetFilters}>Reset</button></div>
     {error ? <div className="card report-error" role="alert"><span>{error}</span><button type="button" className="btn" disabled={loading} onClick={()=>void load()}>{loading?'Memuat…':'Coba lagi'}</button></div> : null}
     {loading ? <div className="card directory-empty report-loading" role="status">Memuat laporan…</div> : !activeRows.length ? <div className="card directory-empty report-empty"><span>{filtersActive?'Tidak ada data yang cocok dengan filter ini.':'Belum ada data laporan.'}</span>{filtersActive?<button type="button" className="btn" onClick={resetFilters}>Reset filter</button>:null}</div> : <>
       {type === 'payments' ? <PaymentTable rows={visible as PaymentReport[]} /> : <GenericTable rows={visible as ReportRow[]} type={type} />}
-      <PanelPagination page={Math.min(page,pageCount)} pageCount={pageCount} total={activeRows.length} label="baris" onPage={setPage} />
+      <PanelPagination page={Math.min(page,pageCount)} pageCount={pageCount} total={activeRows.length} pageSize={pageSize} label="baris" onPage={setPage} />
     </>}
   </section>;
 }
@@ -222,4 +227,4 @@ function MobileValue({label,value}:{label:string;value:unknown}) {
   return <div><span>{label}</span><strong>{String(value??'-')}</strong></div>;
 }
 
-function Summary({label,value}:{label:string;value:string}) { return <div className="card report-summary"><span>{label}</span><strong title={value}>{value}</strong></div>; }
+function Summary({label,value,note,tone='neutral'}:{label:string;value:string;note?:string;tone?:'neutral'|'success'|'warning'}) { return <div className={`card report-summary report-summary-${tone}`}><span>{label}</span><strong title={value}>{value}</strong>{note?<small>{note}</small>:null}</div>; }
