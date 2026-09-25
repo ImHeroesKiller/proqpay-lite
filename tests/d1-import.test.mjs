@@ -3,7 +3,7 @@ import test from 'node:test';
 import { onRequest as importEmployees } from '../functions/api/import.js';
 import { D1Mock } from './helpers/d1-mock.mjs';
 
-test('legacy JSON import cannot bypass canonical payroll provenance for 396 recipients',async()=>{
+test('master JSON import cannot bypass canonical payroll provenance for 396 recipients',async()=>{
   const DB=new D1Mock();
   DB.sqlite.exec(`
     INSERT INTO clients(id,org_id,code,name) VALUES('CLI','ORG-OTSINDO','CLI','PT Client');
@@ -17,11 +17,11 @@ test('legacy JSON import cannot bypass canonical payroll provenance for 396 reci
   const origin='https://proqpay.test',body=JSON.stringify({rows,context:{clientId:'CLI',projectId:'PRJ',servicePlanId:'SP',tier:'TIER_1_PAYMENT_PROCESSING',period:'2026-08'}});
   const response=await importEmployees({request:new Request(`${origin}/api/import`,{method:'POST',headers:{Origin:origin,'Sec-Fetch-Site':'same-origin','Content-Type':'application/json'},body}),env:{DB,DEFAULT_ORG_ID:'ORG-OTSINDO'}});
   assert.equal(response.status,409,await response.clone().text());
-  assert.equal((await response.json()).code,'PAYROLL_PROVENANCE_REQUIRED');
+  assert.equal((await response.json()).code,'PAYROLL_DATA_INTAKE_REQUIRED');
   assert.equal(DB.sqlite.prepare('SELECT COUNT(*) AS n FROM payroll_submissions').get().n,0);
 });
 
-test('legacy JSON import stays closed even for historically valid service tiers',async()=>{
+test('master JSON import stays closed even for historically valid service tiers',async()=>{
   const DB=new D1Mock();
   DB.sqlite.exec(`
     INSERT INTO clients(id,org_id,code,name) VALUES('CLI-HIST','ORG-OTSINDO','HIST','PT Historical');
@@ -34,5 +34,5 @@ test('legacy JSON import stays closed even for historically valid service tiers'
   const body=JSON.stringify({rows,context:{clientId:'CLI-HIST',projectId:'PRJ-HIST',servicePlanId:'SP-HIST',tier:'TIER_1_PAYMENT_PROCESSING',period:'2025-06'}});
   const response=await importEmployees({request:new Request(`${origin}/api/import`,{method:'POST',headers:{Origin:origin,'Sec-Fetch-Site':'same-origin','Content-Type':'application/json'},body}),env:{DB,DEFAULT_ORG_ID:'ORG-OTSINDO'}});
   assert.equal(response.status,409,await response.clone().text());
-  assert.equal((await response.json()).code,'PAYROLL_PROVENANCE_REQUIRED');
+  assert.equal((await response.json()).code,'PAYROLL_DATA_INTAKE_REQUIRED');
 });
