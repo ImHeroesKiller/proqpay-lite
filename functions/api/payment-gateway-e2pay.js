@@ -301,8 +301,7 @@ export async function e2payMerchantAccount(env, accessToken, fetchImpl = fetch) 
   }, fetchImpl);
 }
 
-export async function e2payBankList(env, accessToken, options = {}, fetchImpl = fetch) {
-  if (typeof options === 'function') { fetchImpl=options; options={}; }
+export async function e2payBankListPage(env, accessToken, options = {}, fetchImpl = fetch) {
   const params = new URLSearchParams({
     limit:String(Math.max(1,Math.min(5000,Number(options.limit || 1000) || 1000))),
     sortField:String(options.sortField || 'name'),
@@ -318,6 +317,10 @@ export async function e2payBankList(env, accessToken, options = {}, fetchImpl = 
     rowCount:Number(result?.rowCount || 0),
     data:Array.isArray(result?.data) ? result.data : [],
   };
+}
+
+export async function e2payBankList(env, accessToken, fetchImpl = fetch) {
+  return (await e2payBankListPage(env, accessToken, { limit:1000, sortField:'name', sortOrder:'ASCENDING' }, fetchImpl)).data;
 }
 
 function bytesToBase64(bytes) {
