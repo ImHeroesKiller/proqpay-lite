@@ -94,7 +94,9 @@ async function snapshot(database, actor) {
   });
   const history = await d1All(
     database,
-    `SELECT id, period, amount, fee, repayment, method, status, created_at, decided_at
+    `SELECT id, period, amount, fee, repayment, method, status, created_at, decided_at,
+        approved_at, disbursed_at, disbursement_source, disbursement_reference,
+        disbursement_transaction_date, destination_bank_name, destination_account_last4
       FROM ewa_requests WHERE employee_id=? ORDER BY created_at DESC LIMIT 12`,
     [actor.id],
   );
@@ -171,16 +173,30 @@ export async function onRequest({ request, env }) {
 
     const fee = ewaFee(amount, state.policy);
     const id = `EWA-${crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+    const bank = await d1First(
+      env.DB,
+      `SELECT bank_name, account_no FROM employee_bank_accounts
+        WHERE employee_id=? AND is_primary=1 ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [actor.id],
+    );
+    const accountDigits = String(bank?.account_no || '').replace(/\D/g, '');
+    const bankName = String(bank?.bank_name || '').trim().slice(0, 80);
+    const accountLast4 = accountDigits.slice(-4);
+    if (String(body.method || 'SALARY_ACCOUNT').toUpperCase() === 'SALARY_ACCOUNT' && (!bankName || accountLast4.length !== 4)) {
+      return respond({ error: 'Rekening utama belum lengkap. Hubungi HR sebelum mengajukan advance.' }, 409);
+    }
     await d1Run(
       env.DB,
       `INSERT INTO ewa_requests (
         id, org_id, client_id, employee_id, period, amount, fee, repayment, method, tenor_months, status,
-        plafond_snapshot, days_worked_snapshot, tenure_months_snapshot, employee_note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?)`,
+        plafond_snapshot, days_worked_snapshot, tenure_months_snapshot, employee_note,
+        destination_bank_name, destination_account_last4
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?, ?)`,
       [
         id, actor.orgId, actor.clientId, actor.id, state.period, amount, fee, amount + fee,
         String(body.method || 'SALARY_ACCOUNT').slice(0, 40), Number(state.policy.max_tenor_months || 1),
         state.plafond, state.earned.daysWorked, state.tenureMonths, String(body.note || '').slice(0, 240) || null,
+        bankName || null, accountLast4 || null,
       ],
     );
     await d1Run(

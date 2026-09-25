@@ -195,7 +195,32 @@ export async function applyEwaRepayments(database, submissionId) {
 export async function markEwaRepaid(database, submissionId) {
   if (!database || !submissionId) return;
   try {
-    await d1Run(database, `UPDATE ewa_requests SET status='REPAID',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE payroll_submission_id=? AND status='REPAYING'`, [submissionId]);
+    const rows = await d1All(
+      database,
+      `SELECT id,org_id,employee_id,repayment FROM ewa_requests
+        WHERE payroll_submission_id=? AND status='REPAYING'`,
+      [submissionId],
+    );
+    if (!rows.length) return;
+    const operations = [{
+      statement: `UPDATE ewa_requests
+        SET status='REPAID',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE payroll_submission_id=? AND status='REPAYING'`,
+      bindings: [submissionId],
+    }];
+    for (const row of rows) {
+      operations.push({
+        statement: `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
+          VALUES (?,?,'SYSTEM','SYSTEM','EWA_REPAID_RECONCILED',?,'ewa_request',?)`,
+        bindings: [
+          `AUD-${crypto.randomUUID()}`,
+          row.org_id,
+          `${row.id} · payroll ${submissionId} · repayment ${Number(row.repayment || 0)}`,
+          row.id,
+        ],
+      });
+    }
+    await d1Batch(database, operations);
   } catch (error) {
     if (/no such table|no such column/i.test(String(error?.message || error))) return;
     throw error;

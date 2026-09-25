@@ -66,30 +66,86 @@ export async function onRequest({ request, env }) {
     const current = await d1First(env.DB, 'SELECT * FROM ewa_requests WHERE id=? AND org_id=? LIMIT 1', [requestId, organizationId]);
     if (!current) return respond({ error: 'Pengajuan tidak ditemukan' }, 404);
 
-    let nextStatus = '';
-    if (action === 'APPROVE' && current.status === 'SUBMITTED') nextStatus = 'APPROVED';
-    else if (action === 'REJECT' && current.status === 'SUBMITTED') nextStatus = 'REJECTED';
-    else if (action === 'DISBURSE' && current.status === 'APPROVED') nextStatus = 'DISBURSED';
-    else if (action === 'REPAY' && (current.status === 'DISBURSED' || current.status === 'REPAYING')) nextStatus = 'REPAID';
-    else return respond({ error: 'Aksi tidak valid untuk status saat ini' }, 409);
-
+    const actorId = String(actor.email || actor.id || '').trim();
     const note = String(body.note || '').slice(0, 240);
-    await d1Run(
-      env.DB,
-      `UPDATE ewa_requests SET status=?, decision_note=?, decided_by=?, decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,
-      [nextStatus, note || null, actor.email || actor.id, requestId],
-    );
+    let nextStatus = '';
+    let result;
+
+    if (action === 'APPROVE' && current.status === 'SUBMITTED') {
+      nextStatus = 'APPROVED';
+      result = await d1Run(
+        env.DB,
+        `UPDATE ewa_requests
+          SET status='APPROVED', approved_by=?, approved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+              decision_note=?, decided_by=?, decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+              updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id=? AND org_id=? AND status='SUBMITTED'`,
+        [actorId, note || null, actorId, requestId, organizationId],
+      );
+    } else if (action === 'REJECT' && current.status === 'SUBMITTED') {
+      nextStatus = 'REJECTED';
+      result = await d1Run(
+        env.DB,
+        `UPDATE ewa_requests
+          SET status='REJECTED', decision_note=?, decided_by=?, decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+              updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id=? AND org_id=? AND status='SUBMITTED'`,
+        [note || null, actorId, requestId, organizationId],
+      );
+    } else if (action === 'DISBURSE' && current.status === 'APPROVED') {
+      if (String(current.approved_by || '').trim().toLowerCase() === actorId.toLowerCase()) {
+        return respond({ error: 'Maker-checker: approver tidak boleh sekaligus mencairkan advance', code: 'EWA_SOD_REQUIRED' }, 409);
+      }
+      const source = String(body.source || body.disbursementSource || '').trim().slice(0, 40).toUpperCase();
+      const reference = String(body.reference || body.disbursementReference || '').trim().slice(0, 100);
+      const transactionDate = String(body.transactionDate || body.disbursementTransactionDate || '').trim().slice(0, 10);
+      if (!source || !reference || !/^\d{4}-\d{2}-\d{2}$/.test(transactionDate)) {
+        return respond({
+          error: 'Bukti pencairan wajib lengkap: source, reference, dan transactionDate (YYYY-MM-DD)',
+          code: 'EWA_DISBURSEMENT_EVIDENCE_REQUIRED',
+        }, 422);
+      }
+      if (!current.destination_bank_name || !current.destination_account_last4) {
+        return respond({ error: 'Snapshot rekening tujuan tidak tersedia. Pengajuan harus dibuat ulang.', code: 'EWA_DESTINATION_SNAPSHOT_REQUIRED' }, 409);
+      }
+      nextStatus = 'DISBURSED';
+      result = await d1Run(
+        env.DB,
+        `UPDATE ewa_requests
+          SET status='DISBURSED', disbursed_by=?, disbursed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+              disbursement_source=?, disbursement_reference=?, disbursement_transaction_date=?,
+              updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id=? AND org_id=? AND status='APPROVED' AND approved_by IS NOT NULL AND lower(approved_by)<>lower(?)`,
+        [actorId, source, reference, transactionDate, requestId, organizationId, actorId],
+      );
+    } else if (action === 'REPAY') {
+      return respond({
+        error: 'Status REPAID hanya boleh ditetapkan otomatis setelah payroll direkonsiliasi MATCHED',
+        code: 'EWA_REPAY_IS_DERIVED',
+      }, 409);
+    } else {
+      return respond({ error: 'Aksi tidak valid untuk status saat ini' }, 409);
+    }
+
+    const changes = Number(result?.meta?.changes ?? result?.changes ?? 0);
+    if (changes !== 1) {
+      return respond({ error: 'Status pengajuan berubah. Muat ulang sebelum memproses kembali.', code: 'EWA_CONCURRENT_TRANSITION' }, 409);
+    }
+
     await d1Run(
       env.DB,
       `INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
         VALUES (?, ?, ?, ?, ?, ?, 'ewa_request', ?)`,
       [
-        `AUD-${crypto.randomUUID()}`, organizationId, actor.email, actor.role,
-        `EWA_${nextStatus}`, `${requestId} · ${current.employee_id}`, requestId,
+        `AUD-${crypto.randomUUID()}`, organizationId, actorId, actor.role,
+        `EWA_${nextStatus}`,
+        nextStatus === 'DISBURSED'
+          ? `${requestId} · ${current.employee_id} · ${String(body.source || body.disbursementSource || '').trim().slice(0, 40).toUpperCase()} · ${String(body.reference || body.disbursementReference || '').trim().slice(0, 100)}`
+          : `${requestId} · ${current.employee_id}`,
+        requestId,
       ],
     );
-    const updated = await d1First(env.DB, 'SELECT * FROM ewa_requests WHERE id=?', [requestId]);
+    const updated = await d1First(env.DB, 'SELECT * FROM ewa_requests WHERE id=? AND org_id=?', [requestId, organizationId]);
     return respond({ ok: true, request: updated });
   } catch (error) {
     return respond({ error: 'EWA request failed', ...publicError(error, crypto.randomUUID()) }, 500);
