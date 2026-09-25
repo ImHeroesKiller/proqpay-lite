@@ -137,3 +137,8 @@ export function IconTerminal(props: React.SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+
+export function IconDownload(props: React.SVGProps<SVGSVGElement>) {
+  return <svg {...s} {...props}><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>;
+}
