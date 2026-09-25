@@ -36,9 +36,9 @@ test('canonical payroll intake preserves source provenance without legacy payrol
   assert.throws(() => read('functions/api/payroll-upload.js'), /ENOENT/);
 });
 
-test('legacy JSON endpoint cannot bypass UPLOAD_FINAL provenance', () => {
+test('master JSON endpoint cannot create payroll outside Data Intake', () => {
   const source = read('functions/api/import.js');
-  assert.match(source, /PAYROLL_PROVENANCE_REQUIRED/);
+  assert.match(source, /PAYROLL_DATA_INTAKE_REQUIRED/);
   assert.match(source, /if \(body\?\.context\)/);
 });
 
