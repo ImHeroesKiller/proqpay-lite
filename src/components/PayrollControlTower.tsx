@@ -204,7 +204,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
 
 
   return <section className={`control-tower${simplifiedInternal?' control-tower-simple':''}`} aria-busy={loading||refreshing}>
-    <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription}</p></div><button type="button" className="btn control-refresh" disabled={refreshing||gatewayBalanceLoading} onClick={()=>{invalidateOperatingCache();void load(true);void loadGatewayBalance(true);}}><IconRefresh aria-hidden="true" /> {refreshing||gatewayBalanceLoading?'Refreshing…':'Refresh'}</button></div>
+    <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription}</p></div><button type="button" className="btn control-refresh" disabled={refreshing} onClick={()=>{invalidateOperatingCache();void load(true);void loadGatewayBalance(true);}}><IconRefresh aria-hidden="true" /> {refreshing?'Refreshing…':'Refresh'}</button></div>
     <div className="control-bar card" aria-label="Filter dashboard payroll">
       <label><span>Klien</span><select value={client} onChange={(event)=>setClient(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
       <label><span>Workflow stage</span><select value={stage} onChange={(event)=>setStage(event.target.value)}><option value="ALL">Semua stage</option>{PIPELINE.map((item)=><option key={item.stage} value={item.stage}>{item.label}</option>)}</select></label>
