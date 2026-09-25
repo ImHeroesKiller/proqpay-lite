@@ -262,8 +262,16 @@ export async function buildEmployeePortalPayload(database, actor) {
             pi.id AS pi_id, pi.document_no, pi.status AS pi_status, pi.execution_date,
             r.status AS rec_status
        FROM payroll_submissions s
-       LEFT JOIN payment_instructions pi ON pi.submission_id = s.id
-       LEFT JOIN reconciliations r ON r.payment_instruction_id = pi.id
+       LEFT JOIN payment_instructions pi ON pi.id=(
+         SELECT pi2.id FROM payment_instructions pi2
+         WHERE pi2.submission_id=s.id AND pi2.status<>'REJECTED'
+         ORDER BY pi2.updated_at DESC,pi2.created_at DESC,pi2.id DESC LIMIT 1
+       )
+       LEFT JOIN reconciliations r ON r.id=(
+         SELECT r2.id FROM reconciliations r2
+         WHERE r2.payment_instruction_id=pi.id
+         ORDER BY r2.created_at DESC,r2.id DESC LIMIT 1
+       )
       WHERE EXISTS (
         SELECT 1 FROM payroll_run_lines l
          WHERE l.submission_id=s.id AND l.employee_id=? AND l.included=1
@@ -284,8 +292,16 @@ export async function buildEmployeePortalPayload(database, actor) {
             pi.document_no, pi.status AS pi_status, pi.execution_date, r.status AS rec_status
        FROM payroll_run_lines l
        JOIN payroll_submissions s ON s.id = l.submission_id
-       LEFT JOIN payment_instructions pi ON pi.submission_id = s.id
-       LEFT JOIN reconciliations r ON r.payment_instruction_id = pi.id
+       LEFT JOIN payment_instructions pi ON pi.id=(
+         SELECT pi2.id FROM payment_instructions pi2
+         WHERE pi2.submission_id=s.id AND pi2.status<>'REJECTED'
+         ORDER BY pi2.updated_at DESC,pi2.created_at DESC,pi2.id DESC LIMIT 1
+       )
+       LEFT JOIN reconciliations r ON r.id=(
+         SELECT r2.id FROM reconciliations r2
+         WHERE r2.payment_instruction_id=pi.id
+         ORDER BY r2.created_at DESC,r2.id DESC LIMIT 1
+       )
       WHERE l.employee_id=? AND l.included=1
       ORDER BY s.period DESC
       LIMIT 12`,
