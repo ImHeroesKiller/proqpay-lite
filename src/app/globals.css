@@ -1557,3 +1557,211 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .e2pay-json-result{max-height:320px;overflow:auto;padding:10px;border-radius:8px;background:var(--surface2);font-size:10px;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:980px){.e2pay-account-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.e2pay-account-grid,.e2pay-filter-grid,.e2pay-form-grid{grid-template-columns:1fr}.e2pay-endpoint-table td:nth-child(3){min-width:220px}.e2pay-inline-search{align-items:stretch;flex-direction:column}}
+
+
+/* Integrations + dashboard relayout — 2026-09-26 */
+.integration-gateway-panel-compact{gap:12px}
+.integration-runtime-strip{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:8px;
+  padding:10px;
+  border:1px solid var(--border-soft);
+  border-radius:12px;
+  background:var(--bg-subtle);
+}
+.integration-runtime-strip>div{display:grid;gap:3px;min-width:0;padding:4px 8px}
+.integration-runtime-strip>div+div{border-left:1px solid var(--border-soft)}
+.integration-runtime-strip span{font-size:9px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)}
+.integration-runtime-strip strong{font-size:12px;overflow-wrap:anywhere}
+.e2pay-console-compact{padding:0;margin:2px 0 0;border:0;background:transparent;box-shadow:none;gap:12px}
+.e2pay-console-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.e2pay-console-head h4{margin:3px 0 0;font-size:15px}
+.e2pay-account-hero{
+  display:grid;
+  grid-template-columns:minmax(250px,.8fr) minmax(0,1.8fr);
+  gap:10px;
+  padding:10px;
+  border:1px solid var(--border-soft);
+  border-radius:14px;
+  background:var(--surface);
+}
+.e2pay-account-balance{
+  display:grid;
+  align-content:center;
+  gap:5px;
+  min-height:116px;
+  padding:16px;
+  border-radius:12px;
+  background:color-mix(in srgb,var(--accent) 7%,var(--surface2));
+}
+.e2pay-account-balance>span,.e2pay-account-meta span{
+  font-size:9.5px;
+  font-weight:750;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--text3);
+}
+.e2pay-account-balance strong{font-size:27px;letter-spacing:-.025em}
+.e2pay-account-balance small,.e2pay-account-meta small{font-size:10px;color:var(--text3)}
+.e2pay-account-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.e2pay-account-meta>div{
+  display:grid;
+  align-content:center;
+  gap:5px;
+  min-width:0;
+  padding:13px;
+  border:1px solid var(--border-soft);
+  border-radius:11px;
+  background:var(--bg-subtle);
+}
+.e2pay-account-meta strong{font-size:12px;overflow-wrap:anywhere}
+.e2pay-operational-grid{align-items:start}
+.e2pay-operational-grid>.integration-panel{min-height:100%}
+.e2pay-collapsible{
+  border:1px solid var(--border-soft);
+  border-radius:12px;
+  background:var(--surface);
+  overflow:hidden;
+}
+.e2pay-collapsible>summary{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  min-height:42px;
+  padding:0 13px;
+  cursor:pointer;
+  list-style:none;
+}
+.e2pay-collapsible>summary::-webkit-details-marker{display:none}
+.e2pay-collapsible>summary span{font-size:11px;font-weight:800}
+.e2pay-collapsible>summary b{font-size:9.5px;color:var(--text3);font-weight:700}
+.e2pay-collapsible[open]>summary{border-bottom:1px solid var(--border-soft);background:var(--bg-subtle)}
+.e2pay-collapsible .e2pay-endpoint-summary{padding:10px 12px 0}
+.e2pay-collapsible .e2pay-endpoint-table-wrap{padding:4px 12px 12px}
+.e2pay-admin-body{display:grid;gap:10px;padding:12px}
+.e2pay-admin-body>section{display:grid;gap:8px;padding:10px;border:1px solid var(--border-soft);border-radius:10px;background:var(--bg-subtle)}
+.e2pay-admin-body h5{margin:0;font-size:11px}
+.e2pay-admin-detail{
+  padding:0;
+  border:1px solid var(--border-soft);
+  border-radius:10px;
+  background:var(--surface);
+  overflow:hidden;
+}
+.e2pay-admin-detail>summary{padding:10px 12px}
+.e2pay-admin-detail[open]{padding:0 12px 12px}
+.e2pay-admin-detail[open]>summary{margin:0 -12px 10px;padding:10px 12px;border-bottom:1px solid var(--border-soft);background:var(--bg-subtle)}
+.e2pay-governance-note{
+  padding:9px 11px;
+  border-radius:10px;
+  color:var(--text3);
+  background:var(--bg-subtle);
+  font-size:10px;
+  line-height:1.45;
+}
+
+/* Dashboard: operational KPI grid + exclusive gateway balance */
+.dashboard-summary-layout{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(260px,300px);
+  gap:10px;
+  align-items:stretch;
+}
+.dashboard-summary-layout .control-kpis{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+  margin:0;
+  align-content:stretch;
+}
+.dashboard-summary-layout .control-kpi{min-height:112px;height:100%}
+.dashboard-summary-layout-simple .control-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+.gateway-balance-widget{
+  position:relative;
+  display:grid;
+  grid-template-rows:auto auto 1fr auto;
+  gap:10px;
+  min-height:100%;
+  padding:16px;
+  border:1px solid color-mix(in srgb,var(--accent) 22%,var(--border));
+  border-radius:14px;
+  background:
+    radial-gradient(circle at 100% 0,color-mix(in srgb,var(--accent) 14%,transparent),transparent 42%),
+    var(--surface);
+  color:var(--text);
+  text-align:left;
+  cursor:pointer;
+  overflow:hidden;
+  transition:transform var(--motion-fast) ease,border-color var(--motion-fast) ease,box-shadow var(--motion-fast) ease;
+}
+.gateway-balance-widget:hover{
+  transform:translateY(-1px);
+  border-color:color-mix(in srgb,var(--accent) 38%,var(--border));
+  box-shadow:0 10px 26px rgba(15,23,42,.08);
+}
+.gateway-balance-widget:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 24%,transparent);outline-offset:2px}
+.gateway-balance-widget-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.gateway-balance-widget-head>span{font-size:9px;font-weight:800;letter-spacing:.1em;color:var(--text3)}
+.gateway-balance-widget-head i{
+  display:inline-flex;
+  align-items:center;
+  min-height:22px;
+  padding:0 7px;
+  border:1px solid var(--border-soft);
+  border-radius:999px;
+  font-size:9px;
+  font-style:normal;
+  font-weight:800;
+  color:var(--text3);
+  background:var(--bg-subtle);
+}
+.gateway-balance-widget-head i.ready{color:#047857;background:#ecfdf5;border-color:#a7f3d0}
+.gateway-balance-widget-head i.error{color:#b91c1c;background:#fef2f2;border-color:#fecaca}
+.gateway-balance-widget-icon{
+  display:grid;
+  place-items:center;
+  width:38px;
+  height:38px;
+  border-radius:11px;
+  color:var(--accent);
+  background:var(--accent-soft);
+}
+.gateway-balance-widget-icon svg{width:19px;height:19px}
+.gateway-balance-widget-body{display:grid;align-content:center;gap:5px}
+.gateway-balance-widget-body small{font-size:10px;color:var(--text3)}
+.gateway-balance-widget-body strong{font-size:25px;line-height:1.05;letter-spacing:-.035em;overflow-wrap:anywhere}
+.gateway-balance-widget-body span{font-size:10px;color:var(--text2);line-height:1.4}
+.gateway-balance-widget-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding-top:10px;border-top:1px solid var(--border-soft)}
+.gateway-balance-widget-foot span{font-size:9.5px;color:var(--text3)}
+.gateway-balance-widget-foot b{font-size:9.5px;color:var(--accent)}
+
+@media(max-width:1180px){
+  .dashboard-summary-layout{grid-template-columns:minmax(0,1fr) 260px}
+  .dashboard-summary-layout .control-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .e2pay-account-hero{grid-template-columns:1fr}
+}
+@media(max-width:900px){
+  .dashboard-summary-layout{grid-template-columns:1fr}
+  .dashboard-summary-layout .control-kpis,
+  .dashboard-summary-layout-simple .control-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .gateway-balance-widget{min-height:150px;grid-template-columns:auto 1fr;grid-template-rows:auto 1fr auto}
+  .gateway-balance-widget-head{grid-column:1/-1}
+  .gateway-balance-widget-icon{align-self:center}
+  .gateway-balance-widget-body{align-content:center}
+  .gateway-balance-widget-foot{grid-column:1/-1}
+  .integration-runtime-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .integration-runtime-strip>div:nth-child(3){border-left:0}
+  .e2pay-account-meta{grid-template-columns:1fr}
+}
+@media(max-width:600px){
+  .dashboard-summary-layout .control-kpis,
+  .dashboard-summary-layout-simple .control-kpis{grid-template-columns:1fr}
+  .gateway-balance-widget{grid-template-columns:1fr;grid-template-rows:auto auto 1fr auto}
+  .gateway-balance-widget-head,.gateway-balance-widget-foot{grid-column:auto}
+  .gateway-balance-widget-body strong{font-size:23px}
+  .integration-runtime-strip{grid-template-columns:1fr 1fr}
+  .integration-runtime-strip>div{padding:3px 5px}
+  .e2pay-account-balance strong{font-size:24px}
+}
