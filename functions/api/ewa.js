@@ -2,7 +2,7 @@ import { d1All, d1First, d1Run, hasD1 } from './_d1.js';
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 
 const METHODS = 'GET, POST, OPTIONS';
-const OPS = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER']);
+const OPS = new Set(['SUPER_ADMIN']);
 
 function orgId(env, actor) {
   return String(env.DEFAULT_ORG_ID || actor?.orgId || 'ORG-OTSINDO');
