@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 
 type Policy = {
   enabled: boolean;
@@ -246,10 +246,7 @@ export default function PortalSettings() {
   }
 
   const tenureUnit = (policy.minTenureDays || 0) > 0 ? "days" : "months";
-  const currentFingerprint = useMemo(
-    () => JSON.stringify({ policy, copy, adsEnabled, ads, platform }),
-    [policy, copy, adsEnabled, ads, platform],
-  );
+  const currentFingerprint = JSON.stringify({ policy, copy, adsEnabled, ads, platform });
   const dirty = Boolean(baseline && currentFingerprint !== baseline);
 
   return (
