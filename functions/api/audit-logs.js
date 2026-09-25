@@ -47,6 +47,7 @@ function unifiedSql() {
         COALESCE(role,'SYSTEM') AS actor_role,
         entity,
         entity_id,
+        correlation_id,
         NULL AS ip,
         'AUDIT_LOG' AS origin
       FROM audit_logs
@@ -68,6 +69,7 @@ function unifiedSql() {
         'EMPLOYEE' AS actor_role,
         'employee' AS entity,
         COALESCE(a.employee_id,a.employee_id_input) AS entity_id,
+        NULL AS correlation_id,
         a.ip,
         'PORTAL_LOGIN' AS origin
       FROM portal_login_attempts a
@@ -92,6 +94,7 @@ function unifiedSql() {
         'EXTERNAL_APP' AS actor_role,
         'api_endpoint' AS entity,
         ev.app_id AS entity_id,
+        ev.correlation_id AS correlation_id,
         NULL AS ip,
         'API_ENDPOINT_EVENT' AS origin
       FROM api_endpoint_events ev
@@ -115,6 +118,7 @@ function unifiedSql() {
         'PAYMENT_PROVIDER' AS actor_role,
         'payment_gateway_transaction' AS entity,
         ge.payment_gateway_transaction_id AS entity_id,
+        NULL AS correlation_id,
         NULL AS ip,
         'GATEWAY_EVENT' AS origin
       FROM payment_gateway_events ge
@@ -128,9 +132,9 @@ function buildFilters({ q, source, level, from, to }) {
   const clauses = [];
   const bindings = [];
   if (q) {
-    clauses.push("(lower(COALESCE(event,'')) LIKE ? OR lower(COALESCE(message,'')) LIKE ? OR lower(COALESCE(actor,'')) LIKE ? OR lower(COALESCE(entity,'')) LIKE ? OR lower(COALESCE(entity_id,'')) LIKE ? OR lower(COALESCE(ip,'')) LIKE ?)");
+    clauses.push("(lower(COALESCE(event,'')) LIKE ? OR lower(COALESCE(message,'')) LIKE ? OR lower(COALESCE(actor,'')) LIKE ? OR lower(COALESCE(entity,'')) LIKE ? OR lower(COALESCE(entity_id,'')) LIKE ? OR lower(COALESCE(correlation_id,'')) LIKE ? OR lower(COALESCE(ip,'')) LIKE ?)");
     const like = `%${q.toLowerCase()}%`;
-    bindings.push(like, like, like, like, like, like);
+    bindings.push(like, like, like, like, like, like, like);
   }
   if (source) { clauses.push('source=?'); bindings.push(source); }
   if (level) { clauses.push('level=?'); bindings.push(level); }
@@ -179,7 +183,7 @@ export async function onRequest({ request, env }) {
     const rows = await d1All(
       env.DB,
       `${cte}
-       SELECT id,timestamp,source,level,event,message,actor,actor_role,entity,entity_id,ip,origin
+       SELECT id,timestamp,source,level,event,message,actor,actor_role,entity,entity_id,correlation_id,ip,origin
        FROM unified
        ${filter.sql}
        ORDER BY timestamp DESC,id DESC
