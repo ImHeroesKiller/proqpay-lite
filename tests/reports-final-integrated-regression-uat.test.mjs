@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { onRequest as payrollReports } from '../functions/api/payroll-reports.js';
+import { onRequest as operatingModel } from '../functions/api/operating-model.js';
 import { createSession } from '../functions/api/_account-auth.js';
 import { D1Mock } from './helpers/d1-mock.mjs';
 
@@ -115,4 +116,43 @@ test('Final Reports UAT: UI keeps all-page export, stale-response guard, retry a
   assert.ok((workspace.match(/report-mobile-list/g)||[]).length>=2);
   assert.match(css,/\.report-desktop-table/);
   assert.match(css,/\.report-mobile-list/);
+});
+
+
+test('Final Reports UAT: payment report excludes rejected legacy PI and keeps canonical current PI',async()=>{
+  const DB=new D1Mock(); seed(DB);
+  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+  const controller=await createSession(DB,'USR-RPT-C',env);
+  const response=await operatingModel({
+    request:new Request(origin+'/api/operating-model?resource=payment-reports&limit=500',{
+      headers:{Cookie:`proqpay_session=${controller.token}`},
+    }),
+    env,
+  });
+  const payload=await response.json();
+  assert.equal(response.status,200,JSON.stringify(payload));
+  const ids=payload.paymentReports.map((row)=>row.id);
+  assert.ok(ids.includes('PI-RPT-A'));
+  assert.ok(ids.includes('PI-RPT-B'));
+  assert.ok(!ids.includes('PI-RPT-A-OLD'));
+  assert.ok(!payload.paymentReportFacets.statuses.includes('REJECTED'));
+});
+
+test('Final Reports UAT: payslip facets only expose report-eligible completed status',async()=>{
+  const DB=new D1Mock(); seed(DB);
+  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+  const controller=await createSession(DB,'USR-RPT-C',env);
+  const result=await getReport(env,controller.token,'payslips');
+  assert.equal(result.response.status,200,JSON.stringify(result.payload));
+  assert.deepEqual(result.payload.facets.statuses,['COMPLETED']);
+  assert.ok(result.payload.rows.every((row)=>row.payment_status==='COMPLETED'&&row.reconciliation_status==='MATCHED'));
+});
+
+test('Final Reports UAT: payment follow-up KPI is unique per row and mobile difference matches desktop semantics',async()=>{
+  const workspace=await read('src/components/ReportsWorkspace.tsx');
+  const ui=await read('src/lib/report-ui.ts');
+  assert.match(workspace,/\['PAYMENT_EXCEPTION','PROOF_UPLOADED'\]\.includes\(row\.status\) \|\| row\.settlement_source === 'CONFLICT'/);
+  assert.match(workspace,/function paymentDifference\(row:PaymentReport\)/);
+  assert.ok((workspace.match(/paymentDifference\(row\)/g)||[]).length>=2);
+  assert.match(ui,/SETTLEMENT_CONFLICT:'Konflik Settlement'/);
 });
