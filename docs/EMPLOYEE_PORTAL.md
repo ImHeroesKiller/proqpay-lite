@@ -2,19 +2,12 @@
 
 Payroll ops, PI, billing, dan import **tidak diubah**. Tabel baru hanya untuk login ESS.
 
-## Password default
+## Password sementara
 
-```
-{PROJECT_SLUG}{JOIN_YYYYMMDD}
-```
-
-Contoh: project `NOC-P1`, join `2020-09-20` → `NOCP120200920`.
-
-- `PROJECT_SLUG` = `projects.code` (fallback nama), huruf/angka uppercase, max 16.
-- Tanggal unik = `join_date` → `accepted_date` → `employees.created_at`.
-- Jika dua karyawan satu proyek + tanggal sama: tambah 4 karakter terakhir kode/NRK.
-- Hash PBKDF2-SHA256 100.000 iterasi. Plaintext **tidak** disimpan.
-- `must_change_password=1` sampai karyawan mengganti password (min 12, huruf besar/kecil, angka, simbol).
+- Password portal diterbitkan sebagai **random temporary password** yang unik; tidak diturunkan dari project, tanggal bergabung, NRK, atau data pribadi.
+- Hash PBKDF2-SHA256 disimpan; plaintext hanya dikembalikan sekali saat issuance/reset dan **tidak** dicatat ke audit log.
+- `must_change_password=1` sampai karyawan mengganti password sesuai password policy.
+- Reset password mencabut seluruh sesi Employee Service milik karyawan tersebut.
 
 Karyawan **bukan** baris `app_users`. Cookie portal `proqpay_employee`, terpisah dari `proqpay_session`.
 
