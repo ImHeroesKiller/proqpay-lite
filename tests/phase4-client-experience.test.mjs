@@ -55,7 +55,7 @@ test('client Documents combines invoices with a reduced report set', async()=>{
   assert.match(docs,/Invoice & Tax Documents/);
   assert.match(docs,/<ReportsWorkspace clientMode/);
   assert.match(reports,/clientMode \? \['payments','register','payslips'\]/);
-  assert.match(reports,/!clientMode \? <PayrollSourceUpload/);
+  assert.doesNotMatch(reports,/PayrollSourceUpload/);
 });
 
 test('Phase 4 preserves backend client scoping for documents and reports', async()=>{

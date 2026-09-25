@@ -1,13 +1,15 @@
 'use client';
 
-import { useCallback, useDeferredValue, useEffect, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import PanelPagination from '@/components/PanelPagination';
-import PayrollSourceUpload from '@/components/PayrollSourceUpload';
+import { IconDownload } from '@/components/Icons';
 import {
   REPORT_COLUMNS,
   REPORT_LABELS,
   isMoneyColumn,
+  isReportStatusColumn,
+  reportMobileFields,
   reportColumnLabel,
   reportPrimaryTitle,
   reportSecondaryTitle,
@@ -19,7 +21,8 @@ import {
   type ReportType,
 } from '@/lib/report-ui';
 
-type Props = { clientMode?: boolean };
+type Props = { clientMode?: boolean; hideHeading?: boolean };
+
 
 function csvCell(value: unknown) {
   const raw = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
@@ -84,7 +87,7 @@ async function loadAllPaymentReports(filters:{period:string;status:string;query:
   throw new Error('Pagination pembayaran melebihi batas aman');
 }
 
-export default function ReportsWorkspace({clientMode=false}:Props = {}) {
+export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Props = {}) {
   const [type,setType] = useState<ReportType>('payments');
   const [paymentRows, setPaymentRows] = useState<PaymentReport[]>([]);
   const [payrollRows,setPayrollRows] = useState<ReportRow[]>([]);
@@ -96,80 +99,108 @@ export default function ReportsWorkspace({clientMode=false}:Props = {}) {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const loadRequestRef = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId=++loadRequestRef.current;
     setLoading(true); setError('');
     try {
       const filters={period,status,query:deferredQuery};
       if (type === 'payments') {
         const result=await loadAllPaymentReports(filters);
+        if(requestId!==loadRequestRef.current) return;
         setPaymentRows(result.rows);
         setFacets(result.facets);
       } else {
         const result=await loadAllPayrollReport(type,filters);
+        if(requestId!==loadRequestRef.current) return;
         setPayrollRows(result.rows);
         setFacets(result.facets);
       }
     } catch (caught) {
+      if(requestId!==loadRequestRef.current) return;
       setError(caught instanceof Error ? caught.message : 'Gagal memuat laporan');
     } finally {
-      setLoading(false);
+      if(requestId===loadRequestRef.current) setLoading(false);
     }
   }, [type,period,status,deferredQuery]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setPage(1); setQuery(''); setStatus('ALL'); setPeriod('ALL'); }, [type]);
 
   const periods = facets.periods;
   const statusOptions = facets.statuses;
   const activeRows:Array<PaymentReport|ReportRow> = type === 'payments' ? paymentRows : payrollRows;
   const filteredPayments = paymentRows;
   const filteredPayroll = payrollRows;
-  const pageCount = Math.max(1, Math.ceil(activeRows.length / 15));
-  const visible = activeRows.slice((page - 1) * 15, page * 15);
+  const pageSize = 15;
+  const pageCount = Math.max(1, Math.ceil(activeRows.length / pageSize));
+  const visible = activeRows.slice((page - 1) * pageSize, page * pageSize);
   const completed = filteredPayments.filter((row) => row.status === 'COMPLETED' && row.settlement_source !== 'CONFLICT');
   const settlementConflicts = filteredPayments.filter((row)=>row.settlement_source === 'CONFLICT');
   const paidTotal = completed.reduce((sum,row) => sum + Number(row.paid_total || 0), 0);
   const employees = completed.reduce((sum,row) => sum + Number(row.employee_count || 0), 0);
 
+  const filtersActive = Boolean(query.trim() || period !== 'ALL' || status !== 'ALL');
+  const paymentFollowUp = filteredPayments.filter((row) => ['PAYMENT_EXCEPTION','PROOF_UPLOADED'].includes(row.status) || row.settlement_source === 'CONFLICT').length;
+  const controlBalanced = filteredPayroll.filter((row)=>Number(row.payroll_gross||0)-Number(row.payroll_deduction||0)===Number(row.payroll_net||0)).length;
+  const controlPiMismatch = filteredPayroll.filter((row)=>Number(row.pi_total||0)&&Number(row.pi_total)!==Number(row.payroll_net||0)).length;
+  const controlReconDiff = filteredPayroll.filter((row)=>Number(row.reconciliation_difference||0)!==0).length;
   const reportTypes:ReportType[] = clientMode ? ['payments','register','payslips'] : (Object.keys(REPORT_LABELS) as ReportType[]);
+
+  function resetFilters() {
+    setQuery('');
+    setPeriod('ALL');
+    setStatus('ALL');
+    setPage(1);
+  }
+
+  function changeType(next:ReportType) {
+    if(next===type) return;
+    setQuery('');
+    setPeriod('ALL');
+    setStatus('ALL');
+    setPage(1);
+    setFacets({periods:[],statuses:[]});
+    setType(next);
+  }
 
   function exportCurrent() {
     if (type === 'payments') {
-      const rows = filteredPayments.map((row) => ({ payment_id:row.id,client:row.client_name,project:row.project_name,payroll_period:row.payroll_period,payment_period:row.payment_period,arrears:(row.arrears_periods||[]).join('|'),employees:row.employee_count,expected_total:row.expected_total,settlement_source:row.settlement_source,manual_proof_total:row.manual_proof_total,gateway_total:row.gateway_total,paid_total:row.paid_total,payment_date:row.payment_date,status:row.status,reconciliation:row.reconciliation_status,difference:row.difference }));
+      const rows = filteredPayments.map((row) => ({ payment_id:row.id,client:row.client_name,project:row.project_name,payroll_period:row.payroll_period,payment_period:row.payment_period,arrears:(row.arrears_periods||[]).join('|'),employees:row.employee_count,expected_total:row.expected_total,settlement_source:row.settlement_source,manual_proof_total:row.manual_proof_total,gateway_total:row.gateway_total,paid_total:row.paid_total,payment_date:row.payment_date,status:row.status,reconciliation:row.reconciliation_status,payment_difference:paymentDifference(row),reconciliation_difference:row.difference }));
       downloadRows(`payment-report-${period === 'ALL' ? 'all' : period}.csv`,rows);
     } else downloadRows(`${type}-${period === 'ALL' ? 'all' : period}.csv`, filteredPayroll);
   }
 
   return <section className="reports-workspace">
-    {!clientMode ? <PayrollSourceUpload /> : null}
-    <div className="reports-heading"><div><h2>{clientMode?'Laporan':'Laporan Payroll & Pembayaran'}</h2><p>{clientMode?'Laporan payroll dan pembayaran sesuai scope akun Anda.':'Jejak audit dari sumber payroll, snapshot final, slip gaji, pembayaran, dan rekonsiliasi.'}</p></div><button className="btn btn-primary" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div>
-    <div className="report-type-tabs">{reportTypes.map((item)=><button key={item} type="button" className={`btn ${type===item?'btn-primary':''}`} onClick={()=>setType(item)}>{clientMode&&item==='payments'?'Riwayat Pembayaran':REPORT_LABELS[item]}</button>)}</div>
+    {!hideHeading ? <div className="reports-heading"><div><span className="workspace-eyebrow">{clientMode?'REPORTS':'REPORTING & AUDIT'}</span><h2>{clientMode?'Payroll & Payment Reports':'Laporan Payroll & Pembayaran'}</h2><p>{clientMode?'Laporan payroll dan pembayaran sesuai scope akun Anda.':'Jejak audit dari sumber payroll, snapshot final, slip gaji, pembayaran, dan rekonsiliasi.'}</p></div><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent} title="Unduh laporan CSV"><IconDownload aria-hidden="true" /><span>Unduh CSV</span></button></div> : <div className="reports-inline-actions"><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent} title="Unduh laporan CSV"><IconDownload aria-hidden="true" /><span>Unduh CSV</span></button></div>}
+    <div className="report-type-tabs" role="tablist" aria-label="Jenis laporan">{reportTypes.map((item)=><button key={item} type="button" role="tab" aria-selected={type===item} className={`btn ${type===item?'btn-primary':''}`} onClick={()=>changeType(item)}>{clientMode&&item==='payments'?'Riwayat Pembayaran':REPORT_LABELS[item]}</button>)}</div>
 
-    {type === 'payments' ? <div className="report-summary-grid"><Summary label="Pembayaran selesai" value={String(completed.length)} /><Summary label="Total dibayarkan" value={formatIDR(paidTotal)} /><Summary label="Karyawan dibayar" value={String(employees)} /><Summary label="Perlu tindak lanjut" value={String(filteredPayments.filter((row) => ['PAYMENT_EXCEPTION','PROOF_UPLOADED'].includes(row.status)).length + settlementConflicts.length)} /></div>
-      : type === 'control' ? <div className="report-summary-grid"><Summary label="Pay Run" value={String(filteredPayroll.length)} /><Summary label="Balanced" value={String(filteredPayroll.filter((row)=>Number(row.payroll_gross||0)-Number(row.payroll_deduction||0)===Number(row.payroll_net||0)).length)} /><Summary label="PI mismatch" value={String(filteredPayroll.filter((row)=>Number(row.pi_total||0)&&Number(row.pi_total)!==Number(row.payroll_net||0)).length)} /><Summary label="Reconciliation diff" value={String(filteredPayroll.filter((row)=>Number(row.reconciliation_difference||0)!==0).length)} /></div>
-      : <div className="report-summary-grid"><Summary label={REPORT_LABELS[type]} value={String(filteredPayroll.length)} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /><Summary label="Terhubung ke sumber" value={String(filteredPayroll.filter((row)=>row.source_batch_id || row.file_sha256).length)} /><Summary label="Baris ditampilkan" value={String(activeRows.length)} /></div>}
+    {type === 'payments' ? <div className="report-summary-grid"><Summary label="Pembayaran selesai" value={String(completed.length)} note="Settlement selesai tanpa konflik sumber." tone="success" /><Summary label="Total dibayarkan" value={formatIDR(paidTotal)} note="Akumulasi pembayaran selesai pada filter aktif." /><Summary label="Karyawan dibayar" value={String(employees)} note="Jumlah penerima pada pembayaran selesai." /><Summary label="Perlu tindak lanjut" value={String(paymentFollowUp)} note="Exception, bukti pending, atau konflik settlement." tone={paymentFollowUp?'warning':'success'} /></div>
+      : type === 'control' ? <div className="report-summary-grid"><Summary label="Pay Run" value={String(filteredPayroll.length)} note="Jumlah Pay Run pada filter aktif." /><Summary label="Sesuai kontrol" value={String(controlBalanced)} note="Gross - potongan sama dengan netto." tone="success" /><Summary label="Selisih PI" value={String(controlPiMismatch)} note="PI berbeda dengan payroll net." tone={controlPiMismatch?'warning':'success'} /><Summary label="Selisih rekonsiliasi" value={String(controlReconDiff)} note="Settlement belum balance." tone={controlReconDiff?'warning':'success'} /></div>
+      : <GenericSummary type={type} rows={filteredPayroll} period={period} />}
 
-    <div className="card report-filter"><input value={query} placeholder="Cari karyawan, klien, project, batch, pay run…" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }}><option value="ALL">Semua periode</option>{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">Semua status</option>{statusOptions.map((item) => <option key={item} value={item}>{reportStatusLabel(item)}</option>)}</select></div>
+    <div className="card report-filter"><label><span>Cari</span><input value={query} placeholder="Cari karyawan, klien, project, batch, pay run…" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></label><label><span>Periode</span><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }}><option value="ALL">Semua periode</option>{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span>Status</span><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">Semua status</option>{statusOptions.map((item) => <option key={item} value={item}>{reportStatusLabel(item)}</option>)}</select></label><button type="button" className="btn report-reset-btn" disabled={!filtersActive} onClick={resetFilters}>Reset</button></div>
     {error ? <div className="card report-error" role="alert"><span>{error}</span><button type="button" className="btn" disabled={loading} onClick={()=>void load()}>{loading?'Memuat…':'Coba lagi'}</button></div> : null}
-    {loading ? <div className="card directory-empty">Memuat laporan…</div> : !activeRows.length ? <div className="card directory-empty">Belum ada data pada filter ini.</div> : <>
+    {loading ? <div className="card report-loading" role="status" aria-live="polite"><span className="report-loading-bar" /><span className="report-loading-bar" /><span className="report-loading-bar" /><strong>Memuat laporan…</strong></div> : !activeRows.length ? <div className="card directory-empty report-empty"><span>{filtersActive?'Tidak ada data yang cocok dengan filter ini.':'Belum ada data laporan.'}</span>{filtersActive?<button type="button" className="btn" onClick={resetFilters}>Reset filter</button>:null}</div> : <>
       {type === 'payments' ? <PaymentTable rows={visible as PaymentReport[]} /> : <GenericTable rows={visible as ReportRow[]} type={type} />}
-      <PanelPagination page={Math.min(page,pageCount)} pageCount={pageCount} total={activeRows.length} label="baris" onPage={setPage} />
+      <PanelPagination page={Math.min(page,pageCount)} pageCount={pageCount} total={activeRows.length} pageSize={pageSize} label="baris" onPage={setPage} />
     </>}
   </section>;
 }
 
 function PaymentTable({rows}:{rows:PaymentReport[]}) {
   return <div className="card report-table-wrap">
-    <table className="report-table report-desktop-table"><thead><tr><th>Klien / Project</th><th>Periode</th><th>Karyawan</th><th>Nilai</th><th>Pembayaran</th><th>Status</th></tr></thead><tbody>{rows.map((row)=>{
+    <table className="report-table report-desktop-table report-payment-table"><thead><tr><th className="report-sticky-col">Klien / Project</th><th>Periode</th><th className="report-num">Karyawan</th><th className="report-num">Expected</th><th className="report-num">Dibayar</th><th className="report-num">Selisih</th><th>Pembayaran</th><th>Status</th></tr></thead><tbody>{rows.map((row)=>{
       const conflict=row.settlement_source==='CONFLICT';
-      return <tr key={row.id}><td><strong>{row.client_name||'-'}</strong><small>{row.project_name||row.id}</small></td><td><strong>{row.payroll_period||'-'}</strong><small>Bayar {row.payment_period||'-'}</small></td><td>{Number(row.employee_count||0)}</td><td><strong>{formatIDR(Number(row.expected_total||0))}</strong><small>{conflict?`Manual ${formatIDR(Number(row.manual_proof_total||0))} · Gateway ${formatIDR(Number(row.gateway_total||0))}`:`Dibayar ${formatIDR(Number(row.paid_total||0))}`}</small></td><td>{conflict?'Konflik sumber settlement':row.payment_date?new Date(row.payment_date).toLocaleDateString('id-ID'):'-'}<small>{row.reconciliation_status||'Belum rekonsiliasi'}{row.difference?` · ${formatIDR(Number(row.difference))}`:''}</small></td><td><span className={`report-status report-status-${reportStatusTone(conflict?'SETTLEMENT_CONFLICT':row.status)}`}>{reportStatusLabel(conflict?'SETTLEMENT_CONFLICT':row.status)}</span></td></tr>;
+      const difference=paymentDifference(row);
+      return <tr key={row.id}><td className="report-sticky-col"><strong>{row.client_name||'-'}</strong><small>{row.project_name||row.id}</small></td><td><strong>{row.payroll_period||'-'}</strong><small>Bayar {row.payment_period||'-'}</small></td><td className="report-num">{Number(row.employee_count||0)}</td><td className="report-num"><strong>{formatIDR(Number(row.expected_total||0))}</strong></td><td className="report-num"><strong>{conflict?'Periksa sumber':formatIDR(Number(row.paid_total||0))}</strong>{conflict?<small>Manual {formatIDR(Number(row.manual_proof_total||0))} · Gateway {formatIDR(Number(row.gateway_total||0))}</small>:null}</td><td className="report-num">{difference==null?'-':formatIDR(difference)}</td><td>{conflict?'Konflik sumber settlement':row.payment_date?new Date(row.payment_date).toLocaleDateString('id-ID'):'-'}<small>{row.reconciliation_status||'Belum rekonsiliasi'}{row.difference?` · ${formatIDR(Number(row.difference))}`:''}</small></td><td><span className={`report-status report-status-${reportStatusTone(conflict?'SETTLEMENT_CONFLICT':row.status)}`}>{reportStatusLabel(conflict?'SETTLEMENT_CONFLICT':row.status)}</span></td></tr>;
     })}</tbody></table>
     <div className="report-mobile-list">{rows.map((row)=>{
       const conflict=row.settlement_source==='CONFLICT';
       return <article className="report-mobile-card" key={row.id}>
         <div className="report-mobile-head"><div><strong>{row.client_name||'-'}</strong><small>{row.project_name||row.id}</small></div><span className={`report-status report-status-${reportStatusTone(conflict?'CONFLICT':row.status)}`}>{reportStatusLabel(conflict?'CONFLICT':row.status)}</span></div>
-        <div className="report-mobile-grid"><div><span>Periode</span><strong>{row.payment_period||row.payroll_period||'-'}</strong></div><div><span>Karyawan</span><strong>{Number(row.employee_count||0)}</strong></div><div><span>Nilai</span><strong>{formatIDR(Number(row.expected_total||0))}</strong></div><div><span>Dibayar</span><strong>{conflict?'Periksa sumber':formatIDR(Number(row.paid_total||0))}</strong></div></div>
+        <div className="report-mobile-grid"><MobileValue label="Periode" value={row.payment_period||row.payroll_period||'-'} /><MobileValue label="Karyawan" value={Number(row.employee_count||0)} /><MobileValue label="Expected" value={formatIDR(Number(row.expected_total||0))} /><MobileValue label="Dibayar" value={conflict?'Periksa sumber':formatIDR(Number(row.paid_total||0))} /></div>
+        <details className="report-mobile-details"><summary>Lihat detail pembayaran</summary><div className="report-mobile-detail-grid"><MobileValue label="Rekonsiliasi" value={row.reconciliation_status||'Belum rekonsiliasi'} /><MobileValue label="Selisih" value={paymentDifference(row)==null?'-':formatIDR(paymentDifference(row) as number)} />{conflict?<><MobileValue label="Bukti manual" value={formatIDR(Number(row.manual_proof_total||0))} /><MobileValue label="Payment gateway" value={formatIDR(Number(row.gateway_total||0))} /></>:null}</div></details>
       </article>;
     })}</div>
   </div>;
@@ -177,18 +208,53 @@ function PaymentTable({rows}:{rows:PaymentReport[]}) {
 
 function GenericTable({rows,type}:{rows:ReportRow[];type:Exclude<ReportType,'payments'>}) {
   const columns=REPORT_COLUMNS[type].filter((key)=>rows.some((row)=>key in row));
-  const primaryKeys=columns.slice(0,6);
+  const mobileKeys=reportMobileFields(type,columns);
+  const detailKeys=columns.filter((key)=>!mobileKeys.includes(key));
   return <div className="card report-table-wrap">
-    <table className="report-table report-desktop-table"><thead><tr>{columns.map((key)=><th key={key}>{reportColumnLabel(key)}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={`${String(row.submission_id||row.id||'row')}-${String(row.employee_id||index)}-${index}`}>{columns.map((key)=>{
+    <table className={`report-table report-desktop-table report-generic-table report-type-${type}`}><thead><tr>{columns.map((key,index)=><th key={key} className={`${index===0?'report-sticky-col ':''}${isMoneyColumn(key)||key==='employee_count'?'report-num':''}`}>{reportColumnLabel(key)}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={`${String(row.submission_id||row.id||'row')}-${String(row.employee_id||index)}-${index}`}>{columns.map((key,columnIndex)=>{
       const value=row[key];
-      if(key==='status'||key==='state'||key==='payment_status'||key==='reconciliation_status') return <td key={key}><span className={`report-status report-status-${reportStatusTone(value)}`}>{reportStatusLabel(value)}</span></td>;
-      return <td key={key}>{typeof value==='number'&&isMoneyColumn(key)?formatIDR(value):typeof value==='object'&&value!==null?JSON.stringify(value):String(value??'-')}</td>;
+      const className=`${columnIndex===0?'report-sticky-col ':''}${isMoneyColumn(key)||key==='employee_count'?'report-num':''}`;
+      if(isReportStatusColumn(key)) return <td className={className} key={key}><span className={`report-status report-status-${reportStatusTone(value)}`}>{reportStatusLabel(value)}</span></td>;
+      return <td className={className} key={key}>{formatReportValue(key,value)}</td>;
     })}</tr>)}</tbody></table>
-    <div className="report-mobile-list">{rows.map((row,index)=><article className="report-mobile-card" key={`mobile-${String(row.submission_id||row.id||index)}-${index}`}><div className="report-mobile-head"><div><strong>{reportPrimaryTitle(row)}</strong><small>{reportSecondaryTitle(row)}</small></div>{(row.status||row.state||row.payment_status)?<span className={`report-status report-status-${reportStatusTone(row.status||row.state||row.payment_status)}`}>{reportStatusLabel(row.status||row.state||row.payment_status)}</span>:null}</div><div className="report-mobile-grid">{primaryKeys.map((key)=>{
-      const value=row[key];
-      return <div key={key}><span>{reportColumnLabel(key)}</span><strong>{typeof value==='number'&&isMoneyColumn(key)?formatIDR(value):String(value??'-')}</strong></div>;
-    })}</div></article>)}</div>
+    <div className="report-mobile-list">{rows.map((row,index)=><article className="report-mobile-card" key={`mobile-${String(row.submission_id||row.id||index)}-${index}`}><div className="report-mobile-head"><div><strong>{reportPrimaryTitle(row)}</strong><small>{reportSecondaryTitle(row)}</small></div>{(row.status||row.state||row.payment_status)?<span className={`report-status report-status-${reportStatusTone(row.status||row.state||row.payment_status)}`}>{reportStatusLabel(row.status||row.state||row.payment_status)}</span>:null}</div><div className="report-mobile-grid">{mobileKeys.map((key)=><MobileValue key={key} label={reportColumnLabel(key)} value={formatReportValue(key,row[key])} />)}</div>{detailKeys.length?<details className="report-mobile-details"><summary>Lihat detail laporan</summary><div className="report-mobile-detail-grid">{detailKeys.map((key)=><MobileValue key={key} label={reportColumnLabel(key)} value={formatReportValue(key,row[key])} />)}</div></details>:null}</article>)}</div>
   </div>;
 }
 
-function Summary({label,value}:{label:string;value:string}) { return <div className="card report-summary"><span>{label}</span><strong>{value}</strong></div>; }
+function paymentDifference(row:PaymentReport){
+  if(row.settlement_source==='CONFLICT') return null;
+  return Number(row.expected_total||0)-Number(row.paid_total||0);
+}
+
+function formatReportValue(key:string,value:unknown){
+  if(isReportStatusColumn(key)&&value) return reportStatusLabel(value);
+  if(typeof value==='number'&&isMoneyColumn(key)) return formatIDR(value);
+  if(typeof value==='object'&&value!==null) return JSON.stringify(value);
+  return String(value??'-');
+}
+
+function MobileValue({label,value}:{label:string;value:unknown}) {
+  return <div><span>{label}</span><strong>{String(value??'-')}</strong></div>;
+}
+
+function GenericSummary({type,rows,period}:{type:Exclude<ReportType,'payments'|'control'>;rows:ReportRow[];period:string}) {
+  if(type==='uploads') {
+    const accepted=rows.reduce((sum,row)=>sum+Number(row.accepted_row_count||0),0);
+    const net=rows.reduce((sum,row)=>sum+Number(row.source_total_net||0),0);
+    return <div className="report-summary-grid"><Summary label="Batch upload" value={String(rows.length)} /><Summary label="Baris diterima" value={String(accepted)} /><Summary label="Netto sumber" value={formatIDR(net)} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /></div>;
+  }
+  if(type==='payslips') {
+    const net=rows.reduce((sum,row)=>sum+Number(row.net_amount||0),0);
+    const matched=rows.filter((row)=>row.reconciliation_status==='MATCHED').length;
+    return <div className="report-summary-grid"><Summary label="Slip tersedia" value={String(rows.length)} /><Summary label="Total netto" value={formatIDR(net)} /><Summary label="Rekonsiliasi sesuai" value={String(matched)} tone={matched===rows.length?'success':'warning'} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /></div>;
+  }
+  if(type==='exceptions') {
+    const critical=rows.filter((row)=>String(row.severity||'').toUpperCase()==='CRITICAL').length;
+    const open=rows.filter((row)=>!['RESOLVED','ACCEPTED','AUTO_NORMALIZED'].includes(String(row.status||''))).length;
+    return <div className="report-summary-grid"><Summary label="Exception" value={String(rows.length)} /><Summary label="Critical" value={String(critical)} tone={critical?'warning':'success'} /><Summary label="Masih terbuka" value={String(open)} tone={open?'warning':'success'} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /></div>;
+  }
+  const sourced=rows.filter((row)=>row.source_batch_id || row.file_sha256).length;
+  return <div className="report-summary-grid"><Summary label={REPORT_LABELS[type]} value={String(rows.length)} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /><Summary label="Terhubung ke sumber" value={String(sourced)} /><Summary label="Total baris" value={String(rows.length)} /></div>;
+}
+
+function Summary({label,value,note,tone='neutral'}:{label:string;value:string;note?:string;tone?:'neutral'|'success'|'warning'}) { return <div className={`card report-summary report-summary-${tone}`}><span>{label}</span><strong title={value}>{value}</strong>{note?<small>{note}</small>:null}</div>; }

@@ -394,7 +394,7 @@ async function readResource(database, params, actor, env, organizationId) {
     const period=String(params.get('period')||'').trim();
     const status=String(params.get('status')||'').trim();
     const query=String(params.get('q')||'').trim().slice(0,120);
-    const reportClauses=[scope.sql];
+    const reportClauses=[scope.sql,"pi.status<>'REJECTED'"];
     const reportBindings=[...scope.bindings];
     if(/^\d{4}-\d{2}$/.test(period)){reportClauses.push('COALESCE(s.payment_period,s.period)=?');reportBindings.push(period);}
     if(status){reportClauses.push('pi.status=?');reportBindings.push(status);}
@@ -407,11 +407,11 @@ async function readResource(database, params, actor, env, organizationId) {
     const [periodRows,statusRows]=await Promise.all([
       d1All(database,`SELECT DISTINCT COALESCE(s.payment_period,s.period) AS period
         FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
-        WHERE ${scope.sql} AND COALESCE(s.payment_period,s.period) IS NOT NULL
+        WHERE ${scope.sql} AND pi.status<>'REJECTED' AND COALESCE(s.payment_period,s.period) IS NOT NULL
         ORDER BY period DESC LIMIT 120`,scope.bindings),
       d1All(database,`SELECT DISTINCT pi.status
         FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
-        WHERE ${scope.sql} AND pi.status IS NOT NULL ORDER BY pi.status`,scope.bindings),
+        WHERE ${scope.sql} AND pi.status IS NOT NULL AND pi.status<>'REJECTED' ORDER BY pi.status`,scope.bindings),
     ]);
     const rows = await d1All(database, `SELECT pi.id,pi.client_id,c.name AS client_name,s.project_id,p.name AS project_name,
       s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,

@@ -100,8 +100,15 @@ export async function onRequest({ request, env }) {
       COALESCE((SELECT source_total_deduction FROM payroll_upload_batches b WHERE b.submission_id=s.id AND b.status='IMPORTED' ORDER BY b.uploaded_at DESC,b.id DESC LIMIT 1),0) AS source_deduction,
       COALESCE((SELECT source_total_net FROM payroll_upload_batches b WHERE b.submission_id=s.id AND b.status='IMPORTED' ORDER BY b.uploaded_at DESC,b.id DESC LIMIT 1),0) AS source_net,
       COALESCE((SELECT expected_total FROM payment_instructions pi WHERE pi.submission_id=s.id AND pi.status<>'REJECTED' ORDER BY pi.updated_at DESC,pi.created_at DESC,pi.id DESC LIMIT 1),0) AS pi_total,
-      COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp JOIN payment_instructions pi2 ON pi2.id=pp.payment_instruction_id WHERE pi2.submission_id=s.id),0) AS proof_total,
-      COALESCE((SELECT r.difference FROM reconciliations r JOIN payment_instructions pi3 ON pi3.id=r.payment_instruction_id WHERE pi3.submission_id=s.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1),0) AS reconciliation_difference
+      COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp
+        WHERE pp.payment_instruction_id=(SELECT pi2.id FROM payment_instructions pi2
+          WHERE pi2.submission_id=s.id AND pi2.status<>'REJECTED'
+          ORDER BY pi2.updated_at DESC,pi2.created_at DESC,pi2.id DESC LIMIT 1)),0) AS proof_total,
+      COALESCE((SELECT r.difference FROM reconciliations r
+        WHERE r.payment_instruction_id=(SELECT pi3.id FROM payment_instructions pi3
+          WHERE pi3.submission_id=s.id AND pi3.status<>'REJECTED'
+          ORDER BY pi3.updated_at DESC,pi3.created_at DESC,pi3.id DESC LIMIT 1)
+        ORDER BY r.created_at DESC,r.id DESC LIMIT 1),0) AS reconciliation_difference
       FROM payroll_submissions s JOIN clients c ON c.id=s.client_id LEFT JOIN projects p ON p.id=s.project_id
       LEFT JOIN payroll_run_lines l ON l.submission_id=s.id WHERE ${where}
       GROUP BY s.id ORDER BY s.period DESC,s.created_at DESC,s.id DESC LIMIT ? OFFSET ?`, [...reportBindings, ...paging]);
@@ -129,7 +136,7 @@ export async function onRequest({ request, env }) {
     const reportBindings=[...bindings];
     if(status){reportClauses.push('pi.status=?');reportBindings.push(status);}
     if(query){reportClauses.push("(LOWER(COALESCE(l.employee_name,'')) LIKE ? OR LOWER(COALESCE(l.employee_id,'')) LIKE ? OR LOWER(c.name) LIKE ? OR LOWER(COALESCE(p.name,'')) LIKE ? OR LOWER(COALESCE(pi.document_no,'')) LIKE ?)");const like=`%${query.toLowerCase()}%`;reportBindings.push(like,like,like,like,like);}
-    facets.statuses=(await d1All(env.DB,`SELECT DISTINCT pi.status FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id WHERE ${scopeWhere} AND pi.status IS NOT NULL ORDER BY pi.status`,scopeBindings)).map((row)=>String(row.status));
+    facets.statuses=(await d1All(env.DB,`SELECT DISTINCT pi.status FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id LEFT JOIN reconciliations r ON r.payment_instruction_id=pi.id WHERE ${scopeWhere} AND pi.status='COMPLETED' AND COALESCE(r.status,'')='MATCHED' ORDER BY pi.status`,scopeBindings)).map((row)=>String(row.status));
     const where=reportClauses.join(' AND ');
     const rows = await d1All(env.DB, `SELECT s.id AS submission_id,s.period,s.run_type,c.name AS client_name,p.name AS project_name,
       l.employee_id,l.employee_name,l.gross_amount,l.deduction_amount,l.net_amount,l.source_batch_id,

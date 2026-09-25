@@ -34,6 +34,14 @@ export const REPORT_LABELS:Record<ReportType,string>={
   exceptions:'Laporan Exception',
 };
 
+export const REPORT_MOBILE_FIELDS:Record<Exclude<ReportType,'payments'>,string[]>={
+  register:['period','employee_id','gross_amount','deduction_amount','net_amount','state'],
+  control:['period','employee_count','payroll_net','pi_total','reconciliation_difference','state'],
+  uploads:['period','original_filename','accepted_row_count','source_total_net','status','uploaded_by'],
+  payslips:['period','employee_id','net_amount','document_no','payment_status','reconciliation_status'],
+  exceptions:['period','employee_id','severity','code','status','message'],
+};
+
 export const REPORT_COLUMNS:Record<Exclude<ReportType,'payments'>,string[]>={
   register:['period','client_name','project_name','employee_id','employee_name','gross_amount','deduction_amount','net_amount','run_type','state','source_batch_id','source_row_no'],
   control:['period','client_name','project_name','submission_id','employee_count','source_gross','source_deduction','source_net','payroll_gross','payroll_deduction','payroll_net','pi_total','proof_total','reconciliation_difference','state'],
@@ -80,7 +88,7 @@ const COLUMN_LABELS:Record<string,string>={
   document_no:'Nomor Dokumen',
   payment_status:'Status Pembayaran',
   reconciliation_status:'Status Rekonsiliasi',
-  severity:'Severity',
+  severity:'Tingkat',
   code:'Kode',
   message:'Keterangan',
 };
@@ -110,6 +118,7 @@ const STATUS_LABELS:Record<string,string>={
   MANUAL_PROOF:'Bukti Manual',
   PAYMENT_GATEWAY:'Payment Gateway',
   CONFLICT:'Konflik Settlement',
+  SETTLEMENT_CONFLICT:'Konflik Settlement',
   NONE:'Belum Ada Settlement',
 };
 
@@ -140,4 +149,13 @@ export function reportPrimaryTitle(row:ReportRow){
 
 export function reportSecondaryTitle(row:ReportRow){
   return String(row.project_name||row.employee_id||row.period||'');
+}
+
+
+export function isReportStatusColumn(key:string){
+  return ['status','state','payment_status','reconciliation_status'].includes(key);
+}
+
+export function reportMobileFields(type:Exclude<ReportType,'payments'>,columns:string[]){
+  return REPORT_MOBILE_FIELDS[type].filter((key)=>columns.includes(key));
 }

@@ -3,8 +3,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import ReportsWorkspace from './ReportsWorkspace';
 import { formatIDR } from '@/lib/format';
+import { IconRefresh } from '@/components/Icons';
+import PanelPagination from '@/components/PanelPagination';
 
 type Actor = { email:string; role:string };
+type ClientInvoice = {
+  id:string;
+  invoice_number?:string;
+  client_name?:string;
+  company?:string;
+  project_name?:string;
+  period?:string;
+  total_amount?:number;
+  due_date?:string;
+  status?:string;
+  tax_invoice_number?:string;
+  tax_invoice_date?:string;
+  tax_status?:string;
+};
 
 function dateLabel(value:string) {
   return value ? new Date(value).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '-';
@@ -22,7 +38,7 @@ function statusLabel(value:string) {
 }
 
 async function loadAllInvoices() {
-  const invoices:any[]=[];
+  const invoices:ClientInvoice[]=[];
   let offset=0;
   for(let page=0;page<1000;page+=1){
     const params=new URLSearchParams({limit:'500',invoiceOffset:String(offset)});
@@ -39,14 +55,16 @@ async function loadAllInvoices() {
 }
 
 export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
-  const [invoices,setInvoices] = useState<any[]>([]);
+  const [invoices,setInvoices] = useState<ClientInvoice[]>([]);
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState('');
+  const [invoicePage,setInvoicePage] = useState(1);
 
   const load = useCallback(async()=>{
     setLoading(true); setError('');
     try {
       setInvoices(await loadAllInvoices());
+      setInvoicePage(1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Dokumen invoice gagal dimuat');
     } finally {
@@ -57,39 +75,43 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
   useEffect(()=>{void load();},[load]);
 
   const total = useMemo(()=>invoices.reduce((sum,row)=>sum+Number(row.total_amount||0),0),[invoices]);
+  const invoicePageSize=10;
+  const invoicePageCount=Math.max(1,Math.ceil(invoices.length/invoicePageSize));
+  const visibleInvoices=invoices.slice((invoicePage-1)*invoicePageSize,invoicePage*invoicePageSize);
 
-  return <section style={{display:'grid',gap:18}}>
-    <div className="control-tower-heading">
-      <div><span>DOCUMENTS</span><h1>Documents & Reports</h1><p>Invoice, status tagihan, payroll register, payment history, dan dokumen hasil proses yang tersedia untuk akun Anda.</p></div>
-      <button type="button" className="btn" onClick={()=>void load()}>Refresh</button>
+  return <section className="client-documents-workspace" aria-label="Documents & Reports">
+    <div className="control-tower-heading client-documents-heading">
+      <div><span>DOCUMENTS & REPORTS</span><h1>Dokumen & Laporan</h1><p>Invoice, status tagihan, payroll register, riwayat pembayaran, dan dokumen hasil proses sesuai scope akun Anda.</p></div>
+      <button type="button" className="btn client-documents-refresh" onClick={()=>void load()} disabled={loading}><IconRefresh aria-hidden="true" /><span>{loading?'Memuat…':'Refresh'}</span></button>
     </div>
 
     <div className="report-summary-grid">
       <div className="card report-summary"><span>Invoice tersedia</span><strong>{invoices.length}</strong></div>
       <div className="card report-summary"><span>Total invoice</span><strong>{formatIDR(total)}</strong></div>
       <div className="card report-summary"><span>Lunas</span><strong>{invoices.filter((row)=>row.status==='PAID').length}</strong></div>
-      <div className="card report-summary"><span>Perlu pembayaran</span><strong>{invoices.filter((row)=>['ISSUED','PARTIALLY_PAID'].includes(row.status)).length}</strong></div>
+      <div className="card report-summary"><span>Perlu pembayaran</span><strong>{invoices.filter((row)=>['ISSUED','PARTIALLY_PAID'].includes(row.status||'')).length}</strong></div>
     </div>
 
-    <section className="card" style={{padding:18}}>
+    <section className="card client-invoice-section">
       <div className="control-panel-title"><div><span>INVOICES</span><h2>Invoice & Tax Documents</h2></div><small>{invoices.length} dokumen</small></div>
       {error ? <div className="app-notice-bubble app-notice-error"><strong>Invoice belum dapat dimuat</strong><span>{error}</span></div> : null}
-      {loading ? <div className="control-empty">Memuat invoice…</div> : invoices.length ? <div className="report-table-wrap"><table className="report-table">
+      {loading ? <div className="control-empty">Memuat invoice…</div> : invoices.length ? <div className="report-table-wrap"><table className="report-table report-desktop-table client-invoice-table">
         <thead><tr><th>Invoice</th><th>Periode</th><th>Nilai</th><th>Jatuh tempo</th><th>Status</th><th>Faktur pajak</th></tr></thead>
-        <tbody>{invoices.map((row)=><tr key={row.id}>
+        <tbody>{visibleInvoices.map((row)=><tr key={row.id}>
           <td><strong>{row.invoice_number||'Invoice'}</strong><small>{row.client_name||row.company||'-'} · {row.project_name||'-'}</small></td>
           <td>{row.period||'-'}</td>
           <td><strong>{formatIDR(Number(row.total_amount||0))}</strong></td>
-          <td>{dateLabel(row.due_date)}</td>
-          <td><span className="stage-pill">{statusLabel(row.status)}</span></td>
-          <td>{row.tax_invoice_number ? <><strong>{row.tax_invoice_number}</strong><small>{dateLabel(row.tax_invoice_date)}</small></> : row.tax_status==='NON_PKP' ? 'Non-PKP' : 'Belum tersedia'}</td>
+          <td>{dateLabel(row.due_date||'')}</td>
+          <td><span className="stage-pill">{statusLabel(row.status||'')}</span></td>
+          <td>{row.tax_invoice_number ? <><strong>{row.tax_invoice_number}</strong><small>{dateLabel(row.tax_invoice_date||'')}</small></> : row.tax_status==='NON_PKP' ? 'Non-PKP' : 'Belum tersedia'}</td>
         </tr>)}</tbody>
-      </table></div> : <div className="control-empty">Belum ada invoice yang diterbitkan untuk akun ini.</div>}
+      </table><div className="report-mobile-list client-invoice-mobile-list">{visibleInvoices.map((row)=><article className="report-mobile-card" key={`mobile-${row.id}`}><div className="report-mobile-head"><div><strong>{row.invoice_number||'Invoice'}</strong><small>{row.client_name||row.company||'-'} · {row.project_name||'-'}</small></div><span className="stage-pill">{statusLabel(row.status||'')}</span></div><div className="report-mobile-grid"><div><span>Periode</span><strong>{row.period||'-'}</strong></div><div><span>Nilai</span><strong>{formatIDR(Number(row.total_amount||0))}</strong></div><div><span>Jatuh tempo</span><strong>{dateLabel(row.due_date||'')}</strong></div><div><span>Faktur pajak</span><strong>{row.tax_invoice_number|| (row.tax_status==='NON_PKP'?'Non-PKP':'Belum tersedia')}</strong></div></div></article>)}</div></div> : <div className="control-empty">Belum ada invoice yang diterbitkan untuk akun ini.</div>}
+      {!loading && invoices.length ? <PanelPagination page={Math.min(invoicePage,invoicePageCount)} pageCount={invoicePageCount} total={invoices.length} pageSize={invoicePageSize} label="invoice" onPage={setInvoicePage} /> : null}
     </section>
 
-    <section>
-      <div className="control-panel-title"><div><span>REPORTS</span><h2>Payroll & Payment Reports</h2></div><small>{actor.email}</small></div>
-      <ReportsWorkspace clientMode />
+    <section className="client-reports-section">
+      <div className="control-panel-title"><div><span>REPORTS</span><h2>Laporan Payroll & Pembayaran</h2></div><small title={actor.email}>Sesuai scope akun</small></div>
+      <ReportsWorkspace clientMode hideHeading />
     </section>
   </section>;
 }
