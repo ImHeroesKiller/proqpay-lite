@@ -156,7 +156,8 @@ async function readResource(database, params, actor, env, organizationId) {
   const dashboardOffset = Math.max(0, Number.parseInt(params.get('offset') || '0', 10) || 0);
   const projectIds = actor.role === 'CLIENT_USER' && Array.isArray(actor.projectIds) ? actor.projectIds.map(String) : [];
   const dashboardAggregate = resource === 'dashboard' || resource === 'dashboard-periods';
-  const aggregateClientIds = actor.role === 'CLIENT_USER' && dashboardAggregate
+  const reportAggregate = resource === 'payment-reports';
+  const aggregateClientIds = actor.role === 'CLIENT_USER' && (dashboardAggregate || reportAggregate)
     ? [...(clientScope(actor,env) || new Set())]
     : undefined;
   const selfScopingDetail = resource === 'pay-run-detail' || resource === 'payment-instruction-detail';
@@ -164,7 +165,7 @@ async function readResource(database, params, actor, env, organizationId) {
     if (clientId && !assertClientScope(actor, env, clientId)) {
       return { status: 403, data: { error: 'Client scope denied' } };
     }
-    if (!clientId && !selfScopingDetail && !dashboardAggregate) {
+    if (!clientId && !selfScopingDetail && !dashboardAggregate && !reportAggregate) {
       return { status: 403, data: { error: 'Client scope required' } };
     }
   }
@@ -387,9 +388,31 @@ async function readResource(database, params, actor, env, organizationId) {
   }
 
   if (resource === 'payment-reports') {
-    const scope = scopeWhere({ organizationId, clientId, orgColumn: 'pi.org_id', clientColumn: 'pi.client_id', projectIds, projectColumn: 's.project_id' });
+    const scope = scopeWhere({ organizationId, clientId, clientIds:aggregateClientIds, orgColumn: 'pi.org_id', clientColumn: 'pi.client_id', projectIds, projectColumn: 's.project_id' });
     const offset=Math.max(0,Number.parseInt(params.get('offset')||'0',10)||0);
     const limit=Math.min(500,Math.max(1,Number.parseInt(params.get('limit')||'200',10)||200));
+    const period=String(params.get('period')||'').trim();
+    const status=String(params.get('status')||'').trim();
+    const query=String(params.get('q')||'').trim().slice(0,120);
+    const reportClauses=[scope.sql];
+    const reportBindings=[...scope.bindings];
+    if(/^\d{4}-\d{2}$/.test(period)){reportClauses.push('COALESCE(s.payment_period,s.period)=?');reportBindings.push(period);}
+    if(status){reportClauses.push('pi.status=?');reportBindings.push(status);}
+    if(query){
+      const like=`%${query.toLowerCase()}%`;
+      reportClauses.push("(LOWER(pi.id) LIKE ? OR LOWER(c.name) LIKE ? OR LOWER(COALESCE(p.name,'')) LIKE ? OR LOWER(s.id) LIKE ?)");
+      reportBindings.push(like,like,like,like);
+    }
+    const where=reportClauses.join(' AND ');
+    const [periodRows,statusRows]=await Promise.all([
+      d1All(database,`SELECT DISTINCT COALESCE(s.payment_period,s.period) AS period
+        FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
+        WHERE ${scope.sql} AND COALESCE(s.payment_period,s.period) IS NOT NULL
+        ORDER BY period DESC LIMIT 120`,scope.bindings),
+      d1All(database,`SELECT DISTINCT pi.status
+        FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
+        WHERE ${scope.sql} AND pi.status IS NOT NULL ORDER BY pi.status`,scope.bindings),
+    ]);
     const rows = await d1All(database, `SELECT pi.id,pi.client_id,c.name AS client_name,s.project_id,p.name AS project_name,
       s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,
       COALESCE(s.arrears_periods,'[]') AS arrears_periods,pi.status,pi.expected_total,
@@ -432,12 +455,13 @@ async function readResource(database, params, actor, env, organizationId) {
       (SELECT COUNT(*) FROM payment_instruction_lines pil WHERE pil.payment_instruction_id=pi.id) AS employee_count,
       pi.created_at,pi.updated_at FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
       JOIN clients c ON c.id=pi.client_id LEFT JOIN projects p ON p.id=s.project_id
-      WHERE ${scope.sql} ORDER BY COALESCE(s.payment_period,s.period) DESC,pi.created_at DESC,pi.id DESC LIMIT ? OFFSET ?`,
-      [...scope.bindings,limit+1,offset]);
+      WHERE ${where} ORDER BY COALESCE(s.payment_period,s.period) DESC,pi.created_at DESC,pi.id DESC LIMIT ? OFFSET ?`,
+      [...reportBindings,limit+1,offset]);
     const truncated=rows.length>limit;
     const page=truncated?rows.slice(0,limit):rows;
     return { data: { ok: true, paymentReports: parseJsonFields(page, ['arrears_periods']),
-      paymentReportsMeta:{offset,limit,returned:page.length,nextOffset:truncated?offset+limit:null,truncated} } };
+      paymentReportsMeta:{offset,limit,returned:page.length,nextOffset:truncated?offset+limit:null,truncated},
+      paymentReportFacets:{periods:periodRows.map((row)=>String(row.period)),statuses:statusRows.map((row)=>String(row.status))} } };
   }
 
   const dashboardPeriodSql = resource === 'dashboard' && requestedPeriod
