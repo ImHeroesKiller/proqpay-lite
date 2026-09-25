@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import ReportsWorkspace from './ReportsWorkspace';
 import { formatIDR } from '@/lib/format';
 import { IconRefresh } from '@/components/Icons';
+import PanelPagination from '@/components/PanelPagination';
 
 type Actor = { email:string; role:string };
 type ClientInvoice = {
@@ -57,11 +58,13 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
   const [invoices,setInvoices] = useState<ClientInvoice[]>([]);
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState('');
+  const [invoicePage,setInvoicePage] = useState(1);
 
   const load = useCallback(async()=>{
     setLoading(true); setError('');
     try {
       setInvoices(await loadAllInvoices());
+      setInvoicePage(1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Dokumen invoice gagal dimuat');
     } finally {
@@ -72,6 +75,9 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
   useEffect(()=>{void load();},[load]);
 
   const total = useMemo(()=>invoices.reduce((sum,row)=>sum+Number(row.total_amount||0),0),[invoices]);
+  const invoicePageSize=10;
+  const invoicePageCount=Math.max(1,Math.ceil(invoices.length/invoicePageSize));
+  const visibleInvoices=invoices.slice((invoicePage-1)*invoicePageSize,invoicePage*invoicePageSize);
 
   return <section className="client-documents-workspace" aria-label="Documents & Reports">
     <div className="control-tower-heading client-documents-heading">
@@ -91,7 +97,7 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
       {error ? <div className="app-notice-bubble app-notice-error"><strong>Invoice belum dapat dimuat</strong><span>{error}</span></div> : null}
       {loading ? <div className="control-empty">Memuat invoice…</div> : invoices.length ? <div className="report-table-wrap"><table className="report-table report-desktop-table client-invoice-table">
         <thead><tr><th>Invoice</th><th>Periode</th><th>Nilai</th><th>Jatuh tempo</th><th>Status</th><th>Faktur pajak</th></tr></thead>
-        <tbody>{invoices.map((row)=><tr key={row.id}>
+        <tbody>{visibleInvoices.map((row)=><tr key={row.id}>
           <td><strong>{row.invoice_number||'Invoice'}</strong><small>{row.client_name||row.company||'-'} · {row.project_name||'-'}</small></td>
           <td>{row.period||'-'}</td>
           <td><strong>{formatIDR(Number(row.total_amount||0))}</strong></td>
@@ -99,7 +105,8 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
           <td><span className="stage-pill">{statusLabel(row.status||'')}</span></td>
           <td>{row.tax_invoice_number ? <><strong>{row.tax_invoice_number}</strong><small>{dateLabel(row.tax_invoice_date||'')}</small></> : row.tax_status==='NON_PKP' ? 'Non-PKP' : 'Belum tersedia'}</td>
         </tr>)}</tbody>
-      </table><div className="report-mobile-list client-invoice-mobile-list">{invoices.map((row)=><article className="report-mobile-card" key={`mobile-${row.id}`}><div className="report-mobile-head"><div><strong>{row.invoice_number||'Invoice'}</strong><small>{row.client_name||row.company||'-'} · {row.project_name||'-'}</small></div><span className="stage-pill">{statusLabel(row.status||'')}</span></div><div className="report-mobile-grid"><div><span>Periode</span><strong>{row.period||'-'}</strong></div><div><span>Nilai</span><strong>{formatIDR(Number(row.total_amount||0))}</strong></div><div><span>Jatuh tempo</span><strong>{dateLabel(row.due_date||'')}</strong></div><div><span>Faktur pajak</span><strong>{row.tax_invoice_number|| (row.tax_status==='NON_PKP'?'Non-PKP':'Belum tersedia')}</strong></div></div></article>)}</div></div> : <div className="control-empty">Belum ada invoice yang diterbitkan untuk akun ini.</div>}
+      </table><div className="report-mobile-list client-invoice-mobile-list">{visibleInvoices.map((row)=><article className="report-mobile-card" key={`mobile-${row.id}`}><div className="report-mobile-head"><div><strong>{row.invoice_number||'Invoice'}</strong><small>{row.client_name||row.company||'-'} · {row.project_name||'-'}</small></div><span className="stage-pill">{statusLabel(row.status||'')}</span></div><div className="report-mobile-grid"><div><span>Periode</span><strong>{row.period||'-'}</strong></div><div><span>Nilai</span><strong>{formatIDR(Number(row.total_amount||0))}</strong></div><div><span>Jatuh tempo</span><strong>{dateLabel(row.due_date||'')}</strong></div><div><span>Faktur pajak</span><strong>{row.tax_invoice_number|| (row.tax_status==='NON_PKP'?'Non-PKP':'Belum tersedia')}</strong></div></div></article>)}</div></div> : <div className="control-empty">Belum ada invoice yang diterbitkan untuk akun ini.</div>}
+      {!loading && invoices.length ? <PanelPagination page={Math.min(invoicePage,invoicePageCount)} pageCount={invoicePageCount} total={invoices.length} pageSize={invoicePageSize} label="invoice" onPage={setInvoicePage} /> : null}
     </section>
 
     <section className="client-reports-section">
