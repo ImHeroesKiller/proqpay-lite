@@ -76,12 +76,33 @@ export async function onRequest({ request, env }) {
          FROM ewa_requests WHERE org_id=?`,
         [organizationId],
       );
+      const statusRows = await d1All(
+        env.DB,
+        `SELECT status, COUNT(*) AS count
+          FROM ewa_requests
+          WHERE org_id=?
+          GROUP BY status`,
+        [organizationId],
+      );
+      const clients = await d1All(
+        env.DB,
+        `SELECT DISTINCT c.id,c.name
+          FROM ewa_requests r
+          JOIN clients c ON c.id=r.client_id
+          WHERE r.org_id=?
+          ORDER BY c.name ASC
+          LIMIT 200`,
+        [organizationId],
+      );
+      const statusCounts = Object.fromEntries(statusRows.map((row) => [String(row.status || ''), Number(row.count || 0)]));
       const filteredTotal = Number(filtered?.total || 0);
       return respond({
         ok: true,
         pending: Number(summary?.pending || 0),
         total: Number(summary?.total || 0),
         filteredTotal,
+        statusCounts,
+        clients,
         requests: rows,
         page: { offset, limit, hasMore: offset + rows.length < filteredTotal, nextOffset: offset + rows.length },
         filters: { status, clientId, period, q },
