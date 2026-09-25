@@ -707,7 +707,7 @@ async function executeAction(database, body, actor, env, organizationId) {
 
   if (body.action === 'CREATE_PAY_RUN') {
     if (!PROCESSOR_ROLES.has(actor.role) || !actor.permissions?.includes('submission:write')) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat membuat Pay Run', code:'PAY_RUN_CREATE_PERMISSION_REQUIRED' } };
-    if (body.sourceMode === 'UPLOAD_FINAL') return { status:409, data:{ error:'Upload payroll final harus melalui Data Intake canonical workflow', code:'PAY_RUN_UPLOAD_FINAL_MOVED_TO_DATA_INTAKE' } };
+    if (body.sourceMode === 'UPLOAD_FINAL') return { status:409, data:{ error:'Pembuatan Pay Run dari file hanya tersedia melalui Data Intake.', code:'PAY_RUN_DATA_INTAKE_REQUIRED' } };
     if (!assertClientScope(actor, env, body.clientId) || !assertProjectScope(actor, body.projectId)) return { status:403, data:{ error:'Scope denied' } };
     const project = await d1First(database, `SELECT id FROM projects WHERE id=? AND client_id=? AND org_id=? AND status='ACTIVE' LIMIT 1`,
       [body.projectId, body.clientId, organizationId]);
