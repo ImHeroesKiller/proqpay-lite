@@ -5,8 +5,8 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import {
   EwaDetailPanel,
   EwaStatusBadge,
-  EmployeeServiceState,
 } from "@/components/employee-services/EwaLifecycle";
+import { EmployeeServiceState } from "@/components/employee-services/OperationalState";
 import {
   EWA_STATUSES,
   ewaMeta,
