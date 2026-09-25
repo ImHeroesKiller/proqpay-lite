@@ -23,6 +23,8 @@ async function seed(DB){
       ('CLI-ESS','ORG-OTSINDO','ESS','PT ESS');
     INSERT OR IGNORE INTO projects(id,org_id,client_id,code,name,created_by) VALUES
       ('PRJ-ESS','ORG-OTSINDO','CLI-ESS','ESS','ESS Project','seed');
+    INSERT OR IGNORE INTO client_service_plans(id,client_id,project_id,tier,status,effective_from,created_by) VALUES
+      ('SP-ESS','CLI-ESS','PRJ-ESS','TIER_2_MANAGED_PAYROLL','ACTIVE','2025-01-01','seed');
     INSERT INTO employees(id,org_id,client_id,project_id,employee_code,name,status_aktif)
       VALUES('EMP-ESS','ORG-OTSINDO','CLI-ESS','PRJ-ESS','ESS-001','Employee ESS','ACTIVE');
     INSERT INTO employee_contracts(id,employee_id,join_date,is_current)
@@ -32,7 +34,7 @@ async function seed(DB){
     INSERT INTO ewa_policies(id,org_id,client_id,enabled,fee_rate,min_fee,min_fee_amount,max_percent,max_tenor_months,min_days_worked,min_tenure_months,min_tenure_days)
       VALUES('EWA-POL-ESS','ORG-OTSINDO','CLI-ESS',1,0.03,50000,1750000,0.3,1,0,0,0);
     INSERT INTO payroll_submissions(id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,state,created_by)
-      VALUES('SUB-OLD-ESS','ORG-OTSINDO','CLI-ESS','PRJ-ESS',NULL,NULL,'2026-08','2026-08','COMPLETED','seed');
+      VALUES('SUB-OLD-ESS','ORG-OTSINDO','CLI-ESS','PRJ-ESS','SP-ESS','TIER_2_MANAGED_PAYROLL','2026-08','2026-08','COMPLETED','seed');
     INSERT INTO payroll_run_lines(id,submission_id,employee_id,employee_code,employee_name,gross_amount,deduction_amount,net_amount,source,included)
       VALUES('LINE-OLD-ESS','SUB-OLD-ESS','EMP-ESS','ESS-001','Employee ESS',7000000,0,7000000,'MASTER_CURRENT',1);
     INSERT INTO payment_instructions(id,org_id,client_id,submission_id,status,expected_total,creator_user_id,idempotency_key,document_no,content_hash,currency,recipient_count)
