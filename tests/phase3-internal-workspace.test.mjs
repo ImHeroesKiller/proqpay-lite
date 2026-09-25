@@ -6,8 +6,10 @@ const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
 test('Phase 3 dashboard uses the operational control tower without a redundant static role card', async()=>{
   const page=await read('src/app/page.tsx');
+  const router=await read('src/components/AppWorkspaceRouter.tsx');
   assert.doesNotMatch(page,/RoleDashboard/);
-  assert.match(page,/<PayrollControlTower actor=\{actor\}/);
+  assert.match(page,/AppWorkspaceRouter/);
+  assert.match(router,/PayrollControlTowerAdapter/);
 });
 
 test('internal navigation uses simple business language and hides secondary employee-portal admin menus', async()=>{
@@ -18,7 +20,7 @@ test('internal navigation uses simple business language and hides secondary empl
   assert.match(sidebar,/simplifiedInternal\s*\? "Payments"/);
   assert.match(sidebar,/simplifiedInternal \? "Close & Billing" : "Billing & AR"/);
   assert.match(sidebar,/simplifiedInternal \? "Reference & Reports" : "People & Reporting"/);
-  assert.match(sidebar,/role === "SUPER_ADMIN" && \(allowed\.has\("ewa"\)/);
+  assert.match(sidebar,/canManageEmployeeServices && \(allowed\.has\("ewa"\)/);
 });
 
 test('Control Tower becomes My Workspace with business-stage filtering for internal roles', async()=>{
