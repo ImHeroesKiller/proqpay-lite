@@ -8,6 +8,7 @@ import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusines
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
 import { IconAlertTriangle, IconCheckCircle, IconClock, IconLayers, IconRefresh, IconShieldCheck, IconWallet } from './Icons';
 import type { DashboardActor, DashboardApiResponse, DashboardPaymentInstruction, DashboardPortfolioSummary, DashboardSubmission } from '@/lib/dashboard-types';
+import { getE2PayOverview, type E2PayAccountSnapshot } from '@/lib/e2pay-api';
 
 type Actor = DashboardActor;
 type Props = { actor:Actor; period:string; onNavigate:(view:AppView)=>void };
@@ -51,6 +52,9 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const [query,setQuery] = useState('');
   const [page,setPage] = useState(1);
   const [scopedPortfolio,setScopedPortfolio] = useState<Partial<DashboardPortfolioSummary>|null>(null);
+  const [gatewayAccount,setGatewayAccount] = useState<E2PayAccountSnapshot|null>(null);
+  const [gatewayBalanceLoading,setGatewayBalanceLoading] = useState(false);
+  const [gatewayBalanceError,setGatewayBalanceError] = useState('');
 
   const load = useCallback(async(background=false)=>{
     if (background) setRefreshing(true); else setLoading(true);
@@ -64,6 +68,22 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
     }
   },[period]);
   useEffect(()=>{void load(false);},[load]);
+
+  const loadGatewayBalance = useCallback(async(force=false)=>{
+    if(actor.role==='CLIENT_USER') return;
+    setGatewayBalanceLoading(true);
+    setGatewayBalanceError('');
+    try {
+      const result=await getE2PayOverview(force);
+      setGatewayAccount(result.account);
+    } catch (cause) {
+      setGatewayAccount(null);
+      setGatewayBalanceError(cause instanceof Error ? cause.message : 'Saldo E2Pay gagal dimuat');
+    } finally {
+      setGatewayBalanceLoading(false);
+    }
+  },[actor.role]);
+  useEffect(()=>{ void loadGatewayBalance(false); },[loadGatewayBalance]);
 
   const submissions=useMemo(()=>data.submissions||[],[data.submissions]);
   const instructions=useMemo(()=>data.paymentInstructions||[],[data.paymentInstructions]);
@@ -184,7 +204,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
 
 
   return <section className={`control-tower${simplifiedInternal?' control-tower-simple':''}`} aria-busy={loading||refreshing}>
-    <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription}</p></div><button type="button" className="btn control-refresh" disabled={refreshing} onClick={()=>{invalidateOperatingCache();void load(true);}}><IconRefresh aria-hidden="true" /> {refreshing?'Refreshing…':'Refresh'}</button></div>
+    <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription}</p></div><button type="button" className="btn control-refresh" disabled={refreshing} onClick={()=>{invalidateOperatingCache();void load(true);void loadGatewayBalance(true);}}><IconRefresh aria-hidden="true" /> {refreshing?'Refreshing…':'Refresh'}</button></div>
     <div className="control-bar card" aria-label="Filter dashboard payroll">
       <label><span>Klien</span><select value={client} onChange={(event)=>setClient(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
       <label><span>Workflow stage</span><select value={stage} onChange={(event)=>setStage(event.target.value)}><option value="ALL">Semua stage</option>{PIPELINE.map((item)=><option key={item.stage} value={item.stage}>{item.label}</option>)}</select></label>
@@ -207,11 +227,13 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
           <Kpi label="Need attention" value={String(attentionRuns)} note={`${blockers} blocker kritis · ${openExceptions} exception`} tone="red" icon={<IconAlertTriangle />} onClick={()=>{const item=actions.find((row)=>row.tone==='danger');item?openContext(item.view,item.submissionId):openContext('exceptions');}} />
           <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval sesuai role Anda" tone="amber" icon={<IconClock />} onClick={()=>{const item=actions.find((row)=>row.category==='APPROVAL');item?openContext(item.view,item.submissionId):openContext('operations');}} />
           <Kpi label="Active payroll" value={String(activeRuns)} note={`${visible.length} payroll pada filter`} tone="navy" icon={<IconWallet />} onClick={()=>openContext('operations')} />
+          <Kpi label="E2Pay balance" value={gatewayBalanceLoading?'…':gatewayAccount?.balance!==null&&gatewayAccount?.balance!==undefined?formatIDRShort(Number(gatewayAccount.balance)):'—'} note={gatewayBalanceError ? gatewayBalanceError : gatewayAccount?.environment ? `${gatewayAccount.environment} · ${gatewayAccount.merchantStatus||'status unavailable'}` : 'Payment gateway balance'} tone="green" icon={<IconWallet />} onClick={()=>openContext(actor.role==='SUPER_ADMIN'?'integrations':'payments')} />
         </> : <>
           <Kpi label="Active pay runs" value={String(activeRuns)} note={`${visible.length} pay run terfilter`} tone="blue" icon={<IconLayers />} onClick={()=>openContext('operations')} />
           <Kpi label="Need attention" value={String(attentionRuns)} note={`${blockers} blocker kritis · ${openExceptions} exception`} tone="red" icon={<IconAlertTriangle />} onClick={()=>{const item=actions.find((row)=>row.tone==='danger');item?openContext(item.view,item.submissionId):openContext('exceptions');}} />
           <Kpi label="For my approval" value={String(awaitingApproval)} note="Approval yang membutuhkan role Anda" tone="amber" icon={<IconClock />} onClick={()=>{const item=actions.find((row)=>row.category==='APPROVAL');item?openContext(item.view,item.submissionId):openContext('operations');}} />
           <Kpi label="Payment due" value={formatIDRShort(paymentDue)} note={`${paymentDueRecipients.toLocaleString('id-ID')} penerima siap / sedang dibayar`} tone="navy" icon={<IconWallet />} featured onClick={()=>openContext('payments')} />
+          <Kpi label="E2Pay balance" value={gatewayBalanceLoading?'…':gatewayAccount?.balance!==null&&gatewayAccount?.balance!==undefined?formatIDRShort(Number(gatewayAccount.balance)):'—'} note={gatewayBalanceError ? gatewayBalanceError : gatewayAccount?.refreshedAt ? `${gatewayAccount.environment||'E2PAY'} · update ${new Date(gatewayAccount.refreshedAt).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})}` : 'Saldo merchant account'} tone="green" icon={<IconWallet />} onClick={()=>openContext('integrations')} />
           <Kpi label="Paid & matched" value={String(matched)} note={`${reconciliationPending} menunggu reconciliation`} tone="green" icon={<IconCheckCircle />} onClick={()=>openContext('billing',undefined,'CLOSE')} />
           <Kpi label="Open exceptions" value={String(openExceptions)} note="Belum resolved / accepted" tone="violet" icon={<IconShieldCheck />} onClick={()=>openContext('exceptions')} />
         </>}

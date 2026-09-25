@@ -220,6 +220,65 @@ export async function e2payAuthorize(env, fetchImpl = fetch) {
   };
 }
 
+
+export async function e2payRefreshAccessToken(env, refreshToken, fetchImpl = fetch) {
+  const tokenValue=String(refreshToken || '').trim();
+  if (!tokenValue) throw new E2PayRequestError('Refresh token E2Pay wajib tersedia', 'E2PAY_REFRESH_TOKEN_REQUIRED');
+  const form = new URLSearchParams({
+    client_id:required(env, 'E2PAY_CLIENT_ID'),
+    client_secret:required(env, 'E2PAY_CLIENT_SECRET'),
+    grant_type:'refresh_token',
+    refresh_token:tokenValue,
+  });
+  const token = await requestJson(env, '/rest/oauth/token', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+    body:form.toString(),
+  }, fetchImpl);
+  const accessToken = String(token?.access_token || '').trim();
+  if (!accessToken) throw new E2PayRequestError('Access token hasil refresh E2Pay tidak tersedia', 'E2PAY_ACCESS_TOKEN_MISSING');
+  return {
+    accessToken,
+    tokenType:String(token?.token_type || 'Bearer'),
+    expiresIn:Number(token?.expires_in || 0) || null,
+    refreshToken:String(token?.refresh_token || tokenValue) || tokenValue,
+  };
+}
+
+export async function e2payRegisterRequest(env, hostAccessToken, input, fetchImpl = fetch) {
+  const payload={
+    phone:String(input?.phone || '').trim(),
+    name:String(input?.name || '').trim(),
+    email:String(input?.email || '').trim(),
+    partnerId:String(input?.partnerId || required(env,'E2PAY_PARTNER_ID') || '').trim(),
+    sourceId:String(input?.sourceId || required(env,'E2PAY_SOURCE_ID') || '').trim(),
+  };
+  if (!payload.phone || !payload.name || !payload.sourceId) {
+    throw new E2PayRequestError('phone, name, dan sourceId wajib untuk registrasi merchant', 'E2PAY_REGISTER_REQUEST_INVALID');
+  }
+  return requestJson(env, '/b2b/merchant/register/request', {
+    method:'POST',
+    headers:{ ...bearer(hostAccessToken), 'Content-Type':'application/json' },
+    body:JSON.stringify(payload),
+  }, fetchImpl);
+}
+
+export async function e2payRegisterConfirm(env, hostAccessToken, input, fetchImpl = fetch) {
+  const payload={
+    username:String(input?.username || '').trim(),
+    password:String(input?.password || ''),
+    token:String(input?.token || '').trim(),
+  };
+  if (!payload.username || !payload.password || !payload.token) {
+    throw new E2PayRequestError('username, password, dan token wajib untuk konfirmasi registrasi', 'E2PAY_REGISTER_CONFIRM_INVALID');
+  }
+  return requestJson(env, '/b2b/merchant/register/confirm', {
+    method:'POST',
+    headers:{ ...bearer(hostAccessToken), 'Content-Type':'application/json' },
+    body:JSON.stringify(payload),
+  }, fetchImpl);
+}
+
 function bearer(accessToken) {
   if (!accessToken) throw new E2PayConfigurationError('E2Pay access token wajib tersedia');
   return { Authorization:`Bearer ${accessToken}` };
@@ -242,13 +301,26 @@ export async function e2payMerchantAccount(env, accessToken, fetchImpl = fetch) 
   }, fetchImpl);
 }
 
-export async function e2payBankList(env, accessToken, fetchImpl = fetch) {
-  const params = new URLSearchParams({ limit:'1000', sortField:'name', sortOrder:'ASCENDING' });
+export async function e2payBankListPage(env, accessToken, options = {}, fetchImpl = fetch) {
+  const params = new URLSearchParams({
+    limit:String(Math.max(1,Math.min(5000,Number(options.limit || 1000) || 1000))),
+    sortField:String(options.sortField || 'name'),
+    sortOrder:String(options.sortOrder || 'ASCENDING'),
+  });
+  if (options.id) params.set('id',String(options.id));
+  if (options.name) params.set('name',String(options.name));
   const result = await requestJson(env, `/b2b/bank/sdp?${params}`, {
     method:'GET',
     headers:bearer(accessToken),
   }, fetchImpl);
-  return Array.isArray(result?.data) ? result.data : [];
+  return {
+    rowCount:Number(result?.rowCount || 0),
+    data:Array.isArray(result?.data) ? result.data : [],
+  };
+}
+
+export async function e2payBankList(env, accessToken, fetchImpl = fetch) {
+  return (await e2payBankListPage(env, accessToken, { limit:1000, sortField:'name', sortOrder:'ASCENDING' }, fetchImpl)).data;
 }
 
 function bytesToBase64(bytes) {
@@ -336,20 +408,120 @@ export async function e2payDisburse(env, accessToken, input, fetchImpl = fetch) 
   }, fetchImpl);
 }
 
-export async function e2payTransactionHistory(env, accessToken, clientRef, fetchImpl = fetch) {
+export async function e2payTransactionHistoryList(env, accessToken, filters = {}, fetchImpl = fetch) {
   const params = new URLSearchParams({
-    limit:'20',
-    offset:'0',
-    sortField:'transactionTimestamp',
-    sortOrder:'DESCENDING',
-    clientRef:String(clientRef || ''),
+    limit:String(Math.max(1,Math.min(200,Number(filters.limit || 50) || 50))),
+    offset:String(Math.max(0,Number(filters.offset || 0) || 0)),
+    sortField:String(filters.sortField || 'transactionTimestamp'),
+    sortOrder:String(filters.sortOrder || 'DESCENDING'),
   });
+  const allowed=['accountTransactionId','clientRef','description','transactionCode','transactionName','senderAccountId','senderAccountName','receiverAccountId','receiverAccountName','journalId','refJournalId','responseCode','responseMessage','transactionTimestampFrom','transactionTimestampUntil'];
+  for (const key of allowed) {
+    const value=filters[key];
+    if (value !== undefined && value !== null && String(value).trim()) params.set(key,String(value).trim());
+  }
   const result = await requestJson(env, `/b2b/merchant/me/transaction?${params}`, {
     method:'GET',
     headers:bearer(accessToken),
   }, fetchImpl);
-  const rows = Array.isArray(result?.data) ? result.data : [];
-  return rows.find((row) => String(row?.clientRef || '') === String(clientRef || '')) || null;
+  return {
+    rowCount:Number(result?.rowCount || 0),
+    data:Array.isArray(result?.data) ? result.data : [],
+  };
+}
+
+export async function e2payTransactionHistory(env, accessToken, clientRef, fetchImpl = fetch) {
+  const result=await e2payTransactionHistoryList(env, accessToken, { limit:20, offset:0, clientRef }, fetchImpl);
+  return result.data.find((row) => String(row?.clientRef || '') === String(clientRef || '')) || null;
+}
+
+export async function e2payChangePassword(env, accessToken, input, fetchImpl = fetch) {
+  const payload={
+    username:String(input?.username || required(env,'E2PAY_USERNAME') || '').trim(),
+    password:String(input?.password || ''),
+    newPassword:String(input?.newPassword || ''),
+  };
+  if (!payload.username || !payload.password || !payload.newPassword) {
+    throw new E2PayRequestError('username, password lama, dan password baru wajib diisi', 'E2PAY_CHANGE_PASSWORD_INVALID');
+  }
+  return requestJson(env, '/b2b/merchant/me/auth/password', {
+    method:'PUT',
+    headers:{ ...bearer(accessToken), 'Content-Type':'application/json' },
+    body:JSON.stringify(payload),
+  }, fetchImpl);
+}
+
+export async function e2payResetPasswordRequest(env, hostAccessToken, input, fetchImpl = fetch) {
+  const payload={
+    email:String(input?.email || '').trim(),
+    username:String(input?.username || required(env,'E2PAY_USERNAME') || '').trim(),
+    accountGroupId:String(input?.accountGroupId || '').trim(),
+  };
+  if (!payload.email || !payload.username || !payload.accountGroupId) {
+    throw new E2PayRequestError('email, username, dan accountGroupId wajib diisi', 'E2PAY_RESET_PASSWORD_REQUEST_INVALID');
+  }
+  return requestJson(env, '/b2b/merchant/auth/password/resetRequest', {
+    method:'POST',
+    headers:{ ...bearer(hostAccessToken), 'Content-Type':'application/json' },
+    body:JSON.stringify(payload),
+  }, fetchImpl);
+}
+
+export async function e2payResetPasswordConfirm(env, hostAccessToken, input, fetchImpl = fetch) {
+  const payload={
+    email:String(input?.email || '').trim(),
+    username:String(input?.username || required(env,'E2PAY_USERNAME') || '').trim(),
+    accountGroupId:String(input?.accountGroupId || '').trim(),
+    token:String(input?.token || '').trim(),
+    newPassword:String(input?.newPassword || ''),
+  };
+  if (!payload.email || !payload.username || !payload.accountGroupId || !payload.token || !payload.newPassword) {
+    throw new E2PayRequestError('payload konfirmasi reset password belum lengkap', 'E2PAY_RESET_PASSWORD_CONFIRM_INVALID');
+  }
+  return requestJson(env, '/b2b/merchant/auth/password/resetConfirm', {
+    method:'POST',
+    headers:{ ...bearer(hostAccessToken), 'Content-Type':'application/json' },
+    body:JSON.stringify(payload),
+  }, fetchImpl);
+}
+
+export async function e2payChangePhoneRequest(env, accessToken, input, fetchImpl = fetch) {
+  const payload={
+    username:String(input?.username || required(env,'E2PAY_USERNAME') || '').trim(),
+    password:normalizeE2PayPassword(input?.password || ''),
+    phone:String(input?.phone || '').trim(),
+  };
+  if (!payload.username || !payload.password || !payload.phone) {
+    throw new E2PayRequestError('username, password, dan phone wajib diisi', 'E2PAY_CHANGE_PHONE_REQUEST_INVALID');
+  }
+  return requestJson(env, '/b2b/merchant/me/phone/updateRequest', {
+    method:'POST',
+    headers:{ ...bearer(accessToken), 'Content-Type':'application/json' },
+    body:JSON.stringify(payload),
+  }, fetchImpl);
+}
+
+export async function e2payChangePhoneConfirm(env, accessToken, input, fetchImpl = fetch) {
+  const payload={
+    token:String(input?.token || '').trim(),
+    phone:String(input?.phone || '').trim(),
+  };
+  if (!payload.token || !payload.phone) {
+    throw new E2PayRequestError('token dan phone wajib diisi', 'E2PAY_CHANGE_PHONE_CONFIRM_INVALID');
+  }
+  return requestJson(env, '/b2b/merchant/me/phone/updateConfirm', {
+    method:'PUT',
+    headers:{ ...bearer(accessToken), 'Content-Type':'application/json' },
+    body:JSON.stringify(payload),
+  }, fetchImpl);
+}
+
+export async function e2payLogout(env, accessToken, fetchImpl = fetch) {
+  return requestJson(env, '/rest/oauth/token/logout', {
+    method:'POST',
+    headers:{ ...bearer(accessToken), 'Content-Type':'application/x-www-form-urlencoded' },
+    body:new URLSearchParams({ grant_type:'logout' }).toString(),
+  }, fetchImpl);
 }
 
 export function e2paySyncBeneficiaryLimit(env = {}) {

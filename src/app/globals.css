@@ -1517,3 +1517,43 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .integration-trace-link{padding:0;border:0;background:transparent;color:var(--accent);font:inherit;font-size:9.5px;font-weight:700;text-align:left;cursor:pointer}
 .integration-trace-link:hover{text-decoration:underline}
 .integration-trace-link:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 24%,transparent);outline-offset:2px;border-radius:4px}
+
+/* E2Pay full operations console */
+.e2pay-console{display:grid;gap:16px;padding:18px;margin-top:2px}
+.e2pay-account-grid{display:grid;grid-template-columns:1.2fr repeat(3,minmax(0,1fr));gap:10px}
+.e2pay-account-grid>div{display:grid;gap:5px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--surface2)}
+.e2pay-account-grid span{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);font-weight:700}
+.e2pay-account-grid strong{font-size:14px;overflow-wrap:anywhere}
+.e2pay-account-grid small{color:var(--text3);line-height:1.4}
+.e2pay-balance-card{background:color-mix(in srgb,var(--accent) 6%,var(--surface2))!important}
+.e2pay-balance-card strong{font-size:24px}
+.e2pay-endpoint-summary,.e2pay-action-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.e2pay-endpoint-summary span{padding:5px 8px;border-radius:999px;background:var(--surface2);border:1px solid var(--border);font-size:10px;color:var(--text3)}
+.e2pay-endpoint-table-wrap{overflow:auto}
+.e2pay-endpoint-table{width:100%;border-collapse:collapse;font-size:11px}
+.e2pay-endpoint-table th,.e2pay-endpoint-table td{padding:9px 8px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+.e2pay-endpoint-table th{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3)}
+.e2pay-endpoint-table td:first-child{min-width:190px}
+.e2pay-endpoint-table td:nth-child(3){min-width:280px}
+.e2pay-endpoint-table small{display:block;color:var(--text3);margin-top:3px}
+.e2pay-mode{display:inline-flex;padding:4px 7px;border-radius:999px;font-size:9px;font-weight:700;white-space:nowrap;background:var(--surface2);border:1px solid var(--border)}
+.e2pay-mode-payment-control-only{font-weight:800}
+.e2pay-filter-grid,.e2pay-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:10px 0}
+.e2pay-filter-grid label,.e2pay-form-grid label{display:grid;gap:5px}
+.e2pay-filter-grid label>span,.e2pay-form-grid label>span{font-size:10px;color:var(--text3);font-weight:700}
+.e2pay-filter-grid input,.e2pay-filter-grid select,.e2pay-form-grid input,.e2pay-inline-search input{min-width:0;width:100%;padding:8px 9px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}
+.e2pay-inline-search{display:flex;gap:8px;margin:10px 0}
+.e2pay-resource-list,.e2pay-bank-list{display:grid;gap:6px;max-height:430px;overflow:auto;margin-top:10px}
+.e2pay-resource-list article{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;padding:9px;border:1px solid var(--border);border-radius:9px}
+.e2pay-resource-list article>div{display:flex;gap:8px;justify-content:space-between;grid-column:1/-1}
+.e2pay-resource-list small,.e2pay-resource-list em{color:var(--text3);font-size:10px;font-style:normal}
+.e2pay-resource-list b{text-align:right}
+.e2pay-bank-list>div{display:grid;grid-template-columns:90px minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px;border-bottom:1px solid var(--border)}
+.e2pay-bank-list span{font-size:10px;color:var(--text3)}
+.e2pay-admin-detail{padding:12px}
+.e2pay-admin-detail summary{font-weight:800;cursor:pointer}
+.e2pay-admin-detail p{font-size:11px;color:var(--text3);line-height:1.5}
+.e2pay-admin-detail hr{border:0;border-top:1px solid var(--border);margin:14px 0}
+.e2pay-json-result{max-height:320px;overflow:auto;padding:10px;border-radius:8px;background:var(--surface2);font-size:10px;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:980px){.e2pay-account-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.e2pay-account-grid,.e2pay-filter-grid,.e2pay-form-grid{grid-template-columns:1fr}.e2pay-endpoint-table td:nth-child(3){min-width:220px}.e2pay-inline-search{align-items:stretch;flex-direction:column}}
