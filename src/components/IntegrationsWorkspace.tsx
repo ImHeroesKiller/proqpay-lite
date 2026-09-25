@@ -3,7 +3,7 @@
 import PaymentGatewayIntegrationPanel from '@/components/PaymentGatewayIntegrationPanel';
 import ApiEndpointMonitor from '@/components/ApiEndpointMonitor';
 
-export default function IntegrationsWorkspace({ canManage, canView }: { canManage:boolean; canView:boolean }) {
+export default function IntegrationsWorkspace({ canManage, canView, onOpenAuditCorrelation }: { canManage:boolean; canView:boolean; onOpenAuditCorrelation?:(correlationId:string)=>void }) {
   return <section style={{ display:'grid', gap:16 }}>
     <div>
       <span className="workspace-eyebrow">CONNECTED SYSTEMS</span>
@@ -13,6 +13,6 @@ export default function IntegrationsWorkspace({ canManage, canView }: { canManag
       </p>
     </div>
     <PaymentGatewayIntegrationPanel canManage={canManage} canView={canView} />
-    <ApiEndpointMonitor />
+    <ApiEndpointMonitor onOpenAuditCorrelation={onOpenAuditCorrelation} />
   </section>;
 }
