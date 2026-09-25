@@ -34,7 +34,7 @@ test('Reports UI P1: audit tables use sticky identity and numeric alignment',asy
 test('Reports UI P1: mobile report cards preserve report-specific fields and expandable details',async()=>{
   const reports=await read('src/components/ReportsWorkspace.tsx');
   const css=await read('src/app/polish.css');
-  assert.match(reports,/const MOBILE_FIELDS/);
+  assert.match(reports,/reportMobileFields\(type,columns\)/);
   assert.match(reports,/Lihat detail pembayaran/);
   assert.match(reports,/Lihat detail laporan/);
   assert.match(css,/\.report-mobile-details/);
