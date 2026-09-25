@@ -25,6 +25,30 @@ export type PaymentReport={
 
 export type ReportFacets={periods:string[];statuses:string[]};
 
+export type ReportPageMeta={
+  offset:number;
+  limit:number;
+  returned:number;
+  nextOffset:number|null;
+  truncated:boolean;
+};
+
+export type PayrollReportResponse={
+  ok?:boolean;
+  rows?:ReportRow[];
+  facets?:ReportFacets;
+  meta?:Partial<ReportPageMeta>;
+  error?:string;
+};
+
+export type PaymentReportResponse={
+  ok?:boolean;
+  paymentReports?:PaymentReport[];
+  paymentReportFacets?:ReportFacets;
+  paymentReportsMeta?:Partial<ReportPageMeta>;
+  error?:string;
+};
+
 export const REPORT_LABELS:Record<ReportType,string>={
   payments:'Laporan Pembayaran',
   register:'Register Payroll',
@@ -91,6 +115,22 @@ const COLUMN_LABELS:Record<string,string>={
   severity:'Tingkat',
   code:'Kode',
   message:'Keterangan',
+  payment_id:'ID Pembayaran',
+  client:'Klien',
+  project:'Project',
+  payroll_period:'Periode Payroll',
+  payment_period:'Periode Pembayaran',
+  arrears:'Periode Tunggakan',
+  employees:'Karyawan',
+  expected_total:'Nilai Instruksi',
+  settlement_source:'Sumber Settlement',
+  manual_proof_total:'Bukti Manual',
+  gateway_total:'Payment Gateway',
+  paid_total:'Total Dibayar',
+  payment_date:'Tanggal Pembayaran',
+  reconciliation:'Rekonsiliasi',
+  payment_difference:'Selisih Pembayaran',
+  reconciliation_difference:'Selisih Rekonsiliasi',
 };
 
 const STATUS_LABELS:Record<string,string>={
@@ -158,4 +198,31 @@ export function isReportStatusColumn(key:string){
 
 export function reportMobileFields(type:Exclude<ReportType,'payments'>,columns:string[]){
   return REPORT_MOBILE_FIELDS[type].filter((key)=>columns.includes(key));
+}
+
+
+const DATE_COLUMNS=new Set(['uploaded_at','payment_date','created_at','updated_at']);
+
+export function reportFormatValue(key:string,value:unknown){
+  if(value==null||value==='') return '-';
+  if(isReportStatusColumn(key)||key==='settlement_source') return reportStatusLabel(value);
+  if(typeof value==='number'&&isMoneyColumn(key)) return new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(value);
+  if(DATE_COLUMNS.has(key)&&typeof value==='string'){
+    const parsed=Date.parse(value);
+    if(Number.isFinite(parsed)) return new Intl.DateTimeFormat('id-ID',{dateStyle:'medium'}).format(new Date(parsed));
+  }
+  if(typeof value==='object') return JSON.stringify(value);
+  return String(value);
+}
+
+export function reportExportRecord(row:Record<string,unknown>){
+  return Object.fromEntries(Object.entries(row).map(([key,value])=>[reportColumnLabel(key),reportFormatValue(key,value)]));
+}
+
+export function isPayrollReportResponse(value:unknown):value is PayrollReportResponse{
+  return Boolean(value&&typeof value==='object');
+}
+
+export function isPaymentReportResponse(value:unknown):value is PaymentReportResponse{
+  return Boolean(value&&typeof value==='object');
 }
