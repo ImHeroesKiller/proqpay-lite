@@ -327,9 +327,24 @@ export async function buildEmployeePortalPayload(database, actor) {
     });
   }
 
-  const net = Number(runLines[0]?.net_amount || 0);
   const earned = earnedDaysInPeriod();
-  const paid = stage >= 5;
+  const currentLine = runLines.find((line) => String(line.period || '') === earned.period) || null;
+  const currentSubmission = submissions.find((row) => String(row.period || '') === earned.period) || null;
+  let net = Number(currentLine?.net_amount || 0);
+  if (!currentLine) {
+    const compensation = await d1First(
+      database,
+      'SELECT imported_net,basic_salary,payroll_source_period FROM employee_compensation WHERE employee_id=? LIMIT 1',
+      [empId],
+    );
+    net = String(compensation?.payroll_source_period || '') === earned.period
+      ? Number(compensation?.imported_net || compensation?.basic_salary || 0)
+      : Number(compensation?.basic_salary || 0);
+  }
+  const currentStage = currentSubmission
+    ? payrollStageIndex(currentSubmission.state, currentSubmission.pi_status, currentSubmission.rec_status)
+    : 1;
+  const paid = currentStage >= 5;
   let presentation;
   try {
     presentation = await loadPortalPresentation(database, actor.orgId, actor.clientId);
