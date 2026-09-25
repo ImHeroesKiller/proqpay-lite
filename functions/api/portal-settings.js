@@ -3,8 +3,8 @@ import { loadPortalSettingsForOps, savePortalSettings } from './_portal-settings
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 
 const METHODS = 'GET, POST, OPTIONS';
-const READERS = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER']);
-const WRITERS = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
+const READERS = new Set(['SUPER_ADMIN']);
+const WRITERS = new Set(['SUPER_ADMIN']);
 
 function orgId(env, actor) {
   return String(env.DEFAULT_ORG_ID || actor?.orgId || 'ORG-OTSINDO');
