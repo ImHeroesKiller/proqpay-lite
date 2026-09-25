@@ -29,14 +29,15 @@ test('canonical global period is not overwritten by local DB change events', asy
 
 test('Processor and Controller allowed views match the visible shell and cannot deep-link hidden Employee Portal admin modules', async()=>{
   const source=await read('src/components/Sidebar.tsx');
-  const processor=source.match(/PAYROLL_PROCESSOR:\s*\[([\s\S]*?)\],\s*PAYROLL_CONTROLLER/)?.[1] || '';
-  const controller=source.match(/PAYROLL_CONTROLLER:\s*\[([\s\S]*?)\],\s*CLIENT_USER/)?.[1] || '';
+  const authority=await read('shared/authority-matrix.js');
+  const processor=authority.match(/PAYROLL_PROCESSOR: Object\.freeze\(\[([\s\S]*?)\]\)/)?.[1] || '';
+  const controller=authority.match(/PAYROLL_CONTROLLER: Object\.freeze\(\[([\s\S]*?)\]\)/)?.[1] || '';
   for (const block of [processor,controller]) {
     assert.doesNotMatch(block,/"ewa"/);
     assert.doesNotMatch(block,/"portalAudit"/);
     assert.doesNotMatch(block,/"portalSettings"/);
   }
-  assert.match(source,/role === "SUPER_ADMIN".*label="Employee Services"/s);
+  assert.match(source,/canManageEmployeeServices.*label="Employee Services"/s);
 });
 
 test('footer is the canonical production health and sync surface while sidebar stays navigation-focused', async()=>{
@@ -47,7 +48,7 @@ test('footer is the canonical production health and sync surface while sidebar s
   assert.doesNotMatch(sidebar,/Production ·/);
   assert.doesNotMatch(sidebar,/syncLabel/);
   assert.match(footer,/useServiceHealth/);
-  assert.match(footer,/Production · \{state === "connected"/);
+  assert.match(footer,/Production · \{stateLabel\}/);
   assert.match(footer,/syncLabel\(lastSyncAt, now\)/);
   assert.match(health,/fetch\("\/api\/health"/);
 });

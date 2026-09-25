@@ -9,6 +9,7 @@ const migration = readFileSync(
 );
 const ui = readFileSync("src/app/data-intake/page.tsx", "utf8");
 const sidebar = readFileSync("src/components/Sidebar.tsx", "utf8");
+const authority = readFileSync("shared/authority-matrix.js", "utf8");
 
 test("monthly intake is one upload followed by backend confirmation, not a second upload", () => {
   assert.match(api, /PAYROLL_INTAKE_ALREADY_EXISTS/);
@@ -53,9 +54,10 @@ test("confirmed intake creates immutable-period payroll snapshot separately from
 
 test("Data Intake is visible from Payroll navigation for operational roles", () => {
   assert.match(sidebar, /href=\{period \? `\/data-intake\?period=/);
-  assert.match(sidebar, /"SUPER_ADMIN"/);
-  assert.match(sidebar, /"PAYROLL_PROCESSOR"/);
-  assert.match(sidebar, /"CLIENT_USER"/);
+  assert.match(sidebar, /roleHasCapability/);
+  assert.match(authority, /SUPER_ADMIN:[\s\S]*?'data-intake'/);
+  assert.match(authority, /PAYROLL_PROCESSOR:[\s\S]*?'data-intake'/);
+  assert.match(authority, /CLIENT_USER: Object\.freeze\(\[\]\)/);
   assert.match(sidebar, /activePath === "data-intake"/);
 });
 

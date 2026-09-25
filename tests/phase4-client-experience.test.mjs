@@ -6,22 +6,25 @@ const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
 test('Phase 4 limits client navigation to Home Payroll and Documents', async()=>{
   const sidebar=await read('src/components/Sidebar.tsx');
-  assert.match(sidebar,/CLIENT_USER: \["dashboard", "operations", "reports"\]/);
+  const authority=await read('shared/authority-matrix.js');
+  assert.match(sidebar,/viewsForRole/);
+  assert.match(authority,/CLIENT_USER: Object\.freeze\(\['dashboard','operations','reports'\]\)/);
   assert.match(sidebar,/const clientExperience = role === "CLIENT_USER"/);
   assert.match(sidebar,/title="Home"/);
   assert.match(sidebar,/title="Payroll"/);
   assert.match(sidebar,/title="Documents"/);
-  assert.doesNotMatch(sidebar,/CLIENT_USER: \[[^\]]*"payments"/);
-  assert.doesNotMatch(sidebar,/CLIENT_USER: \[[^\]]*"billing"/);
-  assert.doesNotMatch(sidebar,/CLIENT_USER: \[[^\]]*"exceptions"/);
+  assert.doesNotMatch(authority,/CLIENT_USER: Object\.freeze\(\[[^\]]*'payments'/);
+  assert.doesNotMatch(authority,/CLIENT_USER: Object\.freeze\(\[[^\]]*'billing'/);
+  assert.doesNotMatch(authority,/CLIENT_USER: Object\.freeze\(\[[^\]]*'exceptions'/);
 });
 
 test('legacy client routes normalize into the three Phase 4 workspaces', async()=>{
   const page=await read('src/app/page.tsx');
+  const router=await read('src/components/AppWorkspaceRouter.tsx');
   assert.match(page,/if \(view === 'exceptions' \|\| view === 'payments'\) return 'operations'/);
   assert.match(page,/if \(view === 'billing'\) return 'reports'/);
-  assert.match(page,/actor\.role === 'CLIENT_USER'\s*\? <ClientHome/);
-  assert.match(page,/actor\.role === 'CLIENT_USER' \? <ClientDocumentsWorkspace/);
+  assert.match(router,/actor\.role === 'CLIENT_USER'[\s\S]*<ClientHome/);
+  assert.match(router,/actor\.role === 'CLIENT_USER'[\s\S]*<ClientDocumentsWorkspace/);
 });
 
 test('Client Home exposes business-facing priorities without adding approval mutations', async()=>{

@@ -122,8 +122,9 @@ test('dashboard period resource comes from canonical submissions and respects cl
 });
 
 test('dashboard UI contracts implement audited P1 and P2 fixes',async()=>{
-  const [page,clientHome,tower,header,workspace,billingWorkspace,billingApi,api,css,indexes]=await Promise.all([
+  const [page,router,clientHome,tower,header,workspace,billingWorkspace,billingApi,api,css,indexes]=await Promise.all([
     readFile(new URL('../src/app/page.tsx',import.meta.url),'utf8'),
+    readFile(new URL('../src/components/AppWorkspaceRouter.tsx',import.meta.url),'utf8'),
     readFile(new URL('../src/components/ClientHome.tsx',import.meta.url),'utf8'),
     readFile(new URL('../src/components/PayrollControlTower.tsx',import.meta.url),'utf8'),
     readFile(new URL('../src/components/AppHeader.tsx',import.meta.url),'utf8'),
@@ -135,7 +136,8 @@ test('dashboard UI contracts implement audited P1 and P2 fixes',async()=>{
     readFile(new URL('../migrations/0031_dashboard_query_indexes.sql',import.meta.url),'utf8'),
   ]);
   assert.match(page,/listOperatingPeriods/);
-  assert.match(page,/<ClientHome actor=\{actor\} period=\{period\}/);
+  assert.match(page,/AppWorkspaceRouter/);
+  assert.match(router,/<ClientHome actor=\{actor\} period=\{period\}/);
   assert.match(clientHome,/listOperatingDashboard\(undefined,period\)/);
   assert.match(clientHome,/invalidateOperatingCache\(\)/);
   assert.match(clientHome,/visibleInvoices/);

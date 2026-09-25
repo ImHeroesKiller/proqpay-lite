@@ -247,7 +247,7 @@ test('UI audit: intake notes, client close context, and infrastructure health vi
   assert.match(intake,/if \(value\.resolution === "OTHER"\) \{\s*return Boolean\(value\.note\?\.trim\(\)\);/s);
   assert.match(clientHome,/reconciliationStatus:row\.reconciliation_status/);
   assert.match(clientHome,/periodStatus:row\.period_status/);
-  assert.match(page,/actor\.role === 'SUPER_ADMIN' \? <SystemHealthBubble \/> : null/);
+  assert.match(page,/roleCanAction\(actor\.role,'settings\.manage'\) \? <SystemHealthBubble \/> : null/);
 
   const workspace=await readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
   assert.match(workspace,/\['SUPER_ADMIN','PAYROLL_PROCESSOR'\]\.includes\(role\)\?\(\['DRAFT'[\s\S]*Payment terms terkunci/);

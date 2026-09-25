@@ -136,8 +136,10 @@ test('client correction next action remains exception-owned while Phase 4 routes
 
   const fs=await import('node:fs/promises');
   const sidebar=await fs.readFile(new URL('../src/components/Sidebar.tsx',import.meta.url),'utf8');
+  const authority=await fs.readFile(new URL('../shared/authority-matrix.js',import.meta.url),'utf8');
   const workspace=await fs.readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
-  assert.match(sidebar,/CLIENT_USER: \["dashboard", "operations", "reports"\]/);
+  assert.match(sidebar,/viewsForRole/);
+  assert.match(authority,/CLIENT_USER: Object\.freeze\(\['dashboard','operations','reports'\]\)/);
   assert.match(sidebar,/title="Payroll"/);
   assert.match(workspace,/role === 'CLIENT_USER' \? 'CLIENT_ACTION_REQUIRED' : 'ACTIVE'/);
   assert.match(workspace,/clientCorrections=openExceptions\.filter/);

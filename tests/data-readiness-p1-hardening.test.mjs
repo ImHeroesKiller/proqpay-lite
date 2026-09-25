@@ -7,10 +7,12 @@ const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 test('Data Readiness P1 enforces exception write permission for internal actors',async()=>{
   const api=await read('functions/api/operating-model-d1.js');
   const sec=await read('functions/api/_security.js');
+  const authority=await read('shared/authority-matrix.js');
   assert.match(api,/permissions\?\.includes\('exception:write'\)/);
   assert.match(api,/EXCEPTION_WRITE_PERMISSION_REQUIRED/);
-  assert.match(sec,/PAYROLL_CONTROLLER: \['read', 'approval:write'/);
-  assert.doesNotMatch(sec,/PAYROLL_CONTROLLER:[^\n]*exception:write/);
+  assert.match(sec,/permissionsForRole/);
+  assert.match(authority,/PAYROLL_CONTROLLER:[\s\S]*?'approval:write'/);
+  assert.doesNotMatch(authority,/PAYROLL_CONTROLLER:[\s\S]{0,240}?'exception:write'/);
 });
 
 test('Data Readiness P1 keeps client acceptance separate from internal resolution',async()=>{

@@ -1,4 +1,6 @@
-export type IntegrationHealthState = 'HEALTHY' | 'DEGRADED' | 'DOWN' | 'IDLE';
+import { operationalHealthLabel, type OperationalHealthState } from '@/lib/operational-health';
+
+export type IntegrationHealthState = Exclude<OperationalHealthState, 'CHECKING'>;
 
 export type IntegrationHealth = {
   state: IntegrationHealthState;
@@ -7,13 +9,7 @@ export type IntegrationHealth = {
 };
 
 export function integrationHealthLabel(state: IntegrationHealthState) {
-  return state === 'HEALTHY'
-    ? 'Healthy'
-    : state === 'DEGRADED'
-      ? 'Degraded'
-      : state === 'DOWN'
-        ? 'Down'
-        : 'Idle';
+  return operationalHealthLabel(state);
 }
 
 export function gatewayRuntimeHealth(input: {

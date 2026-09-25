@@ -6,10 +6,12 @@ const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
 test('Employee Service admin surfaces and APIs share Super Admin authority',async()=>{
   const sidebar=await read('src/components/Sidebar.tsx');
+  const authority=await read('shared/authority-matrix.js');
   const ewa=await read('functions/api/ewa.js');
   const settings=await read('functions/api/portal-settings.js');
   const audit=await read('functions/api/portal-audit.js');
-  assert.match(sidebar,/role === "SUPER_ADMIN"/);
+  assert.match(sidebar,/canManageEmployeeServices/);
+  assert.match(authority,/SUPER_ADMIN:[\s\S]*?'employee-services:manage'/);
   assert.match(ewa,/const OPS = new Set\(\['SUPER_ADMIN'\]\)/);
   assert.match(settings,/const READERS = new Set\(\['SUPER_ADMIN'\]\)/);
   assert.match(settings,/const WRITERS = new Set\(\['SUPER_ADMIN'\]\)/);

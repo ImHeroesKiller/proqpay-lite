@@ -58,10 +58,12 @@ async function postBilling(env,token,body){
 
 test('Billing P1: role permissions expose billing:prepare billing:approve and ar:write',async()=>{
   const security=await read('functions/api/_security.js');
+  const authority=await read('shared/authority-matrix.js');
   const ui=await read('src/components/BillingWorkspace.tsx');
   const billingUi=await read('src/lib/billing-ui.ts');
-  assert.match(security,/PAYROLL_PROCESSOR:[^\n]*'billing:prepare'/);
-  assert.match(security,/PAYROLL_CONTROLLER:[^\n]*'billing:approve'[^\n]*'ar:write'/);
+  assert.match(security,/permissionsForRole/);
+  assert.match(authority,/PAYROLL_PROCESSOR:[\s\S]*?'billing:prepare'/);
+  assert.match(authority,/PAYROLL_CONTROLLER:[\s\S]*?'billing:approve'[\s\S]*?'ar:write'/);
   assert.match(ui,/billingPermission\(actor, "billing:prepare"/);
   assert.match(ui,/billingPermission\(actor, "billing:approve"/);
   assert.match(ui,/billingPermission\(actor, "ar:write"/);

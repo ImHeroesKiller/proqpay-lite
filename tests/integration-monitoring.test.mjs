@@ -4,9 +4,11 @@ import test from 'node:test';
 
 test('Integrations UI no longer renders legacy HRIS attendance accounting bank cards', async () => {
   const page = await readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
+  const router = await readFile(new URL('../src/components/AppWorkspaceRouter.tsx', import.meta.url), 'utf8');
   const workspace = await readFile(new URL('../src/components/IntegrationsWorkspace.tsx', import.meta.url), 'utf8');
   const operating = await readFile(new URL('../src/components/OperatingWorkspace.tsx', import.meta.url), 'utf8');
-  assert.match(page, /IntegrationsWorkspace/);
+  assert.match(page, /AppWorkspaceRouter/);
+  assert.match(router, /IntegrationsWorkspace/);
   assert.doesNotMatch(page, /OperatingWorkspace mode="integrations"/);
   assert.match(workspace, /PaymentGatewayIntegrationPanel/);
   assert.match(workspace, /ApiEndpointMonitor/);

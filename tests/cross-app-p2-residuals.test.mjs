@@ -6,10 +6,12 @@ const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
 test('cross-app P2: global canonical auto-refresh is visibility-aware and catches up after returning visible', async()=>{
   const page=await read('src/app/page.tsx');
-  assert.match(page,/document\.visibilityState !== 'visible'/);
-  assert.match(page,/document\.addEventListener\('visibilitychange', onVisibilityChange\)/);
-  assert.match(page,/Date\.now\(\) - lastRunAt >= intervalMs/);
-  assert.match(page,/document\.removeEventListener\('visibilitychange', onVisibilityChange\)/);
+  const hook=await read('src/hooks/useVisibilityAwareCanonicalRefresh.ts');
+  assert.match(page,/useVisibilityAwareCanonicalRefresh/);
+  assert.match(hook,/document\.visibilityState !== 'visible'/);
+  assert.match(hook,/document\.addEventListener\('visibilitychange', onVisibilityChange\)/);
+  assert.match(hook,/Date\.now\(\) - lastRunAt >= intervalMs/);
+  assert.match(hook,/document\.removeEventListener\('visibilitychange', onVisibilityChange\)/);
 });
 
 test('cross-app P2: Integrations correlation opens unified Audit Logs with automatic query filter', async()=>{
@@ -22,7 +24,9 @@ test('cross-app P2: Integrations correlation opens unified Audit Logs with autom
 
   assert.match(page,/function openAuditCorrelation/);
   assert.match(page,/url\.searchParams\.set\('auditCorrelation', correlationId\)/);
-  assert.match(page,/IntegrationsWorkspace[\s\S]*onOpenAuditCorrelation=\{openAuditCorrelation\}/);
+  const router=await read('src/components/AppWorkspaceRouter.tsx');
+  assert.match(page,/AppWorkspaceRouter[\s\S]*onOpenAuditCorrelation=\{openAuditCorrelation\}/);
+  assert.match(router,/IntegrationsWorkspace[\s\S]*onOpenAuditCorrelation=\{props\.onOpenAuditCorrelation\}/);
   assert.match(workspace,/onOpenAuditCorrelation/);
   assert.match(monitor,/onTrace=\{onOpenAuditCorrelation\}/);
   assert.match(activity,/Open Audit Logs/);
@@ -34,12 +38,14 @@ test('cross-app P2: Integrations correlation opens unified Audit Logs with autom
 
 test('cross-app P2: major workspaces are isolated by retryable module error boundary', async()=>{
   const page=await read('src/app/page.tsx');
+  const router=await read('src/components/AppWorkspaceRouter.tsx');
   const boundary=await read('src/components/ModuleErrorBoundary.tsx');
   const css=await read('src/app/globals.css');
 
-  assert.match(page,/ModuleErrorBoundary/);
-  assert.match(page,/resetKey=\{\`\$\{view\}:\$\{moduleRetryKey\}\`\}/);
-  assert.match(page,/setModuleRetryKey\(\(value\) => value \+ 1\)/);
+  assert.match(page,/AppWorkspaceRouter/);
+  assert.match(router,/ModuleErrorBoundary/);
+  assert.match(router,/resetKey=\{\`\$\{view\}:\$\{retryKey\}\`\}/);
+  assert.match(router,/setRetryKey\(\(value\)=>value\+1\)/);
   assert.match(boundary,/getDerivedStateFromError/);
   assert.match(boundary,/componentDidCatch/);
   assert.match(boundary,/Retry module/);

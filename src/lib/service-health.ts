@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { serviceHealthState, operationalHealthLabel, type OperationalHealthState } from "@/lib/operational-health";
 
 export type ServiceCheck = {
   key: string;
@@ -95,9 +96,10 @@ export function useServiceHealth(pollMs = 300_000) {
   return { health, refresh };
 }
 
-export function serviceState(health: ServiceHealth | null) {
-  if (!health) return "checking" as const;
-  if (health.ready === true) return "connected" as const;
-  if ((health.checks || []).some((item) => item.status === "error")) return "offline" as const;
-  return "degraded" as const;
+export function serviceState(health: ServiceHealth | null):OperationalHealthState {
+  return serviceHealthState(health);
+}
+
+export function serviceStateLabel(health:ServiceHealth | null) {
+  return operationalHealthLabel(serviceState(health));
 }
