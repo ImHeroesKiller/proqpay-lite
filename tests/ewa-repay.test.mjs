@@ -161,7 +161,7 @@ test('EWA repayment fails closed when remaining net would be zero or negative', 
   assert.equal(DB.sqlite.prepare('SELECT status FROM ewa_requests WHERE id=?').get('EWA-1').status, 'DISBURSED');
 });
 
-test('legacy UPLOAD_FINAL JSON path cannot attach EWA without source provenance', async () => {
+test('master JSON import cannot create payroll or attach EWA outside Data Intake', async () => {
   const DB = new D1Mock();
   DB.sqlite.exec(`
     INSERT INTO clients(id,org_id,code,name) VALUES('CLI','ORG-OTSINDO','CLI','PT Client');
@@ -189,7 +189,7 @@ test('legacy UPLOAD_FINAL JSON path cannot attach EWA without source provenance'
     env: { DB, DEFAULT_ORG_ID: 'ORG-OTSINDO' },
   });
   assert.equal(response.status, 409, await response.clone().text());
-  assert.equal((await response.json()).code, 'PAYROLL_PROVENANCE_REQUIRED');
+  assert.equal((await response.json()).code, 'PAYROLL_DATA_INTAKE_REQUIRED');
   assert.equal(DB.sqlite.prepare('SELECT status FROM ewa_requests WHERE id=?').get('EWA-IMP').status, 'DISBURSED');
 });
 
