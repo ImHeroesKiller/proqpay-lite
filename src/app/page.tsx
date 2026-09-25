@@ -1,14 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import ModuleErrorBoundary from '@/components/ModuleErrorBoundary';
+import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
+import AppWorkspaceRouter from '@/components/AppWorkspaceRouter';
+import { useVisibilityAwareCanonicalRefresh } from '@/hooks/useVisibilityAwareCanonicalRefresh';
+import { roleHasCapability } from '../../shared/authority-matrix.js';
 import { loadDatabase, saveDatabase } from '@/lib/database';
 import { onDbChange } from '@/lib/events';
 import { loadSettings, onSettingsChange, type AppSettings } from '@/lib/app-settings';
 import Sidebar, { allowedViewsForRole, type AppView } from '@/components/Sidebar';
 import AppHeader from '@/components/AppHeader';
-import PayrollControlTower from '@/components/PayrollControlTower';
 import SystemHealthBubble from '@/components/SystemHealthBubble';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
@@ -16,17 +17,6 @@ import { listOperatingDashboard, listOperatingPeriods } from '@/lib/operating-mo
 import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
 import AppFooter from '@/components/AppFooter';
 
-const OperatingWorkspace = dynamic(() => import('@/components/OperatingWorkspace'), { loading: () => <ViewLoading /> });
-const EmployeeDirectory = dynamic(() => import('@/components/EmployeeDirectory'), { loading: () => <ViewLoading /> });
-const DirectoryManager = dynamic(() => import('@/components/DirectoryManager'), { loading: () => <ViewLoading /> });
-const ReportsWorkspace = dynamic(() => import('@/components/ReportsWorkspace'), { loading: () => <ViewLoading /> });
-const ClientHome = dynamic(() => import('@/components/ClientHome'), { loading: () => <ViewLoading /> });
-const ClientDocumentsWorkspace = dynamic(() => import('@/components/ClientDocumentsWorkspace'), { loading: () => <ViewLoading /> });
-const SystemLogs = dynamic(() => import('@/components/SystemLogs'), { loading: () => <ViewLoading /> });
-const EwaInbox = dynamic(() => import('@/components/EwaInbox'), { loading: () => <ViewLoading /> });
-const PortalSettings = dynamic(() => import('@/components/PortalSettings'), { loading: () => <ViewLoading /> });
-const IntegrationsWorkspace = dynamic(() => import('@/components/IntegrationsWorkspace'), { loading: () => <ViewLoading /> });
-const PaymentGatewayPaymentPanel = dynamic(() => import('@/components/PaymentGatewayPaymentPanel'), { loading: () => <ViewLoading /> });
 const IdaFab = dynamic(() => import('@/components/IdaFab'));
 const HelpModal = dynamic(() => import('@/components/HelpModal'));
 
@@ -57,7 +47,6 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [canonicalPeriods, setCanonicalPeriods] = useState<string[]>([]);
   const [canonicalClientCount, setCanonicalClientCount] = useState<number | null>(null);
-  const [moduleRetryKey, setModuleRetryKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -151,32 +140,9 @@ export default function Home() {
     return () => { cancelled = true; };
   }, [actor, period]);
 
-  useEffect(() => {
-    const minutes = settings?.autoRefreshMinutes || 0;
-    if (!minutes) return;
-    const intervalMs = minutes * 60_000;
-    let lastRunAt = Date.now();
 
-    const refreshWhenVisible = () => {
-      if (document.visibilityState !== 'visible') return;
-      lastRunAt = Date.now();
-      const current = loadDatabase();
-      void syncDatabaseFromCloudflare(current)
-        .then(({ db: canonical }) => { saveDatabase(canonical); setDb(canonical); })
-        .catch(() => writeSystemLog('WARN', 'DATABASE', 'AUTO_REFRESH_FAILED', 'Refresh otomatis gagal'));
-    };
-
-    const timer = window.setInterval(refreshWhenVisible, intervalMs);
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (Date.now() - lastRunAt >= intervalMs) refreshWhenVisible();
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [settings?.autoRefreshMinutes]);
+  const updateCanonicalDatabase = useCallback((next:unknown) => setDb(next), []);
+  useVisibilityAwareCanonicalRefresh(settings?.autoRefreshMinutes || 0, updateCanonicalDatabase);
 
   function handlePeriodChange(p: string) {
     writeSystemLog('INFO', 'DASHBOARD', 'PERIOD_CHANGED', `Periode aktif diubah ke ${p}`);
@@ -260,8 +226,8 @@ export default function Home() {
 
   const pad = settings.density === 'compact' ? '18px 16px' : '28px 24px';
   const periods = [...new Set([period,...(canonicalPeriods.length ? canonicalPeriods : (db.payrolls || []).map((item:any)=>item.period).filter(Boolean))])].sort((a:string,b:string)=>b.localeCompare(a));
-  const gatewayCanView = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
-  const gatewayCanExecute = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(actor.role);
+  const gatewayCanView = roleHasCapability(actor.role,'gateway:view');
+  const gatewayCanExecute = roleHasCapability(actor.role,'gateway:execute');
 
   return (
     <div className={`app-shell theme-${settings.theme} accent-${settings.accentColor} density-${settings.density}${settings.enableAnimations ? '' : ' animations-off'}`} style={{ display: 'flex', minHeight: '100vh' }}>
@@ -283,43 +249,18 @@ export default function Home() {
         <AppHeader period={period} periods={periods} view={view} clientCount={canonicalClientCount} onPeriodChange={handlePeriodChange} onNavigate={navigate} onHelp={() => setHelpOpen(true)} onMenu={() => setMobileNavOpen(true)} actor={actor} />
 
         <main style={{ flex: 1, overflowY: 'auto', padding: pad }}>
-          <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
-            <ModuleErrorBoundary moduleName={view} resetKey={`${view}:${moduleRetryKey}`} onRetry={() => setModuleRetryKey((value) => value + 1)}>
-            {view === 'dashboard' && (
-              actor.role === 'CLIENT_USER'
-                ? <ClientHome actor={actor} period={period} onNavigate={navigate} />
-                : <PayrollControlTower actor={actor} period={period} onNavigate={navigate} />
-            )}
-
-            {view === 'employees' && (
-              <EmployeeDirectory employees={db.employees || []} actor={actor} pageSize={settings.employeePageSize} initialRegion="ALL" maskSensitiveData={settings.maskSensitiveData} onChanged={refreshCanonical} />
-            )}
-
-            {view === 'clients' && (
-              <DirectoryManager
-                actor={actor}
-                onChanged={refreshCanonical}
-                existingClients={db.companies || []}
-                existingProjects={db.projects || []}
-              />
-            )}
-
-            {view === 'logs' && <SystemLogs />}
-
-            {view === 'operations' && <OperatingWorkspace mode="payruns" />}
-
-            {view === 'exceptions' && <OperatingWorkspace mode="actions" />}
-
-            {view === 'payments' && <><OperatingWorkspace mode="payments" />{gatewayCanView ? <PaymentGatewayPaymentPanel role={actor.role} /> : null}</>}
-            {view === 'billing' && <OperatingWorkspace mode="billing" />}
-            {view === 'integrations' && <IntegrationsWorkspace canManage={gatewayCanExecute} canView={gatewayCanView} onOpenAuditCorrelation={openAuditCorrelation} />}
-
-            {view === 'ewa' && <EwaInbox />}
-            {view === 'portalSettings' && <PortalSettings />}
-
-            {view === 'reports' && (actor.role === 'CLIENT_USER' ? <ClientDocumentsWorkspace actor={actor} /> : <ReportsWorkspace />)}
-            </ModuleErrorBoundary>
-          </div>
+          <AppWorkspaceRouter
+            view={view}
+            actor={actor}
+            period={period}
+            db={db}
+            settings={settings}
+            gatewayCanView={gatewayCanView}
+            gatewayCanExecute={gatewayCanExecute}
+            onNavigate={navigate}
+            onRefreshCanonical={refreshCanonical}
+            onOpenAuditCorrelation={openAuditCorrelation}
+          />
         </main>
         <AppFooter
           lastSyncAt={db.meta?.lastCloudflareSyncAt}
@@ -335,6 +276,3 @@ export default function Home() {
   );
 }
 
-function ViewLoading() {
-  return <div className="card control-loading" role="status">Menyiapkan modul…</div>;
-}
