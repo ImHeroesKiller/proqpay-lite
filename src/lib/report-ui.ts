@@ -118,6 +118,7 @@ const STATUS_LABELS:Record<string,string>={
   MANUAL_PROOF:'Bukti Manual',
   PAYMENT_GATEWAY:'Payment Gateway',
   CONFLICT:'Konflik Settlement',
+  SETTLEMENT_CONFLICT:'Konflik Settlement',
   NONE:'Belum Ada Settlement',
 };
 
