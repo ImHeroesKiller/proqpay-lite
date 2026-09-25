@@ -117,20 +117,22 @@ export default function SystemLogs(){
   },[selected]);
 
   const visible=useMemo(()=>{
-    const locals=localLogs.map(localToCanonical);
-    if(category==='LOCAL'){
-      const query=q.trim().toLowerCase();
-      return locals.filter((item)=>{
-        if(level!=='ALL'&&item.level!==level)return false;
-        if(!query)return true;
-        return [item.source,item.event,item.detail,item.actor].some((value)=>String(value||'').toLowerCase().includes(query));
-      }).sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)));
-    }
+    const query=q.trim().toLowerCase();
+    const fromMs=from?new Date(from+'T00:00:00').getTime():0;
+    const toMs=to?new Date(to+'T23:59:59.999').getTime():Number.POSITIVE_INFINITY;
+    const locals=localLogs.map(localToCanonical).filter((item)=>{
+      if(level!=='ALL'&&item.level!==level)return false;
+      const time=new Date(item.timestamp).getTime();
+      if(time<fromMs||time>toMs)return false;
+      if(!query)return true;
+      return [item.source,item.event,item.detail,item.actor].some((value)=>String(value||'').toLowerCase().includes(query));
+    }).sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)));
+    if(category==='LOCAL')return locals;
     if(offset===0&&category==='ALL'){
-      return [...events,...locals].sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp))).slice(0,Math.max(limit,events.length));
+      return [...events,...locals].sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)));
     }
     return events;
-  },[events,localLogs,category,level,q,offset,limit]);
+  },[events,localLogs,category,level,q,from,to,offset]);
 
   const unhealthy=(health?.checks||[]).filter((item)=>item.status!=='ok');
   const resetFilters=()=>{setQ('');setCategory('ALL');setLevel('ALL');setFrom('');setTo('');setOffset(0);};
