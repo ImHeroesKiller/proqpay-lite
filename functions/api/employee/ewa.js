@@ -1,3 +1,4 @@
+import { EMPLOYEE_SERVICES_CONTRACT_VERSION } from '../_employee-contract.js';
 import { authenticateEmployee, employeeHandlePreflight, employeeJson, isActiveEmployee, portalMutationAllowed } from '../_employee-auth.js';
 import { d1All, d1First, d1Run, hasD1 } from '../_d1.js';
 import {
@@ -129,6 +130,7 @@ export async function onRequest({ request, env }) {
     if (request.method === 'GET') {
       return respond({
         ok: true,
+        contractVersion: EMPLOYEE_SERVICES_CONTRACT_VERSION,
         rules: policyToRules(state.policy),
         emp: {
           daysWorked: state.earned.daysWorked,
@@ -159,7 +161,7 @@ export async function onRequest({ request, env }) {
         `UPDATE ewa_requests SET status='CANCELLED', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,
         [state.open.id],
       );
-      return respond({ ok: true, cancelled: state.open.id });
+      return respond({ ok: true, contractVersion: EMPLOYEE_SERVICES_CONTRACT_VERSION, cancelled: state.open.id });
     }
 
     if (actor.mustChangePassword) {
@@ -206,7 +208,7 @@ export async function onRequest({ request, env }) {
       [`AUD-${crypto.randomUUID()}`, actor.orgId, actor.employeeCode, `${id} · ${amount}`, id],
     );
     const created = await d1First(env.DB, 'SELECT * FROM ewa_requests WHERE id=?', [id]);
-    return respond({ ok: true, request: created });
+    return respond({ ok: true, contractVersion: EMPLOYEE_SERVICES_CONTRACT_VERSION, request: created });
   } catch (error) {
     if (String(error?.message || '').includes('idx_ewa_one_open')) {
       return respond({ error: 'Masih ada pengajuan yang berjalan' }, 409);

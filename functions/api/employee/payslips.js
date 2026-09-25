@@ -1,3 +1,4 @@
+import { EMPLOYEE_SERVICES_CONTRACT_VERSION } from '../_employee-contract.js';
 import { authenticateEmployee, employeeHandlePreflight, employeeJson } from '../_employee-auth.js';
 import { d1All, hasD1 } from '../_d1.js';
 import { periodToLabel, rowsFromRunLine } from '../_employee-init.js';
@@ -45,7 +46,7 @@ export async function onRequest({ request, env }) {
       sourceBatchId: line.source_batch_id || null,
       rows: (() => { const rows=rowsFromRunLine(line); return rows.length?rows:[['Gaji bersih',Number(line.net_amount||0)]]; })(),
     }));
-    return employeeJson({ ok:true,payslips },200,request,env,METHODS);
+    return employeeJson({ ok:true,contractVersion:EMPLOYEE_SERVICES_CONTRACT_VERSION,payslips },200,request,env,METHODS);
   } catch(error) {
     return employeeJson({ error:'Gagal memuat slip gaji final',...publicError(error,crypto.randomUUID()) },500,request,env,METHODS);
   }

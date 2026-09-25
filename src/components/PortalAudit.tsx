@@ -31,15 +31,26 @@ export default function PortalAudit() {
   const [failed, setFailed] = useState(0);
   const [tab, setTab] = useState<"logins" | "events">("logins");
   const [message, setMessage] = useState("");
+  const [q, setQ] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState({ total: 0, hasMore: false, nextOffset: 0, limit: 50 });
 
   const load = useCallback(async () => {
-    const response = await fetch("/api/portal-audit");
+    const params = new URLSearchParams({ kind: tab, offset: String(offset), limit: "50" });
+    if (q.trim()) params.set("q", q.trim());
+    const response = await fetch(`/api/portal-audit?${params.toString()}`);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     setLogins(data.logins || []);
     setEvents(data.events || []);
     setFailed(Number(data.failedLogins || 0));
-  }, []);
+    setPage({
+      total: Number(data.page?.total || 0),
+      hasMore: Boolean(data.page?.hasMore),
+      nextOffset: Number(data.page?.nextOffset || 0),
+      limit: Number(data.page?.limit || 50),
+    });
+  }, [tab, q, offset]);
 
   useEffect(() => {
     void load().catch((error) =>
@@ -64,17 +75,30 @@ export default function PortalAudit() {
         <button
           type="button"
           className={`btn${tab === "logins" ? " btn-primary" : ""}`}
-          onClick={() => setTab("logins")}
+          onClick={() => { setTab("logins"); setOffset(0); }}
         >
           Login
         </button>
         <button
           type="button"
           className={`btn${tab === "events" ? " btn-primary" : ""}`}
-          onClick={() => setTab("events")}
+          onClick={() => { setTab("events"); setOffset(0); }}
         >
           Advance & kredensial
         </button>
+      </div>
+      <div className="portal-toolbar">
+        <input
+          value={q}
+          onChange={(event) => { setQ(event.target.value); setOffset(0); }}
+          placeholder={tab === "logins" ? "Cari karyawan, input, atau IP" : "Cari aksi, actor, detail, atau entity ID"}
+          aria-label="Cari audit portal"
+        />
+        {q ? (
+          <button type="button" className="btn" onClick={() => { setQ(""); setOffset(0); }}>
+            Reset filter
+          </button>
+        ) : null}
       </div>
       {message ? (
         <p className="app-notice-bubble app-notice-error" role="status">
@@ -177,6 +201,19 @@ export default function PortalAudit() {
             </tbody>
           </table>
         )}
+      </div>
+      <div className="portal-toolbar" style={{ justifyContent: "space-between" }}>
+        <span style={{ fontSize: 12, color: "var(--text3)" }}>
+          {page.total ? `${offset + 1}–${Math.min(offset + (tab === "logins" ? logins.length : events.length), page.total)} dari ${page.total}` : "0 data"}
+        </span>
+        <span style={{ display: "flex", gap: 8 }}>
+          <button type="button" className="btn" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - page.limit))}>
+            Sebelumnya
+          </button>
+          <button type="button" className="btn" disabled={!page.hasMore} onClick={() => setOffset(page.nextOffset)}>
+            Berikutnya
+          </button>
+        </span>
       </div>
     </section>
   );

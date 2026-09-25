@@ -1,3 +1,4 @@
+import { EMPLOYEE_SERVICES_CONTRACT_VERSION } from '../_employee-contract.js';
 import { authenticateEmployee, employeeHandlePreflight, employeeJson } from '../_employee-auth.js';
 import { d1First, hasD1 } from '../_d1.js';
 import { buildEmployeePortalPayload } from '../_employee-init.js';
@@ -46,7 +47,7 @@ export async function onRequest({ request, env }) {
     const payload = await buildEmployeePortalPayload(env.DB, actor);
     if (!payload) return employeeJson({ error: 'Karyawan tidak ditemukan.' }, 404, request, env, METHODS);
     await attachCanonicalState(env.DB, actor, payload);
-    return employeeJson(payload, 200, request, env, METHODS);
+    return employeeJson({ ...payload, contractVersion: EMPLOYEE_SERVICES_CONTRACT_VERSION }, 200, request, env, METHODS);
   } catch (error) {
     return employeeJson({ error: 'Gagal memuat portal', ...publicError(error, crypto.randomUUID()) }, 500, request, env, METHODS);
   }
