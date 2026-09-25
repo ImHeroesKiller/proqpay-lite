@@ -52,8 +52,10 @@ export async function onRequest(context) {
   if (!['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(instruction.status)) {
     return respond({error:'File bank hanya tersedia setelah Payment Instruction disetujui'},409);
   }
-  const arGate=await evaluateClientArGate(env.DB,orgId(env),instruction.client_id);
-  if (arGate.blocked) return respond({error:arGateMessage(arGate),code:arGate.code,arGate},409);
+  if (instruction.status === 'APPROVED_FOR_PAYMENT') {
+    const arGate=await evaluateClientArGate(env.DB,orgId(env),instruction.client_id);
+    if (arGate.blocked) return respond({error:arGateMessage(arGate),code:arGate.code,arGate},409);
+  }
   if (!env.PI_ENCRYPTION_KEY || String(env.PI_ENCRYPTION_KEY).length < 32) return respond({error:'PI_ENCRYPTION_KEY belum dikonfigurasi'},503);
   if (!instruction.content_hash || lines.some((line) => !line.account_ciphertext || !line.account_iv)) {
     return respond({error:'Snapshot PI lama tidak memiliki data rekening terenkripsi; regenerasi PI diperlukan'},409);
