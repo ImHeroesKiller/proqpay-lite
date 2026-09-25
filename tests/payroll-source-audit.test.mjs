@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { validatePayrollControlRows } from '../functions/api/payroll-upload-validation.js';
+import { validatePayrollControlRows } from '../functions/api/payroll-intake-validation.js';
 
 const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
