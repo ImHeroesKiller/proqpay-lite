@@ -152,6 +152,7 @@ export type BillingIssuerProfile = {
   npwp?: string | null;
   email?: string | null;
   phone?: string | null;
+  website?: string | null;
   bank_name?: string | null;
   bank_account_name?: string | null;
   bank_account_no?: string | null;
