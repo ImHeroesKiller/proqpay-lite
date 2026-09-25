@@ -3,7 +3,6 @@
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import PanelPagination from '@/components/PanelPagination';
-import PayrollSourceUpload from '@/components/PayrollSourceUpload';
 import {
   REPORT_COLUMNS,
   REPORT_LABELS,
@@ -19,7 +18,7 @@ import {
   type ReportType,
 } from '@/lib/report-ui';
 
-type Props = { clientMode?: boolean };
+type Props = { clientMode?: boolean; hideHeading?: boolean };
 
 function csvCell(value: unknown) {
   const raw = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
@@ -84,7 +83,7 @@ async function loadAllPaymentReports(filters:{period:string;status:string;query:
   throw new Error('Pagination pembayaran melebihi batas aman');
 }
 
-export default function ReportsWorkspace({clientMode=false}:Props = {}) {
+export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Props = {}) {
   const [type,setType] = useState<ReportType>('payments');
   const [paymentRows, setPaymentRows] = useState<PaymentReport[]>([]);
   const [payrollRows,setPayrollRows] = useState<ReportRow[]>([]);
@@ -137,7 +136,15 @@ export default function ReportsWorkspace({clientMode=false}:Props = {}) {
   const paidTotal = completed.reduce((sum,row) => sum + Number(row.paid_total || 0), 0);
   const employees = completed.reduce((sum,row) => sum + Number(row.employee_count || 0), 0);
 
+  const filtersActive = Boolean(query.trim() || period !== 'ALL' || status !== 'ALL');
   const reportTypes:ReportType[] = clientMode ? ['payments','register','payslips'] : (Object.keys(REPORT_LABELS) as ReportType[]);
+
+  function resetFilters() {
+    setQuery('');
+    setPeriod('ALL');
+    setStatus('ALL');
+    setPage(1);
+  }
 
   function exportCurrent() {
     if (type === 'payments') {
@@ -147,17 +154,16 @@ export default function ReportsWorkspace({clientMode=false}:Props = {}) {
   }
 
   return <section className="reports-workspace">
-    {!clientMode ? <PayrollSourceUpload /> : null}
-    <div className="reports-heading"><div><h2>{clientMode?'Laporan':'Laporan Payroll & Pembayaran'}</h2><p>{clientMode?'Laporan payroll dan pembayaran sesuai scope akun Anda.':'Jejak audit dari sumber payroll, snapshot final, slip gaji, pembayaran, dan rekonsiliasi.'}</p></div><button className="btn btn-primary" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div>
+    {!hideHeading ? <div className="reports-heading"><div><span className="workspace-eyebrow">{clientMode?'REPORTS':'REPORTING & AUDIT'}</span><h2>{clientMode?'Payroll & Payment Reports':'Laporan Payroll & Pembayaran'}</h2><p>{clientMode?'Laporan payroll dan pembayaran sesuai scope akun Anda.':'Jejak audit dari sumber payroll, snapshot final, slip gaji, pembayaran, dan rekonsiliasi.'}</p></div><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div> : <div className="reports-inline-actions"><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div>}
     <div className="report-type-tabs">{reportTypes.map((item)=><button key={item} type="button" className={`btn ${type===item?'btn-primary':''}`} onClick={()=>setType(item)}>{clientMode&&item==='payments'?'Riwayat Pembayaran':REPORT_LABELS[item]}</button>)}</div>
 
     {type === 'payments' ? <div className="report-summary-grid"><Summary label="Pembayaran selesai" value={String(completed.length)} /><Summary label="Total dibayarkan" value={formatIDR(paidTotal)} /><Summary label="Karyawan dibayar" value={String(employees)} /><Summary label="Perlu tindak lanjut" value={String(filteredPayments.filter((row) => ['PAYMENT_EXCEPTION','PROOF_UPLOADED'].includes(row.status)).length + settlementConflicts.length)} /></div>
-      : type === 'control' ? <div className="report-summary-grid"><Summary label="Pay Run" value={String(filteredPayroll.length)} /><Summary label="Balanced" value={String(filteredPayroll.filter((row)=>Number(row.payroll_gross||0)-Number(row.payroll_deduction||0)===Number(row.payroll_net||0)).length)} /><Summary label="PI mismatch" value={String(filteredPayroll.filter((row)=>Number(row.pi_total||0)&&Number(row.pi_total)!==Number(row.payroll_net||0)).length)} /><Summary label="Reconciliation diff" value={String(filteredPayroll.filter((row)=>Number(row.reconciliation_difference||0)!==0).length)} /></div>
+      : type === 'control' ? <div className="report-summary-grid"><Summary label="Pay Run" value={String(filteredPayroll.length)} /><Summary label="Sesuai kontrol" value={String(filteredPayroll.filter((row)=>Number(row.payroll_gross||0)-Number(row.payroll_deduction||0)===Number(row.payroll_net||0)).length)} /><Summary label="Selisih PI" value={String(filteredPayroll.filter((row)=>Number(row.pi_total||0)&&Number(row.pi_total)!==Number(row.payroll_net||0)).length)} /><Summary label="Selisih rekonsiliasi" value={String(filteredPayroll.filter((row)=>Number(row.reconciliation_difference||0)!==0).length)} /></div>
       : <div className="report-summary-grid"><Summary label={REPORT_LABELS[type]} value={String(filteredPayroll.length)} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /><Summary label="Terhubung ke sumber" value={String(filteredPayroll.filter((row)=>row.source_batch_id || row.file_sha256).length)} /><Summary label="Baris ditampilkan" value={String(activeRows.length)} /></div>}
 
-    <div className="card report-filter"><input value={query} placeholder="Cari karyawan, klien, project, batch, pay run…" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }}><option value="ALL">Semua periode</option>{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">Semua status</option>{statusOptions.map((item) => <option key={item} value={item}>{reportStatusLabel(item)}</option>)}</select></div>
+    <div className="card report-filter"><label><span>Cari</span><input value={query} placeholder="Karyawan, klien, project, batch, pay run…" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></label><label><span>Periode</span><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }}><option value="ALL">Semua periode</option>{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span>Status</span><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">Semua status</option>{statusOptions.map((item) => <option key={item} value={item}>{reportStatusLabel(item)}</option>)}</select></label><button type="button" className="btn report-reset-btn" disabled={!filtersActive} onClick={resetFilters}>Reset</button></div>
     {error ? <div className="card report-error" role="alert"><span>{error}</span><button type="button" className="btn" disabled={loading} onClick={()=>void load()}>{loading?'Memuat…':'Coba lagi'}</button></div> : null}
-    {loading ? <div className="card directory-empty">Memuat laporan…</div> : !activeRows.length ? <div className="card directory-empty">Belum ada data pada filter ini.</div> : <>
+    {loading ? <div className="card directory-empty report-loading" role="status">Memuat laporan…</div> : !activeRows.length ? <div className="card directory-empty report-empty"><span>{filtersActive?'Tidak ada data yang cocok dengan filter ini.':'Belum ada data laporan.'}</span>{filtersActive?<button type="button" className="btn" onClick={resetFilters}>Reset filter</button>:null}</div> : <>
       {type === 'payments' ? <PaymentTable rows={visible as PaymentReport[]} /> : <GenericTable rows={visible as ReportRow[]} type={type} />}
       <PanelPagination page={Math.min(page,pageCount)} pageCount={pageCount} total={activeRows.length} label="baris" onPage={setPage} />
     </>}
