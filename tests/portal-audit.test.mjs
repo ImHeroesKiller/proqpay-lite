@@ -5,7 +5,7 @@ import { employeeHandlePreflight } from '../functions/api/_employee-auth.js';
 import { onRequest as employeeLogin } from '../functions/api/employee/login.js';
 import { onRequest as issueCredentials } from '../functions/api/employee-credentials.js';
 import { onRequest as opsLogin } from '../functions/api/login.js';
-import { onRequest as portalAudit } from '../functions/api/portal-audit.js';
+import { onRequest as auditConsole } from '../functions/api/audit-console.js';
 import { handlePreflight } from '../functions/api/_security.js';
 import { D1Mock } from './helpers/d1-mock.mjs';
 
@@ -61,7 +61,7 @@ test('employee preflight allows ESS origin and ops preflight does not', async ()
   assert.equal(ops.status, 403);
 });
 
-test('portal audit lists login attempts without reading payroll tables', async () => {
+test('unified audit console includes portal login attempts without reading payroll tables', async () => {
   const DB = new D1Mock();
   await seed(DB);
   const env = envFor(DB);
@@ -91,16 +91,16 @@ test('portal audit lists login attempts without reading payroll tables', async (
   });
   assert.equal(failed.status, 401);
 
-  const audit = await portalAudit({
-    request: request('/api/portal-audit', { headers: { Cookie: cookie } }),
+  const audit = await auditConsole({
+    request: request('/api/audit-console?category=EMPLOYEE_SERVICES', { headers: { Cookie: cookie } }),
     env,
   });
   assert.equal(audit.status, 200, await audit.clone().text());
   const body = await audit.json();
   assert.equal(body.ok, true);
-  assert.ok(body.logins.some((row) => row.employee_id === '209200339' && Number(row.success) === 0));
-  assert.ok(body.logins.every((row) => row.org_id === undefined || row.org_id === 'ORG-OTSINDO'));
-  assert.ok(body.events.some((row) => row.action === 'EMPLOYEE_PORTAL_PASSWORDS_ISSUED'));
+  assert.ok(body.events.some((row) => row.event === 'PORTAL_LOGIN' && row.entity_id === '209200339' && row.level === 'ERROR'));
+  assert.ok(body.events.some((row) => row.event === 'EMPLOYEE_PORTAL_PASSWORDS_ISSUED'));
+  assert.ok(body.events.every((row) => row.category === 'EMPLOYEE_SERVICES'));
   const payrollTouched = DB.sqlite.prepare(
     "SELECT COUNT(*) AS n FROM payroll_run_lines",
   ).get();

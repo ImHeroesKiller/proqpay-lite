@@ -8,7 +8,7 @@ test('Employee Services UI P3 centralizes admin visual primitives',async()=>{
   const layout=await read('src/app/layout.tsx');
   const styles=await read('src/app/employee-services.css');
   const inbox=await read('src/components/EwaInbox.tsx');
-  const audit=await read('src/components/PortalAudit.tsx');
+  const audit=await read('src/components/SystemLogs.tsx');
   assert.match(layout,/employee-services\.css/);
   assert.match(styles,/\.es-table/);
   assert.match(styles,/\.es-drawer/);

@@ -24,7 +24,6 @@ const ClientDocumentsWorkspace = dynamic(() => import('@/components/ClientDocume
 const SystemLogs = dynamic(() => import('@/components/SystemLogs'), { loading: () => <ViewLoading /> });
 const EwaInbox = dynamic(() => import('@/components/EwaInbox'), { loading: () => <ViewLoading /> });
 const PortalSettings = dynamic(() => import('@/components/PortalSettings'), { loading: () => <ViewLoading /> });
-const PortalAudit = dynamic(() => import('@/components/PortalAudit'), { loading: () => <ViewLoading /> });
 const IntegrationsWorkspace = dynamic(() => import('@/components/IntegrationsWorkspace'), { loading: () => <ViewLoading /> });
 const PaymentGatewayPaymentPanel = dynamic(() => import('@/components/PaymentGatewayPaymentPanel'), { loading: () => <ViewLoading /> });
 const IdaFab = dynamic(() => import('@/components/IdaFab'));
@@ -275,7 +274,7 @@ export default function Home() {
               />
             )}
 
-            {view === 'logs' && <SystemLogs auditLogs={db.auditLogs || []} />}
+            {view === 'logs' && <SystemLogs />}
 
             {view === 'operations' && <OperatingWorkspace mode="payruns" />}
 
@@ -287,7 +286,6 @@ export default function Home() {
 
             {view === 'ewa' && <EwaInbox />}
             {view === 'portalSettings' && <PortalSettings />}
-            {view === 'portalAudit' && <PortalAudit />}
 
             {view === 'reports' && (actor.role === 'CLIENT_USER' ? <ClientDocumentsWorkspace actor={actor} /> : <ReportsWorkspace />)}
           </div>
