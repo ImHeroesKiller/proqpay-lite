@@ -21,6 +21,8 @@ async function seed(DB){
     INSERT OR IGNORE INTO clients(id,org_id,code,name) VALUES('CLI-EWA-P0','ORG-OTSINDO','EWA','PT EWA');
     INSERT OR IGNORE INTO projects(id,org_id,client_id,code,name,created_by)
       VALUES('PRJ-EWA-P0','ORG-OTSINDO','CLI-EWA-P0','EWA','EWA Project','seed');
+    INSERT OR IGNORE INTO client_service_plans(id,client_id,project_id,tier,status,effective_from,created_by)
+      VALUES('SP-EWA-P0','CLI-EWA-P0','PRJ-EWA-P0','TIER_2_MANAGED_PAYROLL','ACTIVE','2026-01-01','seed');
     INSERT INTO employees(id,org_id,client_id,project_id,employee_code,name,status_aktif)
       VALUES('EMP-EWA-P0','ORG-OTSINDO','CLI-EWA-P0','PRJ-EWA-P0','EWA-001','Employee EWA','ACTIVE');
     INSERT INTO employee_contracts(id,employee_id,join_date,is_current)
@@ -109,8 +111,8 @@ test('Employee Services P0: employee submit snapshots payout destination from pr
 test('Employee Services P0: REPAID is reconciliation-derived and writes a system audit event',async()=>{
   const DB=new D1Mock(); await seed(DB);
   DB.sqlite.exec(`
-    INSERT INTO payroll_submissions(id,org_id,client_id,project_id,period,state,created_by)
-      VALUES('SUB-EWA-P0','ORG-OTSINDO','CLI-EWA-P0','PRJ-EWA-P0','2026-09','RECONCILIATION','seed');
+    INSERT INTO payroll_submissions(id,org_id,client_id,project_id,service_plan_id,service_tier,period,state,created_by)
+      VALUES('SUB-EWA-P0','ORG-OTSINDO','CLI-EWA-P0','PRJ-EWA-P0','SP-EWA-P0','TIER_2_MANAGED_PAYROLL','2026-09','RECONCILIATION','seed');
     INSERT INTO ewa_requests
       (id,org_id,client_id,employee_id,period,amount,fee,repayment,status,plafond_snapshot,days_worked_snapshot,tenure_months_snapshot,payroll_submission_id)
       VALUES('EWA-REPAY-P0','ORG-OTSINDO','CLI-EWA-P0','EMP-EWA-P0','2026-09',200000,50000,250000,'REPAYING',500000,15,12,'SUB-EWA-P0');
