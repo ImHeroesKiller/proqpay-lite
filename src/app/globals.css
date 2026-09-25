@@ -1501,3 +1501,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .integration-callbacks{display:grid;gap:8px}.integration-callbacks>strong{font-size:11.5px}.integration-callbacks>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}.integration-callbacks code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;padding:8px 10px;border-radius:8px;background:var(--bg-subtle)}
 .integration-diagnostics{border-top:1px solid var(--border-soft);padding-top:10px}.integration-diagnostics summary{cursor:pointer;font-size:11.5px;font-weight:700}.integration-diagnostics>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px}.integration-diagnostics span{font-size:10.5px;color:var(--text3)}
 @media (max-width:760px){.integration-gateway-panel{padding:14px}.integration-diagnostics>div{grid-template-columns:1fr}.integration-callbacks>div{grid-template-columns:1fr}.integration-callbacks .btn{justify-self:start}}
+
+/* Integrations P3 — accessibility and refactor support */
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+.integration-filter-panel{min-inline-size:0}
+.integration-filter-panel:disabled{opacity:.78}
+.integration-copy-id:focus-visible,.integration-diagnostics summary:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 24%,transparent);outline-offset:2px;border-radius:4px}
