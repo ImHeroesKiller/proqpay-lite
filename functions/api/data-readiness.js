@@ -8,7 +8,7 @@ const ACTIVE_EMPLOYEE = `UPPER(TRIM(COALESCE(e.status_aktif,'ACTIVE'))) NOT IN
 
 const CATEGORIES = {
   MISSING_PROJECT: { severity:'CRITICAL', title:'Karyawan belum memiliki project', field:'projectId', suggestion:'Tetapkan project aktif sebelum membuat Pay Run.' },
-  MISSING_SALARY: { severity:'CRITICAL', title:'Gaji pokok belum tersedia', field:'salaryGross', suggestion:'Lengkapi kompensasi master atau upload payroll final.' },
+  MISSING_SALARY: { severity:'CRITICAL', title:'Gaji pokok belum tersedia', field:'salaryGross', suggestion:'Lengkapi kompensasi master atau proses file payroll melalui Data Intake.' },
   MISSING_BANK: { severity:'CRITICAL', title:'Rekening utama belum lengkap', field:'accountNo', suggestion:'Lengkapi bank dan nomor rekening utama.' },
   INVALID_NIK: { severity:'WARNING', title:'NIK belum valid', field:'nik', suggestion:'Periksa NIK 16 digit.' },
   MISSING_BPJS_KES: { severity:'WARNING', title:'BPJS Kesehatan belum tersedia', field:'bpjsKesehatanNo', suggestion:'Lengkapi nomor BPJS Kesehatan bila diwajibkan.' },
