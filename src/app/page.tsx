@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import ModuleErrorBoundary from '@/components/ModuleErrorBoundary';
 import dynamic from 'next/dynamic';
 import { loadDatabase, saveDatabase } from '@/lib/database';
 import { onDbChange } from '@/lib/events';
@@ -56,6 +57,7 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [canonicalPeriods, setCanonicalPeriods] = useState<string[]>([]);
   const [canonicalClientCount, setCanonicalClientCount] = useState<number | null>(null);
+  const [moduleRetryKey, setModuleRetryKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -152,13 +154,28 @@ export default function Home() {
   useEffect(() => {
     const minutes = settings?.autoRefreshMinutes || 0;
     if (!minutes) return;
-    const timer = window.setInterval(() => {
+    const intervalMs = minutes * 60_000;
+    let lastRunAt = Date.now();
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      lastRunAt = Date.now();
       const current = loadDatabase();
       void syncDatabaseFromCloudflare(current)
         .then(({ db: canonical }) => { saveDatabase(canonical); setDb(canonical); })
         .catch(() => writeSystemLog('WARN', 'DATABASE', 'AUTO_REFRESH_FAILED', 'Refresh otomatis gagal'));
-    }, minutes * 60_000);
-    return () => window.clearInterval(timer);
+    };
+
+    const timer = window.setInterval(refreshWhenVisible, intervalMs);
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastRunAt >= intervalMs) refreshWhenVisible();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [settings?.autoRefreshMinutes]);
 
   function handlePeriodChange(p: string) {
@@ -187,7 +204,18 @@ export default function Home() {
     const url = new URL(window.location.href);
     url.searchParams.set('view', safeView);
     url.searchParams.set('period', period);
+    if (safeView !== 'logs') url.searchParams.delete('auditCorrelation');
     window.history.pushState({ view: safeView, period }, '', url);
+  }
+
+  function openAuditCorrelation(correlationId:string) {
+    if (!correlationId || actor?.role !== 'SUPER_ADMIN') return;
+    setView('logs');
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', 'logs');
+    url.searchParams.set('period', period);
+    url.searchParams.set('auditCorrelation', correlationId);
+    window.history.pushState({ view:'logs', period, auditCorrelation:correlationId }, '', url);
   }
 
   useEffect(() => {
@@ -256,6 +284,7 @@ export default function Home() {
 
         <main style={{ flex: 1, overflowY: 'auto', padding: pad }}>
           <div key={view} className="app-view-transition" style={{ maxWidth: 1180, margin: '0 auto' }}>
+            <ModuleErrorBoundary moduleName={view} resetKey={`${view}:${moduleRetryKey}`} onRetry={() => setModuleRetryKey((value) => value + 1)}>
             {view === 'dashboard' && (
               actor.role === 'CLIENT_USER'
                 ? <ClientHome actor={actor} period={period} onNavigate={navigate} />
@@ -283,12 +312,13 @@ export default function Home() {
 
             {view === 'payments' && <><OperatingWorkspace mode="payments" />{gatewayCanView ? <PaymentGatewayPaymentPanel role={actor.role} /> : null}</>}
             {view === 'billing' && <OperatingWorkspace mode="billing" />}
-            {view === 'integrations' && <IntegrationsWorkspace canManage={gatewayCanExecute} canView={gatewayCanView} />}
+            {view === 'integrations' && <IntegrationsWorkspace canManage={gatewayCanExecute} canView={gatewayCanView} onOpenAuditCorrelation={openAuditCorrelation} />}
 
             {view === 'ewa' && <EwaInbox />}
             {view === 'portalSettings' && <PortalSettings />}
 
             {view === 'reports' && (actor.role === 'CLIENT_USER' ? <ClientDocumentsWorkspace actor={actor} /> : <ReportsWorkspace />)}
+            </ModuleErrorBoundary>
           </div>
         </main>
         <AppFooter

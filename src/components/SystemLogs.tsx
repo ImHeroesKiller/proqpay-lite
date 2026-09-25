@@ -108,7 +108,8 @@ export default function SystemLogs() {
     hasMore: false,
     nextOffset: 0,
   });
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("auditCorrelation") || "");
+  const [traceCorrelation, setTraceCorrelation] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("auditCorrelation") || "");
   const qDebounced = useDebouncedValue(q, 300);
   const [source, setSource] = useState("");
   const [level, setLevel] = useState("");
@@ -213,6 +214,12 @@ export default function SystemLogs() {
 
   const resetFilters = () => {
     setQ("");
+    setTraceCorrelation("");
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("auditCorrelation");
+      window.history.replaceState(window.history.state, "", url);
+    }
     setSource("");
     setLevel("");
     setFrom("");
@@ -258,6 +265,12 @@ export default function SystemLogs() {
         <button type="button" className="btn" disabled={loading} onClick={() => void load()}>{loading ? "Memuat…" : "Refresh audit"}</button>
       </section>
 
+      {traceCorrelation ? <div className="app-notice-bubble app-notice-info" role="status">
+        <strong>Correlation trace aktif</strong>
+        <span>Audit Logs difilter otomatis untuk correlation ID <code>{traceCorrelation}</code>.</span>
+        <button type="button" className="btn" onClick={resetFilters}>Tampilkan semua audit</button>
+      </div> : null}
+
       <div className="audit-kpis">
         <div className="audit-kpi"><span>Total canonical</span><strong>{summary.total}</strong><small>event sesuai filter</small></div>
         <div className="audit-kpi audit-kpi-error"><span>Error</span><strong>{summary.errors}</strong><small>butuh investigasi</small></div>
@@ -275,7 +288,7 @@ export default function SystemLogs() {
       <section className="card audit-filter-panel">
         <div className="audit-filter-head"><div><strong>Filter console</strong><span>Semua event canonical tersedia dari satu endpoint D1.</span></div>{hasFilters ? <button type="button" className="btn" onClick={resetFilters}>Reset filter</button> : null}</div>
         <div className="audit-filter-grid">
-          <label className="audit-search"><span>Pencarian</span><input value={q} onChange={(event) => { setQ(event.target.value); setOffset(0); }} placeholder="Event, actor, entity, ID, IP…" /></label>
+          <label className="audit-search"><span>Pencarian</span><input value={q} onChange={(event) => { setQ(event.target.value); setTraceCorrelation(""); setOffset(0); }} placeholder="Event, actor, entity, correlation ID, IP…" /></label>
           <label><span>Source</span><select value={source} onChange={(event) => { setSource(event.target.value); setOffset(0); setSelected(null); }}><option value="">Semua canonical D1</option>{sourceOptions.map((item) => <option key={item.key} value={item.key}>{SOURCE_LABELS[item.key] || item.key} ({item.total})</option>)}<option value="LOCAL_RUNTIME">Runtime Local ({localLogs.length})</option></select></label>
           <label><span>Level</span><select value={level} onChange={(event) => { setLevel(event.target.value); setOffset(0); }}><option value="">Semua level</option><option>INFO</option><option>SUCCESS</option><option>WARN</option><option>ERROR</option></select></label>
           <label><span>Dari</span><input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setOffset(0); }} /></label>
