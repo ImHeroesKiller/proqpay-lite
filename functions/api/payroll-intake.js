@@ -4,7 +4,7 @@ import { parseIapWorkbook } from "../../src/lib/excel-iap.ts";
 import {
   PAYROLL_TEMPLATE_VERSION,
   validatePayrollControlRows,
-} from "./payroll-upload-validation.js";
+} from "./payroll-intake-validation.js";
 import {
   authorize,
   clientIdsFor,
