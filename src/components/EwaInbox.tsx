@@ -130,7 +130,7 @@ export default function EwaInbox() {
     [counts],
   );
 
-  async function act(id: string, action: string, extra: Record<string, string> = {}) {
+  async function act(id: string, action: string, extra: Record<string, string> = {}): Promise<boolean> {
     if (busy) return;
     setBusy(id + action);
     setMessage("");
@@ -144,8 +144,10 @@ export default function EwaInbox() {
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
       setSelected(null);
       await load();
+      return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Gagal memproses");
+      return false;
     } finally {
       setBusy("");
     }
@@ -174,7 +176,7 @@ export default function EwaInbox() {
 
       <div className="page-heading">
         <div>
-          <span className="page-eyebrow">Employee portal</span>
+          <span className="page-eyebrow">Employee Services</span>
           <h1>Advance Salary</h1>
           <p>Kontrol lifecycle advance dari pengajuan sampai lunas. Status lunas hanya berasal dari rekonsiliasi payroll.</p>
         </div>
@@ -289,7 +291,11 @@ export default function EwaInbox() {
           busy={Boolean(busy)}
           error={message}
           onClose={() => setDisbursementTarget(null)}
-          onConfirm={(input) => void act(disbursementTarget.id, "DISBURSE", input).then(() => setDisbursementTarget(null))}
+          onConfirm={(input) => {
+            void act(disbursementTarget.id, "DISBURSE", input).then((success) => {
+              if (success) setDisbursementTarget(null);
+            });
+          }}
         />
       ) : null}
     </section>
