@@ -5,8 +5,9 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useIntegrationMonitor } from '@/hooks/useIntegrationMonitor';
 import { apiRecoveryGuidance, integrationHealthLabel } from '@/lib/integration-health';
 import { IntegrationHealthPill, IntegrationPagination } from '@/components/integrations/IntegrationPrimitives';
+import { IntegrationFilterBar } from '@/components/integrations/IntegrationFilterBar';
+import { IntegrationActivity } from '@/components/integrations/IntegrationActivity';
 import {
-  getIntegrationMonitor,
   updateIntegrationAppStatus,
   type IntegrationMonitorResponse,
   type MonitorFilters,
@@ -159,15 +160,19 @@ export default function ApiEndpointMonitor() {
       <button type="button" className="btn" onClick={() => void copy('base', base)}>{copied === 'base' ? 'Copied' : 'Copy'}</button>
     </div>
 
-    <div className="integration-filter-panel">
-      <label htmlFor="integration-search"><span>Search</span><input id="integration-search" value={q} onChange={(event) => setQ(event.target.value)} placeholder="App, endpoint, correlation ID…" /></label>
-      <label htmlFor="integration-app-status"><span>App status</span><select id="integration-app-status" value={appStatus} onChange={(event) => setAppStatus(event.target.value)}><option value="">Semua</option><option value="ACTIVE">Trusted</option><option value="OBSERVED">Observed</option><option value="INACTIVE">Inactive</option><option value="REVOKED">Revoked</option></select></label>
-      <label htmlFor="integration-event-type"><span>Event type</span><select id="integration-event-type" value={eventType} onChange={(event) => setEventType(event.target.value)}><option value="">Semua</option><option value="CONNECTION">Connection</option><option value="DATA_PULL">Data pull</option><option value="REQUEST">Request</option></select></label>
-      <label htmlFor="integration-http-result"><span>HTTP result</span><select id="integration-http-result" value={statusClass} onChange={(event) => setStatusClass(event.target.value)}><option value="">Semua</option><option value="SUCCESS">2xx/3xx</option><option value="ERROR">4xx/5xx</option></select></label>
-      <label htmlFor="integration-date-from"><span>Dari</span><input id="integration-date-from" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
-      <label htmlFor="integration-date-to"><span>Sampai</span><input id="integration-date-to" type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
-      <button type="button" className="btn" disabled={!hasFilters} onClick={resetFilters}>Reset filter</button>
-    </div>
+    <IntegrationFilterBar
+      value={{ q, appStatus, eventType, statusClass, from, to }}
+      disabled={refreshing}
+      onChange={(patch) => {
+        if (patch.q !== undefined) setQ(patch.q);
+        if (patch.appStatus !== undefined) setAppStatus(patch.appStatus);
+        if (patch.eventType !== undefined) setEventType(patch.eventType);
+        if (patch.statusClass !== undefined) setStatusClass(patch.statusClass);
+        if (patch.from !== undefined) setFrom(patch.from);
+        if (patch.to !== undefined) setTo(patch.to);
+      }}
+      onReset={resetFilters}
+    />
 
     <div className="integrations-two-col">
       <div className="integration-panel">
@@ -212,36 +217,15 @@ export default function ApiEndpointMonitor() {
       </div>
     </div>
 
-    <div className="integration-panel">
-      <div className="integration-panel-head"><div><strong>API activity</strong><small>Server-side filter & pagination</small></div><span>{eventPage.total}</span></div>
-      <div className="integration-events-desktop">
-        <table className="integration-events-table">
-          <caption className="sr-only">Aktivitas API eksternal ProQPay</caption>
-          <thead><tr><th>Waktu</th><th>App</th><th>Method</th><th>Endpoint</th><th>Type</th><th>Status</th><th>Latency</th><th>Correlation</th></tr></thead>
-          <tbody>{data.events.map((row, index) => <tr key={row.created_at + row.app_id + index}>
-            <td>{fmtDate(row.created_at)}</td><td>{row.app_name}</td><td>{row.method}</td><td><code>{row.endpoint}</code></td><td>{row.event_type.replaceAll('_',' ')}</td><td><strong>{row.status_code}</strong></td><td>{row.duration_ms} ms</td><td><button type="button" className="integration-copy-id" aria-label={`Salin correlation ID ${row.correlation_id || 'tidak tersedia'}`} onClick={() => void copy(row.correlation_id || '', row.correlation_id || '')}>{copied === row.correlation_id ? 'Copied' : row.correlation_id || '-'}</button></td>
-          </tr>)}</tbody>
-        </table>
-      </div>
-      <div className="integration-events-mobile">
-        {data.events.map((row, index) => <article key={row.created_at + row.app_id + index}>
-          <div><strong>{row.method} {row.endpoint}</strong><span>HTTP {row.status_code}</span></div>
-          <small>{row.app_name} · {row.event_type.replaceAll('_',' ')} · {row.duration_ms} ms</small>
-          <span>{fmtDate(row.created_at)}</span>
-          <button type="button" className="integration-copy-id" onClick={() => void copy(row.correlation_id || '', row.correlation_id || '')}>Correlation: {row.correlation_id || '-'}</button>
-        </article>)}
-      </div>
-      {!data.events.length && !loading ? <div className="integration-empty">Tidak ada API activity yang cocok dengan filter.</div> : null}
-      <IntegrationPagination
-        offset={eventPage.offset}
-        limit={eventPage.limit}
-        total={eventPage.total}
-        count={data.events.length}
-        disabled={refreshing}
-        onPrevious={() => setEventOffset(Math.max(0, eventPage.offset - eventPage.limit))}
-        onNext={() => setEventOffset(eventPage.offset + eventPage.limit)}
-      />
-    </div>
+    <IntegrationActivity
+      events={data.events}
+      page={eventPage}
+      loading={loading}
+      refreshing={refreshing}
+      copied={copied}
+      onCopy={(label, value) => void copy(label, value)}
+      onPage={setEventOffset}
+    />
 
     <div className="integration-monitor-foot">
       <span>Last activity: {fmtDate(summary.lastActivityAt)}{recentPull ? ' · Last data pull: ' + fmtDate(recentPull.created_at) : ''}</span>
