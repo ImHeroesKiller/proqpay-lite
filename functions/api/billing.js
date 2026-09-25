@@ -221,17 +221,20 @@ export async function onRequest({request,env}) {
     }
     if (body.action==='UPDATE_ISSUER_PROFILE') {
       if (actor.role!=='SUPER_ADMIN') return respond({error:'Hanya Super Admin yang dapat mengubah profil penerbit invoice',code:'ISSUER_PROFILE_ADMIN_REQUIRED'},403);
-      const legalName=text(body.legalName,180);
-      if (!legalName) return respond({error:'Nama legal penerbit wajib diisi'},422);
+      const legalName='PT Mandiri Semesta Gemilang';
+      const canonicalAddress='Graha MSG, Jl. Raya Pos Pengumben Raya No.Kav 188, Klp. Dua, Kec. Kb. Jeruk, Kota Jakarta Barat, Daerah Khusus Ibukota Jakarta 11550';
+      const canonicalEmail='rizal@msg-os.com';
+      const canonicalPhone='+62 856-9766-6101';
+      const canonicalWebsite='www.msg-os.com';
       const profile=await d1First(database,`INSERT INTO billing_issuer_profiles
-        (org_id,legal_name,address,npwp,email,phone,bank_name,bank_account_name,bank_account_no,payment_notes,updated_by,updated_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,${NOW})
+        (org_id,legal_name,address,npwp,email,phone,website,bank_name,bank_account_name,bank_account_no,payment_notes,updated_by,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,${NOW})
         ON CONFLICT(org_id) DO UPDATE SET legal_name=excluded.legal_name,address=excluded.address,npwp=excluded.npwp,
-          email=excluded.email,phone=excluded.phone,bank_name=excluded.bank_name,bank_account_name=excluded.bank_account_name,
+          email=excluded.email,phone=excluded.phone,website=excluded.website,bank_name=excluded.bank_name,bank_account_name=excluded.bank_account_name,
           bank_account_no=excluded.bank_account_no,payment_notes=excluded.payment_notes,updated_by=excluded.updated_by,updated_at=${NOW}
-        RETURNING *`,[organizationId,legalName,text(body.address,1200),text(body.npwp,40),text(body.email,254),text(body.phone,60),
+        RETURNING *`,[organizationId,legalName,canonicalAddress,text(body.npwp,40),canonicalEmail,canonicalPhone,canonicalWebsite,
           text(body.bankName,120),text(body.bankAccountName,180),text(body.bankAccountNo,80),text(body.paymentNotes,500),actor.email]);
-      await recordAudit(database,organizationId,actor,'BILLING_ISSUER_PROFILE_UPDATED','organization',organizationId,JSON.stringify({legalName,bankName:text(body.bankName,120)}));
+      await recordAudit(database,organizationId,actor,'BILLING_ISSUER_PROFILE_UPDATED','organization',organizationId,JSON.stringify({legalName,website:canonicalWebsite,bankName:text(body.bankName,120)}));
       return respond({ok:true,issuerProfile:profile});
     }
     if (body.action==='GENERATE_INVOICE') {
