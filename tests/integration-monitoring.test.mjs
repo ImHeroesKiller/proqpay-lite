@@ -9,8 +9,8 @@ test('Integrations UI no longer renders legacy HRIS attendance accounting bank c
   assert.match(page, /IntegrationsWorkspace/);
   assert.doesNotMatch(page, /OperatingWorkspace mode="integrations"/);
   assert.match(workspace, /PaymentGatewayIntegrationPanel/);
-  assert.match(workspace, /ApiEndpointMonitor/);
-  assert.match(workspace, /Payment Gateway dan aktivitas aplikasi eksternal/);
+  assert.doesNotMatch(workspace, /ApiEndpointMonitor/);
+  assert.match(workspace, /Observability API, event, error, dan status terpusat di Audit Console/);
   assert.doesNotMatch(operating, /\['HRIS','ATTENDANCE','ACCOUNTING','BANK'\]/);
   assert.doesNotMatch(operating, /Pantau koneksi HRIS, attendance, accounting, dan bank/);
 });
@@ -28,16 +28,16 @@ test('API monitoring middleware observes identified apps without becoming an aut
   assert.match(security, /X-ProQPay-App-Name/);
 });
 
-test('API monitoring persists only request metadata and exposes Super Admin summary', async () => {
+test('API monitoring persists only request metadata and is consumed by the unified audit console', async () => {
   const migration = await readFile(new URL('../migrations/0027_api_endpoint_monitoring.sql', import.meta.url), 'utf8');
-  const endpoint = await readFile(new URL('../functions/api/integration-monitor.js', import.meta.url), 'utf8');
+  const endpoint = await readFile(new URL('../functions/api/audit-console.js', import.meta.url), 'utf8');
   assert.match(migration, /CREATE TABLE api_connected_apps/);
   assert.match(migration, /CREATE TABLE api_endpoint_events/);
   assert.doesNotMatch(migration, /authorization|cookie|request_body|response_body|token|secret/i);
   assert.match(endpoint, /const ROLES = \['SUPER_ADMIN'\]/);
-  assert.match(endpoint, /data_pulls_24h/);
-  assert.match(endpoint, /errors_24h/);
-  assert.match(endpoint, /baseEndpoint/);
+  assert.match(endpoint, /api_endpoint_events/);
+  assert.match(endpoint, /connected_apps/);
+  assert.match(endpoint, /INTEGRATIONS/);
 });
 
 test('Payment Gateway integration panel reflects encrypted Settings-based E2Pay configuration', async () => {
