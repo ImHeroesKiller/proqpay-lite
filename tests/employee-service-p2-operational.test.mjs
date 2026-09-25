@@ -32,12 +32,11 @@ test('Employee Service P2: EWA admin exposes lifecycle facets, retry and respons
   assert.match(ui,/Perbarui|Refresh/);
 });
 
-test('Employee Service P2: Portal Audit has explicit loading, recovery, empty and mobile states',async()=>{
-  const ui=await read('src/components/PortalAudit.tsx');
-  const states=await read('src/components/employee-services/OperationalState.tsx');
-  assert.match(ui,/Memuat jejak audit portal/);
-  assert.match(states,/Coba lagi/);
-  assert.match(ui,/Belum ada jejak audit/);
-  assert.match(ui,/pa-mobile/);
-  assert.match(ui,/Detail audit/);
+test('Employee Service P2: unified Audit Logs has loading, recovery, empty and detail states',async()=>{
+  const ui=await read('src/components/SystemLogs.tsx');
+  assert.match(ui,/Memuat audit log/);
+  assert.match(ui,/Coba lagi/);
+  assert.match(ui,/Tidak ada event yang cocok/);
+  assert.match(ui,/audit-table-wrap/);
+  assert.match(ui,/AUDIT DETAIL/);
 });
