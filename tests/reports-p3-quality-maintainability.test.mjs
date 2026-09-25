@@ -47,7 +47,8 @@ test('Reports P3: report CSS is consolidated into one final quality layer',async
   assert.match(css,/\.report-table {[\s\S]*font-variant-numeric:tabular-nums/);
   assert.match(css,/\.report-table \.report-sticky-col {[\s\S]*position:sticky/);
   assert.match(css,/@media \(max-width:760px\)[\s\S]*\.report-desktop-table \{[\s\S]*display:none/);
-  assert.match(css,/@media \(max-width:760px\)[\s\S]*\.report-mobile-list,[\s\S]*\.client-invoice-mobile-list \{[\s\S]*display:grid/);
+  assert.match(css,/@media \(max-width:760px\)[\s\S]*\.report-mobile-list \{[\s\S]*display:grid/);
+  assert.match(css,/@media \(max-width:760px\)[\s\S]*\.client-invoice-mobile-list \{[\s\S]*display:grid/);
 });
 
 test('Reports P3: loading polish respects reduced motion',async()=>{
