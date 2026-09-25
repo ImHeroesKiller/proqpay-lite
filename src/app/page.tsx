@@ -318,6 +318,7 @@ export default function Home() {
             {view === 'portalSettings' && <PortalSettings />}
 
             {view === 'reports' && (actor.role === 'CLIENT_USER' ? <ClientDocumentsWorkspace actor={actor} /> : <ReportsWorkspace />)}
+            </ModuleErrorBoundary>
           </div>
         </main>
         <AppFooter
