@@ -719,7 +719,7 @@
 .audit-console-meta span{display:inline-flex;align-items:center;gap:4px;min-height:28px;padding:5px 9px;border:1px solid var(--border);border-radius:999px;background:var(--bg-surface);font-size:9.5px;font-weight:700;color:var(--text2)}
 .audit-console-meta span.ok{color:var(--success);border-color:color-mix(in srgb,var(--success) 28%,var(--border))}
 .audit-console-meta span.warn{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 28%,var(--border))}
-.audit-status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.audit-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
 .audit-status-card{display:grid;gap:4px;min-height:104px;padding:14px 15px;border:1px solid var(--border);border-radius:15px;background:var(--bg-surface);box-shadow:var(--shadow-xs)}
 .audit-status-card span{font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text3)}
 .audit-status-card strong{font-size:27px;line-height:1;letter-spacing:-.04em}.audit-status-card small{color:var(--text3);font-size:9.5px}
