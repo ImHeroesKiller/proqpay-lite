@@ -132,7 +132,7 @@ export async function authenticateSession(request, env) {
       bindings: [tokenHash],
     },
     {
-      statement: `SELECT u.id, u.name, u.email, u.role, u.status, u.must_change_password,
+      statement: `SELECT u.id, u.org_id, u.name, u.email, u.role, u.status, u.must_change_password,
           u.payment_approver, s.expires_at,
           (SELECT json_group_array(client_id) FROM user_client_scopes WHERE user_id=u.id) AS client_ids,
           (SELECT json_group_array(project_id) FROM user_project_scopes WHERE user_id=u.id) AS project_ids
@@ -151,6 +151,7 @@ export async function authenticateSession(request, env) {
     id: user.id,
     name: user.name,
     email: user.email,
+    orgId: user.org_id || null,
     role: user.role,
     mustChangePassword: Boolean(user.must_change_password),
     paymentApprover: Boolean(user.payment_approver),
