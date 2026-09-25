@@ -98,8 +98,8 @@ export async function onRequest({request,env}) {
       const cs=clientFilter(actor,'id'),is=clientFilter(actor,'i.client_id'),as=clientFilter(actor,'ar.client_id'),
         ips=projectFilter(actor,'i.project_id'),aps=projectFilter(actor,'ar.project_id');
       const [clients,billablePayments,invoices,arItems]=await Promise.all([
-        d1All(database,`SELECT id,code,name,npwp,nitku,billing_address,billing_email,payment_terms_days,tax_status,
-          purchase_order,billing_method,billing_rate,billing_admin_fee,billing_tax_rate FROM clients
+        d1All(database,`SELECT id,code,name,npwp,nitku,billing_address,billing_email,billing_cc_email,payment_terms_days,tax_status,
+          purchase_order,billing_method,billing_rate,billing_admin_fee,billing_tax_rate,ar_payment_block_mode,ar_warning_days FROM clients
           WHERE org_id=?${cs.sql} ORDER BY name`,[organizationId,...cs.bindings]),
         actor.role==='CLIENT_USER'?Promise.resolve([]):d1All(database,`SELECT pi.id,pi.id AS instruction_number,pi.client_id,
           s.id AS submission_id,c.name AS company,c.name AS client_name,s.project_id,p.name AS project_name,s.period AS payroll_period,
@@ -124,6 +124,7 @@ export async function onRequest({request,env}) {
           WHERE i.org_id=?${is.sql}${actor.role==='CLIENT_USER'?" AND i.status IN ('ISSUED','PARTIALLY_PAID','PAID')":''}${ips.sql}${submissionFilter.sql}
           ORDER BY (i.issued_at IS NULL),i.issued_at DESC,i.updated_at DESC,i.id DESC LIMIT ? OFFSET ?`,[organizationId,...is.bindings,...ips.bindings,...submissionFilter.bindings,pageLimit+1,invoiceOffset]),
         d1All(database,`SELECT ar.*,i.invoice_number,i.total_amount,i.issued_at,c.name AS client_name,p.name AS project_name,
+          c.ar_payment_block_mode,c.ar_warning_days,
           CASE WHEN ar.status NOT IN ('PAID','DISPUTED') AND date(ar.due_date)<date('now') THEN 'OVERDUE'
           WHEN ar.status='OUTSTANDING' AND date(ar.due_date)>=date('now') THEN 'NOT_DUE' ELSE ar.status END AS display_status,
           MAX(CAST(julianday('now')-julianday(ar.due_date) AS INTEGER),0) AS age_days,
@@ -157,6 +158,16 @@ export async function onRequest({request,env}) {
         invoice.audit_activity=parseJson(invoice.audit_activity);
         invoice.activity=invoice.audit_activity.map((entry)=>({...entry,type:'AUDIT',at:entry.timestamp}));
       }
+      const clientGateSummary=new Map();
+      for (const ar of arPage) {
+        const key=String(ar.client_id||'');
+        const current=clientGateSummary.get(key)||{outstanding:0,overdue:0,mode:String(ar.ar_payment_block_mode||'OVERDUE')};
+        if (Number(ar.balance||0)>0 && String(ar.status||'')!=='PAID') {
+          current.outstanding += Number(ar.balance||0);
+          if (ar.due_date && new Date(String(ar.due_date)+'T00:00:00Z').getTime() < Date.now()) current.overdue += Number(ar.balance||0);
+        }
+        clientGateSummary.set(key,current);
+      }
       for (const ar of arPage) {
         ar.payments=parseJson(ar.payments);
         ar.unapplied_cash=parseJson(ar.unapplied_cash);
@@ -164,6 +175,11 @@ export async function onRequest({request,env}) {
         ar.audit_activity=parseJson(ar.audit_activity);
         const paid=Number(ar.paid_amount||0),unapplied=ar.unapplied_cash.reduce((sum,row)=>sum+Number(row.amount||0),0),outstanding=Number(ar.balance||0),invoiceTotal=Number(ar.amount||0);
         ar.control={invoiceTotal,paid,unapplied,outstanding,agingDays:Number(ar.aging_days||0),appliedDifference:invoiceTotal-paid-outstanding};
+        const gate=clientGateSummary.get(String(ar.client_id||''))||{outstanding:0,overdue:0,mode:'OVERDUE'};
+        ar.payment_gate_state=gate.mode==='ANY_OUTSTANDING'&&gate.outstanding>0?'BLOCKED':
+          gate.mode==='OVERDUE'&&gate.overdue>0?'BLOCKED':gate.outstanding>0?'WARNING':'CLEAR';
+        ar.client_outstanding=gate.outstanding;
+        ar.client_overdue=gate.overdue;
         ar.activity=[
           ...ar.payments.map((row)=>({type:'PAYMENT',at:row.created_at||row.payment_date,reference:row.reference,amount:Number(row.amount||0),actor:row.recorded_by,notes:row.notes})),
           ...ar.unapplied_cash.map((row)=>({type:'UNAPPLIED_CASH',at:row.created_at||row.payment_date,reference:row.reference,amount:Number(row.amount||0),status:row.status,notes:row.notes})),
@@ -183,14 +199,16 @@ export async function onRequest({request,env}) {
     if (body.action==='UPDATE_BILLING_PROFILE') {
       if (!canPrepareBilling(actor)) return respond({error:'Aksi ini membutuhkan izin billing:prepare',code:'BILLING_PREPARE_PERMISSION_REQUIRED'},403);
       const method=String(body.billingMethod||''),terms=integer(body.paymentTermsDays,0,365),rate=Number(body.billingRate),
-        admin=integer(body.billingAdminFee??body.adminFee,0),taxRate=Number(body.billingTaxRate??body.taxRate),taxStatus=String(body.taxStatus||'NON_PKP');
-      if (!['PER_EMPLOYEE','FIXED','PERCENTAGE_OF_PAYROLL'].includes(method)||terms===null||!Number.isFinite(rate)||rate<0||admin===null||!Number.isFinite(taxRate)||taxRate<0||taxRate>100||!['PKP','NON_PKP'].includes(taxStatus)) return respond({error:'Nilai billing tidak valid'},422);
-      const client=await d1First(database,`UPDATE clients SET npwp=?,nitku=?,billing_address=?,billing_email=?,payment_terms_days=?,
-        tax_status=?,purchase_order=?,billing_method=?,billing_rate=?,billing_admin_fee=?,billing_tax_rate=? WHERE id=? AND org_id=? RETURNING *`,
-        [text(body.npwp,40),text(body.nitku,40),text(body.billingAddress,1000),text(body.billingEmail,254),terms,taxStatus,
-        text(body.purchaseOrder,120),method,rate,admin,taxRate,body.clientId,organizationId]);
+        admin=integer(body.billingAdminFee??body.adminFee,0),taxRate=Number(body.billingTaxRate??body.taxRate),taxStatus=String(body.taxStatus||'NON_PKP'),
+        arBlockMode=String(body.arPaymentBlockMode||'OVERDUE'),arWarningDays=integer(body.arWarningDays??7,0,90);
+      if (!['PER_EMPLOYEE','FIXED','PERCENTAGE_OF_PAYROLL'].includes(method)||terms===null||!Number.isFinite(rate)||rate<0||admin===null||!Number.isFinite(taxRate)||taxRate<0||taxRate>100||!['PKP','NON_PKP'].includes(taxStatus)||!['OFF','OVERDUE','ANY_OUTSTANDING'].includes(arBlockMode)||arWarningDays===null) return respond({error:'Nilai billing tidak valid'},422);
+      const client=await d1First(database,`UPDATE clients SET npwp=?,nitku=?,billing_address=?,billing_email=?,billing_cc_email=?,payment_terms_days=?,
+        tax_status=?,purchase_order=?,billing_method=?,billing_rate=?,billing_admin_fee=?,billing_tax_rate=?,ar_payment_block_mode=?,ar_warning_days=?
+        WHERE id=? AND org_id=? RETURNING *`,
+        [text(body.npwp,40),text(body.nitku,40),text(body.billingAddress,1000),text(body.billingEmail,254),text(body.billingCcEmail,254),terms,taxStatus,
+        text(body.purchaseOrder,120),method,rate,admin,taxRate,arBlockMode,arWarningDays,body.clientId,organizationId]);
       if (!client) return respond({error:'Klien tidak ditemukan'},404);
-      await recordAudit(database,organizationId,actor,'BILLING_PROFILE_UPDATED','client',client.id,JSON.stringify({billingMethod:method,paymentTermsDays:terms,taxStatus}));
+      await recordAudit(database,organizationId,actor,'BILLING_PROFILE_UPDATED','client',client.id,JSON.stringify({billingMethod:method,paymentTermsDays:terms,taxStatus,arBlockMode,arWarningDays}));
       return respond({ok:true,client});
     }
     if (body.action==='GENERATE_INVOICE') {
@@ -262,7 +280,7 @@ export async function onRequest({request,env}) {
       if (invoice.status!=='ISSUED') {
         if (invoice.status!=='APPROVED') return respond({error:'Invoice belum disetujui'},409);
         if (invoice.tax_status==='PKP'&&invoice.tax_invoice_status!=='APPROVED') return respond({error:'Faktur pajak Coretax belum disetujui'},409);
-        await d1Batch(database,[{statement:`UPDATE invoices SET status='ISSUED',issued_at=${NOW},sent_at=${NOW},due_date=NULL,updated_at=${NOW}
+        await d1Batch(database,[{statement:`UPDATE invoices SET status='ISSUED',issued_at=${NOW},due_date=NULL,updated_at=${NOW}
           WHERE id=? AND org_id=? AND status='APPROVED'`,bindings:[invoice.id,organizationId]}]);
         invoice=await d1First(database,`SELECT i.*,c.payment_terms_days,c.tax_status FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.id=? AND i.org_id=? LIMIT 1`,[body.invoiceId,organizationId]);
         await recordAudit(database,organizationId,actor,'INVOICE_ISSUED','invoice',invoice.id,JSON.stringify({invoiceNumber:invoice.invoice_number,totalAmount:Number(invoice.total_amount||0)}));
