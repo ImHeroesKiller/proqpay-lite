@@ -24,7 +24,7 @@ test('Employee Services UI P1: Advance detail uses a side drawer dialog',async()
   assert.match(detail,/es-drawer-backdrop/);
   assert.match(styles,/justify-content:flex-end/);
   assert.match(detail,/aria-modal="true"/);
-  assert.match(detail,/className="ewa-detail-panel"/);
+  assert.match(detail,/className="ewa-detail-panel es-drawer"/);
 });
 
 test('Employee Services UI P1: Portal Configuration protects unsaved changes and structures business sections',async()=>{
