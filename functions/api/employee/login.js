@@ -45,7 +45,7 @@ export async function onRequest({ request, env }) {
   const orgId = String(env.DEFAULT_ORG_ID || 'ORG-OTSINDO');
   const fail = async (reason) => {
     await recordLoginAttempt(env.DB, {
-      employeeIdInput: empId, employeeId: reason.employeeId, ip, success: false, reason: reason.code,
+      orgId, employeeIdInput: empId, employeeId: reason.employeeId, ip, success: false, reason: reason.code,
     });
     return employeeJson({ error: 'Employee ID atau password tidak valid' }, 401, request, env, METHODS);
   };
@@ -72,7 +72,7 @@ export async function onRequest({ request, env }) {
 
     if (credentials.locked_until && new Date(credentials.locked_until).getTime() > Date.now()) {
       await recordLoginAttempt(env.DB, {
-        employeeIdInput: empId, employeeId: employee.id, ip, success: false, reason: 'LOCKED',
+        orgId, employeeIdInput: empId, employeeId: employee.id, ip, success: false, reason: 'LOCKED',
       });
       return employeeJson({ error: 'Akun terkunci sementara. Coba kembali 15 menit lagi.' }, 429, request, env, METHODS);
     }
@@ -82,7 +82,7 @@ export async function onRequest({ request, env }) {
       failed_login_attempts=0, locked_until=NULL, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE employee_id=?`, [employee.id]);
     await recordLoginAttempt(env.DB, {
-      employeeIdInput: empId, employeeId: employee.id, ip, success: true, reason: 'OK',
+      orgId, employeeIdInput: empId, employeeId: employee.id, ip, success: true, reason: 'OK',
     });
 
     return employeeJson({
