@@ -122,7 +122,9 @@ test('Dashboard surfaces E2Pay merchant balance and refreshes it with dashboard 
   assert.match(source,/getE2PayOverview/);
   assert.match(source,/E2Pay balance/);
   assert.match(source,/loadGatewayBalance\(true\)/);
-  assert.match(source,/gatewayAccount\.balance/);
+  assert.match(source,/GatewayBalanceWidget/);
+  assert.match(source,/dashboard-summary-layout/);
+  assert.match(source,/account\.balance/);
 });
 
 test('Integrations exposes account, endpoint catalog, history, banks, inquiry and merchant admin',async()=>{
@@ -138,7 +140,8 @@ test('Integrations exposes account, endpoint catalog, history, banks, inquiry an
   assert.match(consoleSource,/Password administration/);
   assert.match(consoleSource,/Phone number administration/);
   assert.match(consoleSource,/Test refresh token/);
-  assert.match(consoleSource,/Test logout/);
+  assert.match(consoleSource,/Advanced administration/);
+  assert.match(consoleSource,/e2pay-collapsible/);
 });
 
 test('E2Pay provider snapshot migration stores only masked public account metadata',async()=>{
@@ -198,4 +201,24 @@ test('E2Pay bank directory normalizes provider status to active',async()=>{
   const result=await e2payBankListPage(env,'user',{limit:5},fetchImpl);
   assert.equal(result.data[0].active,false);
   assert.equal(result.data[1].active,true);
+});
+
+
+test('Dashboard balance is an exclusive widget and integrations hide advanced detail by default',async()=>{
+  const dashboard=await read('src/components/PayrollControlTower.tsx');
+  const consoleSource=await read('src/components/E2PayOperationsConsole.tsx');
+  const gatewayPanel=await read('src/components/PaymentGatewayIntegrationPanel.tsx');
+  const css=await read('src/app/globals.css');
+
+  assert.match(dashboard,/gateway-balance-widget/);
+  assert.match(dashboard,/dashboard-summary-layout/);
+  assert.doesNotMatch(dashboard,/<Kpi label="E2Pay balance"/);
+  assert.match(css,/grid-template-columns:minmax\(0,1fr\) minmax\(260px,300px\)/);
+  assert.match(css,/dashboard-summary-layout \.control-kpis/);
+
+  assert.match(consoleSource,/<details className="e2pay-collapsible">/);
+  assert.match(consoleSource,/Advanced administration/);
+  assert.match(gatewayPanel,/integration-runtime-strip/);
+  assert.doesNotMatch(gatewayPanel,/Operational recovery path/);
+  assert.doesNotMatch(gatewayPanel,/Runtime diagnostics/);
 });
