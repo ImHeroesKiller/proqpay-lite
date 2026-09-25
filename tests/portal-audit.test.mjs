@@ -99,6 +99,7 @@ test('portal audit lists login attempts without reading payroll tables', async (
   const body = await audit.json();
   assert.equal(body.ok, true);
   assert.ok(body.logins.some((row) => row.employee_id === '209200339' && Number(row.success) === 0));
+  assert.ok(body.logins.every((row) => row.org_id === undefined || row.org_id === 'ORG-OTSINDO'));
   assert.ok(body.events.some((row) => row.action === 'EMPLOYEE_PORTAL_PASSWORDS_ISSUED'));
   const payrollTouched = DB.sqlite.prepare(
     "SELECT COUNT(*) AS n FROM payroll_run_lines",
