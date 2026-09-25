@@ -21,6 +21,7 @@ type AuditRow = {
   actor_role?: string;
   entity?: string;
   entity_id?: string;
+  correlation_id?: string;
   ip?: string;
   origin?: string;
 };
@@ -293,7 +294,7 @@ export default function SystemLogs() {
         <div className="audit-pagination"><span>{activeTotal ? `${offset + 1}–${Math.min(offset + activeRows.length, activeTotal)} dari ${activeTotal}` : "0 event"}</span><div><button type="button" className="btn" disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - limit))}>Sebelumnya</button><button type="button" className="btn" disabled={!activeHasMore || loading} onClick={() => setOffset(nextOffset)}>Berikutnya</button></div></div>
       </section>
 
-      {selected ? <div className="es-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setSelected(null); }}><aside className="es-drawer audit-drawer" role="dialog" aria-modal="true" aria-labelledby="audit-detail-title"><div className="es-drawer-head"><div><span className="audit-eyebrow">AUDIT DETAIL</span><h2 id="audit-detail-title">{humanize(selected.event)}</h2><small>{selected.id}</small></div><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button></div><div className="es-detail-grid"><div><span>Waktu</span>{fmtTime(selected.timestamp)} WIB</div><div><span>Level</span>{selected.level}</div><div><span>Source</span>{SOURCE_LABELS[selected.source] || selected.source}</div><div><span>Origin</span>{selected.origin || "—"}</div><div><span>Actor</span>{selected.actor || "SYSTEM"} · {selected.actor_role || "—"}</div><div><span>IP</span>{selected.ip || "—"}</div><div><span>Entity</span>{selected.entity || "—"}</div><div><span>Entity ID</span>{selected.entity_id || "—"}</div><div className="audit-detail-wide"><span>Raw event</span>{selected.event}</div><div className="audit-detail-wide"><span>Detail</span>{selected.message || "—"}</div></div></aside></div> : null}
+      {selected ? <div className="es-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setSelected(null); }}><aside className="es-drawer audit-drawer" role="dialog" aria-modal="true" aria-labelledby="audit-detail-title"><div className="es-drawer-head"><div><span className="audit-eyebrow">AUDIT DETAIL</span><h2 id="audit-detail-title">{humanize(selected.event)}</h2><small>{selected.id}</small></div><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button></div><div className="es-detail-grid"><div><span>Waktu</span>{fmtTime(selected.timestamp)} WIB</div><div><span>Level</span>{selected.level}</div><div><span>Source</span>{SOURCE_LABELS[selected.source] || selected.source}</div><div><span>Origin</span>{selected.origin || "—"}</div><div><span>Actor</span>{selected.actor || "SYSTEM"} · {selected.actor_role || "—"}</div><div><span>IP</span>{selected.ip || "—"}</div><div><span>Entity</span>{selected.entity || "—"}</div><div><span>Entity ID</span>{selected.entity_id || "—"}</div><div><span>Correlation ID</span>{selected.correlation_id || "—"}</div><div className="audit-detail-wide"><span>Raw event</span>{selected.event}</div><div className="audit-detail-wide"><span>Detail</span>{selected.message || "—"}</div></div></aside></div> : null}
     </section>
   );
 }

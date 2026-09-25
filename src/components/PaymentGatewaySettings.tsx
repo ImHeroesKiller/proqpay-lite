@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 type CredentialSummary = {
   stored: Record<string, boolean>;
@@ -10,9 +10,15 @@ type CredentialSummary = {
 type GatewaySettings = {
   provider: 'UNCONFIGURED' | 'E2PAY';
   environment: 'UAT' | 'PRODUCTION';
+  activeProvider?: 'UNCONFIGURED' | 'E2PAY';
+  activeEnvironment?: 'UAT' | 'PRODUCTION';
+  draftProvider?: 'UNCONFIGURED' | 'E2PAY';
+  draftEnvironment?: 'UAT' | 'PRODUCTION';
   stored: Record<string, boolean>;
   masked: Record<string, string | null>;
   profiles?: Record<'UAT' | 'PRODUCTION', CredentialSummary>;
+  activatedBy?: string | null;
+  activatedAt?: string | null;
   updatedBy?: string | null;
   updatedAt?: string | null;
 };
@@ -45,8 +51,8 @@ const EMPTY: FormState = {
 
 function profileSummary(settings: GatewaySettings | null, environment: FormState['environment']) {
   return settings?.profiles?.[environment] || {
-    stored: settings?.environment === environment ? settings.stored : {},
-    masked: settings?.environment === environment ? settings.masked : {},
+    stored: settings?.draftEnvironment === environment || settings?.environment === environment ? settings.stored : {},
+    masked: settings?.draftEnvironment === environment || settings?.environment === environment ? settings.masked : {},
   };
 }
 
@@ -60,8 +66,18 @@ export default function PaymentGatewaySettings() {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
+  const [draftSaved, setDraftSaved] = useState(false);
+  const [executionReady, setExecutionReady] = useState(false);
+  const [activationAcknowledged, setActivationAcknowledged] = useState(false);
   const [message, setMessage] = useState<{ type:'success' | 'error' | 'info'; text:string } | null>(null);
   const [connection, setConnection] = useState<{ hostAuthorized:boolean; merchantLoginAuthorized:boolean; tokenType:string; expiresIn:number|null; merchantName:string; merchantStatus:string; merchantId:string; partnerId:string; sourceId:string; accountSrcMasked:string; bankCount:number; nextStep:string } | null>(null);
+
+  const activeProvider = server?.activeProvider || server?.provider || 'UNCONFIGURED';
+  const activeEnvironment = server?.activeEnvironment || server?.environment || 'UAT';
+  const isDraftDifferent = useMemo(
+    () => form.provider !== activeProvider || form.environment !== activeEnvironment,
+    [form.provider, form.environment, activeProvider, activeEnvironment],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,9 +92,12 @@ export default function PaymentGatewaySettings() {
       setServer(settings);
       setForm((current) => ({
         ...current,
-        provider:settings.provider || 'UNCONFIGURED',
-        environment:settings.environment || 'UAT',
+        provider:settings.draftProvider || settings.provider || 'UNCONFIGURED',
+        environment:settings.draftEnvironment || settings.environment || 'UAT',
       }));
+      setDraftSaved(false);
+      setExecutionReady(false);
+      setActivationAcknowledged(false);
     } catch (error) {
       setMessage({ type:'error', text:error instanceof Error ? error.message : 'Gagal memuat credential gateway' });
     } finally {
@@ -92,6 +111,9 @@ export default function PaymentGatewaySettings() {
     setForm((current) => ({ ...current, ...values }));
     setMessage(null);
     setConnection(null);
+    setExecutionReady(false);
+    setDraftSaved(false);
+    setActivationAcknowledged(false);
   }
 
   async function save() {
@@ -106,9 +128,8 @@ export default function PaymentGatewaySettings() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || data.message || 'Credential gagal disimpan');
       setServer(data.settings);
-      setForm({
-        provider:data.settings.provider,
-        environment:data.settings.environment,
+      setForm((current) => ({
+        ...current,
         merchantName:'',
         clientId:'',
         clientSecret:'',
@@ -117,12 +138,13 @@ export default function PaymentGatewaySettings() {
         username:'',
         password:'',
         merchantId:'',
-      });
+      }));
+      setDraftSaved(true);
+      setExecutionReady(false);
+      setActivationAcknowledged(false);
       setMessage({
         type:'success',
-        text:data.hostReadiness?.configured
-          ? 'Credential host UAT tersimpan terenkripsi. Gunakan Test Connection untuk validasi clientId/clientSecret.'
-          : 'Credential tersimpan. Lengkapi credential host yang belum tersedia.',
+        text:'Draft credential tersimpan terenkripsi. Runtime payment belum berubah. Jalankan Test Connection sebelum aktivasi.',
       });
     } catch (error) {
       setMessage({ type:'error', text:error instanceof Error ? error.message : 'Credential gagal disimpan' });
@@ -144,9 +166,49 @@ export default function PaymentGatewaySettings() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || data.message || 'Test E2Pay gagal');
       setConnection(data.connection);
-      setMessage({ type:'success', text:'Client Host Authorization E2Pay ' + (data.readiness?.environment || '') + ' berhasil.' });
+      const ready = Boolean(data.executionReadiness?.configured);
+      setExecutionReady(ready);
+      setMessage({
+        type:ready ? 'success' : 'info',
+        text:ready
+          ? 'Test berhasil. Profile execution-ready dan belum mengubah runtime.'
+          : 'Host authorization berhasil, tetapi profile belum execution-ready.',
+      });
     } catch (error) {
+      setExecutionReady(false);
       setMessage({ type:'error', text:error instanceof Error ? error.message : 'Test E2Pay gagal' });
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function activate() {
+    setBusy('activate');
+    setMessage(null);
+    try {
+      const confirmation = form.provider === 'UNCONFIGURED'
+        ? 'DISABLE_GATEWAY'
+        : form.environment === 'PRODUCTION' ? 'ACTIVATE_PRODUCTION' : 'ACTIVATE_UAT';
+      const response = await fetch('/api/payment-gateway-settings', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body:JSON.stringify({ action:'ACTIVATE', confirmation, ...form }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || data.message || 'Aktivasi gateway gagal');
+      setServer(data.settings);
+      setDraftSaved(false);
+      setExecutionReady(false);
+      setActivationAcknowledged(false);
+      setConnection(null);
+      setMessage({
+        type:'success',
+        text:form.provider === 'UNCONFIGURED'
+          ? 'Payment Gateway dinonaktifkan.'
+          : `Profile ${form.environment} aktif untuk runtime payment.`,
+      });
+    } catch (error) {
+      setMessage({ type:'error', text:error instanceof Error ? error.message : 'Aktivasi gateway gagal' });
     } finally {
       setBusy('');
     }
@@ -154,19 +216,29 @@ export default function PaymentGatewaySettings() {
 
   const credentialFields: Array<{ key:keyof FormState; label:string; secret?:boolean; placeholder:string }> = [
     { key:'merchantName', label:'Name', placeholder:'PT Mandiri Semesta Gemilang' },
-    { key:'clientId', label:'clientId', placeholder:'Masukkan Client ID UAT' },
-    { key:'clientSecret', label:'clientSecret', secret:true, placeholder:'Masukkan Client Secret UAT' },
+    { key:'clientId', label:'clientId', placeholder:'Masukkan Client ID' },
+    { key:'clientSecret', label:'clientSecret', secret:true, placeholder:'Masukkan Client Secret' },
     { key:'partnerId', label:'partnerId', placeholder:'0041' },
     { key:'sourceId', label:'sourceId', placeholder:'MANDIRIS' },
-    { key:'username', label:'username', placeholder:'Masukkan username merchant UAT' },
-    { key:'password', label:'password', secret:true, placeholder:'Masukkan password merchant UAT' },
-    { key:'merchantId', label:'merchantId', placeholder:'Masukkan Merchant ID UAT' },
+    { key:'username', label:'username', placeholder:'Masukkan username merchant' },
+    { key:'password', label:'password', secret:true, placeholder:'Masukkan password merchant' },
+    { key:'merchantId', label:'merchantId', placeholder:'Masukkan Merchant ID' },
   ];
 
+  const canActivate = form.provider === 'UNCONFIGURED'
+    ? draftSaved && activationAcknowledged
+    : draftSaved && executionReady && activationAcknowledged;
+
   return <div style={{ display:'grid', gap:16 }}>
+    <div className="operations-summary-grid" style={{ margin:0 }}>
+      <div><span>Runtime aktif</span><strong>{activeProvider}</strong><small>{activeProvider === 'UNCONFIGURED' ? 'Payment execution nonaktif' : activeEnvironment}</small></div>
+      <div><span>Draft profile</span><strong>{form.provider}</strong><small>{form.environment}{isDraftDifferent ? ' · belum aktif' : ' · sama dengan runtime'}</small></div>
+      <div><span>Activation</span><strong>{server?.activatedAt ? 'RECORDED' : 'LEGACY'}</strong><small>{server?.activatedAt ? new Date(server.activatedAt).toLocaleString('id-ID') : 'Belum ada explicit activation'}</small></div>
+    </div>
+
     <div className="app-notice-bubble" role="note">
-      <strong>Credential UAT yang diberikan E2Pay</strong>
-      <span>Bootstrap credential tetap Name, clientId, clientSecret, partnerId, dan sourceId. Karena username/password/merchantId sudah tersedia, ProQPay juga dapat memvalidasi merchant login dan menemukan accountId/source account otomatis. Access token dan refresh token tetap tidak perlu diinput manual.</span>
+      <strong>Configure → Save Draft → Test → Activate</strong>
+      <span>Save dan Test tidak mengubah environment runtime. Production hanya aktif setelah test execution-ready dan aktivasi eksplisit oleh Super Admin.</span>
     </div>
 
     <div className="settings-form-grid">
@@ -187,11 +259,11 @@ export default function PaymentGatewaySettings() {
     </div>
 
     {form.environment === 'PRODUCTION' ? <div className="app-notice-bubble app-notice-error" role="alert">
-      <strong>Production environment</strong>
-      <span>Credential Production disimpan terpisah dari UAT. Pastikan UAT dan rekonsiliasi beneficiary sudah selesai sebelum mengaktifkan Production.</span>
+      <strong>Production profile belum aktif hanya karena dipilih</strong>
+      <span>Credential Production terisolasi dari UAT. Runtime tetap pada profile aktif sampai tombol Activate Production dijalankan setelah test berhasil.</span>
     </div> : null}
 
-    <div className="settings-form-grid">
+    {form.provider === 'E2PAY' ? <div className="settings-form-grid">
       {credentialFields.map((item) => <label className="settings-field" key={item.key}>
         <span>{item.label}</span>
         <input
@@ -207,13 +279,13 @@ export default function PaymentGatewaySettings() {
           {profileSummary(server, form.environment).stored?.[item.key] ? ' · kosongkan input jika tidak ingin mengganti' : ''}
         </small>
       </label>)}
-    </div>
+    </div> : null}
 
     <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
       <button type="button" className="btn btn-primary" disabled={loading || Boolean(busy)} onClick={() => void save()}>
-        {busy === 'save' ? 'Menyimpan…' : 'Simpan Credential'}
+        {busy === 'save' ? 'Menyimpan…' : 'Save Draft'}
       </button>
-      <button type="button" className="btn" disabled={loading || Boolean(busy) || form.provider !== 'E2PAY'} onClick={() => void testConnection()}>
+      <button type="button" className="btn" disabled={loading || Boolean(busy) || form.provider !== 'E2PAY' || !draftSaved} onClick={() => void testConnection()}>
         {busy === 'test' ? 'Menguji…' : 'Test Connection'}
       </button>
       <button type="button" className="btn" disabled={loading || Boolean(busy)} onClick={() => void load()}>
@@ -224,7 +296,7 @@ export default function PaymentGatewaySettings() {
     {message ? <div className={'settings-status ' + message.type} role="status">{message.text}</div> : null}
 
     {connection ? <div className="card" style={{ padding:14, display:'grid', gap:6 }}>
-      <strong style={{ fontSize:12 }}>E2Pay UAT Connection</strong>
+      <strong style={{ fontSize:12 }}>E2Pay Connection Test · non-persistent</strong>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Host authorization: {connection.hostAuthorized ? 'SUCCESS' : 'FAILED'}</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Merchant login: {connection.merchantLoginAuthorized ? 'SUCCESS' : 'NOT TESTED'}</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Merchant: {connection.merchantName || '-'} {connection.merchantStatus ? '· ' + connection.merchantStatus : ''}</span>
@@ -233,13 +305,25 @@ export default function PaymentGatewaySettings() {
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Source ID: {connection.sourceId || '-'}</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Source account: {connection.accountSrcMasked || 'belum ditemukan'}</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Bank directory: {connection.bankCount || 0} bank</span>
-      <span style={{ fontSize:11.5, color:'var(--text3)' }}>Token type: {connection.tokenType || 'Bearer'}{connection.expiresIn ? ' · expires ' + connection.expiresIn + 's' : ''}</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>{connection.nextStep}</span>
     </div> : null}
 
+    {draftSaved ? <div className="card" style={{ padding:14, display:'grid', gap:10 }}>
+      <strong style={{ fontSize:12 }}>{form.provider === 'UNCONFIGURED' ? 'Deactivate Payment Gateway' : `Activate ${form.environment}`}</strong>
+      <label style={{ display:'flex', gap:8, alignItems:'flex-start', fontSize:11.5, color:'var(--text3)' }}>
+        <input type="checkbox" checked={activationAcknowledged} onChange={(event) => setActivationAcknowledged(event.target.checked)} />
+        <span>Saya memahami bahwa aktivasi ini mengubah profile runtime yang digunakan untuk payment execution.</span>
+      </label>
+      <button type="button" className={form.environment === 'PRODUCTION' && form.provider !== 'UNCONFIGURED' ? 'btn' : 'btn btn-primary'} disabled={!canActivate || Boolean(busy)} onClick={() => void activate()}>
+        {busy === 'activate' ? 'Mengaktifkan…' : form.provider === 'UNCONFIGURED' ? 'Deactivate Gateway' : `Activate ${form.environment}`}
+      </button>
+      {form.provider === 'E2PAY' && !executionReady ? <small style={{ color:'var(--text3)' }}>Aktivasi dikunci sampai Test Connection menyatakan profile execution-ready.</small> : null}
+    </div> : null}
+
     <div style={{ borderTop:'1px solid var(--border-soft)', paddingTop:12, color:'var(--text3)', fontSize:11.5, lineHeight:1.6 }}>
-      Credential disimpan terenkripsi di server. Password merchant dinormalisasi menjadi MD5 uppercase di backend sesuai kontrak E2Pay dan tidak dikirim kembali ke browser. Test Connection memvalidasi host authorization, username, merchant login, lalu menemukan source account otomatis.
-      {server?.updatedAt ? <div>Last update: {new Date(server.updatedAt).toLocaleString('id-ID')} · {server.updatedBy || '-'}</div> : null}
+      Credential disimpan terenkripsi di server. Password merchant dinormalisasi menjadi MD5 uppercase di backend dan tidak dikirim kembali ke browser. Test Connection tidak menyimpan source account atau mengubah runtime; source account baru dipersist saat aktivasi eksplisit berhasil.
+      {server?.updatedAt ? <div>Last draft update: {new Date(server.updatedAt).toLocaleString('id-ID')} · {server.updatedBy || '-'}</div> : null}
+      {server?.activatedAt ? <div>Last activation: {new Date(server.activatedAt).toLocaleString('id-ID')} · {server.activatedBy || '-'}</div> : null}
     </div>
   </div>;
 }

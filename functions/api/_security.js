@@ -47,7 +47,7 @@ export function corsHeaders(request, env, methods = 'GET, OPTIONS') {
   return {
     'Access-Control-Allow-Origin': responseOrigin,
     'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cf-Access-Jwt-Assertion, X-ProQPay-App-Id, X-ProQPay-App-Name',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cf-Access-Jwt-Assertion, X-ProQPay-App-Id, X-ProQPay-App-Name, X-Request-Id, X-Correlation-Id',
     'Access-Control-Allow-Methods': methods,
     'Cache-Control': 'no-store',
     Vary: 'Origin',
@@ -244,6 +244,7 @@ export async function authorize(
       ),
     };
   }
+  actor.orgId = actor.orgId || String(env.DEFAULT_ORG_ID || '') || null;
   actor.permissions = permissionsFor(actor.role, actor.email, env);
   if (actor.paymentApprover) {
     actor.permissions = [...new Set([...actor.permissions, 'PAYMENT_APPROVER', 'payment:approve'])];

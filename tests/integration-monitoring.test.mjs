@@ -47,3 +47,44 @@ test('Payment Gateway integration panel reflects encrypted Settings-based E2Pay 
   assert.match(panel, /Credential UAT dan Production disimpan sebagai profile terpisah/);
   assert.doesNotMatch(panel, /E2PAY_CLIENT_ID \/ E2PAY_CLIENT_SECRET<\/code> — Cloudflare Secret/);
 });
+
+
+test('P1 trusted-app lifecycle is explicit and cannot bypass endpoint authentication', async () => {
+  const monitor = await readFile(new URL('../functions/api/integration-monitor.js', import.meta.url), 'utf8');
+  const middleware = await readFile(new URL('../functions/api/_middleware.js', import.meta.url), 'utf8');
+  assert.match(monitor, /\['ACTIVATE','ACTIVE'\]/);
+  assert.match(monitor, /\['DEACTIVATE','INACTIVE'\]/);
+  assert.match(monitor, /\['REVOKE','REVOKED'\]/);
+  assert.match(monitor, /APP_REVOKED_TERMINAL/);
+  assert.match(middleware, /ACTIVE means operator-trusted/);
+  assert.match(middleware, /bypass normal ProQPay authentication/i);
+});
+
+test('P1 integration observability uses actor organization, retention and correlation ids', async () => {
+  const accountAuth = await readFile(new URL('../functions/api/_account-auth.js', import.meta.url), 'utf8');
+  const monitor = await readFile(new URL('../functions/api/integration-monitor.js', import.meta.url), 'utf8');
+  const middleware = await readFile(new URL('../functions/api/_middleware.js', import.meta.url), 'utf8');
+  const audit = await readFile(new URL('../functions/api/audit-logs.js', import.meta.url), 'utf8');
+  const migration = await readFile(new URL('../migrations/0038_integrations_p1_hardening.sql', import.meta.url), 'utf8');
+  assert.match(accountAuth, /u\.org_id/);
+  assert.match(accountAuth, /orgId: user\.org_id/);
+  assert.match(monitor, /actor\?\.orgId \|\| env\.DEFAULT_ORG_ID/);
+  assert.match(monitor, /API_MONITOR_RETENTION_DAYS/);
+  assert.match(monitor, /DELETE FROM api_endpoint_events/);
+  assert.match(middleware, /authenticateSession/);
+  assert.match(middleware, /X-Request-Id/);
+  assert.match(middleware, /correlation_id/);
+  assert.match(audit, /ev\.correlation_id AS correlation_id/);
+  assert.match(migration, /ALTER TABLE api_endpoint_events ADD COLUMN correlation_id/);
+  assert.match(migration, /ALTER TABLE audit_logs ADD COLUMN correlation_id/);
+});
+
+test('P1 Integrations UI distinguishes observed apps from trusted apps', async () => {
+  const panel = await readFile(new URL('../src/components/ApiEndpointMonitor.tsx', import.meta.url), 'utf8');
+  assert.match(panel, /Trusted apps/);
+  assert.match(panel, /Observed apps/);
+  assert.match(panel, /Mark Active/);
+  assert.match(panel, /Revoke/);
+  assert.match(panel, /autentikasi endpoint tetap wajib/);
+  assert.match(panel, /Retention:/);
+});
