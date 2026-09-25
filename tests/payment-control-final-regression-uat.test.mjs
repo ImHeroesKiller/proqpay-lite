@@ -74,13 +74,17 @@ test('final Payment Control UAT: both workspace and gateway queue aggregate all 
 
 test('final Payment Control UAT: page composes PI controls and gateway execution for internal roles',async()=>{
   const page=await read('src/app/page.tsx');
+  const router=await read('src/components/AppWorkspaceRouter.tsx');
+  const authority=await read('shared/authority-matrix.js');
   const workspace=await read('src/components/OperatingWorkspace.tsx');
   const gateway=await read('src/components/PaymentGatewayPaymentPanel.tsx');
   const evidence=await read('src/components/PaymentEvidenceReconciliation.tsx');
 
-  assert.match(page,/view === 'payments'.*OperatingWorkspace mode="payments".*PaymentGatewayPaymentPanel/s);
-  assert.match(page,/gatewayCanView = \['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'\]/);
-  assert.match(page,/gatewayCanExecute = \['SUPER_ADMIN','PAYROLL_PROCESSOR'\]/);
+  assert.match(page,/AppWorkspaceRouter/);
+  assert.match(router,/view === 'payments'[\s\S]*OperatingWorkspace mode="payments"[\s\S]*PaymentGatewayPaymentPanel/);
+  assert.match(page,/roleCanAction\(actor\.role,'payment\.prepare'\)/);
+  assert.match(page,/roleCanAction\(actor\.role,'payment\.execute'\)/);
+  assert.match(authority,/'payment\.execute'/);
   assert.match(workspace,/canRecordProof=\{isProcessor\}/);
   assert.match(workspace,/canReconcile=\{isController/);
   assert.match(workspace,/canApprove=\{canApprovePayment && isController\}/);
