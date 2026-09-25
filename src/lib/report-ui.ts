@@ -130,7 +130,6 @@ const COLUMN_LABELS:Record<string,string>={
   payment_date:'Tanggal Pembayaran',
   reconciliation:'Rekonsiliasi',
   payment_difference:'Selisih Pembayaran',
-  reconciliation_difference:'Selisih Rekonsiliasi',
 };
 
 const STATUS_LABELS:Record<string,string>={
