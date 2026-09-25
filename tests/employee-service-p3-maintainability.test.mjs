@@ -28,7 +28,7 @@ test('Employee Services P3: admin lifecycle UI consumes shared model instead of 
 test('Employee Services P3: search-heavy admin views debounce network requests',async()=>{
   const hook=await read('src/hooks/useDebouncedValue.ts');
   const inbox=await read('src/components/EwaInbox.tsx');
-  const audit=await read('src/components/PortalAudit.tsx');
+  const audit=await read('src/components/SystemLogs.tsx');
   assert.match(hook,/setTimeout/);
   assert.match(inbox,/qDebounced/);
   assert.match(audit,/qDebounced/);
