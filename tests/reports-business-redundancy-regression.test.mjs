@@ -42,6 +42,6 @@ test('Payroll redundancy audit: obsolete upload surface and endpoint are removed
   assert.match(intake,/fetch\("\/api\/payroll-intake"/);
   await assert.rejects(()=>read('src/components/PayrollSourceUpload.tsx'),/ENOENT/);
   await assert.rejects(()=>read('functions/api/payroll-upload.js'),/ENOENT/);
-  const validation=await read('functions/api/payroll-upload-validation.js');
+  const validation=await read('functions/api/payroll-intake-validation.js');
   assert.match(validation,/validatePayrollControlRows/);
 });
