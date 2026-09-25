@@ -2979,3 +2979,67 @@ textarea:focus-visible {
     min-width:0;
   }
 }
+
+
+/* Reports quality, polish and maintainability */
+.report-export-btn,
+.client-documents-refresh {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+}
+.report-export-btn svg,
+.client-documents-refresh svg {
+  width:16px;
+  height:16px;
+  flex:0 0 16px;
+}
+.report-loading {
+  display:grid;
+  gap:8px;
+  min-height:122px;
+  align-content:center;
+  padding:18px;
+}
+.report-loading-bar {
+  display:block;
+  height:10px;
+  border-radius:999px;
+  background:linear-gradient(90deg,var(--bg-subtle),color-mix(in srgb,var(--accent) 10%,var(--bg-subtle)),var(--bg-subtle));
+  background-size:220% 100%;
+  animation:report-loading-shimmer 1.4s ease-in-out infinite;
+}
+.report-loading-bar:nth-child(1) { width:78%; }
+.report-loading-bar:nth-child(2) { width:100%; }
+.report-loading-bar:nth-child(3) { width:62%; }
+.report-loading strong {
+  margin-top:3px;
+  color:var(--text2);
+  font-size:10.5px;
+  font-weight:700;
+}
+.client-invoice-table .report-num,
+.client-invoice-table td:nth-child(3) {
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+}
+.client-invoice-mobile-list {
+  display:none;
+}
+@keyframes report-loading-shimmer {
+  0% { background-position:100% 0; }
+  100% { background-position:-120% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .report-loading-bar { animation:none; }
+}
+@media (max-width:760px) {
+  .client-documents-refresh {
+    width:100%;
+    min-height:42px;
+  }
+  .client-invoice-mobile-list {
+    display:grid;
+  }
+}
