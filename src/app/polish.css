@@ -2360,7 +2360,7 @@ textarea:focus-visible {
 
 
 
-/* Reports UI — final consolidated quality layer */
+/* Reports UI — consolidated final layout | Reports UI — final consolidated quality layer */
 .reports-workspace,
 .client-documents-workspace {
   min-width:0;
@@ -2490,8 +2490,8 @@ textarea:focus-visible {
 }
 
 .report-filter {
-  position:sticky;
   top:8px;
+  position:sticky;
   z-index:7;
   display:grid !important;
   grid-template-columns:minmax(240px,1fr) minmax(145px,.32fr) minmax(165px,.38fr) auto !important;
@@ -2891,7 +2891,11 @@ textarea:focus-visible {
   .report-desktop-table {
     display:none;
   }
-  .report-mobile-list,
+  .report-mobile-list {
+    display:grid;
+    gap:10px;
+    padding:11px;
+  }
   .client-invoice-mobile-list {
     display:grid;
     gap:10px;
