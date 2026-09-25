@@ -85,8 +85,8 @@ export function employeeIssues(employee: EmployeeRecord) {
 
 export function employeeStatusTone(status: unknown) {
   const value = employeeText(status).toLowerCase();
-  if (/aktif|tetap|permanent/.test(value)) return 'success';
-  if (/habis|expired|resign|nonaktif|terminated/.test(value)) return 'danger';
+  if (/habis|expired|resign|non[ -]?aktif|inactive|terminated|phk|pensiun|keluar|off|cancelled/.test(value)) return 'danger';
+  if (/aktif|active|tetap|permanent|pkwt|kontrak/.test(value)) return 'success';
   return 'warning';
 }
 
@@ -101,5 +101,9 @@ export function employeeMasked(value: unknown, enabled: boolean) {
 }
 
 export function canManageEmployees(actor: EmployeeActor | null) {
-  return Boolean(actor && ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(actor.role));
+  return Boolean(
+    actor &&
+    ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(actor.role) &&
+    actor.permissions?.includes('employees:write')
+  );
 }
