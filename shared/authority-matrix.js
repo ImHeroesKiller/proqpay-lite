@@ -66,3 +66,32 @@ export function capabilitiesForRole(role = '') {
 export function roleHasCapability(role, capability) {
   return capabilitiesForRole(role).includes(capability);
 }
+
+
+export const ACTION_RULES = Object.freeze({
+  'data-intake.upload': Object.freeze({ capability:'data-intake' }),
+  'employees.manage': Object.freeze({ permission:'employees:write' }),
+  'clients.manage': Object.freeze({ permission:'client:write' }),
+  'payroll.prepare': Object.freeze({ permission:'payroll:write' }),
+  'payroll.approve': Object.freeze({ permission:'approval:write' }),
+  'payment.prepare': Object.freeze({ permission:'payment:prepare' }),
+  'payment.execute': Object.freeze({ capability:'gateway:execute' }),
+  'payment.approve': Object.freeze({ permission:'payment:approve' }),
+  'reconciliation.manage': Object.freeze({ permission:'reconciliation:write' }),
+  'billing.prepare': Object.freeze({ permission:'billing:prepare' }),
+  'billing.approve': Object.freeze({ permission:'billing:approve' }),
+  'ar.manage': Object.freeze({ permission:'ar:write' }),
+  'integrations.view': Object.freeze({ capability:'integrations:view' }),
+  'integrations.manage': Object.freeze({ capability:'integrations:manage' }),
+  'audit.view': Object.freeze({ capability:'audit:view' }),
+  'settings.manage': Object.freeze({ capability:'settings' }),
+  'employee-services.manage': Object.freeze({ capability:'employee-services:manage' }),
+});
+
+export function roleCanAction(role, action) {
+  const rule = ACTION_RULES[action];
+  if (!rule) return false;
+  if (rule.permission) return permissionsForRole(role).includes(rule.permission);
+  if (rule.capability) return roleHasCapability(role, rule.capability);
+  return false;
+}
