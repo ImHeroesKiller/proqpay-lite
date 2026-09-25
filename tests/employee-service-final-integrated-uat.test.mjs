@@ -63,8 +63,8 @@ test('Final integrated Employee Services UAT: ESS submission -> approval -> disb
       VALUES('ASG-ES-FINAL','EMP-ES-FINAL','Operator',1);
     INSERT INTO employee_bank_accounts(id,employee_id,bank_name,account_no,is_primary)
       VALUES('BANK-ES-FINAL','EMP-ES-FINAL','BCA','1234567890',1);
-    INSERT INTO employee_compensation(employee_id,basic_salary,imported_gross,imported_deductions,imported_net,payroll_source_period,payroll_components)
-      VALUES('EMP-ES-FINAL',5000000,5500000,500000,5000000,'${period}','{"basicSalary":5500000,"taxDeduction":500000}');
+    INSERT INTO employee_compensation(employee_id,basic_salary,imported_gross,imported_net,payroll_source_period,payroll_components)
+      VALUES('EMP-ES-FINAL',5000000,5500000,5000000,'${period}','{"basicSalary":5500000,"taxDeduction":500000}');
     INSERT INTO ewa_policies(id,org_id,client_id,enabled,fee_rate,min_fee,min_fee_amount,max_percent,max_tenor_months,min_days_worked,min_tenure_months,min_tenure_days)
       VALUES('EWA-POL-FINAL','ORG-OTSINDO','CLI-ES-FINAL',1,0.03,50000,1750000,1,1,0,0,0);
   `);
