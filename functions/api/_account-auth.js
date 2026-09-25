@@ -1,12 +1,8 @@
 import { d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
+import { APP_ROLES } from '../../shared/authority-matrix.js';
 
 export const SESSION_COOKIE = 'proqpay_session';
-export const ACCOUNT_ROLES = Object.freeze([
-  'SUPER_ADMIN',
-  'PAYROLL_PROCESSOR',
-  'PAYROLL_CONTROLLER',
-  'CLIENT_USER',
-]);
+export const ACCOUNT_ROLES = APP_ROLES;
 
 const encoder = new TextEncoder();
 // Keep the KDF inside Cloudflare Pages' CPU budget. Generated passwords carry
