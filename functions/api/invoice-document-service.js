@@ -15,7 +15,7 @@ export async function loadInvoiceDocumentContext(database, organizationId, invoi
       c.purchase_order,c.tax_status,c.payment_terms_days,p.name AS project_name,p.code AS project_code,
       o.name AS organization_name,
       bip.legal_name AS issuer_legal_name,bip.address AS issuer_address,bip.npwp AS issuer_npwp,
-      bip.email AS issuer_email,bip.phone AS issuer_phone,bip.bank_name AS issuer_bank_name,
+      bip.email AS issuer_email,bip.phone AS issuer_phone,bip.website AS issuer_website,bip.bank_name AS issuer_bank_name,
       bip.bank_account_name AS issuer_bank_account_name,bip.bank_account_no AS issuer_bank_account_no,
       bip.payment_notes AS issuer_payment_notes
     FROM invoices i
@@ -32,6 +32,7 @@ export async function loadInvoiceDocumentContext(database, organizationId, invoi
     npwp:row.issuer_npwp||'',
     email:row.issuer_email||'',
     phone:row.issuer_phone||'',
+    website:row.issuer_website||'',
     bank_name:row.issuer_bank_name||'',
     bank_account_name:row.issuer_bank_account_name||'',
     bank_account_no:row.issuer_bank_account_no||'',
