@@ -1,14 +1,8 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { ACCOUNT_ROLES, authenticateSession, hasActiveAccounts } from './_account-auth.js';
+import { permissionsForRole } from '../../shared/authority-matrix.js';
 
 export const ROLES = ACCOUNT_ROLES;
-
-const ROLE_PERMISSIONS = Object.freeze({
-  SUPER_ADMIN: ['read', 'employees:write', 'import:write', 'schema:write', 'settings:write', 'client:write', 'project:write', 'service-plan:write', 'submission:write', 'exception:write', 'payment:prepare', 'PAYMENT_APPROVER', 'payment:approve', 'reconciliation:write', 'billing:prepare', 'billing:approve', 'ar:write'],
-  PAYROLL_PROCESSOR: ['read', 'employees:write', 'import:write', 'submission:write', 'exception:write', 'payroll:write', 'payment:prepare', 'reconciliation:write', 'billing:prepare'],
-  PAYROLL_CONTROLLER: ['read', 'approval:write', 'PAYMENT_APPROVER', 'payment:approve', 'reconciliation:write', 'billing:approve', 'ar:write'],
-  CLIENT_USER: ['read'],
-});
 
 function mappedIdentity(email, env = {}) {
   const entry = parseRoleMap(env)[String(email || '').trim().toLowerCase()];
@@ -22,7 +16,7 @@ function mappedIdentity(email, env = {}) {
 }
 
 export function permissionsFor(role, email = '', env = {}) {
-  const base = ROLE_PERMISSIONS[role] || [];
+  const base = permissionsForRole(role);
   const grants = mappedIdentity(email, env).permissions;
   const paymentApprover = grants.includes('PAYMENT_APPROVER') || grants.includes('payment:approve');
   return [...new Set([
