@@ -107,6 +107,7 @@ export default function PortalSettings() {
   const [message, setMessage] = useState("");
   const [ok, setOk] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const apply = useCallback((data: Record<string, unknown>) => {
     setClients((data.clients as Client[]) || []);
@@ -132,6 +133,7 @@ export default function PortalSettings() {
 
   const load = useCallback(
     async (nextClient: string) => {
+      setLoading(true);
       setMessage("");
       setOk("");
       const query = nextClient
@@ -142,14 +144,16 @@ export default function PortalSettings() {
       if (!response.ok)
         throw new Error(data.error || `HTTP ${response.status}`);
       apply(data);
+      setLoading(false);
     },
     [apply],
   );
 
   useEffect(() => {
-    void load("").catch((error) =>
-      setMessage(error instanceof Error ? error.message : "Gagal memuat"),
-    );
+    void load("").catch((error) => {
+      setMessage(error instanceof Error ? error.message : "Gagal memuat");
+      setLoading(false);
+    });
   }, [load]);
 
   async function save() {
@@ -217,14 +221,23 @@ export default function PortalSettings() {
       await load(value);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Gagal memuat");
+      setLoading(false);
     }
   }
 
   if (!policy || !copy) {
     return (
-      <p style={{ color: "var(--text3)" }}>
-        {message || "Memuat pengaturan portal…"}
-      </p>
+      <div className="card" aria-busy={loading} style={{ padding: 24 }}>
+        <strong>{message ? "Pengaturan portal gagal dimuat" : "Memuat pengaturan portal…"}</strong>
+        <p style={{ color: "var(--text3)", margin: "6px 0 12px" }}>
+          {message || "Mengambil policy, tampilan, banner, dan konfigurasi ESS."}
+        </p>
+        {message ? (
+          <button type="button" className="btn" disabled={loading} onClick={() => void load(clientId)}>
+            {loading ? "Memuat…" : "Coba lagi"}
+          </button>
+        ) : null}
+      </div>
     );
   }
 
@@ -241,9 +254,12 @@ export default function PortalSettings() {
             pay run, PI, atau billing.
           </p>
         </div>
-        <span className="status-pill">
-          {inherited ? "Default organisasi" : "Tersimpan"}
-        </span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span className="status-pill">{loading ? "Memuat…" : inherited ? "Default organisasi" : "Tersimpan"}</span>
+          <button type="button" className="btn" disabled={loading || busy} onClick={() => void load(clientId)}>
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="portal-toolbar portal-scope-toolbar">
