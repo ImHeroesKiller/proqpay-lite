@@ -4,10 +4,18 @@ import test from 'node:test';
 
 test('P3 uses one canonical integration health model across API and gateway UI', async () => {
   const health = await readFile(new URL('../src/lib/integration-health.ts', import.meta.url), 'utf8');
+  const operational = await readFile(new URL('../src/lib/operational-health.ts', import.meta.url), 'utf8');
+  const service = await readFile(new URL('../src/lib/service-health.ts', import.meta.url), 'utf8');
   const api = await readFile(new URL('../src/lib/integration-monitor-api.ts', import.meta.url), 'utf8');
   const monitor = await readFile(new URL('../src/components/ApiEndpointMonitor.tsx', import.meta.url), 'utf8');
   const gateway = await readFile(new URL('../src/components/PaymentGatewayIntegrationPanel.tsx', import.meta.url), 'utf8');
-  assert.match(health, /IntegrationHealthState/);
+  assert.match(operational, /OperationalHealthState/);
+  assert.match(operational, /HEALTHY/);
+  assert.match(operational, /DEGRADED/);
+  assert.match(operational, /DOWN/);
+  assert.match(operational, /IDLE/);
+  assert.match(health, /OperationalHealthState/);
+  assert.match(service, /serviceHealthState/);
   assert.match(health, /gatewayRuntimeHealth/);
   assert.match(health, /apiRecoveryGuidance/);
   assert.match(api, /IntegrationHealthState/);
