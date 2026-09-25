@@ -640,7 +640,7 @@ export default function PortalSettings() {
                     <option value="NONE">Hanya tampil</option>
                   </select>
                 </label>
-                <label style={{ ...field, gridColumn: "1 / -1" }}>
+                <label className="es-field portal-config-full">
                   Deskripsi
                   <textarea
                     value={ad.desc}
@@ -651,7 +651,7 @@ export default function PortalSettings() {
                   />
                 </label>
                 {ad.action === "EXTERNAL" ? (
-                  <label style={{ ...field, gridColumn: "1 / -1" }}>
+                  <label className="es-field portal-config-full">
                     Tautan eksternal (https)
                     <input
                       value={ad.href}
