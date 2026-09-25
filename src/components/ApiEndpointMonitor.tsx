@@ -202,7 +202,7 @@ export default function ApiEndpointMonitor() {
     </div>
 
     <div className="integration-endpoint-copy">
-      <div><strong>ProQPay API base endpoint</strong><small>Monitoring header tidak memberikan akses API.</small></div>
+      <div><strong>ProQPay API base endpoint</strong><small>Monitoring header tidak memberikan akses API; autentikasi endpoint tetap wajib.</small></div>
       <code title={base}>{base}</code>
       <button type="button" className="btn" onClick={() => void copy('base', base)}>{copied === 'base' ? 'Copied' : 'Copy'}</button>
     </div>
