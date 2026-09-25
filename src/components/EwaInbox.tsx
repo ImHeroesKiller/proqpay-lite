@@ -131,7 +131,7 @@ export default function EwaInbox() {
   );
 
   async function act(id: string, action: string, extra: Record<string, string> = {}): Promise<boolean> {
-    if (busy) return;
+    if (busy) return false;
     setBusy(id + action);
     setMessage("");
     try {
