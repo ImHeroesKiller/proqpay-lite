@@ -58,9 +58,9 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
 
   const total = useMemo(()=>invoices.reduce((sum,row)=>sum+Number(row.total_amount||0),0),[invoices]);
 
-  return <section style={{display:'grid',gap:18}}>
-    <div className="control-tower-heading">
-      <div><span>DOCUMENTS</span><h1>Documents & Reports</h1><p>Invoice, status tagihan, payroll register, payment history, dan dokumen hasil proses yang tersedia untuk akun Anda.</p></div>
+  return <section className="client-documents-workspace">
+    <div className="control-tower-heading client-documents-heading">
+      <div><span>DOCUMENTS & REPORTS</span><h1>Dokumen & Laporan</h1><p>Invoice, status tagihan, payroll register, riwayat pembayaran, dan dokumen hasil proses sesuai scope akun Anda.</p></div>
       <button type="button" className="btn" onClick={()=>void load()}>Refresh</button>
     </div>
 
@@ -71,7 +71,7 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
       <div className="card report-summary"><span>Perlu pembayaran</span><strong>{invoices.filter((row)=>['ISSUED','PARTIALLY_PAID'].includes(row.status)).length}</strong></div>
     </div>
 
-    <section className="card" style={{padding:18}}>
+    <section className="card client-invoice-section">
       <div className="control-panel-title"><div><span>INVOICES</span><h2>Invoice & Tax Documents</h2></div><small>{invoices.length} dokumen</small></div>
       {error ? <div className="app-notice-bubble app-notice-error"><strong>Invoice belum dapat dimuat</strong><span>{error}</span></div> : null}
       {loading ? <div className="control-empty">Memuat invoice…</div> : invoices.length ? <div className="report-table-wrap"><table className="report-table">
@@ -87,9 +87,9 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
       </table></div> : <div className="control-empty">Belum ada invoice yang diterbitkan untuk akun ini.</div>}
     </section>
 
-    <section>
-      <div className="control-panel-title"><div><span>REPORTS</span><h2>Payroll & Payment Reports</h2></div><small>{actor.email}</small></div>
-      <ReportsWorkspace clientMode />
+    <section className="client-reports-section">
+      <div className="control-panel-title"><div><span>REPORTS</span><h2>Laporan Payroll & Pembayaran</h2></div><small>Sesuai scope akun</small></div>
+      <ReportsWorkspace clientMode hideHeading />
     </section>
   </section>;
 }
