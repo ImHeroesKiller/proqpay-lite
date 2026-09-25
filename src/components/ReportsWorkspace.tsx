@@ -6,7 +6,7 @@ import PanelPagination from '@/components/PanelPagination';
 import PayrollSourceUpload from '@/components/PayrollSourceUpload';
 import {
   REPORT_COLUMNS,
-  REPORT_REPORT_LABELS,
+  REPORT_LABELS,
   isMoneyColumn,
   reportColumnLabel,
   reportPrimaryTitle,
@@ -18,6 +18,8 @@ import {
   type ReportRow,
   type ReportType,
 } from '@/lib/report-ui';
+
+type Props = { clientMode?: boolean };
 
 function csvCell(value: unknown) {
   const raw = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
