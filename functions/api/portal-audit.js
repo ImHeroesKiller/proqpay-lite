@@ -34,7 +34,7 @@ export async function onRequest({ request, env }) {
             e.name AS employee_name, e.employee_code
           FROM portal_login_attempts a
           LEFT JOIN employees e ON e.id=a.employee_id
-          WHERE a.employee_id IS NULL OR e.org_id=?
+          WHERE a.org_id=?
           ORDER BY a.created_at DESC
           LIMIT 200`,
         [organizationId],
