@@ -40,7 +40,7 @@ const EMPTY: IntegrationMonitorResponse = {
   eventPage:{ offset:0,limit:25,total:0,hasMore:false },
 };
 
-export default function ApiEndpointMonitor() {
+export default function ApiEndpointMonitor({ onOpenAuditCorrelation }: { onOpenAuditCorrelation?:(correlationId:string)=>void }) {
   const [copied, setCopied] = useState('');
   const [appBusy, setAppBusy] = useState('');
   const [q, setQ] = useState('');
@@ -223,6 +223,7 @@ export default function ApiEndpointMonitor() {
       refreshing={refreshing}
       copied={copied}
       onCopy={(label, value) => void copy(label, value)}
+      onTrace={onOpenAuditCorrelation}
       onPage={setEventOffset}
     />
 
