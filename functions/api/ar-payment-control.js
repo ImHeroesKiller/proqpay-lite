@@ -20,7 +20,7 @@ export async function evaluateClientArGate(database, organizationId, clientId) {
   const overdue=Number(summary?.overdue||0);
   const dueSoon=Number(summary?.due_soon||0);
   const blocked=mode==='ANY_OUTSTANDING' ? outstanding>0 : mode==='OVERDUE' ? overdue>0 : false;
-  const warning=!blocked && (outstanding>0 || dueSoon>0);
+  const warning=!blocked && dueSoon>0;
   return {
     state:blocked?'BLOCKED':warning?'WARNING':'CLEAR',
     blocked,
