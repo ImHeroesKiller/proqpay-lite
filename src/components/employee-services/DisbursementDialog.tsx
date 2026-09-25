@@ -19,42 +19,25 @@ export default function DisbursementDialog({ row, busy, error, onClose, onConfir
 
   return (
     <div
+      className="es-modal-backdrop"
       role="presentation"
       onMouseDown={(event) => {
         if (event.currentTarget === event.target && !busy) onClose();
       }}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 160,
-        background: "rgba(10,15,25,.42)",
-        display: "grid",
-        placeItems: "center",
-        padding: 16,
-      }}
     >
       <section
+        className="es-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="ewa-disbursement-title"
-        style={{
-          width: "min(520px, 100%)",
-          maxHeight: "90vh",
-          overflow: "auto",
-          background: "var(--card,#fff)",
-          border: "1px solid var(--border)",
-          borderRadius: 18,
-          boxShadow: "0 24px 64px rgba(0,0,0,.18)",
-          padding: 20,
-        }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+        <div className="es-modal-head">
           <div>
             <span className="page-eyebrow">Pencairan Advance Salary</span>
-            <h2 id="ewa-disbursement-title" style={{ margin: "4px 0" }}>
+            <h2 id="ewa-disbursement-title" className="ewa-dialog-title">
               {row.employee_name || row.employee_id}
             </h2>
-            <div style={{ fontSize: 12, color: "var(--text3)" }}>
+            <div className="ewa-dialog-meta">
               {row.employee_code} · {row.client_name} · {row.period}
             </div>
           </div>
@@ -63,25 +46,25 @@ export default function DisbursementDialog({ row, busy, error, onClose, onConfir
           </button>
         </div>
 
-        <div className="card" style={{ marginTop: 16, padding: 14 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="card ewa-disbursement-summary">
+          <div className="ewa-disbursement-summary-grid">
             <div>
-              <div style={{ fontSize: 10, color: "var(--text3)" }}>Nilai advance</div>
+              <span>Nilai advance</span>
               <strong>Rp {Number(row.amount || 0).toLocaleString("id-ID")}</strong>
             </div>
             <div>
-              <div style={{ fontSize: 10, color: "var(--text3)" }}>Rekening tujuan</div>
+              <span>Rekening tujuan</span>
               <strong>{row.destination_bank_name || "—"} · •••• {row.destination_account_last4 || "—"}</strong>
             </div>
           </div>
         </div>
 
-        <p style={{ fontSize: 12, color: "var(--text3)", lineHeight: 1.5 }}>
+        <p className="ewa-disbursement-note">
           Approver dan pencatat pencairan harus berbeda. Referensi transaksi menjadi bagian audit trail dan tidak dapat dipakai ulang.
         </p>
 
-        <div style={{ display: "grid", gap: 12 }}>
-          <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 650 }}>
+        <div className="es-form">
+          <label >
             Sumber pencairan
             <select value={source} onChange={(event) => setSource(event.target.value)}>
               <option value="BANK_TRANSFER">Bank Transfer</option>
@@ -89,7 +72,7 @@ export default function DisbursementDialog({ row, busy, error, onClose, onConfir
               <option value="OTHER">Lainnya</option>
             </select>
           </label>
-          <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 650 }}>
+          <label >
             Referensi transaksi
             <input
               autoFocus
@@ -98,15 +81,15 @@ export default function DisbursementDialog({ row, busy, error, onClose, onConfir
               onChange={(event) => setReference(event.target.value)}
             />
           </label>
-          <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 650 }}>
+          <label >
             Tanggal transaksi
             <input type="date" value={transactionDate} onChange={(event) => setTransactionDate(event.target.value)} />
           </label>
         </div>
 
-        {error ? <div className="app-notice-bubble app-notice-error" role="alert" style={{ marginTop: 12 }}>{error}</div> : null}
+        {error ? <div className="app-notice-bubble app-notice-error ewa-dialog-error" role="alert">{error}</div> : null}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+        <div className="ewa-disbursement-actions">
           <button type="button" className="btn" onClick={onClose} disabled={busy}>Batal</button>
           <button
             type="button"
