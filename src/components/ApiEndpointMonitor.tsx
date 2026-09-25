@@ -80,7 +80,6 @@ export default function ApiEndpointMonitor() {
   const appPage = data.appPage || EMPTY.appPage!;
   const eventPage = data.eventPage || EMPTY.eventPage!;
   const recentPull = useMemo(() => data.events.find((row) => row.event_type === 'DATA_PULL'), [data.events]);
-  const hasFilters = Boolean(q || appStatus || eventType || statusClass || from || to);
 
   async function changeAppStatus(appId: string, action: 'ACTIVATE' | 'DEACTIVATE' | 'REVOKE') {
     setAppBusy(appId + ':' + action);
