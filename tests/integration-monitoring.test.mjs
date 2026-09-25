@@ -105,6 +105,8 @@ test('P2 Integrations API supports server-side filters pagination and operationa
   assert.match(endpoint, /avg_duration_ms/);
   assert.match(endpoint, /failingEndpoints/);
   assert.match(endpoint, /slowEndpoints/);
+  assert.match(endpoint, /lower\(app_name\) LIKE \?/);
+  assert.match(endpoint, /lower\(COALESCE\(last_endpoint,''\)\) LIKE \?/);
 });
 
 test('P2 Integrations UI exposes actionable health filtering recovery and mobile event cards', async () => {
