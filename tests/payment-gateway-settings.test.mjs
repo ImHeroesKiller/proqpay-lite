@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { D1Mock } from './helpers/d1-mock.mjs';
 import {
+  activateGatewaySecureSettings,
   gatewayRuntimeEnv,
   publicGatewaySettings,
   readGatewaySecureSettings,
@@ -28,7 +29,8 @@ test('gateway credentials are encrypted at rest and runtime can hydrate E2Pay wi
       sourceId:'PROQPAY-UAT',
     },
   });
-  assert.equal(stored.provider, 'E2PAY');
+  assert.equal(stored.provider, 'UNCONFIGURED');
+  assert.equal(stored.draftProvider, 'E2PAY');
 
   const row = DB.sqlite.prepare('SELECT * FROM gateway_secure_settings WHERE org_id=?').get('ORG-OTSINDO');
   assert.ok(row.credentials_ciphertext);
@@ -37,7 +39,15 @@ test('gateway credentials are encrypted at rest and runtime can hydrate E2Pay wi
 
   const read = await readGatewaySecureSettings(DB, env, 'ORG-OTSINDO');
   assert.equal(read.credentials.clientSecret, 'uat-client-secret');
-  const runtime = await gatewayRuntimeEnv(DB, { ...env, DB }, 'ORG-OTSINDO');
+  let runtime = await gatewayRuntimeEnv(DB, { ...env, DB }, 'ORG-OTSINDO');
+  assert.equal(runtime.PAYMENT_GATEWAY_PROVIDER, 'UNCONFIGURED');
+
+  await activateGatewaySecureSettings(DB, env, 'ORG-OTSINDO', 'admin@proqpay.test', {
+    provider:'E2PAY',
+    environment:'UAT',
+    credentials:{},
+  });
+  runtime = await gatewayRuntimeEnv(DB, { ...env, DB }, 'ORG-OTSINDO');
   assert.equal(runtime.PAYMENT_GATEWAY_PROVIDER, 'E2PAY');
   assert.equal(runtime.E2PAY_ENV, 'UAT');
   assert.equal(runtime.E2PAY_CLIENT_SECRET, 'uat-client-secret');
@@ -206,4 +216,45 @@ test('merchant login metadata and discovered source account stay encrypted and b
   assert.equal(safe.stored.accountSrc,true);
   assert.doesNotMatch(JSON.stringify(safe),/6280000000000|5F4DCC3B5AA765D61D8327DEB882CF99|701000001/);
   DB.sqlite.close();
+});
+
+
+test('saving a Production draft never switches active UAT runtime until explicit activation', async () => {
+  const DB = new D1Mock();
+  await writeGatewaySecureSettings(DB, env, 'ORG-OTSINDO', 'admin@proqpay.test', {
+    provider:'E2PAY',
+    environment:'UAT',
+    credentials:{ clientId:'uat-client', clientSecret:'uat-secret' },
+  });
+  await activateGatewaySecureSettings(DB, env, 'ORG-OTSINDO', 'admin@proqpay.test', {
+    provider:'E2PAY',
+    environment:'UAT',
+    credentials:{},
+  });
+  await writeGatewaySecureSettings(DB, env, 'ORG-OTSINDO', 'admin@proqpay.test', {
+    provider:'E2PAY',
+    environment:'PRODUCTION',
+    credentials:{ clientId:'prod-client', clientSecret:'prod-secret' },
+  });
+
+  const stored = await readGatewaySecureSettings(DB, env, 'ORG-OTSINDO');
+  assert.equal(stored.environment, 'UAT');
+  assert.equal(stored.draftEnvironment, 'PRODUCTION');
+  const runtime = await gatewayRuntimeEnv(DB, { ...env, DB }, 'ORG-OTSINDO');
+  assert.equal(runtime.E2PAY_ENV, 'UAT');
+  assert.equal(runtime.E2PAY_CLIENT_SECRET, 'uat-secret');
+  DB.sqlite.close();
+});
+
+test('settings endpoint keeps TEST non-persistent and requires explicit activation confirmation', async () => {
+  const endpoint = await readFile(new URL('../functions/api/payment-gateway-settings.js', import.meta.url), 'utf8');
+  const ui = await readFile(new URL('../src/components/PaymentGatewaySettings.tsx', import.meta.url), 'utf8');
+  assert.match(endpoint, /action === 'TEST'/);
+  assert.match(endpoint, /persisted:false/);
+  assert.doesNotMatch(endpoint.match(/if \(action === 'TEST'\)[\s\S]*?if \(action === 'ACTIVATE'\)/)?.[0] || '', /writeGatewaySecureSettings|activateGatewaySecureSettings/);
+  assert.match(endpoint, /ACTIVATE_PRODUCTION/);
+  assert.match(endpoint, /E2PAY_EXECUTION_NOT_READY/);
+  assert.match(ui, /Configure → Save Draft → Test → Activate/);
+  assert.match(ui, /Runtime payment belum berubah/);
+  assert.match(ui, /Test Connection tidak menyimpan source account/);
 });
