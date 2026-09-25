@@ -51,7 +51,7 @@ export default function EmployeeDirectory({
       if(employeeIssues(employee).length) missing+=1;
       const end=employee.contractEnd?Date.parse(employee.contractEnd):Number.NaN;
       if(Number.isFinite(end)&&end<now) expired+=1;
-      else if(employee.isActive===true) active+=1;
+      if(employee.isActive===true) active+=1;
     });
     return{total:employees.length,active,expired,missing};
   },[employees]);
@@ -89,10 +89,11 @@ export default function EmployeeDirectory({
           <h1>Data Karyawan</h1>
           <p>Telusuri profil, penempatan, kontrak, payroll, dan kelengkapan administrasi.</p>
         </div>
-        <span className="role-access-chip">Akses: {actor?.role?.replaceAll('_',' ')||'CLIENT USER'}</span>
+        <div className="employee-page-actions">
+          <EmployeeCredentialsPanel actor={actor}/>
+          <span className="role-access-chip">Akses: {actor?.role?.replaceAll('_',' ')||'CLIENT USER'}</span>
+        </div>
       </div>
-
-      <EmployeeCredentialsPanel actor={actor}/>
 
       <div className="employee-summary-grid">
         <div><span>Total karyawan</span><strong>{summary.total}</strong><small>record dalam scope Anda</small></div>
@@ -126,6 +127,28 @@ export default function EmployeeDirectory({
               </tr>;
             })}</tbody>
           </table>
+          <div className="employee-mobile-list">
+            {visible.map((employee)=>{
+              const issues=employeeIssues(employee);
+              return <button key={employee.id} type="button" className="employee-mobile-card" onClick={()=>setSelected(employee)}>
+                <div className="employee-mobile-card-head">
+                  <span className="employee-mobile-avatar">{employeeInitials(employee.name)}</span>
+                  <div><strong>{employee.name}</strong><small>{employee.employeeCode||employee.id} · {employee.position||'Posisi belum diisi'}</small></div>
+                  <span className={`status-pill status-${employeeStatusTone(employee.status)}`}>{employee.status||'Belum diisi'}</span>
+                </div>
+                <div className="employee-mobile-scope">
+                  <div><span>Klien</span><strong>{employee.company||'-'}</strong></div>
+                  <div><span>Project</span><strong>{employee.project||employee.region||'-'}</strong></div>
+                </div>
+                <div className="employee-mobile-metrics">
+                  <div><span>Kontrak</span><strong>{employeeDateLabel(employee.contractEnd)}</strong></div>
+                  <div><span>Kelengkapan</span><strong>{issues.length?`${issues.length} isu`:'Lengkap'}</strong></div>
+                  <div><span>Gaji pokok</span><strong>{formatIDR(Number(employee.salaryGross||0))}</strong></div>
+                </div>
+                <span className="employee-mobile-open">Lihat detail →</span>
+              </button>;
+            })}
+          </div>
           {!visible.length?<div className="employee-empty"><strong>Data tidak ditemukan</strong><span>Coba ubah kata pencarian atau filter.</span></div>:null}
         </div>
         <div className="employee-pagination"><span>Halaman {safePage} dari {pageCount}</span><div><button type="button" disabled={safePage<=1} onClick={()=>setPage((value)=>Math.max(1,value-1))}>← Sebelumnya</button><button type="button" disabled={safePage>=pageCount} onClick={()=>setPage((value)=>Math.min(pageCount,value+1))}>Berikutnya →</button></div></div>
