@@ -40,16 +40,15 @@ test('Employee Services UI P1: Portal Configuration protects unsaved changes and
   assert.match(settings,/Portal Configuration/);
 });
 
-test('Employee Services UI P1: Portal Audit exposes structured filters and human-readable actions',async()=>{
-  const api=await read('functions/api/portal-audit.js');
-  const ui=await read('src/components/PortalAudit.tsx');
-  assert.match(api,/params\.get\('success'\)/);
-  assert.match(api,/params\.get\('group'\)/);
-  assert.match(api,/params\.get\('from'\)/);
-  assert.match(api,/params\.get\('to'\)/);
-  assert.match(ui,/ACTION_LABELS/);
-  assert.match(ui,/Filter hasil login/);
-  assert.match(ui,/Filter kategori event/);
-  assert.match(ui,/Tanggal mulai/);
-  assert.match(ui,/Tanggal akhir/);
+test('Employee Services UI P1: Portal activity is integrated into the unified Audit Logs console',async()=>{
+  const api=await read('functions/api/audit-logs.js');
+  const ui=await read('src/components/SystemLogs.tsx');
+  assert.match(api,/portal_login_attempts/);
+  assert.match(api,/audit_logs/);
+  assert.match(api,/EMPLOYEE_PORTAL_LOGIN_FAILED/);
+  assert.match(ui,/Audit Logs Control Center/);
+  assert.match(ui,/Employee Services/);
+  assert.match(ui,/Runtime Local/);
+  assert.match(ui,/Source/);
+  assert.match(ui,/Level/);
 });
