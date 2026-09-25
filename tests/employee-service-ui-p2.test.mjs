@@ -8,7 +8,7 @@ test('Employee Services UI P2: Advance Salary supports scalable page sizing',asy
   const ui=await read('src/components/EwaInbox.tsx');
   assert.match(ui,/Jumlah baris per halaman/);
   assert.match(ui,/100 baris/);
-  assert.match(ui,/limit:String\(limit\)/);
+  assert.match(ui,/limit:\s*String\(limit\)/);
 });
 
 test('Employee Services UI P2: Portal Audit uses scalable table controls and side drawer detail',async()=>{
