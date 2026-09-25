@@ -23,44 +23,92 @@ export async function onRequest({ request, env }) {
   if (!hasD1(env)) return respond({ error: 'Cloudflare D1 binding unavailable', code: 'D1_REQUIRED' }, 503);
 
   const organizationId = orgId(env, authorization.actor);
-  const kind = String(new URL(request.url).searchParams.get('kind') || 'all').toLowerCase();
+  const params = new URL(request.url).searchParams;
+  const kindRaw = String(params.get('kind') || 'logins').toLowerCase();
+  const kind = ['logins','events'].includes(kindRaw) ? kindRaw : 'logins';
+  const q = String(params.get('q') || '').trim().slice(0, 80);
+  const action = String(params.get('action') || '').trim().slice(0, 80);
+  const offset = Math.max(0, Number.parseInt(params.get('offset') || '0', 10) || 0);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(params.get('limit') || '50', 10) || 50));
 
   try {
-    const logins = kind === 'ewa'
-      ? []
-      : await d1All(
+    if (kind === 'logins') {
+      const clauses = ['a.org_id=?'];
+      const bindings = [organizationId];
+      if (q) {
+        clauses.push('(lower(COALESCE(e.name,\'\')) LIKE ? OR lower(COALESCE(e.employee_code,\'\')) LIKE ? OR lower(COALESCE(a.employee_id_input,\'\')) LIKE ? OR lower(COALESCE(a.ip,\'\')) LIKE ?)');
+        const like = `%${q.toLowerCase()}%`;
+        bindings.push(like, like, like, like);
+      }
+      const where = clauses.join(' AND ');
+      const logins = await d1All(
         env.DB,
         `SELECT a.id, a.org_id, a.employee_id_input, a.employee_id, a.ip, a.success, a.reason, a.created_at,
             e.name AS employee_name, e.employee_code
           FROM portal_login_attempts a
           LEFT JOIN employees e ON e.id=a.employee_id
-          WHERE a.org_id=?
-          ORDER BY a.created_at DESC
-          LIMIT 200`,
-        [organizationId],
+          WHERE ${where}
+          ORDER BY a.created_at DESC, a.id DESC
+          LIMIT ? OFFSET ?`,
+        [...bindings, limit, offset],
       );
-    const events = kind === 'logins'
-      ? []
-      : await d1All(
+      const count = await d1All(
         env.DB,
-        `SELECT id, timestamp, username, role, action, detail, entity, entity_id
-          FROM audit_logs
-          WHERE org_id=?
-            AND (
-              entity IN ('ewa_request', 'employee_credentials', 'employee')
-              OR action LIKE 'EWA_%'
-              OR action LIKE 'EMPLOYEE_PORTAL_%'
-              OR action IN ('EMPLOYEE_PASSWORD_CHANGED')
-            )
-          ORDER BY timestamp DESC
-          LIMIT 200`,
-        [organizationId],
+        `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN a.success=0 THEN 1 ELSE 0 END) AS failed
+          FROM portal_login_attempts a
+          LEFT JOIN employees e ON e.id=a.employee_id
+          WHERE ${where}`,
+        bindings,
       );
+      const total = Number(count[0]?.total || 0);
+      return respond({
+        ok: true,
+        kind,
+        logins,
+        events: [],
+        failedLogins: Number(count[0]?.failed || 0),
+        page: { offset, limit, total, hasMore: offset + logins.length < total, nextOffset: offset + logins.length },
+        filters: { q, action: '' },
+      });
+    }
+
+    const clauses = [
+      'org_id=?',
+      `(
+        entity IN ('ewa_request','employee_credentials')
+        OR action LIKE 'EWA_%'
+        OR action LIKE 'EMPLOYEE_PORTAL_%'
+        OR action IN ('EMPLOYEE_PASSWORD_CHANGED','EMPLOYEE_PORTAL_PASSWORDS_ISSUED')
+      )`,
+    ];
+    const bindings = [organizationId];
+    if (action) { clauses.push('action=?'); bindings.push(action); }
+    if (q) {
+      clauses.push('(lower(COALESCE(username,\'\')) LIKE ? OR lower(COALESCE(action,\'\')) LIKE ? OR lower(COALESCE(detail,\'\')) LIKE ? OR lower(COALESCE(entity_id,\'\')) LIKE ?)');
+      const like = `%${q.toLowerCase()}%`;
+      bindings.push(like, like, like, like);
+    }
+    const where = clauses.join(' AND ');
+    const events = await d1All(
+      env.DB,
+      `SELECT id, timestamp, username, role, action, detail, entity, entity_id
+        FROM audit_logs
+        WHERE ${where}
+        ORDER BY timestamp DESC, id DESC
+        LIMIT ? OFFSET ?`,
+      [...bindings, limit, offset],
+    );
+    const count = await d1All(env.DB, `SELECT COUNT(*) AS total FROM audit_logs WHERE ${where}`, bindings);
+    const total = Number(count[0]?.total || 0);
     return respond({
       ok: true,
-      logins,
+      kind,
+      logins: [],
       events,
-      failedLogins: logins.filter((row) => !Number(row.success)).length,
+      failedLogins: 0,
+      page: { offset, limit, total, hasMore: offset + events.length < total, nextOffset: offset + events.length },
+      filters: { q, action },
     });
   } catch (error) {
     return respond({ error: 'Portal audit failed', ...publicError(error, crypto.randomUUID()) }, 500);
