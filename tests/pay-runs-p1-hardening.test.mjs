@@ -14,12 +14,12 @@ test('Pay Runs P1 restricts create and input finalization to Processor ownership
   assert.doesNotMatch(d1,/CREATE_PAY_RUN'[\s\S]{0,250}!PROCESSOR_ROLES\.has\(actor\.role\) && !CLIENT_ROLES/);
 });
 
-test('Pay Runs P1 removes legacy UPLOAD_FINAL path from Pay Runs UI and contract',async()=>{
+test('Pay Runs P1 routes file-based payroll creation exclusively to Data Intake',async()=>{
   const validation=await read('functions/api/operating-model-validation.js');
   const ui=await read('src/components/OperatingWorkspace.tsx');
   const edge=await read('functions/api/operating-model.js');
   assert.match(validation,/SOURCE_MODES = new Set\(\['MASTER_CURRENT','COPY_PREVIOUS'\]\)/);
-  assert.match(edge,/PAY_RUN_UPLOAD_FINAL_MOVED_TO_DATA_INTAKE/);
+  assert.match(edge,/PAY_RUN_DATA_INTAKE_REQUIRED/);
   assert.doesNotMatch(ui,/<option value="UPLOAD_FINAL">/);
   assert.doesNotMatch(ui,/function PayRunUpload/);
   assert.match(ui,/Payroll final dari klien diproses melalui Data Intake/);
