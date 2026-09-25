@@ -72,13 +72,16 @@ test('UAT: failed external request is observed but never counted as a successful
 
 test('UAT: Super Admin integration workspace contains gateway and API monitor only', async () => {
   const page = await readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
+  const router = await readFile(new URL('../src/components/AppWorkspaceRouter.tsx', import.meta.url), 'utf8');
+  const authority = await readFile(new URL('../shared/authority-matrix.js', import.meta.url), 'utf8');
   const sidebar = await readFile(new URL('../src/components/Sidebar.tsx', import.meta.url), 'utf8');
   const workspace = await readFile(new URL('../src/components/IntegrationsWorkspace.tsx', import.meta.url), 'utf8');
   const legacy = await readFile(new URL('../src/components/OperatingWorkspace.tsx', import.meta.url), 'utf8');
 
-  assert.match(page, /view === 'integrations'.*IntegrationsWorkspace/s);
-  assert.match(sidebar.match(/SUPER_ADMIN:[\s\S]*?PAYROLL_PROCESSOR:/)?.[0] || '', /"integrations"/);
-  assert.doesNotMatch(sidebar.match(/PAYROLL_PROCESSOR:[\s\S]*?PAYROLL_CONTROLLER:/)?.[0] || '', /"integrations"/);
+  assert.match(page, /AppWorkspaceRouter/);
+  assert.match(router, /view === 'integrations'.*IntegrationsWorkspace/s);
+  assert.match(authority.match(/SUPER_ADMIN: Object\.freeze\(\[[\s\S]*?\]\)/)?.[0] || '', /'integrations'/);
+  assert.doesNotMatch(authority.match(/PAYROLL_PROCESSOR: Object\.freeze\(\[[\s\S]*?\]\)/)?.[0] || '', /'integrations'/);
   assert.match(workspace, /PaymentGatewayIntegrationPanel/);
   assert.match(workspace, /ApiEndpointMonitor/);
   assert.doesNotMatch(legacy, /HRIS','ATTENDANCE','ACCOUNTING','BANK/);
