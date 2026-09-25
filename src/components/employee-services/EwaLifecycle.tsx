@@ -53,6 +53,7 @@ export function EwaDetailPanel({
       }}
     >
       <aside
+        className="ewa-detail-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="ewa-detail-title"
