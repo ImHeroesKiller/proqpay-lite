@@ -108,27 +108,30 @@ export default function PortalSettings() {
   const [ok, setOk] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [baseline, setBaseline] = useState("");
 
   const apply = useCallback((data: Record<string, unknown>) => {
-    setClients((data.clients as Client[]) || []);
-    setInherited(Boolean(data.inherited));
-    setPolicy({
+    const nextPolicy = {
       ...(data.policy as Policy),
       minTenureDays: Number((data.policy as Policy)?.minTenureDays) || 0,
       minTenureMonths: Number((data.policy as Policy)?.minTenureMonths) || 0,
-    });
-    setCopy(data.copy as Copy);
-    setAdsEnabled(
-      (data.features as { adsEnabled?: boolean })?.adsEnabled !== false,
-    );
-    setAds(
-      ((data.ads as Ad[]) || []).map((ad, index) => ({
-        ...EMPTY_AD,
-        ...ad,
-        sortOrder: index,
-      })),
-    );
-    setPlatform(asPlatform(data.adsPlatform));
+    };
+    const nextCopy = data.copy as Copy;
+    const nextAdsEnabled = (data.features as { adsEnabled?: boolean })?.adsEnabled !== false;
+    const nextAds = ((data.ads as Ad[]) || []).map((ad, index) => ({
+      ...EMPTY_AD,
+      ...ad,
+      sortOrder: index,
+    }));
+    const nextPlatform = asPlatform(data.adsPlatform);
+    setClients((data.clients as Client[]) || []);
+    setInherited(Boolean(data.inherited));
+    setPolicy(nextPolicy);
+    setCopy(nextCopy);
+    setAdsEnabled(nextAdsEnabled);
+    setAds(nextAds);
+    setPlatform(nextPlatform);
+    setBaseline(JSON.stringify({ policy: nextPolicy, copy: nextCopy, adsEnabled: nextAdsEnabled, ads: nextAds, platform: nextPlatform }));
   }, []);
 
   const load = useCallback(
@@ -216,6 +219,7 @@ export default function PortalSettings() {
   }
 
   async function onClientChange(value: string) {
+    if (dirty && !window.confirm("Perubahan belum disimpan. Pindah lingkup dan buang perubahan?")) return;
     setClientId(value);
     try {
       await load(value);
@@ -242,20 +246,22 @@ export default function PortalSettings() {
   }
 
   const tenureUnit = (policy.minTenureDays || 0) > 0 ? "days" : "months";
+  const currentFingerprint = JSON.stringify({ policy, copy, adsEnabled, ads, platform });
+  const dirty = Boolean(baseline && currentFingerprint !== baseline);
 
   return (
     <section className="portal-workspace">
       <div className="page-heading">
         <div>
-          <span className="page-eyebrow">Employee portal</span>
-          <h1>Portal Settings</h1>
+          <span className="page-eyebrow">Employee Services</span>
+          <h1>Portal Configuration</h1>
           <p>
             Aturan advance, banner, dan teks ESS diatur di sini. Tidak mengubah
             pay run, PI, atau billing.
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span className="status-pill">{loading ? "Memuat…" : inherited ? "Default organisasi" : "Tersimpan"}</span>
+          <span className="status-pill">{loading ? "Memuat…" : dirty ? "Perubahan belum disimpan" : inherited ? "Default organisasi" : "Tersimpan"}</span>
           <button type="button" className="btn" disabled={loading || busy} onClick={() => void load(clientId)}>
             Refresh
           </button>
@@ -293,10 +299,10 @@ export default function PortalSettings() {
       <div className="portal-toolbar">
         {(
           [
-            ["rules", "Aturan advance"],
-            ["ads", "Banner / iklan"],
-            ["copy", "Teks portal"],
-            ["platform", "Ads platform"],
+            ["rules", "Advance Salary"],
+            ["copy", "Portal Content"],
+            ["ads", "Promotion"],
+            ["platform", "Tracking"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -331,6 +337,10 @@ export default function PortalSettings() {
             padding: 18,
           }}
         >
+          <div style={{ gridColumn: "1 / -1" }}>
+            <strong>Availability</strong>
+            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Aktifkan layanan Advance Salary untuk lingkup ini.</div>
+          </div>
           <label style={field}>
             Advance salary
             <select
@@ -343,6 +353,10 @@ export default function PortalSettings() {
               <option value="0">Nonaktif</option>
             </select>
           </label>
+          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+            <strong>Limit & fee</strong>
+            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Atur batas advance dan biaya layanan yang dihitung server-side.</div>
+          </div>
           <label style={field}>
             Plafond maksimal (% gaji berjalan)
             <input
@@ -405,6 +419,10 @@ export default function PortalSettings() {
               }
             />
           </label>
+          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+            <strong>Eligibility</strong>
+            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Syarat hari berjalan dan masa kerja sebelum karyawan dapat mengajukan.</div>
+          </div>
           <label style={field}>
             Hari berjalan di bulan gaji (prorata)
             <input
@@ -473,6 +491,10 @@ export default function PortalSettings() {
               kerja.
             </span>
           </label>
+          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+            <strong>Repayment</strong>
+            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Pengembalian dilakukan melalui payroll sesuai lifecycle canonical.</div>
+          </div>
           <label style={field}>
             Tenor (bulan, 1 = potong saat gajian)
             <input
@@ -657,48 +679,47 @@ export default function PortalSettings() {
                     />
                   </label>
                 ) : null}
-                <label style={field}>
-                  Warna / gradient
-                  <input
-                    value={ad.bg}
-                    onChange={(event) =>
-                      patchAd(setAds, ads, index, { bg: event.target.value })
-                    }
-                  />
-                </label>
-                <label style={field}>
-                  Gambar (https, opsional)
-                  <input
-                    value={ad.imageUrl}
-                    onChange={(event) =>
-                      patchAd(setAds, ads, index, {
-                        imageUrl: event.target.value,
-                      })
-                    }
-                  />
-                </label>
-                <label style={field}>
-                  Pixel tayang (opsional)
-                  <input
-                    value={ad.impressionUrl}
-                    onChange={(event) =>
-                      patchAd(setAds, ads, index, {
-                        impressionUrl: event.target.value,
-                      })
-                    }
-                  />
-                </label>
-                <label style={field}>
-                  URL klik / tracker (opsional)
-                  <input
-                    value={ad.clickUrl}
-                    onChange={(event) =>
-                      patchAd(setAds, ads, index, {
-                        clickUrl: event.target.value,
-                      })
-                    }
-                  />
-                </label>
+                <details style={{ gridColumn: "1 / -1", borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                  <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Tampilan & tracking lanjutan</summary>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginTop: 12 }}>
+                    <label style={field}>
+                      Warna / gradient
+                      <input
+                        value={ad.bg}
+                        onChange={(event) =>
+                          patchAd(setAds, ads, index, { bg: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label style={field}>
+                      Gambar (https, opsional)
+                      <input
+                        value={ad.imageUrl}
+                        onChange={(event) =>
+                          patchAd(setAds, ads, index, { imageUrl: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label style={field}>
+                      Pixel tayang (opsional)
+                      <input
+                        value={ad.impressionUrl}
+                        onChange={(event) =>
+                          patchAd(setAds, ads, index, { impressionUrl: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label style={field}>
+                      URL klik / tracker (opsional)
+                      <input
+                        value={ad.clickUrl}
+                        onChange={(event) =>
+                          patchAd(setAds, ads, index, { clickUrl: event.target.value })
+                        }
+                      />
+                    </label>
+                  </div>
+                </details>
                 <label
                   style={{
                     display: "flex",
@@ -882,15 +903,44 @@ export default function PortalSettings() {
         </div>
       ) : null}
 
-      <div style={{ marginTop: 16 }}>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={busy}
-          onClick={() => void save()}
-        >
-          {busy ? "Menyimpan…" : "Simpan pengaturan portal"}
-        </button>
+      <div
+        style={{
+          position: "sticky",
+          bottom: 12,
+          zIndex: 30,
+          marginTop: 18,
+          padding: 12,
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "center",
+          background: "var(--card,#fff)",
+          border: "1px solid var(--border)",
+          borderRadius: 14,
+          boxShadow: "0 12px 30px rgba(0,0,0,.10)",
+        }}
+      >
+        <div>
+          <strong style={{ fontSize: 12 }}>{dirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}</strong>
+          <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
+            {dirty ? "Simpan sebelum berpindah lingkup klien." : "Konfigurasi ini siap dipakai ESS pada muatan berikutnya."}
+          </div>
+        </div>
+        <span style={{ display: "flex", gap: 8 }}>
+          {dirty ? (
+            <button type="button" className="btn" disabled={busy || loading} onClick={() => void load(clientId)}>
+              Batalkan perubahan
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy || !dirty}
+            onClick={() => void save()}
+          >
+            {busy ? "Menyimpan…" : "Simpan perubahan"}
+          </button>
+        </span>
       </div>
     </section>
   );

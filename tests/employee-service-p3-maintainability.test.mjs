@@ -38,7 +38,7 @@ test('Employee Services P3: accessibility semantics remain explicit',async()=>{
   const inbox=await read('src/components/EwaInbox.tsx');
   const primitives=await read('src/components/employee-services/EwaLifecycle.tsx');
   const states=await read('src/components/employee-services/OperationalState.tsx');
-  assert.match(inbox,/aria-pressed/);
+  assert.match(inbox,/aria-label="Filter status"/);
   assert.match(inbox,/aria-live="polite"/);
   assert.match(primitives,/role="dialog"/);
   assert.match(primitives,/aria-labelledby/);

@@ -18,7 +18,7 @@ function pageMeta(offset, limit, total, rows) {
   };
 }
 
-async function loadLogins(database, organizationId, { q, offset, limit }) {
+async function loadLogins(database, organizationId, { q, success, from, to, offset, limit }) {
   const clauses = ['a.org_id=?'];
   const bindings = [organizationId];
   if (q) {
@@ -26,6 +26,9 @@ async function loadLogins(database, organizationId, { q, offset, limit }) {
     const like = `%${q.toLowerCase()}%`;
     bindings.push(like, like, like, like);
   }
+  if (success === '1' || success === '0') { clauses.push('a.success=?'); bindings.push(Number(success)); }
+  if (from) { clauses.push('a.created_at>=?'); bindings.push(from + 'T00:00:00'); }
+  if (to) { clauses.push('a.created_at<?'); bindings.push(to + 'T23:59:59.999'); }
   const where = clauses.join(' AND ');
   const rows = await d1All(
     database,
@@ -55,7 +58,7 @@ async function loadLogins(database, organizationId, { q, offset, limit }) {
   };
 }
 
-async function loadEvents(database, organizationId, { q, action, offset, limit }) {
+async function loadEvents(database, organizationId, { q, action, group, from, to, offset, limit }) {
   const clauses = [
     'org_id=?',
     `(
@@ -70,6 +73,10 @@ async function loadEvents(database, organizationId, { q, action, offset, limit }
     clauses.push('action=?');
     bindings.push(action);
   }
+  if (group === 'ewa') clauses.push("action LIKE 'EWA_%'");
+  if (group === 'credentials') clauses.push("(action LIKE 'EMPLOYEE_PORTAL_%' OR action IN ('EMPLOYEE_PASSWORD_CHANGED','EMPLOYEE_PORTAL_PASSWORDS_ISSUED'))");
+  if (from) { clauses.push('timestamp>=?'); bindings.push(from + 'T00:00:00'); }
+  if (to) { clauses.push('timestamp<?'); bindings.push(to + 'T23:59:59.999'); }
   if (q) {
     clauses.push("(lower(COALESCE(username,'')) LIKE ? OR lower(COALESCE(action,'')) LIKE ? OR lower(COALESCE(detail,'')) LIKE ? OR lower(COALESCE(entity_id,'')) LIKE ?)");
     const like = `%${q.toLowerCase()}%`;
@@ -110,16 +117,20 @@ export async function onRequest({ request, env }) {
   const kind = ['all','logins','events'].includes(kindRaw) ? kindRaw : 'all';
   const q = String(params.get('q') || '').trim().slice(0, 80);
   const action = String(params.get('action') || '').trim().slice(0, 80);
+  const success = String(params.get('success') || '').trim();
+  const group = String(params.get('group') || '').trim().toLowerCase();
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(params.get('from') || '')) ? String(params.get('from')) : '';
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(String(params.get('to') || '')) ? String(params.get('to')) : '';
   const offset = Math.max(0, Number.parseInt(params.get('offset') || '0', 10) || 0);
   const limit = Math.min(100, Math.max(1, Number.parseInt(params.get('limit') || '50', 10) || 50));
 
   try {
     const loginResult = kind === 'events'
       ? { rows: [], failed: 0, page: pageMeta(offset, limit, 0, []) }
-      : await loadLogins(env.DB, organizationId, { q, offset, limit });
+      : await loadLogins(env.DB, organizationId, { q, success, from, to, offset, limit });
     const eventResult = kind === 'logins'
       ? { rows: [], page: pageMeta(offset, limit, 0, []) }
-      : await loadEvents(env.DB, organizationId, { q, action, offset, limit });
+      : await loadEvents(env.DB, organizationId, { q, action, group, from, to, offset, limit });
 
     return respond({
       ok: true,
@@ -129,7 +140,7 @@ export async function onRequest({ request, env }) {
       failedLogins: loginResult.failed,
       page: kind === 'events' ? eventResult.page : loginResult.page,
       pages: { logins: loginResult.page, events: eventResult.page },
-      filters: { q, action },
+      filters: { q, action, success, group, from, to },
     });
   } catch (error) {
     return respond({ error: 'Portal audit failed', ...publicError(error, crypto.randomUUID()) }, 500);

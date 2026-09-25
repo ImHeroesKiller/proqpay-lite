@@ -7,6 +7,7 @@ import {
   EwaStatusBadge,
 } from "@/components/employee-services/EwaLifecycle";
 import { EmployeeServiceState } from "@/components/employee-services/OperationalState";
+import DisbursementDialog from "@/components/employee-services/DisbursementDialog";
 import {
   EWA_STATUSES,
   ewaMeta,
@@ -75,6 +76,7 @@ export default function EwaInbox() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
   const [selected, setSelected] = useState<EwaRow | null>(null);
+  const [disbursementTarget, setDisbursementTarget] = useState<EwaRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -149,13 +151,8 @@ export default function EwaInbox() {
   }
 
   async function disburse(id: string) {
-    const source = window.prompt("Sumber pencairan (contoh: E2PAY, BANK_TRANSFER):", "BANK_TRANSFER")?.trim();
-    if (!source) return;
-    const reference = window.prompt("Nomor referensi transaksi:")?.trim();
-    if (!reference) return;
-    const transactionDate = window.prompt("Tanggal transaksi (YYYY-MM-DD):", new Date().toISOString().slice(0, 10))?.trim();
-    if (!transactionDate) return;
-    await act(id, "DISBURSE", { source, reference, transactionDate });
+    const row = rows.find((item) => item.id === id);
+    if (row) setDisbursementTarget(row);
   }
 
   const operationalState = (
@@ -174,8 +171,8 @@ export default function EwaInbox() {
     <section className="portal-workspace">
       <style>{`
         .ewa-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}
-        .ewa-summary button{background:var(--card,#fff);border:1px solid var(--border);border-radius:14px;padding:13px;text-align:left;cursor:pointer;color:inherit}
-        .ewa-summary button:focus-visible,.ewa-row-actions .btn:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+        .ewa-summary-card{background:var(--card,#fff);border:1px solid var(--border);border-radius:14px;padding:13px;text-align:left;color:inherit}
+        .ewa-row-actions .btn:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
         .ewa-summary b{display:block;font-size:20px}.ewa-summary span{font-size:11px;color:var(--text3)}
         .ewa-mobile{display:none}.ewa-row-actions{display:flex;gap:6px;flex-wrap:wrap}.ewa-status{white-space:nowrap}
         .ewa-detail-panel{margin-top:12px}.ewa-detail-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}
@@ -209,24 +206,19 @@ export default function EwaInbox() {
 
       <div className="ewa-summary" aria-label="Ringkasan lifecycle">
         {visibleSummary.map((item) => (
-          <button key={item.key} type="button" aria-pressed={status === item.key} onClick={() => { setStatus(item.key); setOffset(0); }}>
+          <div key={item.key} className="ewa-summary-card">
             <b>{item.value}</b><span>{item.label}</span>
-          </button>
+          </div>
         ))}
       </div>
 
-      <div className="portal-toolbar" aria-label="Filter status advance">
-        {EWA_STATUSES.map((value) => (
-          <button key={value} type="button" aria-pressed={status === value} className={`btn${status === value ? " btn-primary" : ""}`} onClick={() => { setStatus(value); setOffset(0); }}>
-            {ewaMeta(value).label} ({counts[value] || 0})
-          </button>
-        ))}
-        <button type="button" aria-pressed={status === ""} className={`btn${status === "" ? " btn-primary" : ""}`} onClick={() => { setStatus(""); setOffset(0); }}>
-          Semua ({total})
-        </button>
-      </div>
-
-      <div className="portal-toolbar">
+      <div className="portal-toolbar" aria-label="Filter Advance Salary">
+        <select value={status} onChange={(event) => { setStatus(event.target.value); setOffset(0); }} aria-label="Filter status">
+          <option value="">Semua status ({total})</option>
+          {EWA_STATUSES.map((value) => (
+            <option key={value} value={value}>{ewaMeta(value).label} ({counts[value] || 0})</option>
+          ))}
+        </select>
         <input value={q} onChange={(e) => { setQ(e.target.value); setOffset(0); }} placeholder="Cari nama, kode, atau ID pengajuan" aria-label="Cari pengajuan advance" />
         <select value={clientId} onChange={(e) => { setClientId(e.target.value); setOffset(0); }} aria-label="Filter klien">
           <option value="">Semua klien</option>
@@ -240,21 +232,20 @@ export default function EwaInbox() {
 
       {rows.length > 0 ? (
         <>
-          <div className="card ewa-desktop" style={{ overflowX: "auto" }}>
-            <table className="data-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+          <div className="card ewa-desktop" style={{ overflow: "auto", maxHeight: "68vh" }}>
+            <table className="data-table" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: 880 }}>
               <thead>
-                <tr><th align="left">Karyawan</th><th align="left">Periode</th><th align="right">Cair</th><th align="right">Potong gaji</th><th align="left">Status</th><th align="left">Update</th><th /></tr>
+                <tr><th align="left" style={{ position: "sticky", left: 0, top: 0, zIndex: 4, background: "var(--card,#fff)" }}>Karyawan</th><th align="right">Advance</th><th align="right">Potong payroll</th><th align="left">Lifecycle</th><th align="left">Aktivitas terakhir</th><th align="right" style={{ position: "sticky", right: 0, top: 0, zIndex: 4, background: "var(--card,#fff)" }}>Aksi</th></tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id}>
-                    <td><strong>{row.employee_name || row.employee_id}</strong><div className="ewa-muted">{row.employee_code} · {row.client_name}</div></td>
-                    <td>{row.period}</td>
-                    <td align="right">{IDR.format(row.amount || 0)}</td>
+                    <td style={{ position: "sticky", left: 0, background: "var(--card,#fff)", minWidth: 220 }}><strong>{row.employee_name || row.employee_id}</strong><div className="ewa-muted">{row.employee_code} · {row.client_name} · {row.period}</div></td>
+                    <td align="right"><strong>{IDR.format(row.amount || 0)}</strong><div className="ewa-muted">Fee {IDR.format(row.fee || 0)}</div></td>
                     <td align="right">{IDR.format(row.repayment || 0)}</td>
-                    <td className="ewa-status"><EwaStatusBadge status={row.status} /></td>
+                    <td className="ewa-status"><EwaStatusBadge status={row.status} /><div className="ewa-muted" style={{ marginTop: 4 }}>{ewaMeta(row.status).note}</div></td>
                     <td>{formatPortalDate(row.disbursed_at || row.approved_at || row.created_at)}</td>
-                    <td>
+                    <td style={{ position: "sticky", right: 0, background: "var(--card,#fff)" }}>
                       <EwaActionButtons
                         row={row}
                         busy={Boolean(busy)}
@@ -305,6 +296,15 @@ export default function EwaInbox() {
       </div>
 
       {selected ? <EwaDetailPanel row={selected} onClose={() => setSelected(null)} /> : null}
+      {disbursementTarget ? (
+        <DisbursementDialog
+          row={disbursementTarget}
+          busy={Boolean(busy)}
+          error={message}
+          onClose={() => setDisbursementTarget(null)}
+          onConfirm={(input) => void act(disbursementTarget.id, "DISBURSE", input).then(() => setDisbursementTarget(null))}
+        />
+      ) : null}
     </section>
   );
 }
