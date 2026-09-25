@@ -25,12 +25,12 @@ UPDATE ewa_requests
 SET destination_bank_name = (
       SELECT b.bank_name FROM employee_bank_accounts b
       WHERE b.employee_id=ewa_requests.employee_id AND b.is_primary=1
-      ORDER BY b.updated_at DESC, b.id DESC LIMIT 1
+      ORDER BY b.created_at DESC, b.id DESC LIMIT 1
     ),
     destination_account_last4 = (
       SELECT substr(replace(b.account_no,' ',''),-4) FROM employee_bank_accounts b
       WHERE b.employee_id=ewa_requests.employee_id AND b.is_primary=1
-      ORDER BY b.updated_at DESC, b.id DESC LIMIT 1
+      ORDER BY b.created_at DESC, b.id DESC LIMIT 1
     )
 WHERE destination_account_last4 IS NULL;
 
