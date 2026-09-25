@@ -21,6 +21,9 @@ export type BillingClient = {
   billing_rate?: number | null;
   billing_admin_fee?: number | null;
   billing_tax_rate?: number | null;
+  billing_cc_email?: string | null;
+  ar_payment_block_mode?: "OFF" | "OVERDUE" | "ANY_OUTSTANDING" | null;
+  ar_warning_days?: number | null;
 };
 
 export type BillablePayment = {
@@ -82,6 +85,11 @@ export type InvoiceRecord = {
   due_date?: string | null;
   tax_invoice_file_uploaded?: number | boolean;
   activity?: BillingActivity[];
+  email_status?: "NOT_SENT" | "SENDING" | "SENT" | "FAILED" | null;
+  email_recipient?: string | null;
+  email_sent_at?: string | null;
+  pdf_sha256?: string | null;
+  pdf_generated_at?: string | null;
   [key: string]: unknown;
 };
 
@@ -114,6 +122,11 @@ export type ArRecord = {
   payments?: unknown[];
   unapplied_cash?: unknown[];
   follow_ups?: unknown[];
+  payment_gate_state?: "CLEAR" | "WARNING" | "BLOCKED";
+  client_outstanding?: number;
+  client_overdue?: number;
+  ar_payment_block_mode?: "OFF" | "OVERDUE" | "ANY_OUTSTANDING";
+  ar_warning_days?: number;
   [key: string]: unknown;
 };
 
@@ -132,12 +145,26 @@ export type BillingSubmission = {
   [key: string]: unknown;
 };
 
+export type BillingIssuerProfile = {
+  org_id?: string;
+  legal_name?: string | null;
+  address?: string | null;
+  npwp?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  bank_name?: string | null;
+  bank_account_name?: string | null;
+  bank_account_no?: string | null;
+  payment_notes?: string | null;
+};
+
 export type BillingData = {
   clients: BillingClient[];
   billablePayments: BillablePayment[];
   invoices: InvoiceRecord[];
   arItems: ArRecord[];
   submissions: BillingSubmission[];
+  issuerProfile?: BillingIssuerProfile | null;
 };
 
 export type BillingModalKind =
@@ -149,7 +176,8 @@ export type BillingModalKind =
   | "ar-history"
   | "revise"
   | "follow-up"
-  | "close";
+  | "close"
+  | "issuer";
 
 export type BillingModalState = {
   kind: BillingModalKind;
@@ -167,6 +195,7 @@ export function billingModalTitle(kind: BillingModalKind) {
     revise: "Minta revisi invoice",
     "follow-up": "Follow-up AR",
     close: "Konfirmasi tutup periode",
+    issuer: "Profil penerbit invoice",
   }[kind];
 }
 
