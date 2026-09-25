@@ -88,3 +88,31 @@ export function ewaMeta(status?: string): EwaLifecycleMeta {
 export function formatPortalDate(value?: string) {
   return value ? String(value).replace("T", " ").slice(0, 16) : "—";
 }
+
+
+export type EwaRow = {
+  id: string;
+  employee_id: string;
+  employee_name?: string;
+  employee_code?: string;
+  client_id?: string;
+  client_name?: string;
+  period: string;
+  amount: number;
+  fee: number;
+  repayment: number;
+  status: string;
+  created_at: string;
+  approved_by?: string;
+  approved_at?: string;
+  disbursed_by?: string;
+  disbursed_at?: string;
+  disbursement_source?: string;
+  disbursement_reference?: string;
+  disbursement_transaction_date?: string;
+  destination_bank_name?: string;
+  destination_account_last4?: string;
+};
+
+export type ClientFacet = { id: string; name: string };
+export type StatusCounts = Record<string, number>;
