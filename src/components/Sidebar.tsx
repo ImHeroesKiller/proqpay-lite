@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { roleHasCapability, viewsForRole } from "../../shared/authority-matrix.js";
 import {
   IconAlertTriangle,
   IconArrowUpRight,
@@ -36,44 +37,8 @@ export type AppView =
   | "ewa"
   | "portalSettings";
 
-const ROLE_VIEWS: Record<string, AppView[]> = {
-  SUPER_ADMIN: [
-    "dashboard",
-    "operations",
-    "exceptions",
-    "payments",
-    "billing",
-    "integrations",
-    "employees",
-    "clients",
-    "reports",
-    "logs",
-    "ewa",
-    "portalSettings",
-  ],
-  PAYROLL_PROCESSOR: [
-    "dashboard",
-    "operations",
-    "exceptions",
-    "payments",
-    "billing",
-    "employees",
-    "clients",
-    "reports",
-  ],
-  PAYROLL_CONTROLLER: [
-    "dashboard",
-    "operations",
-    "exceptions",
-    "payments",
-    "billing",
-    "reports",
-  ],
-  CLIENT_USER: ["dashboard", "operations", "reports"],
-};
-
-export function allowedViewsForRole(role?: string) {
-  return ROLE_VIEWS[role || ""] || ["dashboard"];
+export function allowedViewsForRole(role?: string):AppView[] {
+  return viewsForRole(role || "") as AppView[];
 }
 
 type Props = {
@@ -112,7 +77,7 @@ export default function Sidebar({
     onView(next);
     onMobileClose();
   };
-  const canIntake = ["SUPER_ADMIN", "PAYROLL_PROCESSOR"].includes(role || "");
+  const canIntake = roleHasCapability(role || "", "data-intake");
   const simplifiedInternal = ["PAYROLL_PROCESSOR", "PAYROLL_CONTROLLER"].includes(role || "");
   const clientExperience = role === "CLIENT_USER";
   const employeeServicesActive = ["ewa", "portalSettings"].includes(view);
