@@ -21,6 +21,23 @@ function statusLabel(value:string) {
   return labels[String(value||'')] || String(value||'-').replaceAll('_',' ');
 }
 
+async function loadAllInvoices() {
+  const invoices:any[]=[];
+  let offset=0;
+  for(let page=0;page<1000;page+=1){
+    const params=new URLSearchParams({limit:'500',invoiceOffset:String(offset)});
+    const response=await fetch(`/api/billing?${params.toString()}`,{credentials:'same-origin',cache:'no-store'});
+    const body=await response.json().catch(()=>({}));
+    if(!response.ok) throw new Error(body.error||`HTTP ${response.status}`);
+    invoices.push(...(Array.isArray(body.invoices)?body.invoices:[]));
+    const next=body?.meta?.invoices?.nextOffset;
+    if(next==null) return [...new Map(invoices.map((row)=>[row.id,row])).values()];
+    offset=Number(next);
+    if(!Number.isFinite(offset)||offset<0) throw new Error('Metadata pagination invoice tidak valid');
+  }
+  throw new Error('Pagination invoice melebihi batas aman');
+}
+
 export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
   const [invoices,setInvoices] = useState<any[]>([]);
   const [loading,setLoading] = useState(true);
@@ -29,10 +46,7 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
   const load = useCallback(async()=>{
     setLoading(true); setError('');
     try {
-      const response = await fetch('/api/billing',{credentials:'same-origin',cache:'no-store'});
-      const body = await response.json().catch(()=>({}));
-      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-      setInvoices(body.invoices || []);
+      setInvoices(await loadAllInvoices());
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Dokumen invoice gagal dimuat');
     } finally {
