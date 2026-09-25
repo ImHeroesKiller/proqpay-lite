@@ -9,7 +9,7 @@ const controller={role:'PAYROLL_CONTROLLER',permissions:['payment:approve','reco
 const client={role:'CLIENT_USER',permissions:['read']};
 
 test('Processor gets one clear primary action during Prepare and Review', () => {
-  assert.equal(derivePayrollNextAction({...processor,state:'DRAFT',inputStatus:'PENDING',sourceMode:'UPLOAD_FINAL'}).code,'UPLOAD_PAYROLL_DATA');
+  assert.equal(derivePayrollNextAction({...processor,state:'DRAFT',inputStatus:'PENDING',sourceMode:'UPLOAD_FINAL'}).code,'COMPLETE_DATA_INTAKE');
   assert.equal(derivePayrollNextAction({...processor,state:'DRAFT',inputStatus:'READY',sourceMode:'MASTER_CURRENT'}).code,'VALIDATE_PAYROLL');
   assert.equal(derivePayrollNextAction({...processor,state:'VALIDATED',inputStatus:'READY'}).code,'FINALIZE_PAYROLL');
   assert.equal(derivePayrollNextAction({...processor,state:'EXCEPTION_FOUND',blockingCount:2}).code,'RESOLVE_PAYROLL_ISSUES');
