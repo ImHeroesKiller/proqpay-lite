@@ -3,6 +3,7 @@ import { d1First, d1Run } from './_d1.js';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const ENVIRONMENTS = ['UAT','PRODUCTION'];
+const PROVIDERS = ['UNCONFIGURED','E2PAY'];
 
 function bytesToBase64(bytes) {
   let binary = '';
@@ -50,6 +51,11 @@ function normalizeEnvironment(value, fallback = 'UAT') {
   return ENVIRONMENTS.includes(normalized) ? normalized : fallback;
 }
 
+function normalizeProvider(value, fallback = 'UNCONFIGURED') {
+  const normalized = String(value || fallback).trim().toUpperCase();
+  return PROVIDERS.includes(normalized) ? normalized : fallback;
+}
+
 function normalizeProfiles(raw, activeEnvironment) {
   if (raw?.profiles && typeof raw.profiles === 'object' && !Array.isArray(raw.profiles)) {
     return {
@@ -57,10 +63,6 @@ function normalizeProfiles(raw, activeEnvironment) {
       PRODUCTION: raw.profiles.PRODUCTION && typeof raw.profiles.PRODUCTION === 'object' ? raw.profiles.PRODUCTION : {},
     };
   }
-
-  // Backward compatibility for rows written before environment-separated profiles.
-  // The legacy credential document is bound only to the row's active environment,
-  // preventing it from leaking into the other provider host.
   return {
     UAT: activeEnvironment === 'UAT' ? raw || {} : {},
     PRODUCTION: activeEnvironment === 'PRODUCTION' ? raw || {} : {},
@@ -75,53 +77,91 @@ export async function readGatewaySecureSettings(database, env, organizationId) {
     exists:false,
     provider:'UNCONFIGURED',
     environment:'UAT',
+    draftProvider:'UNCONFIGURED',
+    draftEnvironment:'UAT',
     credentials:{},
     credentialProfiles:{ UAT:{}, PRODUCTION:{} },
+    activatedBy:null,
+    activatedAt:null,
     updatedBy:null,
     updatedAt:null,
   };
 
   const environment = normalizeEnvironment(row.environment);
+  const provider = normalizeProvider(row.provider);
+  const draftEnvironment = normalizeEnvironment(row.draft_environment, environment);
+  const draftProvider = normalizeProvider(row.draft_provider, provider);
   const raw = await decryptCredentials(env, row);
   const credentialProfiles = normalizeProfiles(raw, environment);
   return {
     exists:true,
-    provider:String(row.provider || 'UNCONFIGURED').toUpperCase(),
+    provider,
     environment,
+    draftProvider,
+    draftEnvironment,
     credentials:credentialProfiles[environment] || {},
     credentialProfiles,
+    activatedBy:row.activated_by || null,
+    activatedAt:row.activated_at || null,
     updatedBy:row.updated_by || null,
     updatedAt:row.updated_at || null,
   };
 }
 
-export async function writeGatewaySecureSettings(database, env, organizationId, actorEmail, input) {
+async function persistGatewaySecureSettings(database, env, organizationId, actorEmail, input, activate) {
   const current = await readGatewaySecureSettings(database, env, organizationId);
-  const provider = String(input.provider || current.provider || 'UNCONFIGURED').toUpperCase();
-  const environment = normalizeEnvironment(input.environment, current.environment || 'UAT');
+  const draftProvider = normalizeProvider(input.provider, current.draftProvider || current.provider);
+  const draftEnvironment = normalizeEnvironment(input.environment, current.draftEnvironment || current.environment);
+  const activeProvider = activate ? draftProvider : current.provider;
+  const activeEnvironment = activate ? draftEnvironment : current.environment;
   const credentialProfiles = {
     UAT:{ ...(current.credentialProfiles?.UAT || {}) },
     PRODUCTION:{ ...(current.credentialProfiles?.PRODUCTION || {}) },
   };
-  credentialProfiles[environment] = {
-    ...credentialProfiles[environment],
+  credentialProfiles[draftEnvironment] = {
+    ...credentialProfiles[draftEnvironment],
     ...(input.credentials || {}),
   };
 
   const encrypted = await encryptCredentials(env, { profiles:credentialProfiles });
   await d1Run(database, `INSERT INTO gateway_secure_settings
-    (org_id,provider,environment,credentials_ciphertext,credentials_iv,credential_version,updated_by,updated_at)
-    VALUES(?,?,?,?,?,1,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    (org_id,provider,environment,draft_provider,draft_environment,credentials_ciphertext,credentials_iv,credential_version,updated_by,updated_at,activated_by,activated_at)
+    VALUES(?,?,?,?,?,?,?,1,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?,CASE WHEN ? THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE NULL END)
     ON CONFLICT(org_id) DO UPDATE SET
       provider=excluded.provider,
       environment=excluded.environment,
+      draft_provider=excluded.draft_provider,
+      draft_environment=excluded.draft_environment,
       credentials_ciphertext=excluded.credentials_ciphertext,
       credentials_iv=excluded.credentials_iv,
       credential_version=gateway_secure_settings.credential_version+1,
       updated_by=excluded.updated_by,
-      updated_at=excluded.updated_at`,
-    [organizationId, provider, environment, encrypted.ciphertext, encrypted.iv, actorEmail]);
+      updated_at=excluded.updated_at,
+      activated_by=CASE WHEN ? THEN excluded.activated_by ELSE gateway_secure_settings.activated_by END,
+      activated_at=CASE WHEN ? THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE gateway_secure_settings.activated_at END`,
+    [
+      organizationId,
+      activeProvider,
+      activeEnvironment,
+      draftProvider,
+      draftEnvironment,
+      encrypted.ciphertext,
+      encrypted.iv,
+      actorEmail,
+      activate ? actorEmail : null,
+      activate ? 1 : 0,
+      activate ? 1 : 0,
+      activate ? 1 : 0,
+    ]);
   return readGatewaySecureSettings(database, env, organizationId);
+}
+
+export async function writeGatewaySecureSettings(database, env, organizationId, actorEmail, input) {
+  return persistGatewaySecureSettings(database, env, organizationId, actorEmail, input, false);
+}
+
+export async function activateGatewaySecureSettings(database, env, organizationId, actorEmail, input) {
+  return persistGatewaySecureSettings(database, env, organizationId, actorEmail, input, true);
 }
 
 export async function gatewayRuntimeEnv(database, env, organizationId, environmentOverride = null) {
@@ -188,15 +228,22 @@ function profileSummary(credentials = {}) {
 
 export function publicGatewaySettings(stored) {
   const profiles = stored?.credentialProfiles || { UAT:{}, PRODUCTION:{} };
-  const active = profileSummary(profiles[stored?.environment || 'UAT'] || {});
+  const draftEnvironment = stored?.draftEnvironment || stored?.environment || 'UAT';
+  const draft = profileSummary(profiles[draftEnvironment] || {});
   return {
     provider:stored?.provider || 'UNCONFIGURED',
     environment:stored?.environment || 'UAT',
-    ...active,
+    activeProvider:stored?.provider || 'UNCONFIGURED',
+    activeEnvironment:stored?.environment || 'UAT',
+    draftProvider:stored?.draftProvider || stored?.provider || 'UNCONFIGURED',
+    draftEnvironment,
+    ...draft,
     profiles:{
       UAT:profileSummary(profiles.UAT || {}),
       PRODUCTION:profileSummary(profiles.PRODUCTION || {}),
     },
+    activatedBy:stored?.activatedBy || null,
+    activatedAt:stored?.activatedAt || null,
     updatedBy:stored?.updatedBy || null,
     updatedAt:stored?.updatedAt || null,
   };
