@@ -45,8 +45,11 @@ test('Invoice PDF is deterministic A4 business document and stored with immutabl
   const pdfText=new TextDecoder().decode(result.pdf);
   assert.match(pdfText,/MediaBox \[0 0 595 842\]/);
   assert.match(pdfText,/INVOICE/);
-  assert.match(pdfText,/PT Billing Company/);
+  assert.match(pdfText,/PT Mandiri Semesta Gemilang/);
   assert.match(pdfText,/PT Client Invoice/);
+  assert.match(pdfText,/Graha MSG/);
+  assert.match(pdfText,/www\.msg-os\.com/);
+  assert.match(pdfText,/AI Payroll OS/);
   assert.match(pdfText,/1234567890/);
   assert.match(result.sha256,/^[a-f0-9]{64}$/);
   assert.equal(FILES.objects.size,1);
@@ -133,4 +136,33 @@ test('Invoice issue no longer falsely marks email sent before provider delivery'
   const issue=billing.slice(issueStart,issueEnd);
   assert.doesNotMatch(issue,/sent_at=\$\{NOW\}/);
   assert.match(issue,/issued_at=\$\{NOW\}/);
+});
+
+
+test('Invoice branding is canonical MSG + ProQPay and source-backed contact fields are locked',async()=>{
+  const core=await read('functions/api/invoice-document-core.js');
+  const billing=await read('functions/api/billing.js');
+  const ui=await read('src/components/BillingWorkspace.tsx');
+  const migration=await read('migrations/0042_msg_invoice_branding.sql');
+
+  assert.match(core,/PT Mandiri Semesta Gemilang/);
+  assert.match(core,/Graha MSG/);
+  assert.match(core,/rizal@msg-os\.com/);
+  assert.match(core,/\+62 856-9766-6101/);
+  assert.match(core,/www\.msg-os\.com/);
+  assert.match(core,/People\. Operations\. Technology\./);
+  assert.match(core,/ProQPay Lite/);
+  assert.match(core,/AI Payroll OS/);
+  assert.match(core,/proqpayLogoCmd/);
+  assert.match(core,/template:'MSG_PROQPAY_A4_V2'/);
+
+  assert.match(billing,/const legalName='PT Mandiri Semesta Gemilang'/);
+  assert.match(billing,/canonicalWebsite='www\.msg-os\.com'/);
+  assert.match(ui,/Issuer canonical · PT Mandiri Semesta Gemilang/);
+  assert.match(ui,/Company Profile MSG 2026/);
+
+  assert.match(migration,/ALTER TABLE billing_issuer_profiles ADD COLUMN website TEXT/);
+  assert.match(migration,/PT Mandiri Semesta Gemilang/);
+  assert.match(migration,/Graha MSG/);
+  assert.match(migration,/rizal@msg-os\.com/);
 });
