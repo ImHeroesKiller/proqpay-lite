@@ -72,6 +72,7 @@ export default function EwaInbox() {
   const [counts, setCounts] = useState<StatusCounts>({});
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState({ total: 0, hasMore: false, nextOffset: 0, limit: 50 });
+  const [limit, setLimit] = useState(50);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
@@ -81,7 +82,7 @@ export default function EwaInbox() {
   const load = useCallback(async () => {
     setLoading(true);
     setMessage("");
-    const params = new URLSearchParams({ status, offset: String(offset), limit: "50" });
+    const params = new URLSearchParams({ status, offset: String(offset), limit: String(limit) });
     if (qDebounced.trim()) params.set("q", qDebounced.trim());
     if (/^\d{4}-\d{2}$/.test(period)) params.set("period", period);
     if (clientId) params.set("clientId", clientId);
@@ -105,7 +106,7 @@ export default function EwaInbox() {
     } finally {
       setLoading(false);
     }
-  }, [status, qDebounced, period, clientId, offset]);
+  }, [status, qDebounced, period, clientId, offset, limit]);
 
   useEffect(() => {
     void load();
@@ -225,6 +226,11 @@ export default function EwaInbox() {
           {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
         </select>
         <input type="month" value={period} onChange={(e) => { setPeriod(e.target.value); setOffset(0); }} aria-label="Filter periode" />
+        <select value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setOffset(0); }} aria-label="Jumlah baris per halaman">
+          <option value={25}>25 baris</option>
+          <option value={50}>50 baris</option>
+          <option value={100}>100 baris</option>
+        </select>
         {hasFilters ? <button type="button" className="btn" onClick={resetFilters}>Reset filter</button> : null}
       </div>
 

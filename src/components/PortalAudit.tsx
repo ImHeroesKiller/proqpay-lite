@@ -29,6 +29,7 @@ export default function PortalAudit(){
   const qDebounced=useDebouncedValue(q,300);
   const [offset,setOffset]=useState(0);
   const [page,setPage]=useState({total:0,hasMore:false,nextOffset:0,limit:50});
+  const [limit,setLimit]=useState(50);
   const [loading,setLoading]=useState(true);
   const [message,setMessage]=useState("");
   const [selected,setSelected]=useState<LoginRow|EventRow|null>(null);
@@ -39,7 +40,7 @@ export default function PortalAudit(){
 
   const load=useCallback(async()=>{
     setLoading(true);setMessage("");
-    const params=new URLSearchParams({kind:tab,offset:String(offset),limit:"50"});
+    const params=new URLSearchParams({kind:tab,offset:String(offset),limit:String(limit)});
     if(qDebounced.trim())params.set("q",qDebounced.trim());
     if(tab==="logins" && success)params.set("success",success);
     if(tab==="events" && group)params.set("group",group);
@@ -54,7 +55,7 @@ export default function PortalAudit(){
       setPage({total:Number(data.page?.total||0),hasMore:Boolean(data.page?.hasMore),nextOffset:Number(data.page?.nextOffset||0),limit:Number(data.page?.limit||50)});
     }catch(error){setMessage(error instanceof Error?error.message:"Gagal memuat audit");}
     finally{setLoading(false);}
-  },[tab,qDebounced,success,group,from,to,offset]);
+  },[tab,qDebounced,success,group,from,to,offset,limit]);
 
   useEffect(()=>{void load();},[load]);
   const rows=tab==="logins"?logins:events;
@@ -63,7 +64,9 @@ export default function PortalAudit(){
     <style>{`
       .pa-mobile{display:none}.pa-result{font-size:11px;font-weight:700}.pa-result.ok{color:var(--success,#16803c)}.pa-result.fail{color:var(--danger,#c5362f)}
       .pa-detail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.pa-detail div{border:1px solid var(--border);border-radius:10px;padding:10px;font-size:12px}.pa-detail span{display:block;color:var(--text3);font-size:10px;margin-bottom:3px}
-      @media(max-width:760px){.pa-desktop{display:none}.pa-mobile{display:grid;gap:10px}.pa-card{border:1px solid var(--border);border-radius:14px;padding:14px;background:var(--card,#fff)}.pa-detail{grid-template-columns:1fr}}
+      .pa-table-wrap{overflow:auto;max-height:min(68vh,720px)}.pa-table{width:100%;border-collapse:separate;border-spacing:0;min-width:820px}.pa-table thead th{position:sticky;top:0;z-index:3;background:var(--card,#fff)}.pa-table .pa-action{position:sticky;right:0;background:var(--card,#fff);text-align:right;z-index:2}
+      .pa-drawer-backdrop{position:fixed;inset:0;z-index:160;background:rgba(10,15,25,.38);display:flex;justify-content:flex-end}.pa-drawer{width:min(520px,100%);height:100%;overflow:auto;background:var(--card,#fff);border-left:1px solid var(--border);box-shadow:-18px 0 40px rgba(0,0,0,.14);padding:20px}.pa-drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:16px}
+      @media(max-width:760px){.pa-desktop{display:none}.pa-mobile{display:grid;gap:10px}.pa-card{border:1px solid var(--border);border-radius:14px;padding:14px;background:var(--card,#fff)}.pa-detail{grid-template-columns:1fr}.pa-drawer{width:100%;border-left:0}}
     `}</style>
     <div className="page-heading">
       <div><span className="page-eyebrow">Employee Services</span><h1>Portal Activity & Audit</h1><p>Jejak akses ESS, advance salary, kredensial, dan perubahan password dengan pencarian serta pagination.</p></div>
@@ -90,6 +93,11 @@ export default function PortalAudit(){
       )}
       <input type="date" value={from} onChange={e=>{setFrom(e.target.value);setOffset(0)}} aria-label="Tanggal mulai"/>
       <input type="date" value={to} onChange={e=>{setTo(e.target.value);setOffset(0)}} aria-label="Tanggal akhir"/>
+      <select value={limit} onChange={e=>{setLimit(Number(e.target.value));setOffset(0)}} aria-label="Jumlah baris per halaman">
+        <option value={25}>25 baris</option>
+        <option value={50}>50 baris</option>
+        <option value={100}>100 baris</option>
+      </select>
       {(q||success||group||from||to)?<button type="button" className="btn" onClick={()=>{setQ("");setSuccess("");setGroup("");setFrom("");setTo("");setOffset(0)}}>Reset filter</button>:null}
     </div>
     <EmployeeServiceState
@@ -103,9 +111,9 @@ export default function PortalAudit(){
       onReset={q ? () => { setQ(""); setOffset(0); } : undefined}
     />
 
-    {rows.length>0?<div className="card pa-desktop" style={{overflowX:"auto"}}>
-      {tab==="logins"?<table className="data-table" style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th align="left">Waktu</th><th align="left">Karyawan</th><th align="left">Input</th><th align="left">IP</th><th align="left">Hasil</th><th/></tr></thead><tbody>{logins.map(row=><tr key={row.id}><td>{when(row.created_at)}</td><td><strong>{row.employee_name||row.employee_id||"—"}</strong><div style={{fontSize:11,color:"var(--text3)"}}>{row.employee_code}</div></td><td>{row.employee_id_input}</td><td>{row.ip}</td><td><span className={`pa-result ${Number(row.success)?"ok":"fail"}`}>{Number(row.success)?"BERHASIL":row.reason||"GAGAL"}</span></td><td><button type="button" className="btn" onClick={()=>setSelected(row)}>Detail</button></td></tr>)}</tbody></table>
-      :<table className="data-table" style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th align="left">Waktu</th><th align="left">Aksi</th><th align="left">Oleh</th><th align="left">Detail</th><th/></tr></thead><tbody>{events.map(row=><tr key={row.id}><td>{when(row.timestamp)}</td><td><strong>{actionLabel(row.action)}</strong><div style={{fontSize:10,color:"var(--text3)"}}>{row.action}</div></td><td>{row.username} · {row.role}</td><td>{row.detail}{row.entity_id?` · ${row.entity_id}`:""}</td><td><button type="button" className="btn" onClick={()=>setSelected(row)}>Detail</button></td></tr>)}</tbody></table>}
+    {rows.length>0?<div className="card pa-desktop pa-table-wrap">
+      {tab==="logins"?<table className="data-table pa-table"><thead><tr><th align="left">Waktu</th><th align="left">Karyawan</th><th align="left">Input</th><th align="left">IP</th><th align="left">Hasil</th><th className="pa-action"/></tr></thead><tbody>{logins.map(row=><tr key={row.id}><td>{when(row.created_at)}</td><td><strong>{row.employee_name||row.employee_id||"—"}</strong><div style={{fontSize:11,color:"var(--text3)"}}>{row.employee_code}</div></td><td>{row.employee_id_input}</td><td>{row.ip}</td><td><span className={`pa-result ${Number(row.success)?"ok":"fail"}`}>{Number(row.success)?"BERHASIL":row.reason||"GAGAL"}</span></td><td className="pa-action"><button type="button" className="btn" onClick={()=>setSelected(row)}>Detail</button></td></tr>)}</tbody></table>
+      :<table className="data-table pa-table"><thead><tr><th align="left">Waktu</th><th align="left">Aksi</th><th align="left">Oleh</th><th align="left">Detail</th><th className="pa-action"/></tr></thead><tbody>{events.map(row=><tr key={row.id}><td>{when(row.timestamp)}</td><td><strong>{actionLabel(row.action)}</strong><div style={{fontSize:10,color:"var(--text3)"}}>{row.action}</div></td><td>{row.username} · {row.role}</td><td>{row.detail}{row.entity_id?` · ${row.entity_id}`:""}</td><td className="pa-action"><button type="button" className="btn" onClick={()=>setSelected(row)}>Detail</button></td></tr>)}</tbody></table>}
     </div>:null}
 
     {rows.length>0?<div className="pa-mobile">
@@ -115,6 +123,14 @@ export default function PortalAudit(){
 
     <div className="portal-toolbar" style={{justifyContent:"space-between"}}><span style={{fontSize:12,color:"var(--text3)"}}>{page.total?`${offset+1}–${Math.min(offset+rows.length,page.total)} dari ${page.total}`:"0 data"}</span><span style={{display:"flex",gap:8}}><button type="button" className="btn" disabled={offset===0||loading} onClick={()=>setOffset(Math.max(0,offset-page.limit))}>Sebelumnya</button><button type="button" className="btn" disabled={!page.hasMore||loading} onClick={()=>setOffset(page.nextOffset)}>Berikutnya</button></span></div>
 
-    {selected?<div className="card" role="dialog" aria-label="Detail audit" style={{marginTop:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,marginBottom:12}}><strong>Detail audit</strong><button type="button" className="btn" onClick={()=>setSelected(null)}>Tutup</button></div>{"created_at" in selected?<div className="pa-detail"><div><span>Waktu</span>{when(selected.created_at)}</div><div><span>Karyawan</span>{selected.employee_name||selected.employee_id||"—"}</div><div><span>Input login</span>{selected.employee_id_input||"—"}</div><div><span>IP</span>{selected.ip||"—"}</div><div><span>Hasil</span>{Number(selected.success)?"BERHASIL":selected.reason||"GAGAL"}</div><div><span>ID event</span>{selected.id}</div></div>:<div className="pa-detail"><div><span>Waktu</span>{when(selected.timestamp)}</div><div><span>Aksi</span>{actionLabel(selected.action)}<div style={{fontSize:10,color:"var(--text3)"}}>{selected.action}</div></div><div><span>Actor</span>{selected.username||"SYSTEM"} · {selected.role||"—"}</div><div><span>Entity</span>{selected.entity||"—"} · {selected.entity_id||"—"}</div><div style={{gridColumn:"1 / -1"}}><span>Detail</span>{selected.detail||"—"}</div><div><span>ID event</span>{selected.id}</div></div>}</div>:null}
+    {selected?<div className="pa-drawer-backdrop" role="presentation" onMouseDown={e=>{if(e.currentTarget===e.target)setSelected(null)}}>
+      <aside className="pa-drawer" role="dialog" aria-modal="true" aria-labelledby="pa-detail-title">
+        <div className="pa-drawer-head">
+          <div><span className="page-eyebrow">Detail audit</span><h2 id="pa-detail-title" style={{margin:"4px 0"}}>{"created_at" in selected?"Login activity":actionLabel(selected.action)}</h2><div style={{fontSize:11,color:"var(--text3)"}}>{"created_at" in selected?selected.id:selected.action}</div></div>
+          <button type="button" className="btn" onClick={()=>setSelected(null)}>Tutup</button>
+        </div>
+        {"created_at" in selected?<div className="pa-detail"><div><span>Waktu</span>{when(selected.created_at)}</div><div><span>Karyawan</span>{selected.employee_name||selected.employee_id||"—"}</div><div><span>Input login</span>{selected.employee_id_input||"—"}</div><div><span>IP</span>{selected.ip||"—"}</div><div><span>Hasil</span>{Number(selected.success)?"BERHASIL":selected.reason||"GAGAL"}</div><div><span>ID event</span>{selected.id}</div></div>:<div className="pa-detail"><div><span>Waktu</span>{when(selected.timestamp)}</div><div><span>Aksi</span>{actionLabel(selected.action)}<div style={{fontSize:10,color:"var(--text3)"}}>{selected.action}</div></div><div><span>Actor</span>{selected.username||"SYSTEM"} · {selected.role||"—"}</div><div><span>Entity</span>{selected.entity||"—"} · {selected.entity_id||"—"}</div><div style={{gridColumn:"1 / -1"}}><span>Detail</span>{selected.detail||"—"}</div><div><span>ID event</span>{selected.id}</div></div>}
+      </aside>
+    </div>:null}
   </section>
 }
