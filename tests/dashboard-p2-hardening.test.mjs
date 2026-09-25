@@ -29,8 +29,10 @@ test('dashboard P2 routes attention and reconciliation to canonical workspaces',
 
 test('dashboard P2 removes redundant administrative command center from dashboard',async()=>{
   const page=await read('src/app/page.tsx');
+  const router=await read('src/components/AppWorkspaceRouter.tsx');
   assert.doesNotMatch(page,/RoleDashboard/);
-  assert.match(page,/: <PayrollControlTower actor=\{actor\} period=\{period\} onNavigate=\{navigate\} \/>/);
+  assert.match(page,/AppWorkspaceRouter/);
+  assert.match(router,/PayrollControlTowerAdapter/);
 });
 
 test('dashboard P2 desktop pipeline is the canonical five-stage lifecycle',async()=>{
