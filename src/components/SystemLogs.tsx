@@ -19,6 +19,7 @@ type Summary={
 };
 type HealthCheck={key:string;label:string;status:'ok'|'warning'|'error';message:string;action?:string};
 type Health={status:string;ready:boolean;checks:HealthCheck[]};
+type GatewayStatus={configured:boolean;provider:string;reason?:string|null;environment?:string|null};
 
 const CATEGORY_LABELS:Record<string,string>={
   BUSINESS:'Business',SECURITY:'Security',EMPLOYEE_SERVICES:'Employee Services',
@@ -58,6 +59,7 @@ export default function SystemLogs(){
   const [localLogs,setLocalLogs]=useState<SystemLogEntry[]>([]);
   const [summary,setSummary]=useState<Summary>({total:0,errors:0,warnings:0,events24h:0,employeeErrors24h:0,connectedApps:0,appsWithError:0});
   const [health,setHealth]=useState<Health|null>(null);
+  const [gateway,setGateway]=useState<GatewayStatus|null>(null);
   const [loading,setLoading]=useState(true);
   const [message,setMessage]=useState('');
   const [q,setQ]=useState('');
@@ -79,12 +81,14 @@ export default function SystemLogs(){
       if(level!=='ALL')params.set('level',level);
       if(from)params.set('from',from);
       if(to)params.set('to',to);
-      const [auditResponse,healthResponse]=await Promise.all([
+      const [auditResponse,healthResponse,gatewayResponse]=await Promise.all([
         fetch('/api/audit-console?'+params.toString(),{cache:'no-store'}),
         fetch('/api/health',{cache:'no-store'}),
+        fetch('/api/payment-gateway',{cache:'no-store'}),
       ]);
       const audit=await auditResponse.json().catch(()=>({}));
       const healthData=await healthResponse.json().catch(()=>({}));
+      const gatewayData=await gatewayResponse.json().catch(()=>({}));
       if(!auditResponse.ok)throw new Error(audit.error||`HTTP ${auditResponse.status}`);
       setEvents(Array.isArray(audit.events)?audit.events:[]);
       setSummary(audit.summary||{});
@@ -94,6 +98,7 @@ export default function SystemLogs(){
         nextOffset:Number(audit.page?.nextOffset||0),
       });
       setHealth(healthResponse.ok?healthData:null);
+      setGateway(gatewayResponse.ok?(gatewayData.gateway||null):null);
     }catch(error){setMessage(error instanceof Error?error.message:'Audit Console gagal dimuat');}
     finally{setLoading(false);}
   },[q,category,level,from,to,offset,limit]);
@@ -151,6 +156,7 @@ export default function SystemLogs(){
       <article className="audit-status-card tone-error"><span>Error</span><strong>{summary.errors||0}</strong><small>{summary.employeeErrors24h||0} Employee Services / 24h</small></article>
       <article className="audit-status-card tone-warn"><span>Warning</span><strong>{summary.warnings||0}</strong><small>Butuh observasi operasional</small></article>
       <article className="audit-status-card"><span>Integrations</span><strong>{summary.connectedApps||0}</strong><small>{summary.appsWithError||0} app terakhir error</small></article>
+      <article className={`audit-status-card ${gateway?.configured?'':'tone-warn'}`}><span>Payment Gateway</span><strong>{gateway?.provider||'—'}</strong><small>{gateway?.configured?`${gateway.environment||'READY'} · siap digunakan`:(gateway?.reason||'Belum siap')}</small></article>
     </div>
 
     {health?<section className="card audit-health-strip">
