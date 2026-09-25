@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Policy = {
   enabled: boolean;
@@ -231,9 +231,9 @@ export default function PortalSettings() {
 
   if (!policy || !copy) {
     return (
-      <div className="card" aria-busy={loading} style={{ padding: 24 }}>
+      <div className="card portal-config-loading" aria-busy={loading}>
         <strong>{message ? "Pengaturan portal gagal dimuat" : "Memuat pengaturan portal…"}</strong>
-        <p style={{ color: "var(--text3)", margin: "6px 0 12px" }}>
+        <p>
           {message || "Mengambil policy, tampilan, banner, dan konfigurasi ESS."}
         </p>
         {message ? (
@@ -328,20 +328,12 @@ export default function PortalSettings() {
       ) : null}
 
       {tab === "rules" ? (
-        <div
-          className="card"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 14,
-            padding: 18,
-          }}
-        >
-          <div style={{ gridColumn: "1 / -1" }}>
+        <div className="card portal-config-grid">
+          <div className="portal-config-section">
             <strong>Availability</strong>
-            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Aktifkan layanan Advance Salary untuk lingkup ini.</div>
+            <div>Aktifkan layanan Advance Salary untuk lingkup ini.</div>
           </div>
-          <label style={field}>
+          <label className="es-field">
             Advance salary
             <select
               value={policy.enabled ? "1" : "0"}
@@ -353,11 +345,11 @@ export default function PortalSettings() {
               <option value="0">Nonaktif</option>
             </select>
           </label>
-          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+          <div className="portal-config-section">
             <strong>Limit & fee</strong>
-            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Atur batas advance dan biaya layanan yang dihitung server-side.</div>
+            <div>Atur batas advance dan biaya layanan yang dihitung server-side.</div>
           </div>
-          <label style={field}>
+          <label className="es-field">
             Plafond maksimal (% gaji berjalan)
             <input
               type="number"
@@ -373,7 +365,7 @@ export default function PortalSettings() {
               }
             />
           </label>
-          <label style={field}>
+          <label className="es-field">
             Fee layanan (%)
             <input
               type="number"
@@ -389,7 +381,7 @@ export default function PortalSettings() {
               }
             />
           </label>
-          <label style={field}>
+          <label className="es-field">
             Fee minimum (Rp)
             <input
               type="number"
@@ -404,7 +396,7 @@ export default function PortalSettings() {
               }
             />
           </label>
-          <label style={field}>
+          <label className="es-field">
             Fee minimum berlaku jika pengajuan ≤ (Rp)
             <input
               type="number"
@@ -419,11 +411,11 @@ export default function PortalSettings() {
               }
             />
           </label>
-          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+          <div className="portal-config-section">
             <strong>Eligibility</strong>
-            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Syarat hari berjalan dan masa kerja sebelum karyawan dapat mengajukan.</div>
+            <div>Syarat hari berjalan dan masa kerja sebelum karyawan dapat mengajukan.</div>
           </div>
-          <label style={field}>
+          <label className="es-field">
             Hari berjalan di bulan gaji (prorata)
             <input
               type="number"
@@ -437,14 +429,14 @@ export default function PortalSettings() {
                 })
               }
             />
-            <span style={{ fontWeight: 400, color: "var(--text3)" }}>
+            <span className="portal-config-help">
               Bukan masa kerja. Contoh 10 = baru boleh ajukan setelah tanggal 10
               bulan ini.
             </span>
           </label>
-          <label style={field}>
+          <label className="es-field">
             Masa kerja minimum (sejak tanggal bergabung)
-            <span style={{ display: "flex", gap: 8 }}>
+            <span className="es-inline-fields">
               <input
                 type="number"
                 min={0}
@@ -486,16 +478,16 @@ export default function PortalSettings() {
                 <option value="months">bulan</option>
               </select>
             </span>
-            <span style={{ fontWeight: 400, color: "var(--text3)" }}>
+            <span className="portal-config-help">
               Dihitung dari join date di kontrak. 0 = tidak ada syarat masa
               kerja.
             </span>
           </label>
-          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+          <div className="portal-config-section">
             <strong>Repayment</strong>
-            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Pengembalian dilakukan melalui payroll sesuai lifecycle canonical.</div>
+            <div>Pengembalian dilakukan melalui payroll sesuai lifecycle canonical.</div>
           </div>
-          <label style={field}>
+          <label className="es-field">
             Tenor (bulan, 1 = potong saat gajian)
             <input
               type="number"
@@ -510,14 +502,7 @@ export default function PortalSettings() {
               }
             />
           </label>
-          <p
-            style={{
-              gridColumn: "1 / -1",
-              margin: 0,
-              fontSize: 12,
-              color: "var(--text3)",
-            }}
-          >
+          <p className="portal-config-note">
             Contoh: plafond {Math.round(policy.maxPercent * 100)}% · fee{" "}
             {Number((policy.feeRate * 100).toFixed(2))}% (min Rp{" "}
             {IDR.format(policy.minFee)} jika cair ≤ Rp{" "}
@@ -593,7 +578,7 @@ export default function PortalSettings() {
                   gap: 12,
                 }}
               >
-                <label style={field}>
+                <label className="es-field">
                   Tag
                   <input
                     value={ad.tag}
@@ -602,7 +587,7 @@ export default function PortalSettings() {
                     }
                   />
                 </label>
-                <label style={field}>
+                <label className="es-field">
                   Judul
                   <input
                     value={ad.title}
@@ -611,7 +596,7 @@ export default function PortalSettings() {
                     }
                   />
                 </label>
-                <label style={field}>
+                <label className="es-field">
                   Tombol CTA
                   <input
                     value={ad.cta}
@@ -620,7 +605,7 @@ export default function PortalSettings() {
                     }
                   />
                 </label>
-                <label style={field}>
+                <label className="es-field">
                   Penempatan
                   <select
                     value={ad.placement}
@@ -635,7 +620,7 @@ export default function PortalSettings() {
                     <option value="PAYSLIP">Riwayat slip</option>
                   </select>
                 </label>
-                <label style={field}>
+                <label className="es-field">
                   Aksi tombol
                   <select
                     value={ad.action}
@@ -655,7 +640,7 @@ export default function PortalSettings() {
                     <option value="NONE">Hanya tampil</option>
                   </select>
                 </label>
-                <label style={{ ...field, gridColumn: "1 / -1" }}>
+                <label className="es-field portal-config-full">
                   Deskripsi
                   <textarea
                     value={ad.desc}
@@ -666,7 +651,7 @@ export default function PortalSettings() {
                   />
                 </label>
                 {ad.action === "EXTERNAL" ? (
-                  <label style={{ ...field, gridColumn: "1 / -1" }}>
+                  <label className="es-field portal-config-full">
                     Tautan eksternal (https)
                     <input
                       value={ad.href}
@@ -679,10 +664,10 @@ export default function PortalSettings() {
                     />
                   </label>
                 ) : null}
-                <details style={{ gridColumn: "1 / -1", borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-                  <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Tampilan & tracking lanjutan</summary>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginTop: 12 }}>
-                    <label style={field}>
+                <details className="portal-config-advanced">
+                  <summary>Tampilan & tracking lanjutan</summary>
+                  <div className="portal-config-advanced-grid">
+                    <label className="es-field">
                       Warna / gradient
                       <input
                         value={ad.bg}
@@ -691,7 +676,7 @@ export default function PortalSettings() {
                         }
                       />
                     </label>
-                    <label style={field}>
+                    <label className="es-field">
                       Gambar (https, opsional)
                       <input
                         value={ad.imageUrl}
@@ -700,7 +685,7 @@ export default function PortalSettings() {
                         }
                       />
                     </label>
-                    <label style={field}>
+                    <label className="es-field">
                       Pixel tayang (opsional)
                       <input
                         value={ad.impressionUrl}
@@ -709,7 +694,7 @@ export default function PortalSettings() {
                         }
                       />
                     </label>
-                    <label style={field}>
+                    <label className="es-field">
                       URL klik / tracker (opsional)
                       <input
                         value={ad.clickUrl}
@@ -758,7 +743,7 @@ export default function PortalSettings() {
 
       {tab === "copy" ? (
         <div className="card" style={{ display: "grid", gap: 12, padding: 18 }}>
-          <label style={field}>
+          <label className="es-field">
             Tagline perusahaan
             <input
               value={copy.companyTagline}
@@ -767,7 +752,7 @@ export default function PortalSettings() {
               }
             />
           </label>
-          <label style={field}>
+          <label className="es-field">
             Subjudul beranda
             <input
               value={copy.heroSubtitle}
@@ -776,7 +761,7 @@ export default function PortalSettings() {
               }
             />
           </label>
-          <label style={field}>
+          <label className="es-field">
             Judul kartu advance
             <input
               value={copy.ewaTitle}
@@ -785,7 +770,7 @@ export default function PortalSettings() {
               }
             />
           </label>
-          <label style={field}>
+          <label className="es-field">
             Subjudul kartu advance
             <input
               value={copy.ewaSubtitle}
@@ -794,7 +779,7 @@ export default function PortalSettings() {
               }
             />
           </label>
-          <label style={field}>
+          <label className="es-field">
             Isi kartu advance
             <textarea
               rows={3}
@@ -804,7 +789,7 @@ export default function PortalSettings() {
               }
             />
           </label>
-          <label style={field}>
+          <label className="es-field">
             Teks tombol advance
             <input
               value={copy.ewaCta}
@@ -813,7 +798,7 @@ export default function PortalSettings() {
               }
             />
           </label>
-          <label style={field}>
+          <label className="es-field">
             Keterangan plafond (pakai {"{percent}"})
             <input
               value={copy.ewaLimitCaption}
@@ -834,7 +819,7 @@ export default function PortalSettings() {
             Integrasi iklan memakai pixel gambar (1×1), bukan skrip pihak
             ketiga. Ini aman untuk portal karyawan.
           </p>
-          <label style={field}>
+          <label className="es-field">
             Provider
             <select
               value={platform.provider}
@@ -852,7 +837,7 @@ export default function PortalSettings() {
           </label>
           {platform.provider === "GOOGLE_ADS" ? (
             <>
-              <label style={field}>
+              <label className="es-field">
                 Conversion ID
                 <input
                   value={platform.accountId}
@@ -861,7 +846,7 @@ export default function PortalSettings() {
                   }
                 />
               </label>
-              <label style={field}>
+              <label className="es-field">
                 Conversion label
                 <input
                   value={platform.conversionLabel}
@@ -876,7 +861,7 @@ export default function PortalSettings() {
             </>
           ) : null}
           {platform.provider === "META" ? (
-            <label style={field}>
+            <label className="es-field">
               Pixel ID
               <input
                 value={platform.pixelId}
@@ -887,7 +872,7 @@ export default function PortalSettings() {
             </label>
           ) : null}
           {platform.provider === "GENERIC" ? (
-            <label style={field}>
+            <label className="es-field">
               URL pixel tayang (https)
               <input
                 value={platform.impressionUrl}
@@ -903,30 +888,12 @@ export default function PortalSettings() {
         </div>
       ) : null}
 
-      <div
-        style={{
-          position: "sticky",
-          bottom: 12,
-          zIndex: 30,
-          marginTop: 18,
-          padding: 12,
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          alignItems: "center",
-          background: "var(--card,#fff)",
-          border: "1px solid var(--border)",
-          borderRadius: 14,
-          boxShadow: "0 12px 30px rgba(0,0,0,.10)",
-        }}
-      >
+      <div className="portal-config-savebar">
         <div>
-          <strong style={{ fontSize: 12 }}>{dirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}</strong>
-          <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
-            {dirty ? "Simpan sebelum berpindah lingkup klien." : "Konfigurasi ini siap dipakai ESS pada muatan berikutnya."}
-          </div>
+          <strong>{dirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}</strong>
+          <p>{dirty ? "Simpan sebelum berpindah lingkup klien." : "Konfigurasi ini siap dipakai ESS pada muatan berikutnya."}</p>
         </div>
-        <span style={{ display: "flex", gap: 8 }}>
+        <span className="portal-config-savebar-actions">
           {dirty ? (
             <button type="button" className="btn" disabled={busy || loading} onClick={() => void load(clientId)}>
               Batalkan perubahan
@@ -946,13 +913,6 @@ export default function PortalSettings() {
   );
 }
 
-const field: CSSProperties = {
-  display: "grid",
-  gap: 6,
-  fontSize: 12,
-  fontWeight: 650,
-  color: "var(--text2)",
-};
 
 function patchAd(
   setAds: (ads: Ad[]) => void,

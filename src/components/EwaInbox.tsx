@@ -170,26 +170,7 @@ export default function EwaInbox() {
 
   return (
     <section className="portal-workspace">
-      <style>{`
-        .ewa-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}
-        .ewa-summary-card{background:var(--card,#fff);border:1px solid var(--border);border-radius:14px;padding:13px;text-align:left;color:inherit}
-        .ewa-row-actions .btn:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
-        .ewa-summary b{display:block;font-size:20px}.ewa-summary span{font-size:11px;color:var(--text3)}
-        .ewa-mobile{display:none}.ewa-row-actions{display:flex;gap:6px;flex-wrap:wrap}.ewa-status{white-space:nowrap}
-        .ewa-detail-panel{margin-top:12px}.ewa-detail-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}
-        .ewa-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;font-size:12px}
-        .ewa-detail-grid div{padding:10px;border:1px solid var(--border);border-radius:10px}.ewa-detail-grid span{display:block;color:var(--text3);font-size:10px;margin-bottom:3px}
-        .ewa-muted,.ewa-lifecycle-note{font-size:12px;color:var(--text3)}.ewa-lifecycle-note{margin:8px 0 12px}
-        .ewa-progress{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.ewa-progress span{height:5px;border-radius:999px;background:var(--border)}.ewa-progress span.done{background:var(--primary)}
-        .employee-service-state{padding:24px}.employee-service-state.app-notice-bubble{display:flex;justify-content:space-between;gap:12px;align-items:center}.employee-service-empty{text-align:center}.employee-service-empty p{color:var(--text3);margin:6px 0 12px}
-        @media(max-width:760px){
-          .ewa-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
-          .ewa-desktop{display:none}.ewa-mobile{display:grid;gap:10px}
-          .ewa-mobile-card{border:1px solid var(--border);border-radius:14px;padding:14px;background:var(--card,#fff)}
-          .ewa-mobile-top{display:flex;justify-content:space-between;gap:10px}.ewa-mobile-money{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
-          .ewa-mobile-money div{background:var(--surface);border-radius:10px;padding:9px}.ewa-detail-grid{grid-template-columns:1fr}
-        }
-      `}</style>
+
 
       <div className="page-heading">
         <div>
@@ -197,7 +178,7 @@ export default function EwaInbox() {
           <h1>Advance Salary</h1>
           <p>Kontrol lifecycle advance dari pengajuan sampai lunas. Status lunas hanya berasal dari rekonsiliasi payroll.</p>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="es-heading-actions">
           <span className="status-pill" aria-live="polite">{pending} menunggu</span>
           <button type="button" className="btn" onClick={() => void load()} disabled={loading}>
             {loading ? "Memuat…" : "Refresh"}
@@ -238,20 +219,20 @@ export default function EwaInbox() {
 
       {rows.length > 0 ? (
         <>
-          <div className="card ewa-desktop" style={{ overflow: "auto", maxHeight: "68vh" }}>
-            <table className="data-table" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: 880 }}>
+          <div className="card ewa-desktop es-table-wrap">
+            <table className="data-table es-table ewa-table">
               <thead>
-                <tr><th align="left" style={{ position: "sticky", left: 0, top: 0, zIndex: 4, background: "var(--card,#fff)" }}>Karyawan</th><th align="right">Advance</th><th align="right">Potong payroll</th><th align="left">Lifecycle</th><th align="left">Aktivitas terakhir</th><th align="right" style={{ position: "sticky", right: 0, top: 0, zIndex: 4, background: "var(--card,#fff)" }}>Aksi</th></tr>
+                <tr><th align="left" className="es-sticky-left ewa-employee-cell">Karyawan</th><th align="right">Advance</th><th align="right">Potong payroll</th><th align="left">Lifecycle</th><th align="left">Aktivitas terakhir</th><th align="right" className="es-sticky-right">Aksi</th></tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id}>
-                    <td style={{ position: "sticky", left: 0, background: "var(--card,#fff)", minWidth: 220 }}><strong>{row.employee_name || row.employee_id}</strong><div className="ewa-muted">{row.employee_code} · {row.client_name} · {row.period}</div></td>
+                    <td className="es-sticky-left ewa-employee-cell"><strong>{row.employee_name || row.employee_id}</strong><div className="ewa-muted">{row.employee_code} · {row.client_name} · {row.period}</div></td>
                     <td align="right"><strong>{IDR.format(row.amount || 0)}</strong><div className="ewa-muted">Fee {IDR.format(row.fee || 0)}</div></td>
                     <td align="right">{IDR.format(row.repayment || 0)}</td>
-                    <td className="ewa-status"><EwaStatusBadge status={row.status} /><div className="ewa-muted" style={{ marginTop: 4 }}>{ewaMeta(row.status).note}</div></td>
+                    <td className="ewa-status"><EwaStatusBadge status={row.status} /><div className="ewa-muted ewa-status-note">{ewaMeta(row.status).note}</div></td>
                     <td>{formatPortalDate(row.disbursed_at || row.approved_at || row.created_at)}</td>
-                    <td style={{ position: "sticky", right: 0, background: "var(--card,#fff)" }}>
+                    <td className="es-sticky-right">
                       <EwaActionButtons
                         row={row}
                         busy={Boolean(busy)}
@@ -277,7 +258,7 @@ export default function EwaInbox() {
                   <div><small>Cair</small><strong>{IDR.format(row.amount || 0)}</strong></div>
                   <div><small>Potong gaji</small><strong>{IDR.format(row.repayment || 0)}</strong></div>
                 </div>
-                <div className="ewa-muted" style={{ marginBottom: 10 }}>{row.period} · {formatPortalDate(row.disbursed_at || row.approved_at || row.created_at)}</div>
+                <div className="ewa-muted ewa-mobile-meta">{row.period} · {formatPortalDate(row.disbursed_at || row.approved_at || row.created_at)}</div>
                 <EwaActionButtons
                   row={row}
                   busy={Boolean(busy)}
@@ -291,11 +272,11 @@ export default function EwaInbox() {
         </>
       ) : null}
 
-      <div className="portal-toolbar" style={{ justifyContent: "space-between" }}>
+      <div className="portal-toolbar es-pagination">
         <span className="ewa-muted" aria-live="polite">
           {page.total ? `${offset + 1}–${Math.min(offset + rows.length, page.total)} dari ${page.total}` : "0 data"}
         </span>
-        <span style={{ display: "flex", gap: 8 }}>
+        <span className="es-pagination-actions">
           <button type="button" className="btn" disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - page.limit))}>Sebelumnya</button>
           <button type="button" className="btn" disabled={!page.hasMore || loading} onClick={() => setOffset(page.nextOffset)}>Berikutnya</button>
         </span>

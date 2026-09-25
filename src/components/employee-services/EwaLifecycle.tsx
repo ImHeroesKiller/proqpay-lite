@@ -39,33 +39,17 @@ export function EwaDetailPanel({
   const meta = ewaMeta(row.status);
   return (
     <div
+      className="es-drawer-backdrop"
       role="presentation"
       onMouseDown={(event) => {
         if (event.currentTarget === event.target) onClose();
       }}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 150,
-        background: "rgba(10,15,25,.38)",
-        display: "flex",
-        justifyContent: "flex-end",
-      }}
     >
       <aside
-        className="ewa-detail-panel"
+        className="ewa-detail-panel es-drawer"
         role="dialog"
         aria-modal="true"
         aria-labelledby="ewa-detail-title"
-        style={{
-          width: "min(500px,100%)",
-          height: "100%",
-          overflow: "auto",
-          background: "var(--card,#fff)",
-          borderLeft: "1px solid var(--border)",
-          boxShadow: "-18px 0 40px rgba(0,0,0,.14)",
-          padding: 20,
-        }}
       >
         <div className="ewa-detail-head">
           <div>
@@ -80,7 +64,7 @@ export function EwaDetailPanel({
         </div>
         <EwaLifecycleProgress status={row.status} />
         <p className="ewa-lifecycle-note">{meta.note}</p>
-        <div className="ewa-detail-grid">
+        <div className="ewa-detail-grid es-detail-grid">
           <div><span>Diajukan</span>{formatPortalDate(row.created_at)}</div>
           <div><span>Disetujui</span>{formatPortalDate(row.approved_at)} · {row.approved_by || "—"}</div>
           <div><span>Dicairkan</span>{formatPortalDate(row.disbursed_at)} · {row.disbursed_by || "—"}</div>
