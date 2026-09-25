@@ -15,6 +15,7 @@ test('Employee Services P3: admin lifecycle UI consumes shared model instead of 
   const inbox=await read('src/components/EwaInbox.tsx');
   const shared=await read('src/lib/employee-services.ts');
   const primitives=await read('src/components/employee-services/EwaLifecycle.tsx');
+  const states=await read('src/components/employee-services/OperationalState.tsx');
   assert.match(inbox,/EWA_STATUSES/);
   assert.match(inbox,/ewaMeta/);
   assert.match(inbox,/EwaDetailPanel/);
@@ -41,5 +42,5 @@ test('Employee Services P3: accessibility semantics remain explicit',async()=>{
   assert.match(inbox,/aria-live="polite"/);
   assert.match(primitives,/role="dialog"/);
   assert.match(primitives,/aria-labelledby/);
-  assert.match(primitives,/role="alert"/);
+  assert.match(states,/role="alert"/);
 });
