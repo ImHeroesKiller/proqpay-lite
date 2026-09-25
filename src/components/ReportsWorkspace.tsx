@@ -3,10 +3,13 @@
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import PanelPagination from '@/components/PanelPagination';
+import { IconDownload } from '@/components/Icons';
 import {
   REPORT_COLUMNS,
   REPORT_LABELS,
   isMoneyColumn,
+  isReportStatusColumn,
+  reportMobileFields,
   reportColumnLabel,
   reportPrimaryTitle,
   reportSecondaryTitle,
@@ -20,13 +23,6 @@ import {
 
 type Props = { clientMode?: boolean; hideHeading?: boolean };
 
-const MOBILE_FIELDS:Record<Exclude<ReportType,'payments'>,string[]>={
-  register:['period','employee_id','gross_amount','deduction_amount','net_amount','state'],
-  control:['period','employee_count','payroll_net','pi_total','reconciliation_difference','state'],
-  uploads:['period','original_filename','accepted_row_count','source_total_net','status','uploaded_by'],
-  payslips:['period','employee_id','net_amount','document_no','payment_status','reconciliation_status'],
-  exceptions:['period','employee_id','severity','code','status','message'],
-};
 
 function csvCell(value: unknown) {
   const raw = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
@@ -167,7 +163,7 @@ export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Pr
   }
 
   return <section className="reports-workspace">
-    {!hideHeading ? <div className="reports-heading"><div><span className="workspace-eyebrow">{clientMode?'REPORTS':'REPORTING & AUDIT'}</span><h2>{clientMode?'Payroll & Payment Reports':'Laporan Payroll & Pembayaran'}</h2><p>{clientMode?'Laporan payroll dan pembayaran sesuai scope akun Anda.':'Jejak audit dari sumber payroll, snapshot final, slip gaji, pembayaran, dan rekonsiliasi.'}</p></div><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div> : <div className="reports-inline-actions"><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent}>Unduh CSV</button></div>}
+    {!hideHeading ? <div className="reports-heading"><div><span className="workspace-eyebrow">{clientMode?'REPORTS':'REPORTING & AUDIT'}</span><h2>{clientMode?'Payroll & Payment Reports':'Laporan Payroll & Pembayaran'}</h2><p>{clientMode?'Laporan payroll dan pembayaran sesuai scope akun Anda.':'Jejak audit dari sumber payroll, snapshot final, slip gaji, pembayaran, dan rekonsiliasi.'}</p></div><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent} title="Unduh laporan CSV"><IconDownload aria-hidden="true" /><span>Unduh CSV</span></button></div> : <div className="reports-inline-actions"><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent} title="Unduh laporan CSV"><IconDownload aria-hidden="true" /><span>Unduh CSV</span></button></div>}
     <div className="report-type-tabs" role="tablist" aria-label="Jenis laporan">{reportTypes.map((item)=><button key={item} type="button" role="tab" aria-selected={type===item} className={`btn ${type===item?'btn-primary':''}`} onClick={()=>setType(item)}>{clientMode&&item==='payments'?'Riwayat Pembayaran':REPORT_LABELS[item]}</button>)}</div>
 
     {type === 'payments' ? <div className="report-summary-grid"><Summary label="Pembayaran selesai" value={String(completed.length)} note="Settlement selesai tanpa konflik sumber." tone="success" /><Summary label="Total dibayarkan" value={formatIDR(paidTotal)} note="Akumulasi pembayaran selesai pada filter aktif." /><Summary label="Karyawan dibayar" value={String(employees)} note="Jumlah penerima pada pembayaran selesai." /><Summary label="Perlu tindak lanjut" value={String(paymentFollowUp)} note="Exception, bukti pending, atau konflik settlement." tone={paymentFollowUp?'warning':'success'} /></div>
@@ -176,7 +172,7 @@ export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Pr
 
     <div className="card report-filter"><label><span>Cari</span><input value={query} placeholder="Cari karyawan, klien, project, batch, pay run…" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></label><label><span>Periode</span><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }}><option value="ALL">Semua periode</option>{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span>Status</span><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">Semua status</option>{statusOptions.map((item) => <option key={item} value={item}>{reportStatusLabel(item)}</option>)}</select></label><button type="button" className="btn report-reset-btn" disabled={!filtersActive} onClick={resetFilters}>Reset</button></div>
     {error ? <div className="card report-error" role="alert"><span>{error}</span><button type="button" className="btn" disabled={loading} onClick={()=>void load()}>{loading?'Memuat…':'Coba lagi'}</button></div> : null}
-    {loading ? <div className="card directory-empty report-loading" role="status">Memuat laporan…</div> : !activeRows.length ? <div className="card directory-empty report-empty"><span>{filtersActive?'Tidak ada data yang cocok dengan filter ini.':'Belum ada data laporan.'}</span>{filtersActive?<button type="button" className="btn" onClick={resetFilters}>Reset filter</button>:null}</div> : <>
+    {loading ? <div className="card report-loading" role="status" aria-live="polite"><span className="report-loading-bar" /><span className="report-loading-bar" /><span className="report-loading-bar" /><strong>Memuat laporan…</strong></div> : !activeRows.length ? <div className="card directory-empty report-empty"><span>{filtersActive?'Tidak ada data yang cocok dengan filter ini.':'Belum ada data laporan.'}</span>{filtersActive?<button type="button" className="btn" onClick={resetFilters}>Reset filter</button>:null}</div> : <>
       {type === 'payments' ? <PaymentTable rows={visible as PaymentReport[]} /> : <GenericTable rows={visible as ReportRow[]} type={type} />}
       <PanelPagination page={Math.min(page,pageCount)} pageCount={pageCount} total={activeRows.length} pageSize={pageSize} label="baris" onPage={setPage} />
     </>}
@@ -203,13 +199,13 @@ function PaymentTable({rows}:{rows:PaymentReport[]}) {
 
 function GenericTable({rows,type}:{rows:ReportRow[];type:Exclude<ReportType,'payments'>}) {
   const columns=REPORT_COLUMNS[type].filter((key)=>rows.some((row)=>key in row));
-  const mobileKeys=MOBILE_FIELDS[type].filter((key)=>columns.includes(key));
+  const mobileKeys=reportMobileFields(type,columns);
   const detailKeys=columns.filter((key)=>!mobileKeys.includes(key));
   return <div className="card report-table-wrap">
     <table className={`report-table report-desktop-table report-generic-table report-type-${type}`}><thead><tr>{columns.map((key,index)=><th key={key} className={`${index===0?'report-sticky-col ':''}${isMoneyColumn(key)||key==='employee_count'?'report-num':''}`}>{reportColumnLabel(key)}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={`${String(row.submission_id||row.id||'row')}-${String(row.employee_id||index)}-${index}`}>{columns.map((key,columnIndex)=>{
       const value=row[key];
       const className=`${columnIndex===0?'report-sticky-col ':''}${isMoneyColumn(key)||key==='employee_count'?'report-num':''}`;
-      if(key==='status'||key==='state'||key==='payment_status'||key==='reconciliation_status') return <td className={className} key={key}><span className={`report-status report-status-${reportStatusTone(value)}`}>{reportStatusLabel(value)}</span></td>;
+      if(isReportStatusColumn(key)) return <td className={className} key={key}><span className={`report-status report-status-${reportStatusTone(value)}`}>{reportStatusLabel(value)}</span></td>;
       return <td className={className} key={key}>{formatReportValue(key,value)}</td>;
     })}</tr>)}</tbody></table>
     <div className="report-mobile-list">{rows.map((row,index)=><article className="report-mobile-card" key={`mobile-${String(row.submission_id||row.id||index)}-${index}`}><div className="report-mobile-head"><div><strong>{reportPrimaryTitle(row)}</strong><small>{reportSecondaryTitle(row)}</small></div>{(row.status||row.state||row.payment_status)?<span className={`report-status report-status-${reportStatusTone(row.status||row.state||row.payment_status)}`}>{reportStatusLabel(row.status||row.state||row.payment_status)}</span>:null}</div><div className="report-mobile-grid">{mobileKeys.map((key)=><MobileValue key={key} label={reportColumnLabel(key)} value={formatReportValue(key,row[key])} />)}</div>{detailKeys.length?<details className="report-mobile-details"><summary>Lihat detail laporan</summary><div className="report-mobile-detail-grid">{detailKeys.map((key)=><MobileValue key={key} label={reportColumnLabel(key)} value={formatReportValue(key,row[key])} />)}</div></details>:null}</article>)}</div>
@@ -217,7 +213,7 @@ function GenericTable({rows,type}:{rows:ReportRow[];type:Exclude<ReportType,'pay
 }
 
 function formatReportValue(key:string,value:unknown){
-  if((key==='status'||key==='state'||key==='payment_status'||key==='reconciliation_status')&&value) return reportStatusLabel(value);
+  if(isReportStatusColumn(key)&&value) return reportStatusLabel(value);
   if(typeof value==='number'&&isMoneyColumn(key)) return formatIDR(value);
   if(typeof value==='object'&&value!==null) return JSON.stringify(value);
   return String(value??'-');
