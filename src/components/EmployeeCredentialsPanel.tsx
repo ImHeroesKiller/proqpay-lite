@@ -23,6 +23,7 @@ export default function EmployeeCredentialsPanel({ actor }: { actor: EmployeeAct
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [issued, setIssued] = useState<PortalCredentialRow[]>([]);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
@@ -78,30 +79,58 @@ export default function EmployeeCredentialsPanel({ actor }: { actor: EmployeeAct
 
   return (
     <>
-      <div className="portal-credentials-card card">
-        <div>
-          <strong>Password portal ESS</strong>
-          <span>Password sementara acak · wajib diganti saat login pertama. Plaintext tidak disimpan.</span>
-        </div>
-        <div className="portal-credentials-meta">
-          <span>Karyawan {summary?.total ?? '—'}</span>
-          <span>Sudah {summary?.issued ?? '—'}</span>
-          <span>Belum {summary?.pending ?? '—'}</span>
-        </div>
-        <button type="button" className="btn btn-primary" disabled={busy || summary?.pending === 0} onClick={() => setConfirmOpen(true)}>
-          {busy ? 'Menerbitkan…' : 'Terbitkan password portal'}
-        </button>
-        {error ? <p className="portal-credentials-error">{error}</p> : null}
-        {issued.length ? (
-          <div className="portal-credentials-issued">
-            <div>
-              <strong>{issued.length} password — hanya batch ini</strong>
-              <button type="button" className="btn" onClick={() => downloadPortalCsv(issued)}>Unduh CSV</button>
+      <button
+        type="button"
+        className="btn employee-ess-trigger"
+        onClick={() => setPanelOpen(true)}
+        aria-haspopup="dialog"
+      >
+        Kelola akses ESS
+      </button>
+
+      {panelOpen ? (
+        <div className="employee-confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setPanelOpen(false); }}>
+          <section className="card employee-ess-modal" role="dialog" aria-modal="true" aria-labelledby="employee-ess-title">
+            <div className="employee-ess-modal-head">
+              <div>
+                <span className="page-eyebrow">Credential ESS</span>
+                <h2 id="employee-ess-title">Kelola akses portal karyawan</h2>
+                <p>Password sementara acak · wajib diganti saat login pertama. Plaintext tidak disimpan.</p>
+              </div>
+              <button type="button" className="btn" onClick={() => setPanelOpen(false)} aria-label="Tutup pengelolaan akses ESS">✕</button>
             </div>
-            <pre>{issued.slice(0, 8).map((row) => `${row.employeeCode}\t${row.password}`).join('\n')}{issued.length > 8 ? `\n… ${issued.length - 8} lainnya di CSV` : ''}</pre>
-          </div>
-        ) : null}
-      </div>
+
+            <div className="employee-confirm-stats">
+              <div><span>Total karyawan</span><strong>{summary?.total ?? '—'}</strong></div>
+              <div><span>Sudah diterbitkan</span><strong>{summary?.issued ?? '—'}</strong></div>
+              <div><span>Belum diterbitkan</span><strong>{summary?.pending ?? '—'}</strong></div>
+            </div>
+
+            {error ? <p className="portal-credentials-error">{error}</p> : null}
+
+            <div className="employee-ess-modal-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy || summary == null || summary.pending === 0}
+                onClick={() => setConfirmOpen(true)}
+              >
+                {busy ? 'Menerbitkan…' : summary == null ? 'Memuat status…' : 'Terbitkan password'}
+              </button>
+            </div>
+
+            {issued.length ? (
+              <div className="portal-credentials-issued">
+                <div>
+                  <strong>{issued.length} password — hanya batch ini</strong>
+                  <button type="button" className="btn" onClick={() => downloadPortalCsv(issued)}>Unduh CSV</button>
+                </div>
+                <pre>{issued.slice(0, 8).map((row) => `${row.employeeCode}\t${row.password}`).join('\n')}{issued.length > 8 ? `\n… ${issued.length - 8} lainnya di CSV` : ''}</pre>
+              </div>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
 
       {confirmOpen ? (
         <div className="employee-confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setConfirmOpen(false); }}>
@@ -115,7 +144,7 @@ export default function EmployeeCredentialsPanel({ actor }: { actor: EmployeeAct
             </div>
             <div className="employee-confirm-actions">
               <button type="button" className="btn" disabled={busy} onClick={() => setConfirmOpen(false)}>Batal</button>
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void issueAll()}>{busy ? 'Menerbitkan…' : 'Ya, terbitkan'}</button>
+              <button type="button" className="btn btn-primary" disabled={busy || summary == null} onClick={() => void issueAll()}>{busy ? 'Menerbitkan…' : 'Ya, terbitkan'}</button>
             </div>
           </section>
         </div>
