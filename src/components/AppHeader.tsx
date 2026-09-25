@@ -37,7 +37,6 @@ const VIEW_LABELS: Record<AppView, string> = {
   reports: "Reports",
   logs: "Audit Logs",
   ewa: "Advance Salary",
-  portalAudit: "Portal Audit",
   portalSettings: "Portal Settings",
 };
 function viewLabel(view:AppView, role:string) {
@@ -106,9 +105,9 @@ const SEARCH_ITEMS: Array<{ label: string; keywords: string; view: AppView }> =
       view: "portalSettings",
     },
     {
-      label: "Portal Audit",
-      keywords: "login ess portal attempt ewa jejak",
-      view: "portalAudit",
+      label: "Audit Logs",
+      keywords: "audit log login ess portal security payment billing integration gateway api",
+      view: "logs",
     },
     { label: "Employees", keywords: "karyawan rekening", view: "employees" },
     { label: "Clients & Projects", keywords: "klien project", view: "clients" },
