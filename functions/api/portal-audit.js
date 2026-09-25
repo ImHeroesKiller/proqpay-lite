@@ -30,7 +30,7 @@ export async function onRequest({ request, env }) {
       ? []
       : await d1All(
         env.DB,
-        `SELECT a.id, a.employee_id_input, a.employee_id, a.ip, a.success, a.reason, a.created_at,
+        `SELECT a.id, a.org_id, a.employee_id_input, a.employee_id, a.ip, a.success, a.reason, a.created_at,
             e.name AS employee_name, e.employee_code
           FROM portal_login_attempts a
           LEFT JOIN employees e ON e.id=a.employee_id
