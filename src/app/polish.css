@@ -2887,3 +2887,95 @@ textarea:focus-visible {
     grid-template-columns:1fr 1fr;
   }
 }
+
+
+/* Reports P2 — operational UX hardening */
+.report-type-tabs {
+  position:relative;
+  padding:4px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--bg-subtle);
+}
+.report-type-tabs .btn {
+  border-color:transparent;
+  background:transparent;
+  box-shadow:none;
+}
+.report-type-tabs .btn[aria-selected="true"] {
+  box-shadow:var(--shadow-xs);
+}
+.report-summary {
+  position:relative;
+}
+.report-summary small {
+  display:block;
+  margin-top:2px;
+  color:var(--text3);
+  font-size:9.5px;
+  line-height:1.4;
+  white-space:normal;
+}
+.report-summary-success::before,
+.report-summary-warning::before {
+  position:absolute;
+  top:0;
+  right:0;
+  left:0;
+  height:3px;
+  border-radius:inherit;
+  content:'';
+}
+.report-summary-success::before {
+  background:color-mix(in srgb,#10b981 72%,var(--accent));
+}
+.report-summary-warning::before {
+  background:color-mix(in srgb,#f59e0b 78%,var(--accent));
+}
+.report-filter {
+  top:8px;
+}
+.dashboard-list-pagination {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.dashboard-list-pagination > div {
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.dashboard-list-pagination button {
+  min-width:34px;
+  min-height:34px;
+}
+.dashboard-list-pagination > div > span {
+  min-width:108px;
+  text-align:center;
+}
+.theme-dark .report-type-tabs {
+  background:var(--bg-subtle);
+}
+@media (max-width:900px) {
+  .report-type-tabs {
+    flex-wrap:nowrap;
+    overflow-x:auto;
+  }
+}
+@media (max-width:760px) {
+  .report-summary small {
+    font-size:10px;
+  }
+  .dashboard-list-pagination {
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .dashboard-list-pagination > div {
+    justify-content:space-between;
+  }
+  .dashboard-list-pagination > div > span {
+    flex:1;
+    min-width:0;
+  }
+}
