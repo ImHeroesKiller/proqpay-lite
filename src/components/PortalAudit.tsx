@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 type LoginRow={id:string;employee_id_input?:string;employee_id?:string;employee_name?:string;employee_code?:string;ip?:string;success:number;reason?:string;created_at:string};
 type EventRow={id:string;timestamp:string;username?:string;role?:string;action:string;detail?:string;entity?:string;entity_id?:string};
@@ -13,6 +14,7 @@ export default function PortalAudit(){
   const [failed,setFailed]=useState(0);
   const [tab,setTab]=useState<"logins"|"events">("logins");
   const [q,setQ]=useState("");
+  const qDebounced=useDebouncedValue(q,300);
   const [offset,setOffset]=useState(0);
   const [page,setPage]=useState({total:0,hasMore:false,nextOffset:0,limit:50});
   const [loading,setLoading]=useState(true);
@@ -22,7 +24,7 @@ export default function PortalAudit(){
   const load=useCallback(async()=>{
     setLoading(true);setMessage("");
     const params=new URLSearchParams({kind:tab,offset:String(offset),limit:"50"});
-    if(q.trim())params.set("q",q.trim());
+    if(qDebounced.trim())params.set("q",qDebounced.trim());
     try{
       const response=await fetch(`/api/portal-audit?${params.toString()}`,{cache:"no-store"});
       const data=await response.json().catch(()=>({}));
@@ -32,7 +34,7 @@ export default function PortalAudit(){
       setPage({total:Number(data.page?.total||0),hasMore:Boolean(data.page?.hasMore),nextOffset:Number(data.page?.nextOffset||0),limit:Number(data.page?.limit||50)});
     }catch(error){setMessage(error instanceof Error?error.message:"Gagal memuat audit");}
     finally{setLoading(false);}
-  },[tab,q,offset]);
+  },[tab,qDebounced,offset]);
 
   useEffect(()=>{void load();},[load]);
   const rows=tab==="logins"?logins:events;
