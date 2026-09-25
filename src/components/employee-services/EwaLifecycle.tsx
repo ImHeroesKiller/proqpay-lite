@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import type { EwaRow } from "@/lib/employee-services";
 import { ewaMeta, formatPortalDate } from "@/lib/employee-services";
 
@@ -37,6 +38,14 @@ export function EwaDetailPanel({
   onClose: () => void;
 }) {
   const meta = ewaMeta(row.status);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   return (
     <div
       className="es-drawer-backdrop"

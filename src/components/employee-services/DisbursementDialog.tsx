@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { EwaRow } from "@/lib/employee-services";
 
 type Props = {
@@ -16,6 +16,14 @@ export default function DisbursementDialog({ row, busy, error, onClose, onConfir
   const [reference, setReference] = useState("");
   const [transactionDate, setTransactionDate] = useState(new Date().toISOString().slice(0, 10));
   const valid = Boolean(source.trim() && reference.trim() && /^\\d{4}-\\d{2}-\\d{2}$/.test(transactionDate));
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [busy, onClose]);
 
   return (
     <div

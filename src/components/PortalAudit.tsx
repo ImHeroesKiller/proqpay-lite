@@ -58,6 +58,12 @@ export default function PortalAudit(){
   },[tab,qDebounced,success,group,from,to,offset,limit]);
 
   useEffect(()=>{void load();},[load]);
+  useEffect(()=>{
+    if(!selected)return;
+    const onKeyDown=(event:KeyboardEvent)=>{if(event.key==="Escape")setSelected(null);};
+    document.addEventListener("keydown",onKeyDown);
+    return()=>document.removeEventListener("keydown",onKeyDown);
+  },[selected]);
   const rows=tab==="logins"?logins:events;
 
   return <section className="portal-workspace">
