@@ -248,73 +248,80 @@ export default function PortalSettings() {
   const tenureUnit = (policy.minTenureDays || 0) > 0 ? "days" : "months";
   const currentFingerprint = JSON.stringify({ policy, copy, adsEnabled, ads, platform });
   const dirty = Boolean(baseline && currentFingerprint !== baseline);
+  const selectedClient = clientId ? clients.find((client) => client.id === clientId) : null;
+  const scopeLabel = selectedClient ? selectedClient.name : "Default organisasi";
+  const policySummary = [
+    { label: "Layanan", value: policy.enabled ? "Aktif" : "Nonaktif", tone: policy.enabled ? "ok" : "off" },
+    { label: "Plafond", value: `${Math.round(policy.maxPercent * 100)}%`, tone: "accent" },
+    { label: "Fee", value: `${Number((policy.feeRate * 100).toFixed(2))}%`, tone: "neutral" },
+    { label: "Min. hari", value: `${policy.minDaysWorked} hari`, tone: "neutral" },
+  ];
 
   return (
-    <section className="portal-workspace">
-      <div className="page-heading">
-        <div>
-          <span className="page-eyebrow">Employee Services</span>
-          <h1>Portal Configuration</h1>
-          <p>
-            Aturan advance, banner, dan teks ESS diatur di sini. Tidak mengubah
-            pay run, PI, atau billing.
-          </p>
+    <section className="portal-workspace portal-config-workspace">
+      <section className="portal-config-hero">
+        <div className="portal-config-hero-copy">
+          <span className="portal-config-eyebrow">EMPLOYEE SERVICES · CONFIGURATION</span>
+          <h1>Portal Configuration Control Center</h1>
+          <p>Atur policy Advance Salary, konten ESS, promosi, dan tracking per organisasi atau per klien tanpa menyentuh pay run, PI, maupun billing.</p>
+          <div className="portal-config-hero-meta">
+            <span><strong>{scopeLabel}</strong> scope aktif</span>
+            <span>{inherited ? "Inherited dari organisasi" : "Client override aktif"}</span>
+            <span>{dirty ? "Ada perubahan belum disimpan" : "Konfigurasi sinkron"}</span>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span className="status-pill">{loading ? "Memuat…" : dirty ? "Perubahan belum disimpan" : inherited ? "Default organisasi" : "Tersimpan"}</span>
+        <div className="portal-config-hero-actions">
           <button type="button" className="btn" disabled={loading || busy} onClick={() => void load(clientId)}>
-            Refresh
+            {loading ? "Memuat…" : "Refresh konfigurasi"}
           </button>
         </div>
-      </div>
+      </section>
 
-      <div className="portal-toolbar portal-scope-toolbar">
-        <label style={{ fontSize: 12, color: "var(--text2)" }}>
-          Lingkup
-          <select
-            value={clientId}
-            onChange={(event) => void onClientChange(event.target.value)}
-            style={{ marginLeft: 8, minWidth: 240 }}
-          >
-            <option value="">Semua klien (default org)</option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name} ({client.code || client.id})
-              </option>
-            ))}
-          </select>
-        </label>
-        {clientId ? (
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={() => void resetClient()}
-          >
-            Pakai default org
-          </button>
-        ) : null}
-      </div>
+      <section className="portal-config-scope-card card">
+        <div className="portal-config-scope-copy">
+          <span className="portal-config-kicker">Configuration scope</span>
+          <strong>{scopeLabel}</strong>
+          <small>{selectedClient ? `${selectedClient.code || selectedClient.id} · pengaturan khusus klien` : "Berlaku sebagai default untuk seluruh klien"}</small>
+        </div>
+        <div className="portal-config-scope-controls">
+          <label>
+            <span>Lingkup</span>
+            <select value={clientId} onChange={(event) => void onClientChange(event.target.value)}>
+              <option value="">Semua klien (default org)</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name} ({client.code || client.id})
+                </option>
+              ))}
+            </select>
+          </label>
+          {clientId ? (
+            <button type="button" className="btn" disabled={busy} onClick={() => void resetClient()}>
+              Kembali ke default org
+            </button>
+          ) : null}
+        </div>
+      </section>
 
-      <div className="portal-toolbar">
-        {(
-          [
-            ["rules", "Advance Salary"],
-            ["copy", "Portal Content"],
-            ["ads", "Promotion"],
-            ["platform", "Tracking"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={`btn${tab === id ? " btn-primary" : ""}`}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <div className="portal-config-layout">
+        <aside className="portal-config-nav card" aria-label="Bagian konfigurasi">
+          <div className="portal-config-nav-title">Konfigurasi</div>
+          {(
+            [
+              ["rules", "Advance Salary", "Policy, limit, fee, eligibility"],
+              ["copy", "Portal Content", "Headline, label, dan copy ESS"],
+              ["ads", "Promotion", "Banner dan CTA portal"],
+              ["platform", "Tracking", "Ads platform dan conversion"],
+            ] as const
+          ).map(([id, label, desc]) => (
+            <button key={id} type="button" className={`portal-config-nav-item${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>
+              <span>{label}</span>
+              <small>{desc}</small>
+            </button>
+          ))}
+        </aside>
+
+        <div className="portal-config-main">
 
       {message ? (
         <p className="app-notice-bubble app-notice-error" role="status">
@@ -887,6 +894,41 @@ export default function PortalSettings() {
           ) : null}
         </div>
       ) : null}
+
+        </div>
+        <aside className="portal-config-summary">
+          <section className="card portal-config-summary-card">
+            <span className="portal-config-kicker">Policy snapshot</span>
+            <h3>{scopeLabel}</h3>
+            <div className="portal-config-summary-grid">
+              {policySummary.map((item) => (
+                <div key={item.label} className={`portal-config-summary-item tone-${item.tone}`}>
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="portal-config-summary-status">
+              <span className={`portal-config-dot ${inherited ? "inherited" : "override"}`} />
+              <div>
+                <strong>{inherited ? "Inherited configuration" : "Client override"}</strong>
+                <small>{inherited ? "Menggunakan default organisasi." : "Klien ini memiliki pengaturan tersendiri."}</small>
+              </div>
+            </div>
+          </section>
+
+          <section className="card portal-config-preview-card">
+            <span className="portal-config-kicker">ESS preview</span>
+            <div className="portal-config-preview-shell">
+              <div className="portal-config-preview-brand">ProQPay ESS</div>
+              <strong>{copy.ewaTitle || "Advance Salary"}</strong>
+              <p>{copy.ewaSubtitle || copy.ewaBody || "Advance Salary mengikuti policy aktif."}</p>
+              <div className="portal-config-preview-limit">Limit hingga {Math.round(policy.maxPercent * 100)}% · Fee {Number((policy.feeRate * 100).toFixed(2))}%</div>
+              <button type="button" disabled>{copy.ewaCta || "Ajukan Advance"}</button>
+            </div>
+          </section>
+        </aside>
+      </div>
 
       <div className="portal-config-savebar">
         <div>
