@@ -35,6 +35,7 @@ export default function EmployeeDirectory({
   const [client,setClient]=useState('ALL');
   const [region,setRegion]=useState(initialRegion);
   const [quality,setQuality]=useState('ALL');
+  const [filtersOpen,setFiltersOpen]=useState(false);
   const [page,setPage]=useState(1);
   const [selected,setSelected]=useState<EmployeeRecord|null>(null);
   const deferredQuery=useDeferredValue(query.trim().toLocaleLowerCase('id-ID'));
@@ -67,6 +68,7 @@ export default function EmployeeDirectory({
     return true;
   }).sort((a,b)=>employeeText(a.name).localeCompare(employeeText(b.name),'id-ID')),[employees,deferredQuery,client,region,quality]);
 
+  const activeFilterCount=[client!=='ALL',region!=='ALL',quality!=='ALL'].filter(Boolean).length;
   const pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));
   const safePage=Math.min(page,pageCount);
   const visible=filtered.slice((safePage-1)*pageSize,safePage*pageSize);
@@ -78,6 +80,13 @@ export default function EmployeeDirectory({
 
   function updateFilter(setter:(value:string)=>void,value:string){
     setter(value);
+    setPage(1);
+  }
+
+  function resetFilters(){
+    setClient('ALL');
+    setRegion(initialRegion);
+    setQuality('ALL');
     setPage(1);
   }
 
@@ -103,16 +112,35 @@ export default function EmployeeDirectory({
       </div>
 
       <div className="employee-toolbar card">
-        <label className="employee-search"><span aria-hidden="true">⌕</span><input value={query} onChange={(event)=>{setQuery(event.target.value);setPage(1);}} placeholder="Cari nama, NRK, klien, project…" aria-label="Cari karyawan"/></label>
-        <label><span>Klien</span><select value={client} onChange={(event)=>updateFilter(setClient,event.target.value)}><option value="ALL">Semua klien</option>{options.clients.map((item)=><option key={item}>{item}</option>)}</select></label>
-        <label><span>Wilayah</span><select value={region} onChange={(event)=>updateFilter(setRegion,event.target.value)}><option value="ALL">Semua wilayah</option>{options.regions.map((item)=><option key={item}>{item}</option>)}</select></label>
-        <label><span>Kualitas</span><select value={quality} onChange={(event)=>updateFilter(setQuality,event.target.value)}><option value="ALL">Semua data</option><option value="COMPLETE">Lengkap</option><option value="ISSUE">Perlu dilengkapi</option></select></label>
+        <div className="employee-toolbar-main">
+          <label className="employee-search"><span aria-hidden="true">⌕</span><input value={query} onChange={(event)=>{setQuery(event.target.value);setPage(1);}} placeholder="Cari nama, NRK, klien, project…" aria-label="Cari karyawan"/></label>
+          <div className="employee-filter-actions">
+            <button type="button" className={`btn ${filtersOpen?'active':''}`} aria-expanded={filtersOpen} onClick={()=>setFiltersOpen((value)=>!value)}>
+              Filter{activeFilterCount? ` (${activeFilterCount})`:''}
+            </button>
+            {(activeFilterCount>0||query)?<button type="button" className="btn" onClick={()=>{resetFilters();setQuery('');}}>Reset</button>:null}
+          </div>
+        </div>
+        {filtersOpen?<div className="employee-filter-panel">
+          <label><span>Klien</span><select value={client} onChange={(event)=>updateFilter(setClient,event.target.value)}><option value="ALL">Semua klien</option>{options.clients.map((item)=><option key={item}>{item}</option>)}</select></label>
+          <label><span>Wilayah</span><select value={region} onChange={(event)=>updateFilter(setRegion,event.target.value)}><option value="ALL">Semua wilayah</option>{options.regions.map((item)=><option key={item}>{item}</option>)}</select></label>
+          <label><span>Kualitas</span><select value={quality} onChange={(event)=>updateFilter(setQuality,event.target.value)}><option value="ALL">Semua data</option><option value="COMPLETE">Lengkap</option><option value="ISSUE">Perlu dilengkapi</option></select></label>
+        </div>:null}
       </div>
 
       <div className="employee-table-card card">
         <div className="employee-table-meta"><span>Menampilkan <strong>{filtered.length}</strong> karyawan</span><small>Klik baris untuk melihat seluruh field yang diizinkan.</small></div>
         <div className="employee-table-scroll">
           <table className="employee-table">
+            <colgroup>
+              <col className="employee-col-person"/>
+              <col className="employee-col-placement"/>
+              <col className="employee-col-status"/>
+              <col className="employee-col-contract"/>
+              <col className="employee-col-quality"/>
+              <col className="employee-col-salary"/>
+              <col className="employee-col-action"/>
+            </colgroup>
             <thead><tr><th>Karyawan</th><th>Penempatan</th><th>Status</th><th>Kontrak</th><th>Kelengkapan</th><th>Gaji pokok</th><th aria-label="Aksi"/></tr></thead>
             <tbody>{visible.map((employee)=>{
               const issues=employeeIssues(employee);

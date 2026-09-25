@@ -33,24 +33,46 @@ export default function EmployeeDetailDrawer({
   const [message,setMessage]=useState('');
   const [portalPassword,setPortalPassword]=useState('');
   const [resetConfirm,setResetConfirm]=useState(false);
+  const [discardConfirm,setDiscardConfirm]=useState(false);
   const closeRef=useRef<HTMLButtonElement>(null);
-  const [form,setForm]=useState<EmployeeAdminForm>({
+  const initialForm:EmployeeAdminForm={
     nik:employeeText(employee.nik),
     email:employeeText(employee.email),
     bankName:employeeText(employee.bankName),
     accountNo:employeeText(employee.accountNo),
     bpjsKesehatanNo:employeeText(employee.bpjsKesehatanNo),
     jamsostekNo:employeeText(employee.jamsostekNo),
-  });
+  };
+  const [form,setForm]=useState<EmployeeAdminForm>(initialForm);
+  const dirty=editing && JSON.stringify(form)!==JSON.stringify(initialForm);
   const canEdit=canManageEmployees(actor);
   const canResetPortal=canManageEmployees(actor);
+
+  function requestClose(){
+    if(dirty){setDiscardConfirm(true);return;}
+    onClose();
+  }
+
+  function cancelEditing(){
+    if(dirty){setDiscardConfirm(true);return;}
+    setEditing(false);
+    setForm(initialForm);
+  }
+
+  function discardChanges(){
+    setDiscardConfirm(false);
+    setEditing(false);
+    setForm(initialForm);
+    onClose();
+  }
 
   useEffect(()=>{
     closeRef.current?.focus();
     const onKeyDown=(event:KeyboardEvent)=>{
       if(event.key==='Escape'){
-        if(resetConfirm&&!resetting) setResetConfirm(false);
-        else onClose();
+        if(discardConfirm) setDiscardConfirm(false);
+        else if(resetConfirm&&!resetting) setResetConfirm(false);
+        else requestClose();
       }
       if(event.key==='Tab'){
         const container=document.querySelector('.employee-drawer') as HTMLElement|null;
@@ -64,7 +86,7 @@ export default function EmployeeDetailDrawer({
     };
     window.addEventListener('keydown',onKeyDown);
     return()=>window.removeEventListener('keydown',onKeyDown);
-  },[onClose,resetConfirm,resetting]);
+  },[onClose,resetConfirm,resetting,discardConfirm,dirty]);
 
   async function save(){
     setSaving(true);setMessage('');
@@ -106,16 +128,22 @@ export default function EmployeeDetailDrawer({
   ];
 
   return(
-    <div className="employee-drawer-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget)onClose();}}>
+    <div className="employee-drawer-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget)requestClose();}}>
       <aside className="employee-drawer" role="dialog" aria-modal="true" aria-labelledby="employee-detail-title">
         <div className="employee-drawer-header">
           <div className="employee-avatar-lg">{employeeInitials(employee.name)}</div>
           <div><span>PROFIL KARYAWAN</span><h2 id="employee-detail-title">{employee.name}</h2><p>{employee.position||'Posisi belum diisi'} · {employee.company||'-'}</p></div>
-          <button ref={closeRef} type="button" onClick={onClose} aria-label="Tutup detail">✕</button>
+          <button ref={closeRef} type="button" onClick={requestClose} aria-label="Tutup detail">✕</button>
         </div>
         {canEdit||canResetPortal?<div className="employee-drawer-actions">
           {canResetPortal?<button className="btn" type="button" disabled={resetting} onClick={()=>setResetConfirm(true)}>{resetting?'Menerbitkan…':'Reset password portal'}</button>:null}
-          {canEdit?<button className="btn" type="button" onClick={()=>setEditing(!editing)}>{editing?'Batal edit':'Edit data kurang'}</button>:null}
+          {canEdit?<button className="btn" type="button" onClick={()=>editing?cancelEditing():setEditing(true)}>{editing?'Batal edit':'Edit data kurang'}</button>:null}
+        </div>:null}
+
+        {discardConfirm?<div className="employee-inline-confirm employee-discard-confirm" role="alertdialog" aria-modal="true">
+          <strong>Perubahan belum disimpan</strong>
+          <span>Keluar sekarang akan membuang perubahan administrasi yang belum disimpan.</span>
+          <div><button type="button" className="btn" onClick={()=>setDiscardConfirm(false)}>Lanjut edit</button><button type="button" className="btn btn-danger" onClick={discardChanges}>Buang perubahan</button></div>
         </div>:null}
 
         {resetConfirm?<div className="employee-inline-confirm" role="alertdialog" aria-modal="true">

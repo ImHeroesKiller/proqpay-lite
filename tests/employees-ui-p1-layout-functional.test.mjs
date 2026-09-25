@@ -29,7 +29,7 @@ test('Employees UI P1: ESS credential management is a secondary header action mo
   assert.match(credential,/Kelola akses ESS/);
   assert.match(credential,/employee-ess-modal/);
   assert.doesNotMatch(credential,/portal-credentials-card card/);
-  assert.match(credential,/disabled=\{busy \|\| summary == null \|\| summary\.pending === 0\}/);
+  assert.match(credential,/disabled=\{busy \|\| loading \|\| summary == null \|\| summary\.pending === 0\}/);
 });
 
 test('Employees UI P1: mobile uses employee cards instead of 940px desktop table',async()=>{
