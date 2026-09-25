@@ -110,6 +110,14 @@ export function employeeJson(data, status, request, env, methods, extraHeaders =
   });
 }
 
+export async function enforceEmployeeRateLimit(request, env, actor, resource, methods) {
+  if (!env.API_RATE_LIMITER?.limit) return null;
+  const stableActor = actor?.id || actor?.email || request.headers.get('CF-Connecting-IP') || 'anonymous';
+  const { success } = await env.API_RATE_LIMITER.limit({ key: `${stableActor}:${resource}` });
+  if (success) return null;
+  return employeeJson({ error: 'Too many requests' }, 429, request, env, methods, { 'Retry-After': '60' });
+}
+
 export function employeeHandlePreflight(request, env, methods) {
   const origin = request.headers.get('Origin');
   if (origin && !employeeAllowedOrigins(request, env).has(origin)) {
