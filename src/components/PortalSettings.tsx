@@ -337,6 +337,10 @@ export default function PortalSettings() {
             padding: 18,
           }}
         >
+          <div style={{ gridColumn: "1 / -1" }}>
+            <strong>Availability</strong>
+            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Aktifkan layanan Advance Salary untuk lingkup ini.</div>
+          </div>
           <label style={field}>
             Advance salary
             <select
@@ -349,6 +353,10 @@ export default function PortalSettings() {
               <option value="0">Nonaktif</option>
             </select>
           </label>
+          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+            <strong>Limit & fee</strong>
+            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Atur batas advance dan biaya layanan yang dihitung server-side.</div>
+          </div>
           <label style={field}>
             Plafond maksimal (% gaji berjalan)
             <input
@@ -411,6 +419,10 @@ export default function PortalSettings() {
               }
             />
           </label>
+          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+            <strong>Eligibility</strong>
+            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Syarat hari berjalan dan masa kerja sebelum karyawan dapat mengajukan.</div>
+          </div>
           <label style={field}>
             Hari berjalan di bulan gaji (prorata)
             <input
@@ -479,6 +491,10 @@ export default function PortalSettings() {
               kerja.
             </span>
           </label>
+          <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+            <strong>Repayment</strong>
+            <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>Pengembalian dilakukan melalui payroll sesuai lifecycle canonical.</div>
+          </div>
           <label style={field}>
             Tenor (bulan, 1 = potong saat gajian)
             <input
@@ -663,48 +679,47 @@ export default function PortalSettings() {
                     />
                   </label>
                 ) : null}
-                <label style={field}>
-                  Warna / gradient
-                  <input
-                    value={ad.bg}
-                    onChange={(event) =>
-                      patchAd(setAds, ads, index, { bg: event.target.value })
-                    }
-                  />
-                </label>
-                <label style={field}>
-                  Gambar (https, opsional)
-                  <input
-                    value={ad.imageUrl}
-                    onChange={(event) =>
-                      patchAd(setAds, ads, index, {
-                        imageUrl: event.target.value,
-                      })
-                    }
-                  />
-                </label>
-                <label style={field}>
-                  Pixel tayang (opsional)
-                  <input
-                    value={ad.impressionUrl}
-                    onChange={(event) =>
-                      patchAd(setAds, ads, index, {
-                        impressionUrl: event.target.value,
-                      })
-                    }
-                  />
-                </label>
-                <label style={field}>
-                  URL klik / tracker (opsional)
-                  <input
-                    value={ad.clickUrl}
-                    onChange={(event) =>
-                      patchAd(setAds, ads, index, {
-                        clickUrl: event.target.value,
-                      })
-                    }
-                  />
-                </label>
+                <details style={{ gridColumn: "1 / -1", borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                  <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Tampilan & tracking lanjutan</summary>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginTop: 12 }}>
+                    <label style={field}>
+                      Warna / gradient
+                      <input
+                        value={ad.bg}
+                        onChange={(event) =>
+                          patchAd(setAds, ads, index, { bg: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label style={field}>
+                      Gambar (https, opsional)
+                      <input
+                        value={ad.imageUrl}
+                        onChange={(event) =>
+                          patchAd(setAds, ads, index, { imageUrl: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label style={field}>
+                      Pixel tayang (opsional)
+                      <input
+                        value={ad.impressionUrl}
+                        onChange={(event) =>
+                          patchAd(setAds, ads, index, { impressionUrl: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label style={field}>
+                      URL klik / tracker (opsional)
+                      <input
+                        value={ad.clickUrl}
+                        onChange={(event) =>
+                          patchAd(setAds, ads, index, { clickUrl: event.target.value })
+                        }
+                      />
+                    </label>
+                  </div>
+                </details>
                 <label
                   style={{
                     display: "flex",
