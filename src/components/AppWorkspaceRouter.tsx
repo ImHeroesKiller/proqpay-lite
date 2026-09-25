@@ -5,6 +5,7 @@ import { useState } from 'react';
 import ModuleErrorBoundary from '@/components/ModuleErrorBoundary';
 import type { AppView } from '@/components/Sidebar';
 import type { AppSettings } from '@/lib/app-settings';
+import type { EmployeeRecord } from '@/lib/employee-ui';
 
 const OperatingWorkspace = dynamic(() => import('@/components/OperatingWorkspace'), { loading:() => <ViewLoading /> });
 const EmployeeDirectory = dynamic(() => import('@/components/EmployeeDirectory'), { loading:() => <ViewLoading /> });
@@ -29,9 +30,9 @@ type Actor = {
 };
 
 type DatabaseMirror = {
-  employees?:unknown[];
-  companies?:unknown[];
-  projects?:unknown[];
+  employees?:EmployeeRecord[];
+  companies?:Array<{id:string;name:string;code?:string}>;
+  projects?:Array<{id:string;name:string;company?:string;status?:string}>;
 };
 
 type Props = {
