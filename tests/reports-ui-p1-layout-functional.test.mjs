@@ -4,10 +4,10 @@ import { readFile } from 'node:fs/promises';
 
 const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
-test('Reports UI P1: payroll upload is no longer embedded in Reports',async()=>{
+test('Reports UI P1: Reports stays read-only while Data Intake owns payroll file ingestion',async()=>{
   const reports=await read('src/components/ReportsWorkspace.tsx');
   const intake=await read('src/app/data-intake/page.tsx');
-  assert.doesNotMatch(reports,/PayrollSourceUpload/);
+  assert.doesNotMatch(reports,/type="file"/);
   assert.match(intake,/Data Intake Payroll/);
   assert.match(intake,/Unggah & validasi/);
 });
