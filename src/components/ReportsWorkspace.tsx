@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import PanelPagination from '@/components/PanelPagination';
 import PayrollSourceUpload from '@/components/PayrollSourceUpload';
