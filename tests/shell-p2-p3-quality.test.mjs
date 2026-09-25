@@ -69,7 +69,7 @@ test('Shell has a compact utility footer with environment, version, health, sync
   assert.match(page,/<AppFooter/);
   assert.match(footer,/<footer className="app-footer"/);
   assert.match(footer,/packageInfo\.version/);
-  assert.match(footer,/Production · \{state === "connected"/);
+  assert.match(footer,/Production · \{stateLabel\}/);
   assert.match(footer,/syncLabel\(lastSyncAt, now\)/);
   assert.match(footer,/>Support<\/button>/);
   assert.match(css,/\.app-footer/);
@@ -107,4 +107,35 @@ test('Super Admin secondary groups are collapsible and workflow icons are domain
   assert.match(sidebar,/IconClock/);
   assert.match(sidebar,/IconArrowUpRight/);
   assert.match(sidebar,/IconLayers/);
+});
+
+
+test('P3 shell delegates workspace routing and visibility refresh out of page.tsx', async()=>{
+  const page=await read('src/app/page.tsx');
+  const router=await read('src/components/AppWorkspaceRouter.tsx');
+  const refresh=await read('src/hooks/useVisibilityAwareCanonicalRefresh.ts');
+  assert.match(page,/import AppWorkspaceRouter/);
+  assert.match(page,/useVisibilityAwareCanonicalRefresh/);
+  assert.doesNotMatch(page,/const OperatingWorkspace = dynamic/);
+  assert.doesNotMatch(page,/document\.addEventListener\('visibilitychange'/);
+  assert.match(router,/ModuleErrorBoundary/);
+  assert.match(router,/OperatingWorkspace mode="payruns"/);
+  assert.match(refresh,/syncDatabaseFromCloudflare/);
+});
+
+test('P3 shell and backend authority consume one canonical matrix', async()=>{
+  const matrix=await read('shared/authority-matrix.js');
+  const sidebar=await read('src/components/Sidebar.tsx');
+  const page=await read('src/app/page.tsx');
+  const account=await read('functions/api/_account-auth.js');
+  const security=await read('functions/api/_security.js');
+  assert.match(matrix,/ROLE_VIEWS/);
+  assert.match(matrix,/ROLE_PERMISSIONS/);
+  assert.match(matrix,/ACTION_RULES/);
+  assert.match(matrix,/roleCanAction/);
+  assert.match(sidebar,/viewsForRole/);
+  assert.match(sidebar,/roleHasCapability/);
+  assert.match(page,/roleCanAction/);
+  assert.match(account,/APP_ROLES/);
+  assert.match(security,/permissionsForRole/);
 });
