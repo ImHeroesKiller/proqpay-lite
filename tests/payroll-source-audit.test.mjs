@@ -26,15 +26,14 @@ test('strict payroll controls require row and component balances', () => {
   assert.ok(invalidComponents.issues.some((issue) => issue.field === 'deductionComponents'));
 });
 
-test('final payroll upload preserves source and never calls master importer', () => {
-  const source = read('functions/api/payroll-upload.js');
+test('canonical payroll intake preserves source provenance without legacy payroll-upload endpoint', () => {
+  const source = read('functions/api/payroll-intake.js');
   assert.match(source, /payroll_upload_batches/);
-  assert.match(source, /fileHash/);
-  assert.match(source, /PAYROLL_MASTER_MISMATCH/);
+  assert.match(source, /const fileHash = await sha256Hex\(bytes\)/);
   assert.match(source, /INSERT INTO payroll_run_lines/);
+  assert.match(source, /PAYROLL_INTAKE_CONFIRMED/);
   assert.doesNotMatch(source, /importRowsD1/);
-  assert.doesNotMatch(source, /INSERT INTO employees/);
-  assert.doesNotMatch(source, /employee_compensation.*UPDATE/i);
+  assert.throws(() => read('functions/api/payroll-upload.js'), /ENOENT/);
 });
 
 test('legacy JSON endpoint cannot bypass UPLOAD_FINAL provenance', () => {
