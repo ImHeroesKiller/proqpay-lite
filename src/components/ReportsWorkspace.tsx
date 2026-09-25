@@ -126,7 +126,6 @@ export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Pr
   }, [type,period,status,deferredQuery]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setPage(1); setQuery(''); setStatus('ALL'); setPeriod('ALL'); }, [type]);
 
   const periods = facets.periods;
   const statusOptions = facets.statuses;
@@ -155,20 +154,30 @@ export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Pr
     setPage(1);
   }
 
+  function changeType(next:ReportType) {
+    if(next===type) return;
+    setQuery('');
+    setPeriod('ALL');
+    setStatus('ALL');
+    setPage(1);
+    setFacets({periods:[],statuses:[]});
+    setType(next);
+  }
+
   function exportCurrent() {
     if (type === 'payments') {
-      const rows = filteredPayments.map((row) => ({ payment_id:row.id,client:row.client_name,project:row.project_name,payroll_period:row.payroll_period,payment_period:row.payment_period,arrears:(row.arrears_periods||[]).join('|'),employees:row.employee_count,expected_total:row.expected_total,settlement_source:row.settlement_source,manual_proof_total:row.manual_proof_total,gateway_total:row.gateway_total,paid_total:row.paid_total,payment_date:row.payment_date,status:row.status,reconciliation:row.reconciliation_status,difference:row.difference }));
+      const rows = filteredPayments.map((row) => ({ payment_id:row.id,client:row.client_name,project:row.project_name,payroll_period:row.payroll_period,payment_period:row.payment_period,arrears:(row.arrears_periods||[]).join('|'),employees:row.employee_count,expected_total:row.expected_total,settlement_source:row.settlement_source,manual_proof_total:row.manual_proof_total,gateway_total:row.gateway_total,paid_total:row.paid_total,payment_date:row.payment_date,status:row.status,reconciliation:row.reconciliation_status,payment_difference:paymentDifference(row),reconciliation_difference:row.difference }));
       downloadRows(`payment-report-${period === 'ALL' ? 'all' : period}.csv`,rows);
     } else downloadRows(`${type}-${period === 'ALL' ? 'all' : period}.csv`, filteredPayroll);
   }
 
   return <section className="reports-workspace">
     {!hideHeading ? <div className="reports-heading"><div><span className="workspace-eyebrow">{clientMode?'REPORTS':'REPORTING & AUDIT'}</span><h2>{clientMode?'Payroll & Payment Reports':'Laporan Payroll & Pembayaran'}</h2><p>{clientMode?'Laporan payroll dan pembayaran sesuai scope akun Anda.':'Jejak audit dari sumber payroll, snapshot final, slip gaji, pembayaran, dan rekonsiliasi.'}</p></div><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent} title="Unduh laporan CSV"><IconDownload aria-hidden="true" /><span>Unduh CSV</span></button></div> : <div className="reports-inline-actions"><button className="btn report-export-btn" disabled={!activeRows.length} onClick={exportCurrent} title="Unduh laporan CSV"><IconDownload aria-hidden="true" /><span>Unduh CSV</span></button></div>}
-    <div className="report-type-tabs" role="tablist" aria-label="Jenis laporan">{reportTypes.map((item)=><button key={item} type="button" role="tab" aria-selected={type===item} className={`btn ${type===item?'btn-primary':''}`} onClick={()=>setType(item)}>{clientMode&&item==='payments'?'Riwayat Pembayaran':REPORT_LABELS[item]}</button>)}</div>
+    <div className="report-type-tabs" role="tablist" aria-label="Jenis laporan">{reportTypes.map((item)=><button key={item} type="button" role="tab" aria-selected={type===item} className={`btn ${type===item?'btn-primary':''}`} onClick={()=>changeType(item)}>{clientMode&&item==='payments'?'Riwayat Pembayaran':REPORT_LABELS[item]}</button>)}</div>
 
     {type === 'payments' ? <div className="report-summary-grid"><Summary label="Pembayaran selesai" value={String(completed.length)} note="Settlement selesai tanpa konflik sumber." tone="success" /><Summary label="Total dibayarkan" value={formatIDR(paidTotal)} note="Akumulasi pembayaran selesai pada filter aktif." /><Summary label="Karyawan dibayar" value={String(employees)} note="Jumlah penerima pada pembayaran selesai." /><Summary label="Perlu tindak lanjut" value={String(paymentFollowUp)} note="Exception, bukti pending, atau konflik settlement." tone={paymentFollowUp?'warning':'success'} /></div>
       : type === 'control' ? <div className="report-summary-grid"><Summary label="Pay Run" value={String(filteredPayroll.length)} note="Jumlah Pay Run pada filter aktif." /><Summary label="Sesuai kontrol" value={String(controlBalanced)} note="Gross - potongan sama dengan netto." tone="success" /><Summary label="Selisih PI" value={String(controlPiMismatch)} note="PI berbeda dengan payroll net." tone={controlPiMismatch?'warning':'success'} /><Summary label="Selisih rekonsiliasi" value={String(controlReconDiff)} note="Settlement belum balance." tone={controlReconDiff?'warning':'success'} /></div>
-      : <div className="report-summary-grid"><Summary label={REPORT_LABELS[type]} value={String(filteredPayroll.length)} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /><Summary label="Terhubung ke sumber" value={String(filteredPayroll.filter((row)=>row.source_batch_id || row.file_sha256).length)} /><Summary label="Baris ditampilkan" value={String(activeRows.length)} /></div>}
+      : <GenericSummary type={type} rows={filteredPayroll} period={period} />}
 
     <div className="card report-filter"><label><span>Cari</span><input value={query} placeholder="Cari karyawan, klien, project, batch, pay run…" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></label><label><span>Periode</span><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }}><option value="ALL">Semua periode</option>{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span>Status</span><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">Semua status</option>{statusOptions.map((item) => <option key={item} value={item}>{reportStatusLabel(item)}</option>)}</select></label><button type="button" className="btn report-reset-btn" disabled={!filtersActive} onClick={resetFilters}>Reset</button></div>
     {error ? <div className="card report-error" role="alert"><span>{error}</span><button type="button" className="btn" disabled={loading} onClick={()=>void load()}>{loading?'Memuat…':'Coba lagi'}</button></div> : null}
@@ -226,6 +235,26 @@ function formatReportValue(key:string,value:unknown){
 
 function MobileValue({label,value}:{label:string;value:unknown}) {
   return <div><span>{label}</span><strong>{String(value??'-')}</strong></div>;
+}
+
+function GenericSummary({type,rows,period}:{type:Exclude<ReportType,'payments'|'control'>;rows:ReportRow[];period:string}) {
+  if(type==='uploads') {
+    const accepted=rows.reduce((sum,row)=>sum+Number(row.accepted_row_count||0),0);
+    const net=rows.reduce((sum,row)=>sum+Number(row.source_total_net||0),0);
+    return <div className="report-summary-grid"><Summary label="Batch upload" value={String(rows.length)} /><Summary label="Baris diterima" value={String(accepted)} /><Summary label="Netto sumber" value={formatIDR(net)} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /></div>;
+  }
+  if(type==='payslips') {
+    const net=rows.reduce((sum,row)=>sum+Number(row.net_amount||0),0);
+    const matched=rows.filter((row)=>row.reconciliation_status==='MATCHED').length;
+    return <div className="report-summary-grid"><Summary label="Slip tersedia" value={String(rows.length)} /><Summary label="Total netto" value={formatIDR(net)} /><Summary label="Rekonsiliasi sesuai" value={String(matched)} tone={matched===rows.length?'success':'warning'} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /></div>;
+  }
+  if(type==='exceptions') {
+    const critical=rows.filter((row)=>String(row.severity||'').toUpperCase()==='CRITICAL').length;
+    const open=rows.filter((row)=>!['RESOLVED','ACCEPTED','AUTO_NORMALIZED'].includes(String(row.status||''))).length;
+    return <div className="report-summary-grid"><Summary label="Exception" value={String(rows.length)} /><Summary label="Critical" value={String(critical)} tone={critical?'warning':'success'} /><Summary label="Masih terbuka" value={String(open)} tone={open?'warning':'success'} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /></div>;
+  }
+  const sourced=rows.filter((row)=>row.source_batch_id || row.file_sha256).length;
+  return <div className="report-summary-grid"><Summary label={REPORT_LABELS[type]} value={String(rows.length)} /><Summary label="Periode" value={period==='ALL'?'Semua':period} /><Summary label="Terhubung ke sumber" value={String(sourced)} /><Summary label="Total baris" value={String(rows.length)} /></div>;
 }
 
 function Summary({label,value,note,tone='neutral'}:{label:string;value:string;note?:string;tone?:'neutral'|'success'|'warning'}) { return <div className={`card report-summary report-summary-${tone}`}><span>{label}</span><strong title={value}>{value}</strong>{note?<small>{note}</small>:null}</div>; }
