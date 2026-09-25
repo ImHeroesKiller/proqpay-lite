@@ -1,4 +1,4 @@
-export type HealthState = 'HEALTHY' | 'DEGRADED' | 'DOWN' | 'IDLE';
+import type { IntegrationHealthState } from '@/lib/integration-health';
 
 export type ApiMonitorSummary = {
   connectedApps: number;
@@ -76,7 +76,7 @@ export type IntegrationMonitorResponse = {
   retentionDays?: number;
   correlationId?: string;
   monitorHeaders?: { appId:string; appName:string };
-  health?: { state:HealthState; reason:string; errorRate:number };
+  health?: { state:IntegrationHealthState; reason:string; errorRate:number };
   summary: ApiMonitorSummary;
   apps: ApiConnectedApp[];
   appPage?: PageMeta;
