@@ -15,7 +15,13 @@ import {
   reportSecondaryTitle,
   reportStatusLabel,
   reportStatusTone,
+  reportFormatValue,
+  reportExportRecord,
+  isPayrollReportResponse,
+  isPaymentReportResponse,
   type PaymentReport,
+  type PaymentReportResponse,
+  type PayrollReportResponse,
   type ReportFacets,
   type ReportRow,
   type ReportType,
@@ -47,8 +53,8 @@ async function loadAllPayrollReport(type:Exclude<ReportType,'payments'>, filters
     if(filters.status!=='ALL') params.set('status',filters.status);
     if(filters.query) params.set('q',filters.query);
     const response=await fetch(`/api/payroll-reports?${params.toString()}`,{cache:'no-store'});
-    const payload=await response.json().catch(()=>({}));
-    if(!response.ok) throw new Error(payload.error||`HTTP ${response.status}`);
+    const payload:PayrollReportResponse=await response.json().catch(()=>({}));
+    if(!response.ok||!isPayrollReportResponse(payload)) throw new Error(payload.error||`HTTP ${response.status}`);
     rows.push(...(Array.isArray(payload.rows)?payload.rows:[]));
     if(page===0&&payload.facets) facets={
       periods:Array.isArray(payload.facets.periods)?payload.facets.periods:[],
@@ -72,8 +78,8 @@ async function loadAllPaymentReports(filters:{period:string;status:string;query:
     if(filters.status!=='ALL') params.set('status',filters.status);
     if(filters.query) params.set('q',filters.query);
     const response=await fetch(`/api/operating-model?${params.toString()}`,{headers:{Accept:'application/json'},cache:'no-store'});
-    const payload=await response.json().catch(()=>({}));
-    if(!response.ok) throw new Error(payload.error||`HTTP ${response.status}`);
+    const payload:PaymentReportResponse=await response.json().catch(()=>({}));
+    if(!response.ok||!isPaymentReportResponse(payload)) throw new Error(payload.error||`HTTP ${response.status}`);
     rows.push(...(Array.isArray(payload.paymentReports)?payload.paymentReports:[]));
     if(page===0&&payload.paymentReportFacets) facets={
       periods:Array.isArray(payload.paymentReportFacets.periods)?payload.paymentReportFacets.periods:[],
@@ -167,8 +173,8 @@ export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Pr
   function exportCurrent() {
     if (type === 'payments') {
       const rows = filteredPayments.map((row) => ({ payment_id:row.id,client:row.client_name,project:row.project_name,payroll_period:row.payroll_period,payment_period:row.payment_period,arrears:(row.arrears_periods||[]).join('|'),employees:row.employee_count,expected_total:row.expected_total,settlement_source:row.settlement_source,manual_proof_total:row.manual_proof_total,gateway_total:row.gateway_total,paid_total:row.paid_total,payment_date:row.payment_date,status:row.status,reconciliation:row.reconciliation_status,payment_difference:paymentDifference(row),reconciliation_difference:row.difference }));
-      downloadRows(`payment-report-${period === 'ALL' ? 'all' : period}.csv`,rows);
-    } else downloadRows(`${type}-${period === 'ALL' ? 'all' : period}.csv`, filteredPayroll);
+      downloadRows(`payment-report-${period === 'ALL' ? 'all' : period}.csv`,rows.map((row)=>reportExportRecord(row)));
+    } else downloadRows(`${type}-${period === 'ALL' ? 'all' : period}.csv`, filteredPayroll.map((row)=>reportExportRecord(row as Record<string,unknown>)));
   }
 
   return <section className="reports-workspace">
@@ -227,10 +233,7 @@ function paymentDifference(row:PaymentReport){
 }
 
 function formatReportValue(key:string,value:unknown){
-  if(isReportStatusColumn(key)&&value) return reportStatusLabel(value);
-  if(typeof value==='number'&&isMoneyColumn(key)) return formatIDR(value);
-  if(typeof value==='object'&&value!==null) return JSON.stringify(value);
-  return String(value??'-');
+  return reportFormatValue(key,value);
 }
 
 function MobileValue({label,value}:{label:string;value:unknown}) {
