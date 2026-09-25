@@ -73,6 +73,53 @@ function unifiedSql() {
       FROM portal_login_attempts a
       LEFT JOIN employees e ON e.id=a.employee_id
       WHERE a.org_id=?
+
+      UNION ALL
+
+      SELECT
+        ev.id,
+        ev.created_at AS timestamp,
+        'INTEGRATION' AS source,
+        CASE
+          WHEN ev.status_code>=500 THEN 'ERROR'
+          WHEN ev.status_code>=400 THEN 'WARN'
+          WHEN ev.status_code>=200 AND ev.status_code<400 THEN 'SUCCESS'
+          ELSE 'INFO'
+        END AS level,
+        'API_' || ev.event_type AS event,
+        ev.method || ' ' || ev.endpoint || ' · HTTP ' || ev.status_code || ' · ' || ev.duration_ms || 'ms' AS message,
+        ev.app_name AS actor,
+        'EXTERNAL_APP' AS actor_role,
+        'api_endpoint' AS entity,
+        ev.app_id AS entity_id,
+        NULL AS ip,
+        'API_ENDPOINT_EVENT' AS origin
+      FROM api_endpoint_events ev
+      WHERE ev.org_id=?
+
+      UNION ALL
+
+      SELECT
+        ge.id,
+        ge.received_at AS timestamp,
+        'PAYMENT' AS source,
+        CASE
+          WHEN ge.status='FAILED' OR ge.signature_valid=0 THEN 'ERROR'
+          WHEN ge.status='PROCESSED' THEN 'SUCCESS'
+          WHEN ge.status='IGNORED' THEN 'WARN'
+          ELSE 'INFO'
+        END AS level,
+        'GATEWAY_' || ge.event_type AS event,
+        ge.provider || ' · ' || ge.status || CASE WHEN ge.signature_valid=1 THEN ' · signature valid' ELSE ' · signature invalid' END AS message,
+        ge.provider AS actor,
+        'PAYMENT_PROVIDER' AS actor_role,
+        'payment_gateway_transaction' AS entity,
+        ge.payment_gateway_transaction_id AS entity_id,
+        NULL AS ip,
+        'GATEWAY_EVENT' AS origin
+      FROM payment_gateway_events ge
+      JOIN payment_gateway_transactions gt ON gt.id=ge.payment_gateway_transaction_id
+      WHERE gt.org_id=?
     )
   `;
 }
@@ -126,7 +173,7 @@ export async function onRequest({ request, env }) {
   const organizationId = orgId(env, authorization.actor);
   const filter = buildFilters({ q, source, level, from, to });
   const cte = unifiedSql();
-  const baseBindings = [organizationId, organizationId];
+  const baseBindings = [organizationId, organizationId, organizationId, organizationId];
 
   try {
     const rows = await d1All(
@@ -164,6 +211,16 @@ export async function onRequest({ request, env }) {
       baseBindings,
     );
 
+    const health = await d1First(
+      env.DB,
+      `SELECT
+        (SELECT COUNT(*) FROM payment_gateway_transactions WHERE org_id=? AND status='FAILED') AS gateway_failed,
+        (SELECT COUNT(*) FROM payment_gateway_transactions WHERE org_id=? AND status IN ('CREATED','PENDING','PROCESSING')) AS gateway_active,
+        (SELECT COUNT(*) FROM api_connected_apps WHERE org_id=? AND status IN ('OBSERVED','ACTIVE')) AS connected_apps,
+        (SELECT COUNT(*) FROM api_endpoint_events WHERE org_id=? AND status_code>=400 AND created_at>=datetime('now','-24 hours')) AS api_errors_24h`,
+      [organizationId,organizationId,organizationId,organizationId],
+    );
+
     return respond({
       ok: true,
       rows,
@@ -176,6 +233,12 @@ export async function onRequest({ request, env }) {
         failedLogins: Number(count?.failed_logins || 0),
       },
       sources: sourceRows.map((row) => ({ source: row.source, total: Number(row.total || 0) })),
+      health: {
+        gatewayFailed: Number(health?.gateway_failed || 0),
+        gatewayActive: Number(health?.gateway_active || 0),
+        connectedApps: Number(health?.connected_apps || 0),
+        apiErrors24h: Number(health?.api_errors_24h || 0),
+      },
       filters: { q, source, level, from, to },
       authority: 'D1',
     });
