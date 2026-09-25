@@ -1,11 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useIntegrationMonitor } from '@/hooks/useIntegrationMonitor';
+import { apiRecoveryGuidance, integrationHealthLabel } from '@/lib/integration-health';
+import { IntegrationHealthPill, IntegrationPagination } from '@/components/integrations/IntegrationPrimitives';
+import { IntegrationFilterBar } from '@/components/integrations/IntegrationFilterBar';
+import { IntegrationActivity } from '@/components/integrations/IntegrationActivity';
 import {
-  getIntegrationMonitor,
   updateIntegrationAppStatus,
-  type HealthState,
   type IntegrationMonitorResponse,
   type MonitorFilters,
 } from '@/lib/integration-monitor-api';
@@ -14,10 +17,6 @@ function fmtDate(value?: string | null) {
   if (!value) return '-';
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('id-ID');
-}
-
-function healthLabel(state: HealthState) {
-  return state === 'HEALTHY' ? 'Healthy' : state === 'DEGRADED' ? 'Degraded' : state === 'DOWN' ? 'Down' : 'Idle';
 }
 
 function statusLabel(status: string) {
@@ -42,11 +41,6 @@ const EMPTY: IntegrationMonitorResponse = {
 };
 
 export default function ApiEndpointMonitor() {
-  const [data, setData] = useState<IntegrationMonitorResponse>(EMPTY);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState('');
-  const [retryCount, setRetryCount] = useState(0);
   const [copied, setCopied] = useState('');
   const [appBusy, setAppBusy] = useState('');
   const [q, setQ] = useState('');
@@ -58,8 +52,6 @@ export default function ApiEndpointMonitor() {
   const [eventOffset, setEventOffset] = useState(0);
   const [appOffset, setAppOffset] = useState(0);
   const qDebounced = useDebouncedValue(q, 300);
-  const abortRef = useRef<AbortController | null>(null);
-  const initializedRef = useRef(false);
 
   const filters = useMemo<MonitorFilters>(() => ({
     q:qDebounced.trim(),
@@ -74,41 +66,7 @@ export default function ApiEndpointMonitor() {
     appLimit:20,
   }), [qDebounced, appStatus, eventType, statusClass, from, to, eventOffset, appOffset]);
 
-  const load = useCallback(async (mode: 'initial' | 'refresh' | 'retry' = 'refresh') => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    if (mode === 'initial') setLoading(true);
-    else setRefreshing(true);
-    setError('');
-    try {
-      const next = await getIntegrationMonitor(filters, controller.signal);
-      setData(next);
-      setRetryCount(0);
-      initializedRef.current = true;
-    } catch (cause) {
-      if (controller.signal.aborted) return;
-      setRetryCount((value) => value + 1);
-      setError(cause instanceof Error ? cause.message : 'Monitoring endpoint gagal dimuat');
-    } finally {
-      if (!controller.signal.aborted) {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }
-  }, [filters]);
-
-  useEffect(() => {
-    void load(initializedRef.current ? 'refresh' : 'initial');
-    return () => abortRef.current?.abort();
-  }, [load]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible' && !error) void load('refresh');
-    }, 30_000);
-    return () => window.clearInterval(timer);
-  }, [load, error]);
+  const { data, loading, refreshing, error, retryCount, load, setError } = useIntegrationMonitor(filters, EMPTY);
 
   useEffect(() => {
     setEventOffset(0);
@@ -122,7 +80,6 @@ export default function ApiEndpointMonitor() {
   const appPage = data.appPage || EMPTY.appPage!;
   const eventPage = data.eventPage || EMPTY.eventPage!;
   const recentPull = useMemo(() => data.events.find((row) => row.event_type === 'DATA_PULL'), [data.events]);
-  const hasFilters = Boolean(q || appStatus || eventType || statusClass || from || to);
 
   async function changeAppStatus(appId: string, action: 'ACTIVATE' | 'DEACTIVATE' | 'REVOKE') {
     setAppBusy(appId + ':' + action);
@@ -158,13 +115,7 @@ export default function ApiEndpointMonitor() {
     setAppOffset(0);
   }
 
-  const recoveryText = health.state === 'DOWN'
-    ? 'Periksa endpoint dengan error tertinggi, buka Audit Logs memakai Correlation ID, lalu retry setelah akar masalah diperbaiki.'
-    : health.state === 'DEGRADED'
-      ? 'Prioritaskan endpoint lambat/error dan validasi perubahan terakhir sebelum traffic meningkat.'
-      : health.state === 'IDLE'
-        ? 'Belum ada traffic. Pastikan aplikasi eksternal mengirim App ID monitoring dan tetap memakai autentikasi ProQPay.'
-        : 'Tidak ada recovery action yang diperlukan saat ini.';
+  const recoveryText = apiRecoveryGuidance(health.state);
 
   return <section className="card integrations-monitor" aria-label="ProQPay API monitoring">
     <div className="integrations-section-head">
@@ -174,11 +125,12 @@ export default function ApiEndpointMonitor() {
         <p>Health, traffic, error, latency, trust status, dan correlation tracing untuk seluruh aplikasi eksternal.</p>
       </div>
       <div className="integrations-head-actions">
-        <span className={`integration-health-pill integration-health-${health.state.toLowerCase()}`}>{healthLabel(health.state)}</span>
+        <IntegrationHealthPill state={health.state} />
         <button type="button" className="btn" disabled={refreshing} onClick={() => void load('refresh')}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
       </div>
     </div>
 
+    <div className="sr-only" aria-live="polite">{refreshing ? 'Memperbarui data integrasi' : ''}</div>
     {error ? <div className="app-notice-bubble app-notice-error" role="alert">
       <strong>Monitoring gagal dimuat</strong>
       <span>{error}{retryCount > 1 ? ` · retry ${retryCount}x belum berhasil` : ''}</span>
@@ -187,7 +139,7 @@ export default function ApiEndpointMonitor() {
     {data.pendingMigration ? <div className="app-notice-bubble app-notice-info"><strong>Monitoring disiapkan</strong><span>Migration observability belum aktif pada database ini.</span></div> : null}
 
     <div className="integration-health-banner" data-state={health.state}>
-      <div><span>System health</span><strong>{healthLabel(health.state)}</strong><small>{health.reason}</small></div>
+      <div><span>System health</span><strong>{integrationHealthLabel(health.state)}</strong><small>{health.reason}</small></div>
       <div><span>Error rate 24h</span><strong>{pct(diagnostics.errorRate24h)}</strong><small>{summary.errors24h.toLocaleString('id-ID')} dari {summary.requests24h.toLocaleString('id-ID')} request</small></div>
       <div><span>Endpoint bermasalah</span><strong>{diagnostics.failingEndpoints}</strong><small>{diagnostics.slowEndpoints} endpoint avg latency ≥ 1 detik</small></div>
       <div><span>Recovery guidance</span><strong>{health.state === 'HEALTHY' ? 'No action' : 'Action needed'}</strong><small>{recoveryText}</small></div>
@@ -207,15 +159,19 @@ export default function ApiEndpointMonitor() {
       <button type="button" className="btn" onClick={() => void copy('base', base)}>{copied === 'base' ? 'Copied' : 'Copy'}</button>
     </div>
 
-    <div className="integration-filter-panel">
-      <label><span>Search</span><input value={q} onChange={(event) => setQ(event.target.value)} placeholder="App, endpoint, correlation ID…" /></label>
-      <label><span>App status</span><select value={appStatus} onChange={(event) => setAppStatus(event.target.value)}><option value="">Semua</option><option value="ACTIVE">Trusted</option><option value="OBSERVED">Observed</option><option value="INACTIVE">Inactive</option><option value="REVOKED">Revoked</option></select></label>
-      <label><span>Event type</span><select value={eventType} onChange={(event) => setEventType(event.target.value)}><option value="">Semua</option><option value="CONNECTION">Connection</option><option value="DATA_PULL">Data pull</option><option value="REQUEST">Request</option></select></label>
-      <label><span>HTTP result</span><select value={statusClass} onChange={(event) => setStatusClass(event.target.value)}><option value="">Semua</option><option value="SUCCESS">2xx/3xx</option><option value="ERROR">4xx/5xx</option></select></label>
-      <label><span>Dari</span><input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
-      <label><span>Sampai</span><input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
-      <button type="button" className="btn" disabled={!hasFilters} onClick={resetFilters}>Reset filter</button>
-    </div>
+    <IntegrationFilterBar
+      value={{ q, appStatus, eventType, statusClass, from, to }}
+      disabled={refreshing}
+      onChange={(patch) => {
+        if (patch.q !== undefined) setQ(patch.q);
+        if (patch.appStatus !== undefined) setAppStatus(patch.appStatus);
+        if (patch.eventType !== undefined) setEventType(patch.eventType);
+        if (patch.statusClass !== undefined) setStatusClass(patch.statusClass);
+        if (patch.from !== undefined) setFrom(patch.from);
+        if (patch.to !== undefined) setTo(patch.to);
+      }}
+      onReset={resetFilters}
+    />
 
     <div className="integrations-two-col">
       <div className="integration-panel">
@@ -234,11 +190,15 @@ export default function ApiEndpointMonitor() {
             </div> : <small>Revoked bersifat terminal. Gunakan App ID baru untuk reconnect.</small>}
           </article>)}
         </div> : <div className="integration-empty">Tidak ada aplikasi yang cocok dengan filter.</div>}
-        <div className="integration-pagination">
-          <button type="button" className="btn" disabled={appPage.offset <= 0 || refreshing} onClick={() => setAppOffset(Math.max(0, appPage.offset - appPage.limit))}>Sebelumnya</button>
-          <span>{appPage.total ? appPage.offset + 1 : 0}–{Math.min(appPage.offset + data.apps.length, appPage.total)} dari {appPage.total}</span>
-          <button type="button" className="btn" disabled={!appPage.hasMore || refreshing} onClick={() => setAppOffset(appPage.offset + appPage.limit)}>Berikutnya</button>
-        </div>
+        <IntegrationPagination
+          offset={appPage.offset}
+          limit={appPage.limit}
+          total={appPage.total}
+          count={data.apps.length}
+          disabled={refreshing}
+          onPrevious={() => setAppOffset(Math.max(0, appPage.offset - appPage.limit))}
+          onNext={() => setAppOffset(appPage.offset + appPage.limit)}
+        />
       </div>
 
       <div className="integration-panel">
@@ -256,31 +216,15 @@ export default function ApiEndpointMonitor() {
       </div>
     </div>
 
-    <div className="integration-panel">
-      <div className="integration-panel-head"><div><strong>API activity</strong><small>Server-side filter & pagination</small></div><span>{eventPage.total}</span></div>
-      <div className="integration-events-desktop">
-        <table className="integration-events-table">
-          <thead><tr><th>Waktu</th><th>App</th><th>Method</th><th>Endpoint</th><th>Type</th><th>Status</th><th>Latency</th><th>Correlation</th></tr></thead>
-          <tbody>{data.events.map((row, index) => <tr key={row.created_at + row.app_id + index}>
-            <td>{fmtDate(row.created_at)}</td><td>{row.app_name}</td><td>{row.method}</td><td><code>{row.endpoint}</code></td><td>{row.event_type.replaceAll('_',' ')}</td><td><strong>{row.status_code}</strong></td><td>{row.duration_ms} ms</td><td><button type="button" className="integration-copy-id" onClick={() => void copy(row.correlation_id || '', row.correlation_id || '')}>{copied === row.correlation_id ? 'Copied' : row.correlation_id || '-'}</button></td>
-          </tr>)}</tbody>
-        </table>
-      </div>
-      <div className="integration-events-mobile">
-        {data.events.map((row, index) => <article key={row.created_at + row.app_id + index}>
-          <div><strong>{row.method} {row.endpoint}</strong><span>HTTP {row.status_code}</span></div>
-          <small>{row.app_name} · {row.event_type.replaceAll('_',' ')} · {row.duration_ms} ms</small>
-          <span>{fmtDate(row.created_at)}</span>
-          <button type="button" className="integration-copy-id" onClick={() => void copy(row.correlation_id || '', row.correlation_id || '')}>Correlation: {row.correlation_id || '-'}</button>
-        </article>)}
-      </div>
-      {!data.events.length && !loading ? <div className="integration-empty">Tidak ada API activity yang cocok dengan filter.</div> : null}
-      <div className="integration-pagination">
-        <button type="button" className="btn" disabled={eventPage.offset <= 0 || refreshing} onClick={() => setEventOffset(Math.max(0, eventPage.offset - eventPage.limit))}>Sebelumnya</button>
-        <span>{eventPage.total ? eventPage.offset + 1 : 0}–{Math.min(eventPage.offset + data.events.length, eventPage.total)} dari {eventPage.total}</span>
-        <button type="button" className="btn" disabled={!eventPage.hasMore || refreshing} onClick={() => setEventOffset(eventPage.offset + eventPage.limit)}>Berikutnya</button>
-      </div>
-    </div>
+    <IntegrationActivity
+      events={data.events}
+      page={eventPage}
+      loading={loading}
+      refreshing={refreshing}
+      copied={copied}
+      onCopy={(label, value) => void copy(label, value)}
+      onPage={setEventOffset}
+    />
 
     <div className="integration-monitor-foot">
       <span>Last activity: {fmtDate(summary.lastActivityAt)}{recentPull ? ' · Last data pull: ' + fmtDate(recentPull.created_at) : ''}</span>

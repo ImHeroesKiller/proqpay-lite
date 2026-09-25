@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { gatewayRuntimeHealth } from '@/lib/integration-health';
+import { IntegrationHealthPill } from '@/components/integrations/IntegrationPrimitives';
 import {
   getHostedPaymentStatus,
   getPaymentGatewayStatus,
@@ -13,14 +15,6 @@ type RuntimeState = { seamless:PaymentGatewayReadiness | null; hosted:PaymentGat
 function statusLabel(readiness: PaymentGatewayReadiness | null) {
   if (!readiness) return 'UNKNOWN';
   return readiness.configured ? 'READY' : readiness.provider === 'UNCONFIGURED' ? 'NOT CONFIGURED' : 'NOT READY';
-}
-
-function gatewayHealth(runtime: RuntimeState) {
-  const provider = runtime.seamless?.provider || runtime.hosted?.provider || 'UNCONFIGURED';
-  if (!runtime.seamless && !runtime.hosted) return { state:'IDLE', label:'Belum diperiksa', reason:'Jalankan readiness check.' };
-  if (provider === 'UNCONFIGURED') return { state:'IDLE', label:'Not configured', reason:'Belum ada provider aktif untuk runtime payment.' };
-  if (runtime.seamless?.configured) return { state:'HEALTHY', label:'Operational', reason:'Adapter aktif dan credential runtime memenuhi readiness.' };
-  return { state:'DEGRADED', label:'Action needed', reason:runtime.seamless?.reason || runtime.hosted?.reason || 'Gateway belum siap digunakan.' };
 }
 
 export default function PaymentGatewayIntegrationPanel({ canManage, canView = true }: Props) {
@@ -51,7 +45,13 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
   useEffect(() => { void load(); }, [load]);
 
   const provider = runtime.seamless?.provider || runtime.hosted?.provider || 'UNCONFIGURED';
-  const health = gatewayHealth(runtime);
+  const health = gatewayRuntimeHealth({
+    provider,
+    seamlessConfigured:Boolean(runtime.seamless?.configured),
+    seamlessReason:runtime.seamless?.reason,
+    hostedReason:runtime.hosted?.reason,
+    inspected:Boolean(runtime.seamless || runtime.hosted),
+  });
   const origin = useMemo(() => typeof window === 'undefined' ? '' : window.location.origin, []);
   const webhookUrl = origin ? `${origin}/api/payment-gateway-webhook` : '/api/payment-gateway-webhook';
   const hostedReturnUrl = origin ? `${origin}/api/payment-gateway-hosted-return` : '/api/payment-gateway-hosted-return';
@@ -74,7 +74,7 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
     </div>;
   }
 
-  return <section className="card integration-gateway-panel" aria-label="Payment Gateway integration">
+  return <section className="card integration-gateway-panel" aria-label="Payment Gateway integration" aria-busy={loading}>
     <div className="integrations-section-head">
       <div>
         <span className="workspace-eyebrow">PAYMENT ORCHESTRATION</span>
@@ -82,11 +82,12 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
         <p>Runtime readiness, environment aktif, credential health, dan recovery guidance sebelum payment execution.</p>
       </div>
       <div className="integrations-head-actions">
-        <span className={`integration-health-pill integration-health-${health.state.toLowerCase()}`}>{health.label}</span>
+        <IntegrationHealthPill state={health.state} label={health.label} />
         <button type="button" className="btn" disabled={loading} onClick={() => void load()}>{loading ? 'Checking…' : error ? 'Retry readiness' : 'Check readiness'}</button>
       </div>
     </div>
 
+    <div className="sr-only" aria-live="polite">{loading ? 'Memeriksa readiness payment gateway' : checkedAt ? 'Readiness payment gateway selesai diperiksa' : ''}</div>
     {error ? <div className="app-notice-bubble app-notice-error" role="alert">
       <strong>Gateway status gagal</strong>
       <span>{error}{retryCount > 1 ? ` · retry ${retryCount}x` : ''}</span>
@@ -133,7 +134,7 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
     </div>}
 
     <details className="integration-diagnostics">
-      <summary>Runtime diagnostics</summary>
+      <summary aria-label="Buka runtime diagnostics Payment Gateway">Runtime diagnostics</summary>
       <div>
         <span><strong>Provider:</strong> {provider}</span>
         <span><strong>Seamless:</strong> {statusLabel(runtime.seamless)}</span>
