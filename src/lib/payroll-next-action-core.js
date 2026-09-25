@@ -95,7 +95,7 @@ function processorAction(context, stage) {
 
   if (inputStatus === 'PENDING') {
     if (sourceMode === 'UPLOAD_FINAL') {
-      return result('UPLOAD_PAYROLL_DATA','Upload Payroll Data','Upload and review the final payroll input before validation.','operations',{
+      return result('COMPLETE_DATA_INTAKE','Complete Data Intake','Complete the payroll file intake and review before validation.','operations',{
         actionable:true,tone:'warning',priority:2,category:'PREPARE',owner:'PAYROLL_PROCESSOR',
       });
     }
