@@ -64,3 +64,18 @@
 .ewa-disbursement-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.ewa-dialog-title{margin:4px 0}.ewa-dialog-meta{font-size:12px;color:var(--text3)}
 .ewa-dialog-error{margin-top:12px}
 @media(max-width:560px){.ewa-disbursement-summary-grid{grid-template-columns:1fr}.ewa-disbursement-actions{display:grid;grid-template-columns:1fr 1fr}}
+
+/* Portal Configuration */
+.portal-config-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;padding:18px}
+.portal-config-section{grid-column:1/-1;margin-top:4px}
+.portal-config-section:first-child{margin-top:0}
+.portal-config-section strong{font-size:12px}.portal-config-section div{font-size:11px;color:var(--text3);margin-top:2px;line-height:1.45}
+.es-field{display:grid;gap:6px;font-size:12px;font-weight:650;color:var(--text2)}
+.es-field>span,.portal-config-help{font-weight:400;color:var(--text3);line-height:1.45}
+.es-inline-fields{display:flex;gap:8px}
+.portal-config-note{grid-column:1/-1;margin:0;font-size:12px;color:var(--text3);line-height:1.55}
+.portal-config-savebar{position:sticky;bottom:12px;z-index:30;margin-top:18px;padding:12px;display:flex;justify-content:space-between;gap:12px;align-items:center;background:var(--card,#fff);border:1px solid var(--border);border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,.10)}
+.portal-config-savebar strong{font-size:12px}.portal-config-savebar p{font-size:11px;color:var(--text3);margin:2px 0 0}.portal-config-savebar-actions{display:flex;gap:8px}
+.portal-config-loading{padding:24px}.portal-config-loading p{color:var(--text3);margin:6px 0 12px}
+.portal-config-advanced{grid-column:1/-1;border-top:1px solid var(--border);padding-top:10px}.portal-config-advanced summary{cursor:pointer;font-size:12px;font-weight:700}.portal-config-advanced-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+@media(max-width:640px){.portal-config-savebar{align-items:stretch;flex-direction:column}.portal-config-savebar-actions{display:grid;grid-template-columns:1fr 1fr}.es-inline-fields{display:grid;grid-template-columns:minmax(0,1fr) auto}}
