@@ -1,0 +1,12 @@
+{
+  "version": "2026-09-v1",
+  "ewaStatuses": [
+    "SUBMITTED",
+    "APPROVED",
+    "DISBURSED",
+    "REPAYING",
+    "REPAID",
+    "REJECTED",
+    "CANCELLED"
+  ]
+}

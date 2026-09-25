@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { EmployeeServiceState } from "@/components/employee-services/OperationalState";
 
 type LoginRow={id:string;employee_id_input?:string;employee_id?:string;employee_name?:string;employee_code?:string;ip?:string;success:number;reason?:string;created_at:string};
 type EventRow={id:string;timestamp:string;username?:string;role?:string;action:string;detail?:string;entity?:string;entity_id?:string};
@@ -13,6 +15,7 @@ export default function PortalAudit(){
   const [failed,setFailed]=useState(0);
   const [tab,setTab]=useState<"logins"|"events">("logins");
   const [q,setQ]=useState("");
+  const qDebounced=useDebouncedValue(q,300);
   const [offset,setOffset]=useState(0);
   const [page,setPage]=useState({total:0,hasMore:false,nextOffset:0,limit:50});
   const [loading,setLoading]=useState(true);
@@ -22,7 +25,7 @@ export default function PortalAudit(){
   const load=useCallback(async()=>{
     setLoading(true);setMessage("");
     const params=new URLSearchParams({kind:tab,offset:String(offset),limit:"50"});
-    if(q.trim())params.set("q",q.trim());
+    if(qDebounced.trim())params.set("q",qDebounced.trim());
     try{
       const response=await fetch(`/api/portal-audit?${params.toString()}`,{cache:"no-store"});
       const data=await response.json().catch(()=>({}));
@@ -32,7 +35,7 @@ export default function PortalAudit(){
       setPage({total:Number(data.page?.total||0),hasMore:Boolean(data.page?.hasMore),nextOffset:Number(data.page?.nextOffset||0),limit:Number(data.page?.limit||50)});
     }catch(error){setMessage(error instanceof Error?error.message:"Gagal memuat audit");}
     finally{setLoading(false);}
-  },[tab,q,offset]);
+  },[tab,qDebounced,offset]);
 
   useEffect(()=>{void load();},[load]);
   const rows=tab==="logins"?logins:events;
@@ -55,9 +58,16 @@ export default function PortalAudit(){
       <input value={q} onChange={e=>{setQ(e.target.value);setOffset(0)}} placeholder={tab==="logins"?"Cari karyawan, input, atau IP":"Cari aksi, actor, detail, atau entity ID"} aria-label="Cari audit portal"/>
       {q?<button type="button" className="btn" onClick={()=>{setQ("");setOffset(0)}}>Reset filter</button>:null}
     </div>
-    {message?<div className="app-notice-bubble app-notice-error" role="alert" style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}><span>{message}</span><button type="button" className="btn" onClick={()=>void load()}>Coba lagi</button></div>:null}
-    {loading&&rows.length===0?<div className="card" aria-busy="true" style={{padding:24,color:"var(--text3)"}}>Memuat jejak audit portal…</div>:null}
-    {!loading&&!message&&rows.length===0?<div className="card" style={{padding:24,textAlign:"center"}}><strong>{q?"Tidak ada audit yang cocok":"Belum ada jejak audit"}</strong><p style={{color:"var(--text3)",margin:"6px 0 12px"}}>{q?"Coba kata kunci lain atau reset filter.":"Aktivitas Employee Portal akan muncul di sini."}</p>{q?<button type="button" className="btn" onClick={()=>setQ("")}>Reset filter</button>:null}</div>:null}
+    <EmployeeServiceState
+      loading={loading && rows.length === 0}
+      error={message}
+      empty={!loading && !message && rows.length === 0}
+      loadingText="Memuat jejak audit portal…"
+      emptyTitle={q ? "Tidak ada audit yang cocok" : "Belum ada jejak audit"}
+      emptyBody={q ? "Coba kata kunci lain atau reset filter." : "Aktivitas Employee Portal akan muncul di sini."}
+      onRetry={() => void load()}
+      onReset={q ? () => { setQ(""); setOffset(0); } : undefined}
+    />
 
     {rows.length>0?<div className="card pa-desktop" style={{overflowX:"auto"}}>
       {tab==="logins"?<table className="data-table" style={{width:"100%",borderCollapse:"collapse"}}><thead><tr><th align="left">Waktu</th><th align="left">Karyawan</th><th align="left">Input</th><th align="left">IP</th><th align="left">Hasil</th><th/></tr></thead><tbody>{logins.map(row=><tr key={row.id}><td>{when(row.created_at)}</td><td><strong>{row.employee_name||row.employee_id||"—"}</strong><div style={{fontSize:11,color:"var(--text3)"}}>{row.employee_code}</div></td><td>{row.employee_id_input}</td><td>{row.ip}</td><td><span className={`pa-result ${Number(row.success)?"ok":"fail"}`}>{Number(row.success)?"BERHASIL":row.reason||"GAGAL"}</span></td><td><button type="button" className="btn" onClick={()=>setSelected(row)}>Detail</button></td></tr>)}</tbody></table>

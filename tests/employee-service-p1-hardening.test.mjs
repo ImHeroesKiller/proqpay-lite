@@ -60,7 +60,8 @@ test('Employee Services P1: EWA ops supports bounded filters and pagination',asy
   assert.match(ui,/type="month"/);
   assert.match(ui,/Reset filter/);
   assert.match(ui,/Berikutnya/);
-  assert.match(ui,/void disburse\(row\.id\)/);
+  assert.match(ui,/onDisburse/);
+  assert.match(ui,/function disburse\(id: string\)/);
 });
 
 test('Employee Services P1: Portal Audit is scoped, searchable and excludes generic employee-master noise',async()=>{
