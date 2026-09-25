@@ -88,3 +88,48 @@ test('P1 Integrations UI distinguishes observed apps from trusted apps', async (
   assert.match(panel, /autentikasi endpoint tetap wajib/);
   assert.match(panel, /Retention:/);
 });
+
+
+test('P2 Integrations API supports server-side filters pagination and operational health', async () => {
+  const endpoint = await readFile(new URL('../functions/api/integration-monitor.js', import.meta.url), 'utf8');
+  assert.match(endpoint, /eventOffset/);
+  assert.match(endpoint, /eventLimit/);
+  assert.match(endpoint, /appOffset/);
+  assert.match(endpoint, /appLimit/);
+  assert.match(endpoint, /statusClass/);
+  assert.match(endpoint, /eventType/);
+  assert.match(endpoint, /correlation_id/);
+  assert.match(endpoint, /state:'HEALTHY'/);
+  assert.match(endpoint, /state:'DEGRADED'/);
+  assert.match(endpoint, /state:'DOWN'/);
+  assert.match(endpoint, /avg_duration_ms/);
+  assert.match(endpoint, /failingEndpoints/);
+  assert.match(endpoint, /slowEndpoints/);
+});
+
+test('P2 Integrations UI exposes actionable health filtering recovery and mobile event cards', async () => {
+  const panel = await readFile(new URL('../src/components/ApiEndpointMonitor.tsx', import.meta.url), 'utf8');
+  const styles = await readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8');
+  assert.match(panel, /System health/);
+  assert.match(panel, /Error rate 24h/);
+  assert.match(panel, /Recovery guidance/);
+  assert.match(panel, /Retry sekarang/);
+  assert.match(panel, /Reset filter/);
+  assert.match(panel, /Server-side filter & pagination/);
+  assert.match(panel, /Correlation:/);
+  assert.match(panel, /Auto-refresh 30 detik saat tab aktif/);
+  assert.match(styles, /\.integration-events-mobile/);
+  assert.match(styles, /@media \(max-width:760px\)/);
+  assert.match(styles, /\.integration-filter-panel/);
+});
+
+test('P2 Payment Gateway integration shows diagnostics and safe recovery guidance', async () => {
+  const panel = await readFile(new URL('../src/components/PaymentGatewayIntegrationPanel.tsx', import.meta.url), 'utf8');
+  assert.match(panel, /Runtime health/);
+  assert.match(panel, /Operational recovery path/);
+  assert.match(panel, /Test Connection/);
+  assert.match(panel, /Activate/);
+  assert.match(panel, /reconciliation/i);
+  assert.match(panel, /Retry readiness/);
+  assert.match(panel, /Runtime diagnostics/);
+});
