@@ -7,29 +7,27 @@ import {
   type PaymentGatewayReadiness,
 } from '@/lib/payment-gateway-api';
 
-type Props = {
-  canManage: boolean;
-  canView?: boolean;
-};
-
-type RuntimeState = {
-  seamless: PaymentGatewayReadiness | null;
-  hosted: PaymentGatewayReadiness | null;
-};
+type Props = { canManage:boolean; canView?:boolean };
+type RuntimeState = { seamless:PaymentGatewayReadiness | null; hosted:PaymentGatewayReadiness | null };
 
 function statusLabel(readiness: PaymentGatewayReadiness | null) {
   if (!readiness) return 'UNKNOWN';
   return readiness.configured ? 'READY' : readiness.provider === 'UNCONFIGURED' ? 'NOT CONFIGURED' : 'NOT READY';
 }
 
-function tone(readiness: PaymentGatewayReadiness | null) {
-  return readiness?.configured ? '#059669' : '#b45309';
+function gatewayHealth(runtime: RuntimeState) {
+  const provider = runtime.seamless?.provider || runtime.hosted?.provider || 'UNCONFIGURED';
+  if (!runtime.seamless && !runtime.hosted) return { state:'IDLE', label:'Belum diperiksa', reason:'Jalankan readiness check.' };
+  if (provider === 'UNCONFIGURED') return { state:'IDLE', label:'Not configured', reason:'Belum ada provider aktif untuk runtime payment.' };
+  if (runtime.seamless?.configured) return { state:'HEALTHY', label:'Operational', reason:'Adapter aktif dan credential runtime memenuhi readiness.' };
+  return { state:'DEGRADED', label:'Action needed', reason:runtime.seamless?.reason || runtime.hosted?.reason || 'Gateway belum siap digunakan.' };
 }
 
 export default function PaymentGatewayIntegrationPanel({ canManage, canView = true }: Props) {
-  const [runtime, setRuntime] = useState<RuntimeState>({ seamless: null, hosted: null });
+  const [runtime, setRuntime] = useState<RuntimeState>({ seamless:null, hosted:null });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [retryCount, setRetryCount] = useState(0);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [copied, setCopied] = useState('');
 
@@ -38,13 +36,12 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
     setLoading(true);
     setError('');
     try {
-      const [seamless, hosted] = await Promise.all([
-        getPaymentGatewayStatus(),
-        getHostedPaymentStatus(),
-      ]);
-      setRuntime({ seamless: seamless.gateway, hosted: hosted.hosted });
+      const [seamless, hosted] = await Promise.all([getPaymentGatewayStatus(), getHostedPaymentStatus()]);
+      setRuntime({ seamless:seamless.gateway, hosted:hosted.hosted });
       setCheckedAt(new Date());
+      setRetryCount(0);
     } catch (cause) {
+      setRetryCount((value) => value + 1);
       setError(cause instanceof Error ? cause.message : 'Status payment gateway gagal dimuat');
     } finally {
       setLoading(false);
@@ -54,6 +51,7 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
   useEffect(() => { void load(); }, [load]);
 
   const provider = runtime.seamless?.provider || runtime.hosted?.provider || 'UNCONFIGURED';
+  const health = gatewayHealth(runtime);
   const origin = useMemo(() => typeof window === 'undefined' ? '' : window.location.origin, []);
   const webhookUrl = origin ? `${origin}/api/payment-gateway-webhook` : '/api/payment-gateway-webhook';
   const hostedReturnUrl = origin ? `${origin}/api/payment-gateway-hosted-return` : '/api/payment-gateway-hosted-return';
@@ -70,85 +68,80 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
   }
 
   if (!canView) {
-    return <div className="card" style={{ padding:18 }}>
+    return <div className="card integration-gateway-panel">
       <strong>Payment Gateway</strong>
-      <p style={{ color:'var(--text3)', fontSize:12, margin:'8px 0 0' }}>Status gateway hanya tersedia untuk tim payroll dan controller.</p>
+      <p>Status gateway hanya tersedia untuk tim payroll dan controller.</p>
     </div>;
   }
 
-  const cardStyle = { padding:18, display:'grid', gap:12 } as const;
-  const modeStyle = { border:'1px solid var(--border-soft)', borderRadius:12, padding:14, display:'grid', gap:8, background:'var(--bg-subtle)' } as const;
-  const endpointStyle = { display:'grid', gridTemplateColumns:'minmax(0,1fr) auto', gap:8, alignItems:'center' } as const;
-
-  return <section className="card" style={cardStyle} aria-label="Payment Gateway integration">
-    <div style={{ display:'flex', justifyContent:'space-between', gap:12, flexWrap:'wrap', alignItems:'flex-start' }}>
+  return <section className="card integration-gateway-panel" aria-label="Payment Gateway integration">
+    <div className="integrations-section-head">
       <div>
-        <span style={{ color:'var(--text3)', fontSize:10.5, fontWeight:700, letterSpacing:'.08em' }}>PAYMENT ORCHESTRATION</span>
-        <h3 style={{ margin:'4px 0 0', fontSize:18 }}>Payment Gateway</h3>
-        <p style={{ color:'var(--text3)', fontSize:12, margin:'6px 0 0', maxWidth:620 }}>
-          Eksekusi payment setelah Payment Instruction lolos maker-checker. Secret tetap tersimpan server-side dan tidak pernah ditampilkan di browser.
-        </p>
-        {isE2Pay ? <p style={{ color:'var(--text3)', fontSize:11.5, margin:'5px 0 0' }}>
-          Credential E2Pay dikelola oleh Super Admin melalui Settings → Payment Gateway.
-        </p> : null}
+        <span className="workspace-eyebrow">PAYMENT ORCHESTRATION</span>
+        <h3>Payment Gateway</h3>
+        <p>Runtime readiness, environment aktif, credential health, dan recovery guidance sebelum payment execution.</p>
       </div>
-      <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-        <span style={{ border:`1px solid ${tone(runtime.seamless)}44`, color:tone(runtime.seamless), borderRadius:999, padding:'5px 9px', fontSize:10.5, fontWeight:700 }}>
-          {provider}
-        </span>
-        <button type="button" className="btn" disabled={loading} onClick={() => void load()}>{loading ? 'Checking…' : 'Test readiness'}</button>
+      <div className="integrations-head-actions">
+        <span className={`integration-health-pill integration-health-${health.state.toLowerCase()}`}>{health.label}</span>
+        <button type="button" className="btn" disabled={loading} onClick={() => void load()}>{loading ? 'Checking…' : error ? 'Retry readiness' : 'Check readiness'}</button>
       </div>
     </div>
 
-    {error ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Gateway status gagal</strong><span>{error}</span></div> : null}
+    {error ? <div className="app-notice-bubble app-notice-error" role="alert">
+      <strong>Gateway status gagal</strong>
+      <span>{error}{retryCount > 1 ? ` · retry ${retryCount}x` : ''}</span>
+      <button type="button" className="btn" disabled={loading} onClick={() => void load()}>Retry sekarang</button>
+    </div> : null}
 
-    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:12 }}>
-      <div style={modeStyle}>
-        <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}><strong>{isE2Pay ? 'E2Pay B2B Disbursement' : 'Seamless / API'}</strong><span style={{ color:tone(runtime.seamless), fontSize:10.5, fontWeight:750 }}>{statusLabel(runtime.seamless)}</span></div>
-        <span style={{ color:'var(--text3)', fontSize:11.5 }}>Payment dieksekusi dari ProQPay melalui backend orchestration setelah Payment Instruction approved.</span>
-        <small style={{ color:'var(--text3)' }}>{runtime.seamless?.reason || 'Adapter seamless siap digunakan.'}</small>
-      </div>
-      {isE2Pay ? <div style={modeStyle}>
-        <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}><strong>Environment</strong><span style={{ color:tone(runtime.seamless), fontSize:10.5, fontWeight:750 }}>{runtime.seamless?.environment || 'UAT'}</span></div>
-        <span style={{ color:'var(--text3)', fontSize:11.5 }}>Credential UAT dan Production disimpan sebagai profile terpisah dan terenkripsi.</span>
-        <small style={{ color:'var(--text3)' }}>Konfigurasi: Settings → Payment Gateway.</small>
-      </div> : <div style={modeStyle}>
-        <div style={{ display:'flex', justifyContent:'space-between', gap:8 }}><strong>Hosted Checkout</strong><span style={{ color:tone(runtime.hosted), fontSize:10.5, fontWeight:750 }}>{statusLabel(runtime.hosted)}</span></div>
-        <span style={{ color:'var(--text3)', fontSize:11.5 }}>User diarahkan ke checkout provider; return browser bukan bukti payment.</span>
-        <small style={{ color:'var(--text3)' }}>{runtime.hosted?.reason || 'Hosted checkout siap digunakan.'}</small>
-      </div>}
+    <div className="integration-health-banner">
+      <div><span>Provider</span><strong>{provider}</strong><small>{isE2Pay ? 'E2Pay B2B Disbursement' : 'Runtime adapter'}</small></div>
+      <div><span>Runtime health</span><strong>{health.label}</strong><small>{health.reason}</small></div>
+      <div><span>Environment</span><strong>{runtime.seamless?.environment || '—'}</strong><small>{isE2Pay ? 'UAT dan Production terisolasi' : 'Provider runtime'}</small></div>
+      <div><span>Last readiness</span><strong>{checkedAt ? checkedAt.toLocaleTimeString('id-ID') : '—'}</strong><small>{checkedAt ? checkedAt.toLocaleDateString('id-ID') : 'Belum diperiksa'}</small></div>
     </div>
 
-    {isE2Pay ? <div style={{ display:'grid', gap:7 }}>
-      <strong style={{ fontSize:12 }}>E2Pay status strategy</strong>
-      <span style={{ color:'var(--text3)', fontSize:11.5 }}>
-        {runtime.seamless?.environment || 'UAT'} · status 96/unknown direkonsiliasi melalui Transaction History berdasarkan clientRef. Adapter ini tidak menganggap browser return atau webhook sebagai bukti pembayaran.
-      </span>
-    </div> : <div style={{ display:'grid', gap:9 }}>
-      <strong style={{ fontSize:12 }}>Provider callback endpoints</strong>
-      <div style={endpointStyle}><code style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:11 }}>{webhookUrl}</code><button className="btn" type="button" onClick={() => void copy('webhook', webhookUrl)}>{copied === 'webhook' ? 'Copied' : 'Copy webhook'}</button></div>
-      <div style={endpointStyle}><code style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:11 }}>{hostedReturnUrl}</code><button className="btn" type="button" onClick={() => void copy('return', hostedReturnUrl)}>{copied === 'return' ? 'Copied' : 'Copy return'}</button></div>
+    <div className="integrations-two-col">
+      <div className="integration-panel">
+        <div className="integration-panel-head"><div><strong>{isE2Pay ? 'E2Pay execution adapter' : 'Seamless / API'}</strong><small>Backend orchestration</small></div><span>{statusLabel(runtime.seamless)}</span></div>
+        <div className="integration-gateway-body">
+          <span>Payment dieksekusi dari ProQPay hanya setelah Payment Instruction lolos maker-checker.</span>
+          <small>{runtime.seamless?.reason || 'Adapter seamless siap digunakan.'}</small>
+          {!runtime.seamless?.configured && provider !== 'UNCONFIGURED' ? <div className="integration-recovery-box"><strong>Recovery</strong><span>Periksa profile aktif di Settings → Payment Gateway, jalankan Test Connection, lalu Activate kembali bila credential atau source account berubah.</span></div> : null}
+        </div>
+      </div>
+      <div className="integration-panel">
+        <div className="integration-panel-head"><div><strong>{isE2Pay ? 'Environment authority' : 'Hosted checkout'}</strong><small>{isE2Pay ? 'Active runtime profile' : 'Browser handoff'}</small></div><span>{isE2Pay ? runtime.seamless?.environment || '—' : statusLabel(runtime.hosted)}</span></div>
+        <div className="integration-gateway-body">
+          {isE2Pay ? <>
+            <span>Credential UAT dan Production disimpan sebagai profile terpisah dan terenkripsi.</span>
+            <small>Perubahan draft tidak mengubah runtime sampai explicit activation berhasil.</small>
+          </> : <>
+            <span>User diarahkan ke checkout provider; browser return bukan bukti payment.</span>
+            <small>{runtime.hosted?.reason || 'Hosted checkout siap digunakan.'}</small>
+          </>}
+        </div>
+      </div>
+    </div>
+
+    {isE2Pay ? <div className="integration-recovery-box">
+      <strong>Operational recovery path</strong>
+      <span>1. Check readiness → 2. Settings → Payment Gateway → pilih environment → 3. Test Connection → 4. Activate → 5. kembali ke Integrations dan Check readiness. Untuk transaksi berstatus unknown/96, gunakan reconciliation dari Payment Control; jangan menjalankan ulang payment tanpa status check.</span>
+    </div> : <div className="integration-callbacks">
+      <strong>Provider callback endpoints</strong>
+      <div><code>{webhookUrl}</code><button className="btn" type="button" onClick={() => void copy('webhook', webhookUrl)}>{copied === 'webhook' ? 'Copied' : 'Copy webhook'}</button></div>
+      <div><code>{hostedReturnUrl}</code><button className="btn" type="button" onClick={() => void copy('return', hostedReturnUrl)}>{copied === 'return' ? 'Copied' : 'Copy return'}</button></div>
     </div>}
 
-    <details style={{ borderTop:'1px solid var(--border-soft)', paddingTop:10 }}>
-      <summary style={{ cursor:'pointer', fontSize:12, fontWeight:650 }}>Runtime configuration checklist</summary>
-      <div style={{ display:'grid', gap:6, marginTop:10, color:'var(--text3)', fontSize:11.5 }}>
-        <span><code>PAYMENT_GATEWAY_PROVIDER</code> — provider adapter aktif.</span>
-        {isE2Pay ? <>
-          <span><code>E2PAY_ENV</code> — UAT atau PRODUCTION; host dipilih server-side.</span>
-          <span><code>Name / clientId / clientSecret / partnerId / sourceId</code> — credential awal UAT yang diberikan E2Pay dan disimpan terenkripsi.</span>
-          <span><code>clientId / clientSecret</code> — digunakan untuk Client Host Authorization dengan grant_type=client_credentials.</span>
-          <span><code>username / password / merchantId</code> — dapat ditambahkan bila diberikan terpisah untuk memvalidasi merchant login. Password dinormalisasi server-side menjadi MD5 uppercase.</span>
-          <span><code>accountSrc</code> — tidak perlu diinput manual; ProQPay mengambil accountId dari verifyUsername/Merchant Account setelah login berhasil.</span>
-        </> : <span><code>PAYMENT_GATEWAY_WEBHOOK_SECRET</code> — secret signature callback, Cloudflare Secret only.</span>}
-        <span><code>PAYMENT_GATEWAY_HOSTED_ENABLED</code> — aktifkan Hosted hanya jika adapter hosted tersedia.</span>
-        <span><code>PAYMENT_GATEWAY_HOSTED_TTL_SECONDS</code> — TTL Hosted session, default 900 detik.</span>
+    <details className="integration-diagnostics">
+      <summary>Runtime diagnostics</summary>
+      <div>
+        <span><strong>Provider:</strong> {provider}</span>
+        <span><strong>Seamless:</strong> {statusLabel(runtime.seamless)}</span>
+        <span><strong>Environment:</strong> {runtime.seamless?.environment || '—'}</span>
+        <span><strong>Hosted:</strong> {statusLabel(runtime.hosted)}</span>
+        <span><strong>Readiness reason:</strong> {runtime.seamless?.reason || runtime.hosted?.reason || 'No issue reported'}</span>
+        <span><strong>Operator:</strong> {canManage ? 'Dapat mengeksekusi payment setelah PI approved.' : 'Read-only integration visibility.'}</span>
       </div>
     </details>
-
-    <div style={{ display:'flex', justifyContent:'space-between', gap:12, flexWrap:'wrap', alignItems:'center' }}>
-      <span style={{ color:'var(--text3)', fontSize:10.5 }}>Last check: {checkedAt ? checkedAt.toLocaleString('id-ID') : 'belum diperiksa'}</span>
-      <span style={{ color:'var(--text3)', fontSize:10.5 }}>{canManage ? 'Anda dapat mengeksekusi payment setelah PI approved.' : 'Konfigurasi credential dikelola server-side.'}</span>
-    </div>
   </section>;
 }

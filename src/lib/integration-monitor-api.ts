@@ -1,3 +1,5 @@
+export type HealthState = 'HEALTHY' | 'DEGRADED' | 'DOWN' | 'IDLE';
+
 export type ApiMonitorSummary = {
   connectedApps: number;
   trustedApps?: number;
@@ -40,7 +42,31 @@ export type ApiEndpointStat = {
   request_count: number;
   data_pull_count: number;
   error_count: number;
+  avg_duration_ms?: number;
+  max_duration_ms?: number;
   last_seen_at: string;
+};
+
+export type PageMeta = {
+  offset:number;
+  limit:number;
+  total:number;
+  hasMore:boolean;
+};
+
+export type MonitorFilters = {
+  q?:string;
+  appId?:string;
+  endpoint?:string;
+  eventType?:string;
+  statusClass?:string;
+  appStatus?:string;
+  from?:string;
+  to?:string;
+  eventOffset?:number;
+  eventLimit?:number;
+  appOffset?:number;
+  appLimit?:number;
 };
 
 export type IntegrationMonitorResponse = {
@@ -50,22 +76,41 @@ export type IntegrationMonitorResponse = {
   retentionDays?: number;
   correlationId?: string;
   monitorHeaders?: { appId:string; appName:string };
+  health?: { state:HealthState; reason:string; errorRate:number };
   summary: ApiMonitorSummary;
   apps: ApiConnectedApp[];
+  appPage?: PageMeta;
   events: ApiEndpointEvent[];
+  eventPage?: PageMeta;
+  filters?: MonitorFilters;
   endpoints: ApiEndpointStat[];
+  diagnostics?: {
+    errorRate24h:number;
+    slowEndpoints:number;
+    failingEndpoints:number;
+  };
 };
 
-export async function getIntegrationMonitor() {
-  const response = await fetch('/api/integration-monitor', {
+function toQuery(filters: MonitorFilters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    params.set(key, String(value));
+  });
+  return params.toString();
+}
+
+export async function getIntegrationMonitor(filters: MonitorFilters = {}, signal?: AbortSignal) {
+  const query = toQuery(filters);
+  const response = await fetch('/api/integration-monitor' + (query ? '?' + query : ''), {
     headers:{ Accept:'application/json' },
     cache:'no-store',
+    signal,
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || data.message || 'Monitoring endpoint gagal dimuat');
   return data as IntegrationMonitorResponse;
 }
-
 
 export async function updateIntegrationAppStatus(appId: string, action: 'ACTIVATE' | 'DEACTIVATE' | 'REVOKE') {
   const response = await fetch('/api/integration-monitor', {
