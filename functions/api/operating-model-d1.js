@@ -388,30 +388,56 @@ async function readResource(database, params, actor, env, organizationId) {
 
   if (resource === 'payment-reports') {
     const scope = scopeWhere({ organizationId, clientId, orgColumn: 'pi.org_id', clientColumn: 'pi.client_id', projectIds, projectColumn: 's.project_id' });
+    const offset=Math.max(0,Number.parseInt(params.get('offset')||'0',10)||0);
+    const limit=Math.min(500,Math.max(1,Number.parseInt(params.get('limit')||'200',10)||200));
     const rows = await d1All(database, `SELECT pi.id,pi.client_id,c.name AS client_name,s.project_id,p.name AS project_name,
       s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,
       COALESCE(s.arrears_periods,'[]') AS arrears_periods,pi.status,pi.expected_total,
-      COALESCE(
-        NULLIF((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0),
-        (SELECT pgt.amount FROM payment_gateway_transactions pgt
+      COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0) AS manual_proof_total,
+      COALESCE((SELECT pgt.amount FROM payment_gateway_transactions pgt
+        WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
+        ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC,pgt.id DESC LIMIT 1),0) AS gateway_total,
+      CASE
+        WHEN COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0)>0
+         AND COALESCE((SELECT pgt.amount FROM payment_gateway_transactions pgt WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
+           ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC,pgt.id DESC LIMIT 1),0)>0 THEN 'CONFLICT'
+        WHEN COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0)>0 THEN 'MANUAL_PROOF'
+        WHEN COALESCE((SELECT pgt.amount FROM payment_gateway_transactions pgt WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
+           ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC,pgt.id DESC LIMIT 1),0)>0 THEN 'PAYMENT_GATEWAY'
+        ELSE 'NONE'
+      END AS settlement_source,
+      CASE
+        WHEN COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0)>0
+         AND COALESCE((SELECT pgt.amount FROM payment_gateway_transactions pgt WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
+           ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC,pgt.id DESC LIMIT 1),0)>0 THEN NULL
+        WHEN COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0)>0
+          THEN (SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id)
+        ELSE COALESCE((SELECT pgt.amount FROM payment_gateway_transactions pgt
           WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
-          ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC LIMIT 1),
-        0
-      ) AS paid_total,
-      COALESCE(
-        (SELECT MAX(pp.transaction_date) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),
-        (SELECT substr(COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at),1,10) FROM payment_gateway_transactions pgt
+          ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC,pgt.id DESC LIMIT 1),0)
+      END AS paid_total,
+      CASE
+        WHEN COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0)>0
+         AND COALESCE((SELECT pgt.amount FROM payment_gateway_transactions pgt WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
+           ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC,pgt.id DESC LIMIT 1),0)>0 THEN NULL
+        WHEN COALESCE((SELECT SUM(pp.amount) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id),0)>0
+          THEN (SELECT MAX(pp.transaction_date) FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id)
+        ELSE (SELECT substr(COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at),1,10) FROM payment_gateway_transactions pgt
           WHERE pgt.payment_instruction_id=pi.id AND pgt.status='SUCCEEDED'
-          ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC LIMIT 1)
-      ) AS payment_date,
-      (SELECT pp.id FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id ORDER BY pp.created_at DESC LIMIT 1) AS proof_id,
-      (SELECT r.status FROM reconciliations r WHERE r.payment_instruction_id=pi.id LIMIT 1) AS reconciliation_status,
-      (SELECT r.difference FROM reconciliations r WHERE r.payment_instruction_id=pi.id LIMIT 1) AS difference,
+          ORDER BY COALESCE(pgt.paid_at,pgt.updated_at,pgt.created_at) DESC,pgt.id DESC LIMIT 1)
+      END AS payment_date,
+      (SELECT pp.id FROM payment_proofs pp WHERE pp.payment_instruction_id=pi.id ORDER BY pp.created_at DESC,pp.id DESC LIMIT 1) AS proof_id,
+      (SELECT r.status FROM reconciliations r WHERE r.payment_instruction_id=pi.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) AS reconciliation_status,
+      (SELECT r.difference FROM reconciliations r WHERE r.payment_instruction_id=pi.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1) AS difference,
       (SELECT COUNT(*) FROM payment_instruction_lines pil WHERE pil.payment_instruction_id=pi.id) AS employee_count,
       pi.created_at,pi.updated_at FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
       JOIN clients c ON c.id=pi.client_id LEFT JOIN projects p ON p.id=s.project_id
-      WHERE ${scope.sql} ORDER BY COALESCE(s.payment_period,s.period) DESC,pi.created_at DESC LIMIT 500`, scope.bindings);
-    return { data: { ok: true, paymentReports: parseJsonFields(rows, ['arrears_periods']) } };
+      WHERE ${scope.sql} ORDER BY COALESCE(s.payment_period,s.period) DESC,pi.created_at DESC,pi.id DESC LIMIT ? OFFSET ?`,
+      [...scope.bindings,limit+1,offset]);
+    const truncated=rows.length>limit;
+    const page=truncated?rows.slice(0,limit):rows;
+    return { data: { ok: true, paymentReports: parseJsonFields(page, ['arrears_periods']),
+      paymentReportsMeta:{offset,limit,returned:page.length,nextOffset:truncated?offset+limit:null,truncated} } };
   }
 
   const dashboardPeriodSql = resource === 'dashboard' && requestedPeriod
