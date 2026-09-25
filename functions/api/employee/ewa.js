@@ -23,22 +23,25 @@ async function loadPolicy(database, orgId, clientId) {
   return org || { ...DEFAULT_EWA_POLICY, org_id: orgId };
 }
 
-async function loadNet(database, employeeId) {
+async function loadNet(database, employeeId, period) {
   const line = await d1First(
     database,
     `SELECT l.net_amount, l.components, s.period FROM payroll_run_lines l
       JOIN payroll_submissions s ON s.id=l.submission_id
-      WHERE l.employee_id=? AND l.included=1
-      ORDER BY s.period DESC, l.updated_at DESC LIMIT 1`,
-    [employeeId],
+      WHERE l.employee_id=? AND l.included=1 AND s.period=?
+      ORDER BY l.updated_at DESC, s.created_at DESC LIMIT 1`,
+    [employeeId, period],
   );
   if (line) return Number(line.net_amount) || 0;
   const compensation = await d1First(
     database,
-    'SELECT imported_net, basic_salary FROM employee_compensation WHERE employee_id=? LIMIT 1',
+    'SELECT imported_net, basic_salary, payroll_source_period FROM employee_compensation WHERE employee_id=? LIMIT 1',
     [employeeId],
   );
-  return Number(compensation?.imported_net || compensation?.basic_salary || 0);
+  if (String(compensation?.payroll_source_period || '') === String(period || '')) {
+    return Number(compensation?.imported_net || compensation?.basic_salary || 0);
+  }
+  return Number(compensation?.basic_salary || 0);
 }
 
 async function snapshot(database, actor) {
@@ -53,7 +56,7 @@ async function snapshot(database, actor) {
   const earned = earnedDaysInPeriod(new Date(), joinDate);
   const tenureMonths = tenureMonthsFromJoin(joinDate);
   const tenureDays = tenureDaysFromJoin(joinDate);
-  const net = await loadNet(database, actor.id);
+  const net = await loadNet(database, actor.id, earned.period);
   const plafond = ewaPlafond({
     net, daysWorked: earned.daysWorked, daysInMonth: earned.daysInMonth, maxPercent: policy.max_percent,
   });
@@ -69,15 +72,17 @@ async function snapshot(database, actor) {
       FROM payroll_submissions s
       LEFT JOIN payment_instructions pi ON pi.submission_id=s.id
       LEFT JOIN reconciliations r ON r.payment_instruction_id=pi.id
-      WHERE EXISTS (
-        SELECT 1 FROM payroll_run_lines l WHERE l.submission_id=s.id AND l.employee_id=? AND l.included=1
-      ) OR EXISTS (
-        SELECT 1 FROM payment_instruction_lines pil
-        JOIN payment_instructions p2 ON p2.id=pil.payment_instruction_id
-        WHERE p2.submission_id=s.id AND pil.employee_id=?
+      WHERE s.period=? AND (
+        EXISTS (
+          SELECT 1 FROM payroll_run_lines l WHERE l.submission_id=s.id AND l.employee_id=? AND l.included=1
+        ) OR EXISTS (
+          SELECT 1 FROM payment_instruction_lines pil
+          JOIN payment_instructions p2 ON p2.id=pil.payment_instruction_id
+          WHERE p2.submission_id=s.id AND pil.employee_id=?
+        )
       )
-      ORDER BY s.period DESC LIMIT 1`,
-    [actor.id, actor.id],
+      ORDER BY s.created_at DESC LIMIT 1`,
+    [earned.period, actor.id, actor.id],
   );
   const stage = submission
     ? payrollStageIndex(submission.state, submission.pi_status, submission.rec_status)
