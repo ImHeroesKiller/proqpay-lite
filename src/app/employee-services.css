@@ -56,3 +56,11 @@
   .es-detail-grid{grid-template-columns:1fr}.es-drawer{width:100%;border-left:0}
 }
 @media(prefers-reduced-motion:reduce){.es-drawer,.es-modal{animation:none}}
+
+.ewa-detail-panel{width:min(500px,100%)}
+.ewa-disbursement-summary{margin-top:16px;padding:14px}.ewa-disbursement-summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.ewa-disbursement-summary span{display:block;font-size:10px;color:var(--text3)}
+.ewa-disbursement-note{font-size:12px;color:var(--text3);line-height:1.5;margin:14px 0}
+.ewa-disbursement-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.ewa-dialog-title{margin:4px 0}.ewa-dialog-meta{font-size:12px;color:var(--text3)}
+.ewa-dialog-error{margin-top:12px}
+@media(max-width:560px){.ewa-disbursement-summary-grid{grid-template-columns:1fr}.ewa-disbursement-actions{display:grid;grid-template-columns:1fr 1fr}}
