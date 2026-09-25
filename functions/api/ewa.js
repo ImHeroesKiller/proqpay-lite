@@ -42,8 +42,20 @@ export async function onRequest({ request, env }) {
          LIMIT 100`,
         [organizationId, status, status],
       );
-      const pending = rows.filter((row) => row.status === 'SUBMITTED').length;
-      return respond({ ok: true, pending, requests: rows });
+      const summary = await d1First(
+        env.DB,
+        `SELECT
+          SUM(CASE WHEN status='SUBMITTED' THEN 1 ELSE 0 END) AS pending,
+          COUNT(*) AS total
+         FROM ewa_requests WHERE org_id=?`,
+        [organizationId],
+      );
+      return respond({
+        ok: true,
+        pending: Number(summary?.pending || 0),
+        total: Number(summary?.total || 0),
+        requests: rows,
+      });
     }
 
     let body;
