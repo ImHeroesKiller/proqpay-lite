@@ -51,7 +51,7 @@ jobs:
         with:
           path: lite
 
-      - name: Checkout ESS main
+      - name: Checkout ESS canonical main
         uses: actions/checkout@v4
         with:
           repository: ImHeroesKiller/proqpay-ess
