@@ -88,7 +88,7 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
     </section>
 
     <section className="client-reports-section">
-      <div className="control-panel-title"><div><span>REPORTS</span><h2>Laporan Payroll & Pembayaran</h2></div><small>Sesuai scope akun</small></div>
+      <div className="control-panel-title"><div><span>REPORTS</span><h2>Laporan Payroll & Pembayaran</h2></div><small title={actor.email}>Sesuai scope akun</small></div>
       <ReportsWorkspace clientMode hideHeading />
     </section>
   </section>;
