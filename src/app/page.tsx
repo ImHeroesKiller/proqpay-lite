@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import AppWorkspaceRouter from '@/components/AppWorkspaceRouter';
 import { useVisibilityAwareCanonicalRefresh } from '@/hooks/useVisibilityAwareCanonicalRefresh';
-import { roleHasCapability } from '../../shared/authority-matrix.js';
+import { roleCanAction } from '../../shared/authority-matrix.js';
 import { loadDatabase, saveDatabase } from '@/lib/database';
 import { onDbChange } from '@/lib/events';
 import { loadSettings, onSettingsChange, type AppSettings } from '@/lib/app-settings';
@@ -175,7 +175,7 @@ export default function Home() {
   }
 
   function openAuditCorrelation(correlationId:string) {
-    if (!correlationId || actor?.role !== 'SUPER_ADMIN') return;
+    if (!correlationId || !actor || !roleCanAction(actor.role,'audit.view')) return;
     setView('logs');
     const url = new URL(window.location.href);
     url.searchParams.set('view', 'logs');
@@ -226,8 +226,8 @@ export default function Home() {
 
   const pad = settings.density === 'compact' ? '18px 16px' : '28px 24px';
   const periods = [...new Set([period,...(canonicalPeriods.length ? canonicalPeriods : (db.payrolls || []).map((item:any)=>item.period).filter(Boolean))])].sort((a:string,b:string)=>b.localeCompare(a));
-  const gatewayCanView = roleHasCapability(actor.role,'gateway:view');
-  const gatewayCanExecute = roleHasCapability(actor.role,'gateway:execute');
+  const gatewayCanView = roleCanAction(actor.role,'payment.prepare') || roleCanAction(actor.role,'payment.approve');
+  const gatewayCanExecute = roleCanAction(actor.role,'payment.execute');
 
   return (
     <div className={`app-shell theme-${settings.theme} accent-${settings.accentColor} density-${settings.density}${settings.enableAnimations ? '' : ' animations-off'}`} style={{ display: 'flex', minHeight: '100vh' }}>
@@ -269,7 +269,7 @@ export default function Home() {
       </div>
       {actor.mustChangePassword && ['database', 'session', 'd1'].includes(actor.authMode || '') ? <ChangePasswordModal forced /> : null}
 
-      {actor.role === 'SUPER_ADMIN' ? <SystemHealthBubble /> : null}
+      {roleCanAction(actor.role,'settings.manage') ? <SystemHealthBubble /> : null}
       {idaMounted ? <IdaFab openSignal={idaOpenSignal} /> : null}
       {helpOpen ? <HelpModal open onClose={() => setHelpOpen(false)} /> : null}
     </div>
