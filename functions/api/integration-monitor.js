@@ -174,6 +174,11 @@ export async function onRequest({ request, env }) {
 
     const appWhere = ['org_id=?'];
     const appBindings = [organizationId];
+    if (eventFilter.values.q) {
+      const appLike = `%${eventFilter.values.q}%`;
+      appWhere.push("(lower(app_name) LIKE ? OR lower(app_id) LIKE ? OR lower(COALESCE(last_endpoint,'')) LIKE ?)");
+      appBindings.push(appLike, appLike, appLike);
+    }
     if (appStatus) { appWhere.push('status=?'); appBindings.push(appStatus); }
 
     const [summary, apps, appCount, events, eventCount, endpoints] = await Promise.all([
