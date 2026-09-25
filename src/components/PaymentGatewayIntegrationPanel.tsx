@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { gatewayRuntimeHealth } from '@/lib/integration-health';
 import { IntegrationHealthPill } from '@/components/integrations/IntegrationPrimitives';
+import E2PayOperationsConsole from '@/components/E2PayOperationsConsole';
 import {
   getHostedPaymentStatus,
   getPaymentGatewayStatus,
@@ -132,6 +133,8 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
       <div><code>{webhookUrl}</code><button className="btn" type="button" onClick={() => void copy('webhook', webhookUrl)}>{copied === 'webhook' ? 'Copied' : 'Copy webhook'}</button></div>
       <div><code>{hostedReturnUrl}</code><button className="btn" type="button" onClick={() => void copy('return', hostedReturnUrl)}>{copied === 'return' ? 'Copied' : 'Copy return'}</button></div>
     </div>}
+
+    {isE2Pay ? <E2PayOperationsConsole canManage={canManage} /> : null}
 
     <details className="integration-diagnostics">
       <summary aria-label="Buka runtime diagnostics Payment Gateway">Runtime diagnostics</summary>
