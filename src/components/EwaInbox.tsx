@@ -174,54 +174,76 @@ export default function EwaInbox() {
     <section className="portal-workspace">
 
 
-      <div className="page-heading">
-        <div>
-          <span className="page-eyebrow">Employee Services</span>
-          <h1>Advance Salary</h1>
-          <p>Kontrol lifecycle advance dari pengajuan sampai lunas. Status lunas hanya berasal dari rekonsiliasi payroll.</p>
+      <section className="ewa-hero">
+        <div className="ewa-hero-copy">
+          <span className="ewa-hero-eyebrow">EMPLOYEE SERVICES · FINANCIAL CONTROL</span>
+          <h1>Advance Salary Control Center</h1>
+          <p>Kelola seluruh lifecycle advance dalam satu layar: review, approval, pencairan, potong payroll, hingga lunas setelah rekonsiliasi.</p>
+          <div className="ewa-hero-meta">
+            <span><strong>{pending}</strong> perlu review</span>
+            <span><strong>{total}</strong> total pengajuan</span>
+            <span>Maker-checker aktif</span>
+          </div>
         </div>
-        <div className="es-heading-actions">
-          <span className="status-pill" aria-live="polite">{pending} menunggu</span>
+        <div className="ewa-hero-actions">
           <button type="button" className="btn" onClick={() => void load()} disabled={loading}>
-            {loading ? "Memuat…" : "Refresh"}
+            {loading ? "Memuat…" : "Refresh data"}
           </button>
         </div>
-      </div>
+      </section>
 
       <div className="ewa-summary" aria-label="Ringkasan lifecycle">
         {visibleSummary.map((item) => (
-          <div key={item.key} className="ewa-summary-card">
-            <b>{item.value}</b><span>{item.label}</span>
+          <div key={item.key} className={`ewa-summary-card ewa-summary-${item.key.toLowerCase()}`}>
+            <div className="ewa-summary-top">
+              <span>{item.label}</span>
+              <i aria-hidden="true" />
+            </div>
+            <b>{item.value}</b>
+            <small>{item.key === "SUBMITTED" ? "Perlu keputusan" : item.key === "APPROVED" ? "Siap proses pencairan" : item.key === "DISBURSED" ? "Sudah dicairkan" : "Sedang dipotong payroll"}</small>
           </div>
         ))}
       </div>
 
-      <div className="portal-toolbar" aria-label="Filter Advance Salary">
-        <select value={status} onChange={(event) => { setStatus(event.target.value); setOffset(0); }} aria-label="Filter status">
+      <section className="card ewa-filter-panel" aria-label="Filter Advance Salary">
+        <div className="ewa-filter-heading">
+          <div>
+            <strong>Filter & pencarian</strong>
+            <span>Gunakan filter untuk mempersempit daftar pengajuan.</span>
+          </div>
+          {hasFilters ? <button type="button" className="btn" onClick={resetFilters}>Reset filter</button> : null}
+        </div>
+        <div className="ewa-filter-grid">
+        <label><span>Status</span><select value={status} onChange={(event) => { setStatus(event.target.value); setOffset(0); }} aria-label="Filter status">
           <option value="">Semua status ({total})</option>
           {EWA_STATUSES.map((value) => (
             <option key={value} value={value}>{ewaMeta(value).label} ({counts[value] || 0})</option>
           ))}
-        </select>
-        <input value={q} onChange={(e) => { setQ(e.target.value); setOffset(0); }} placeholder="Cari nama, kode, atau ID pengajuan" aria-label="Cari pengajuan advance" />
-        <select value={clientId} onChange={(e) => { setClientId(e.target.value); setOffset(0); }} aria-label="Filter klien">
+        </select></label>
+        <label className="ewa-filter-search"><span>Pencarian</span><input value={q} onChange={(e) => { setQ(e.target.value); setOffset(0); }} placeholder="Cari nama, kode, atau ID pengajuan" aria-label="Cari pengajuan advance" /></label>
+        <label><span>Klien</span><select value={clientId} onChange={(e) => { setClientId(e.target.value); setOffset(0); }} aria-label="Filter klien">
           <option value="">Semua klien</option>
           {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
-        </select>
-        <input type="month" value={period} onChange={(e) => { setPeriod(e.target.value); setOffset(0); }} aria-label="Filter periode" />
-        <select value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setOffset(0); }} aria-label="Jumlah baris per halaman">
+        </select></label>
+        <label><span>Periode</span><input type="month" value={period} onChange={(e) => { setPeriod(e.target.value); setOffset(0); }} aria-label="Filter periode" /></label>
+        <label><span>Baris</span><select value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setOffset(0); }} aria-label="Jumlah baris per halaman">
           <option value={25}>25 baris</option>
           <option value={50}>50 baris</option>
           <option value={100}>100 baris</option>
-        </select>
-        {hasFilters ? <button type="button" className="btn" onClick={resetFilters}>Reset filter</button> : null}
-      </div>
+        </select></label>
+        </div>
+      </section>
 
       {operationalState}
 
       {rows.length > 0 ? (
         <>
-          <div className="card ewa-desktop es-table-wrap">
+          <section className="card ewa-list-card ewa-desktop">
+            <div className="ewa-list-head">
+              <div><strong>Daftar pengajuan</strong><span>{page.total} data sesuai filter</span></div>
+              <span className="ewa-list-badge">{status ? ewaMeta(status).label : "Semua status"}</span>
+            </div>
+            <div className="es-table-wrap">
             <table className="data-table es-table ewa-table">
               <thead>
                 <tr><th align="left" className="es-sticky-left ewa-employee-cell">Karyawan</th><th align="right">Advance</th><th align="right">Potong payroll</th><th align="left">Lifecycle</th><th align="left">Aktivitas terakhir</th><th align="right" className="es-sticky-right">Aksi</th></tr>
@@ -247,11 +269,12 @@ export default function EwaInbox() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </section>
 
           <div className="ewa-mobile" aria-label="Daftar advance versi mobile">
             {rows.map((row) => (
-              <article className="ewa-mobile-card" key={row.id}>
+              <article className={`ewa-mobile-card ewa-mobile-${row.status.toLowerCase()}`} key={row.id}>
                 <div className="ewa-mobile-top">
                   <div><strong>{row.employee_name || row.employee_id}</strong><div className="ewa-muted">{row.employee_code} · {row.client_name}</div></div>
                   <EwaStatusBadge status={row.status} />
