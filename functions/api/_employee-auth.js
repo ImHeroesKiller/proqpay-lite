@@ -231,13 +231,13 @@ export async function countRecentFailures(database, ip, empInput) {
 }
 
 export async function recordLoginAttempt(database, {
-  employeeIdInput, employeeId, ip, success, reason,
+  orgId, employeeIdInput, employeeId, ip, success, reason,
 }) {
   await d1Run(
     database,
-    `INSERT INTO portal_login_attempts (id, employee_id_input, employee_id, ip, success, reason)
-      VALUES (?, ?, ?, ?, ?, ?)`,
-    [`ATT-${crypto.randomUUID()}`, employeeIdInput || null, employeeId || null, ip || 'unknown', success ? 1 : 0, reason || null],
+    `INSERT INTO portal_login_attempts (id, org_id, employee_id_input, employee_id, ip, success, reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [`ATT-${crypto.randomUUID()}`, orgId || null, employeeIdInput || null, employeeId || null, ip || 'unknown', success ? 1 : 0, reason || null],
   );
 }
 
