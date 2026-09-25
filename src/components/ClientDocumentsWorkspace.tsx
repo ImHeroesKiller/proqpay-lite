@@ -58,7 +58,7 @@ export default function ClientDocumentsWorkspace({actor}:{actor:Actor}) {
 
   const total = useMemo(()=>invoices.reduce((sum,row)=>sum+Number(row.total_amount||0),0),[invoices]);
 
-  return <section className="client-documents-workspace">
+  return <section className="client-documents-workspace" aria-label="Documents & Reports">
     <div className="control-tower-heading client-documents-heading">
       <div><span>DOCUMENTS & REPORTS</span><h1>Dokumen & Laporan</h1><p>Invoice, status tagihan, payroll register, riwayat pembayaran, dan dokumen hasil proses sesuai scope akun Anda.</p></div>
       <button type="button" className="btn" onClick={()=>void load()}>Refresh</button>
