@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 type Policy = {
   enabled: boolean;
@@ -108,27 +108,30 @@ export default function PortalSettings() {
   const [ok, setOk] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [baseline, setBaseline] = useState("");
 
   const apply = useCallback((data: Record<string, unknown>) => {
-    setClients((data.clients as Client[]) || []);
-    setInherited(Boolean(data.inherited));
-    setPolicy({
+    const nextPolicy = {
       ...(data.policy as Policy),
       minTenureDays: Number((data.policy as Policy)?.minTenureDays) || 0,
       minTenureMonths: Number((data.policy as Policy)?.minTenureMonths) || 0,
-    });
-    setCopy(data.copy as Copy);
-    setAdsEnabled(
-      (data.features as { adsEnabled?: boolean })?.adsEnabled !== false,
-    );
-    setAds(
-      ((data.ads as Ad[]) || []).map((ad, index) => ({
-        ...EMPTY_AD,
-        ...ad,
-        sortOrder: index,
-      })),
-    );
-    setPlatform(asPlatform(data.adsPlatform));
+    };
+    const nextCopy = data.copy as Copy;
+    const nextAdsEnabled = (data.features as { adsEnabled?: boolean })?.adsEnabled !== false;
+    const nextAds = ((data.ads as Ad[]) || []).map((ad, index) => ({
+      ...EMPTY_AD,
+      ...ad,
+      sortOrder: index,
+    }));
+    const nextPlatform = asPlatform(data.adsPlatform);
+    setClients((data.clients as Client[]) || []);
+    setInherited(Boolean(data.inherited));
+    setPolicy(nextPolicy);
+    setCopy(nextCopy);
+    setAdsEnabled(nextAdsEnabled);
+    setAds(nextAds);
+    setPlatform(nextPlatform);
+    setBaseline(JSON.stringify({ policy: nextPolicy, copy: nextCopy, adsEnabled: nextAdsEnabled, ads: nextAds, platform: nextPlatform }));
   }, []);
 
   const load = useCallback(
@@ -216,6 +219,7 @@ export default function PortalSettings() {
   }
 
   async function onClientChange(value: string) {
+    if (dirty && !window.confirm("Perubahan belum disimpan. Pindah lingkup dan buang perubahan?")) return;
     setClientId(value);
     try {
       await load(value);
@@ -242,20 +246,25 @@ export default function PortalSettings() {
   }
 
   const tenureUnit = (policy.minTenureDays || 0) > 0 ? "days" : "months";
+  const currentFingerprint = useMemo(
+    () => JSON.stringify({ policy, copy, adsEnabled, ads, platform }),
+    [policy, copy, adsEnabled, ads, platform],
+  );
+  const dirty = Boolean(baseline && currentFingerprint !== baseline);
 
   return (
     <section className="portal-workspace">
       <div className="page-heading">
         <div>
-          <span className="page-eyebrow">Employee portal</span>
-          <h1>Portal Settings</h1>
+          <span className="page-eyebrow">Employee Services</span>
+          <h1>Portal Configuration</h1>
           <p>
             Aturan advance, banner, dan teks ESS diatur di sini. Tidak mengubah
             pay run, PI, atau billing.
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span className="status-pill">{loading ? "Memuat…" : inherited ? "Default organisasi" : "Tersimpan"}</span>
+          <span className="status-pill">{loading ? "Memuat…" : dirty ? "Perubahan belum disimpan" : inherited ? "Default organisasi" : "Tersimpan"}</span>
           <button type="button" className="btn" disabled={loading || busy} onClick={() => void load(clientId)}>
             Refresh
           </button>
@@ -293,10 +302,10 @@ export default function PortalSettings() {
       <div className="portal-toolbar">
         {(
           [
-            ["rules", "Aturan advance"],
-            ["ads", "Banner / iklan"],
-            ["copy", "Teks portal"],
-            ["platform", "Ads platform"],
+            ["rules", "Advance Salary"],
+            ["copy", "Portal Content"],
+            ["ads", "Promotion"],
+            ["platform", "Tracking"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -882,15 +891,44 @@ export default function PortalSettings() {
         </div>
       ) : null}
 
-      <div style={{ marginTop: 16 }}>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={busy}
-          onClick={() => void save()}
-        >
-          {busy ? "Menyimpan…" : "Simpan pengaturan portal"}
-        </button>
+      <div
+        style={{
+          position: "sticky",
+          bottom: 12,
+          zIndex: 30,
+          marginTop: 18,
+          padding: 12,
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "center",
+          background: "var(--card,#fff)",
+          border: "1px solid var(--border)",
+          borderRadius: 14,
+          boxShadow: "0 12px 30px rgba(0,0,0,.10)",
+        }}
+      >
+        <div>
+          <strong style={{ fontSize: 12 }}>{dirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}</strong>
+          <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>
+            {dirty ? "Simpan sebelum berpindah lingkup klien." : "Konfigurasi ini siap dipakai ESS pada muatan berikutnya."}
+          </div>
+        </div>
+        <span style={{ display: "flex", gap: 8 }}>
+          {dirty ? (
+            <button type="button" className="btn" disabled={busy || loading} onClick={() => void load(clientId)}>
+              Batalkan perubahan
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy || !dirty}
+            onClick={() => void save()}
+          >
+            {busy ? "Menyimpan…" : "Simpan perubahan"}
+          </button>
+        </span>
       </div>
     </section>
   );
