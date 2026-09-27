@@ -40,7 +40,9 @@ test('Employee Services P3: accessibility semantics remain explicit',async()=>{
   const states=await read('src/components/employee-services/OperationalState.tsx');
   const unified=await read('src/components/ui/UnifiedSystem.tsx');
   assert.match(inbox,/aria-label="Filter status"/);
-  assert.match(inbox,/aria-live="polite"/);
+  assert.match(inbox,/UiPagination/);
+  assert.match(unified,/aria-live="polite"/);
+  assert.match(unified,/aria-label="Navigasi halaman"/);
   assert.match(primitives,/role="dialog"/);
   assert.match(primitives,/aria-labelledby/);
   assert.match(states,/UiNotice/);
