@@ -84,7 +84,7 @@ export default function Sidebar({
   const canManageSettings = roleHasCapability(role || "", "settings");
   const canViewAudit = roleHasCapability(role || "", "audit:view");
   const canManageEmployeeServices = roleHasCapability(role || "", "employee-services:manage");
-  const employeeServicesActive = ["ewa", "portalSettings"].includes(view);
+  const employeeServicesActive = view === "ewa";
   const systemActive = ["integrations", "logs"].includes(view);
 
   useEffect(() => {
@@ -230,7 +230,7 @@ export default function Sidebar({
               ) : null}
             </NavGroup>
 
-            {canManageEmployeeServices && (allowed.has("ewa") || allowed.has("portalSettings")) ? (
+            {canManageEmployeeServices && allowed.has("ewa") ? (
               <NavGroup
                 label="Employee Services"
                 collapsible={!compact}
@@ -239,9 +239,6 @@ export default function Sidebar({
               >
                 {allowed.has("ewa") ? (
                   <NavBtn active={view === "ewa"} icon={<IconWallet />} title={getViewLabel("ewa", role)} onClick={() => go("ewa")} />
-                ) : null}
-                {allowed.has("portalSettings") ? (
-                  <NavBtn active={view === "portalSettings"} icon={<IconSettings />} title={getViewLabel("portalSettings", role)} onClick={() => go("portalSettings")} />
                 ) : null}
               </NavGroup>
             ) : null}
