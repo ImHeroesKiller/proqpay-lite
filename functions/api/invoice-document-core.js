@@ -1,3 +1,10 @@
+import {
+  PROQPAY_ICON_JPEG_BASE64,
+  PROQPAY_LOGO_JPEG_BASE64,
+  PROQPAY_ICON_DIMENSIONS,
+  PROQPAY_LOGO_DIMENSIONS,
+} from './proqpay-invoice-assets.js';
+
 export const MSG_INVOICE_BRAND = Object.freeze({
   legalName:'PT Mandiri Semesta Gemilang',
   shortName:'MSG',
@@ -85,27 +92,29 @@ function fillRoundedRect(x,y,w,h,r,fill){
 function strokePath(path,width,rgb){
   return `q ${color(rgb)} RG ${width} w 1 J 1 j ${path} S Q\n`;
 }
-function proqpayLogoCmd(x,y,scale=1){
-  const box=38*scale;
-  let c=fillRoundedRect(x,y,box,box,7*scale,C.navy);
-  c += strokePath(`${x+9*scale} ${y+19*scale} m ${x+15*scale} ${y+12*scale} l ${x+29*scale} ${y+27*scale} l`,3.2*scale,C.white);
-  c += strokePath(`${x+27*scale} ${y+27*scale} m ${x+31*scale} ${y+31*scale} l ${x+29*scale} ${y+25*scale} l`,2.4*scale,C.orange);
-  const tx=x+48*scale;
-  c += textCmd('Pro',tx,y+21*scale,17*scale,'F2',C.navy);
-  c += textCmd('Q',tx+27*scale,y+21*scale,17*scale,'F2',C.orange);
-  c += textCmd('Pay',tx+40*scale,y+21*scale,17*scale,'F2',C.navy);
-  c += textCmd('Lite',tx+74*scale,y+21*scale,11*scale,'F2',C.orange);
-  c += textCmd(MSG_INVOICE_BRAND.productDescriptor,tx,y+7*scale,7.2*scale,'F2',C.muted);
-  return c;
+function imageCmd(name,x,y,w,h){
+  return `q ${w} 0 0 ${h} ${x} ${y} cm /${name} Do Q\n`;
+}
+function base64ToHex(value){
+  const binary=atob(value);
+  let hex='';
+  for(let i=0;i<binary.length;i++) hex += binary.charCodeAt(i).toString(16).padStart(2,'0');
+  return hex.toUpperCase();
+}
+function imageObject(base64,{width,height}){
+  const hex=base64ToHex(base64)+'>\n';
+  return `<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ${hex.length} >>\nstream\n${hex}endstream`;
 }
 function buildPdf(content) {
   const objects=[
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> /XObject << /PqIcon 7 0 R /PqLogo 8 0 R >> >> /Contents 4 0 R >>',
     `<< /Length ${content.length} >>\nstream\n${content}endstream`,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>',
+    imageObject(PROQPAY_ICON_JPEG_BASE64,PROQPAY_ICON_DIMENSIONS),
+    imageObject(PROQPAY_LOGO_JPEG_BASE64,PROQPAY_LOGO_DIMENSIONS),
   ];
   let pdf='%PDF-1.4\n';
   const offsets=[0];
@@ -139,8 +148,8 @@ export function buildInvoiceDocumentSnapshot({invoice,client,project,issuer}) {
   const items=Array.isArray(invoice.items) ? invoice.items : (()=>{try{return JSON.parse(invoice.items||'[]');}catch{return [];}})();
   const issuerData=canonicalIssuer(issuer);
   return {
-    version:2,
-    template:'MSG_PROQPAY_A4_V2',
+    version:3,
+    template:'MSG_PROQPAY_A4_V3_OFFICIAL_ASSETS',
     invoiceId:String(invoice.id),
     invoiceNumber:String(invoice.invoice_number||invoice.id),
     issueDate:String(invoice.issued_at||invoice.created_at||new Date().toISOString()),
@@ -183,10 +192,11 @@ export function generateInvoicePdf(snapshot) {
   const issuer=canonicalIssuer(snapshot?.issuer||{});
   let c='';
 
-  // Header brand shell.
-  c += proqpayLogoCmd(38,774,.90);
-  c += textCmd(MSG_INVOICE_BRAND.legalName,38,756,10.5,'F2',C.navy);
-  c += textCmd(MSG_INVOICE_BRAND.tagline,38,743,7.5,'F1',C.muted);
+  // Header brand shell — official ProQPay icon + logo supplied by the user.
+  c += imageCmd('PqIcon',38,771,34,34);
+  c += imageCmd('PqLogo',80,775,118,41);
+  c += textCmd(MSG_INVOICE_BRAND.legalName,38,754,10.5,'F2',C.navy);
+  c += textCmd(MSG_INVOICE_BRAND.tagline,38,741,7.5,'F1',C.muted);
   c += textCmd('INVOICE',458,790,24,'F2',C.navy);
   c += textCmd(snapshot.invoiceNumber,420,771,9.5,'F2',C.ink);
   c += fillRect(36,727,523,3,C.navy);
