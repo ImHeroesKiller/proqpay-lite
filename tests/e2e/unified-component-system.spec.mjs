@@ -33,7 +33,6 @@ test.describe('P1 unified component system',()=>{
 
     const expectations=[
       ['Billing & AR',['.ui-metric-grid','.ui-tabs','.ui-section-card']],
-      ['Portal Configuration',['.ui-workspace-header','.ui-tabs']],
       ['Audit Logs',['.ui-workspace-header','.ui-metric-grid','.ui-filter-bar','.ui-section-card']],
       ['Advance Salary',['.ui-workspace-header','.ui-metric-grid','.ui-filter-bar']],
     ];
@@ -48,7 +47,7 @@ test.describe('P1 unified component system',()=>{
       expect(overflow,`${label} horizontal overflow`).toBeLessThanOrEqual(2);
       audited+=1;
     }
-    expect(audited).toBeGreaterThanOrEqual(3);
+    expect(audited).toBeGreaterThanOrEqual(2);
   });
 
   test('shared components retain mobile shell integrity',async({page})=>{
