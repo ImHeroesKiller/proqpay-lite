@@ -52,7 +52,7 @@ test.describe('Invoice / Billing & AR production UAT', () => {
     await login(page);
 
     await page.getByRole('button', { name: /Billing & AR|Close & Billing/i }).click();
-    await expect(page.getByText('Billing & AR', { exact: true })).toBeVisible();
+    await expect(page.getByRole('banner').getByText('Billing & AR', { exact: true })).toBeVisible();
     await expect(page.getByText('Outstanding AR', { exact: true })).toBeVisible();
 
     const invoiceTab = page.getByRole('button', { name: /^Invoice$/i });
