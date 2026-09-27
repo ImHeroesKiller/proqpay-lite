@@ -18,12 +18,13 @@ test('Reports P3 quality: mobile and status display contracts live in report-ui'
 test('Reports P3 quality: export and loading surfaces use reusable visual components',async()=>{
   const workspace=await read('src/components/ReportsWorkspace.tsx');
   const icons=await read('src/components/Icons.tsx');
-  const css=await read('src/app/polish.css');
+  const unified=await read('src/components/ui/UnifiedSystem.tsx');
+  const css=await read('src/app/globals.css');
   assert.match(icons,/export function IconDownload/);
   assert.match(workspace,/IconDownload aria-hidden="true"/);
-  assert.match(workspace,/report-loading-bar/);
-  assert.match(css,/report-loading-shimmer/);
-  assert.match(css,/prefers-reduced-motion: reduce/);
+  assert.match(workspace,/UiDataTableState/);
+  assert.match(unified,/LoadingState/);
+  assert.match(css,/prefers-reduced-motion:reduce/);
 });
 
 test('Reports P3 maintainability: client document invoices are typed and responsive',async()=>{
