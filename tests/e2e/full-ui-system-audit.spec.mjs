@@ -40,7 +40,7 @@ test.describe('Full application UI system audit',()=>{
     await page.setViewportSize({width:1440,height:1000});
     await login(page);
 
-    const labels=await visibleModuleButtons(page).allTextContents();
+    const labels=await (await visibleModuleButtons(page)).allTextContents();
     const audited=[];
 
     for(const raw of labels){
