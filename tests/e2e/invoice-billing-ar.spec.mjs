@@ -21,6 +21,7 @@ async function login(page) {
   return true;
 }
 
+// Authenticated regression trigger: repository UAT secrets are expected in CI.
 test.describe('Invoice / Billing & AR production UAT', () => {
   test('public production shell and health remain healthy', async ({ page, request, baseURL }) => {
     const pageErrors = [];
