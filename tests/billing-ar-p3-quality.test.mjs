@@ -42,11 +42,15 @@ test('Billing P3: workspace consumes typed helpers instead of duplicating contro
 test('Billing P3: dialog accessibility and mobile polish hooks are present',async()=>{
   const workspace=await read('src/components/BillingWorkspace.tsx');
   const css=await read('src/app/polish.css');
-  assert.match(workspace,/className="billing-modal-backdrop"/);
-  assert.match(workspace,/className="card billing-modal"/);
-  assert.match(workspace,/role="dialog"/);
-  assert.match(workspace,/aria-modal="true"/);
-  assert.match(workspace,/className="billing-tabs"/);
+  const unified=await read('src/components/ui/UnifiedSystem.tsx');
+  const globalCss=await read('src/app/globals.css');
+  assert.match(workspace,/UiModalShell/);
+  assert.match(workspace,/className="billing-modal"/);
+  assert.match(workspace,/UiTabs/);
+  assert.match(unified,/role="dialog"/);
+  assert.match(unified,/aria-modal="true"/);
+  assert.match(globalCss,/\.ui-modal-backdrop/);
+  assert.match(globalCss,/\.ui-tabs/);
   assert.match(css,/Billing & AR P3/);
   assert.match(css,/\.billing-confirmation-summary/);
   assert.match(css,/\.billing-modal-backdrop/);
