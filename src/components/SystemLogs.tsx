@@ -7,6 +7,8 @@ import {
   MetricCard as UiMetricCard,
   MetricGrid as UiMetricGrid,
   Notice as UiNotice,
+  Pagination as UiPagination,
+  DataTableState as UiDataTableState,
   SectionCard as UiSectionCard,
   WorkspaceHeader as UiWorkspaceHeader,
 } from "@/components/ui/UnifiedSystem";
@@ -306,10 +308,25 @@ export default function SystemLogs() {
 
       <UiSectionCard className="audit-stream">
         <div className="audit-stream-head"><div><strong>{source === "LOCAL_RUNTIME" ? "Runtime Local" : source ? SOURCE_LABELS[source] || source : "Semua Canonical Audit"}</strong><span>{activeTotal} event · {source === "LOCAL_RUNTIME" ? "browser-only, non-authoritative" : "Cloudflare D1 authoritative"}</span></div>{source === "LOCAL_RUNTIME" && localLogs.length ? <button type="button" className="btn" onClick={clearSystemLogs}>Bersihkan runtime local</button> : null}</div>
-        {loading && source !== "LOCAL_RUNTIME" && activeRows.length === 0 ? <div className="audit-empty">Memuat audit log…</div> : null}
-        {!loading && !message && activeRows.length === 0 ? <div className="audit-empty">Tidak ada event yang cocok dengan filter.</div> : null}
+        <UiDataTableState
+          loading={loading && source !== "LOCAL_RUNTIME" && activeRows.length === 0}
+          empty={!loading && !message && activeRows.length === 0}
+          loadingTitle="Memuat audit log…"
+          loadingBody="Mengambil event canonical sesuai filter aktif."
+          emptyTitle="Tidak ada event yang cocok"
+          emptyBody="Ubah atau reset filter untuk melihat event lain."
+        />
         {activeRows.length > 0 ? <div className="audit-table-wrap"><table className="audit-table"><thead><tr><th>Waktu</th><th>Level</th><th>Source</th><th>Event</th><th>Actor</th><th>Entity</th><th /></tr></thead><tbody>{activeRows.map((row) => <tr key={row.id}><td className="audit-time">{fmtTime(row.timestamp)} WIB</td><td><span className={`audit-level audit-level-${row.level.toLowerCase()}`}>{row.level}</span></td><td><span className="audit-source">{SOURCE_LABELS[row.source] || row.source}</span></td><td><strong>{humanize(row.event)}</strong><small>{row.message || row.event}</small></td><td>{row.actor || "SYSTEM"}<small>{row.actor_role || "—"}</small></td><td>{row.entity || "—"}<small>{row.entity_id || row.ip || "—"}</small></td><td className="audit-action"><button type="button" className="btn" onClick={() => setSelected(row)}>Detail</button></td></tr>)}</tbody></table></div> : null}
-        <div className="audit-pagination"><span>{activeTotal ? `${offset + 1}–${Math.min(offset + activeRows.length, activeTotal)} dari ${activeTotal}` : "0 event"}</span><div><button type="button" className="btn" disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - limit))}>Sebelumnya</button><button type="button" className="btn" disabled={!activeHasMore || loading} onClick={() => setOffset(nextOffset)}>Berikutnya</button></div></div>
+        <UiPagination
+          total={activeTotal}
+          from={activeTotal ? offset + 1 : 0}
+          to={Math.min(offset + activeRows.length, activeTotal)}
+          previousDisabled={offset === 0 || loading}
+          nextDisabled={!activeHasMore || loading}
+          onPrevious={() => setOffset(Math.max(0, offset - limit))}
+          onNext={() => setOffset(nextOffset)}
+          compact
+        />
       </UiSectionCard>
 
       {selected ? <div className="es-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setSelected(null); }}><aside className="es-drawer audit-drawer" role="dialog" aria-modal="true" aria-labelledby="audit-detail-title"><div className="es-drawer-head"><div><span className="audit-eyebrow">AUDIT DETAIL</span><h2 id="audit-detail-title">{humanize(selected.event)}</h2><small>{selected.id}</small></div><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button></div><div className="es-detail-grid"><div><span>Waktu</span>{fmtTime(selected.timestamp)} WIB</div><div><span>Level</span>{selected.level}</div><div><span>Source</span>{SOURCE_LABELS[selected.source] || selected.source}</div><div><span>Origin</span>{selected.origin || "—"}</div><div><span>Actor</span>{selected.actor || "SYSTEM"} · {selected.actor_role || "—"}</div><div><span>IP</span>{selected.ip || "—"}</div><div><span>Entity</span>{selected.entity || "—"}</div><div><span>Entity ID</span>{selected.entity_id || "—"}</div><div><span>Correlation ID</span>{selected.correlation_id || "—"}</div><div className="audit-detail-wide"><span>Raw event</span>{selected.event}</div><div className="audit-detail-wide"><span>Detail</span>{selected.message || "—"}</div></div></aside></div> : null}
