@@ -2607,3 +2607,34 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 @media (prefers-reduced-motion:reduce){
   .ui-loading-dot{animation:none}
 }
+
+
+/* P2 Unified Operational UX */
+.ui-action-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  min-height:46px;padding:8px 10px;border:1px solid var(--border);
+  border-radius:12px;background:var(--bg-surface);
+}
+.ui-action-bar-meta{min-width:0;color:var(--text3);font-size:11px}
+.ui-action-bar-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.ui-action-bar-sticky{position:sticky;bottom:10px;z-index:5;box-shadow:0 8px 24px rgba(15,23,42,.08)}
+.ui-pagination{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:12px 2px 2px;color:var(--text3);font-size:11px;
+}
+.ui-pagination>div{display:flex;gap:8px;align-items:center}
+.ui-pagination-compact{padding-top:8px}
+.ui-table-wrap{overscroll-behavior-x:contain;scrollbar-gutter:stable}
+.ui-data-table td:first-child,.ui-data-table th:first-child{position:sticky;left:0;z-index:1;background:var(--bg-surface)}
+.ui-data-table th:first-child{z-index:2;background:var(--bg-subtle)}
+.ui-data-table tbody tr:hover td:first-child{background:var(--bg-subtle)}
+@media (max-width:700px){
+  .ui-action-bar{align-items:stretch;flex-direction:column}
+  .ui-action-bar-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}
+  .ui-action-bar-actions>.btn{width:100%}
+  .ui-pagination{align-items:stretch;flex-direction:column}
+  .ui-pagination>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}
+  .ui-pagination .btn{width:100%}
+  .ui-data-table{min-width:680px}
+  .ui-table-wrap{border-radius:10px}
+}
