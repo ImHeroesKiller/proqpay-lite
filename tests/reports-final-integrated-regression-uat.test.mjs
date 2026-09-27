@@ -111,7 +111,9 @@ test('Final Reports UAT: UI keeps all-page export, stale-response guard, retry a
   assert.match(workspace,/const requestId=\+\+loadRequestRef\.current/);
   assert.match(workspace,/if\(requestId!==loadRequestRef\.current\) return/);
   assert.match(workspace,/if\(requestId===loadRequestRef\.current\) setLoading\(false\)/);
-  assert.match(workspace,/Coba lagi/);
+  assert.match(workspace,/UiDataTableState/);
+  const unified=await read('src/components/ui/UnifiedSystem.tsx');
+  assert.match(unified,/Coba lagi/);
   assert.match(workspace,/downloadRows\(/);
   assert.ok((workspace.match(/report-mobile-list/g)||[]).length>=2);
   assert.match(css,/\.report-desktop-table/);
