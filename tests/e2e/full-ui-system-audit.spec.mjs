@@ -20,7 +20,7 @@ async function login(page){
     if(await emailInput.isVisible().catch(()=>false)){
       await emailInput.fill(email);
       await passwordInput.fill(password);
-      const submit=page.locator('form button[type="submit"]').first();
+      const submit=page.locator('form.login-form button.login-submit').first();
       if(await submit.isVisible().catch(()=>false)){
         await submit.click();
         await page.waitForLoadState('networkidle').catch(()=>{});
