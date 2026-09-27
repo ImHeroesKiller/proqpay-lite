@@ -20,11 +20,17 @@ async function login(page){
     if(await emailInput.isVisible().catch(()=>false)){
       await emailInput.fill(email);
       await passwordInput.fill(password);
-      await page.getByRole('button',{name:/Masuk ke ProQPay/i}).click();
-      await page.waitForLoadState('networkidle').catch(()=>{});
+      const submit=page.locator('form button[type="submit"]').first();
+      if(await submit.isVisible().catch(()=>false)){
+        await submit.click();
+        await page.waitForLoadState('networkidle').catch(()=>{});
+        if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
+      }
     }
-    if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
-    if(attempt<2) await page.waitForTimeout(1500);
+    if(attempt<2){
+      await page.waitForTimeout(1500);
+      await page.goto('/',{waitUntil:'networkidle'}).catch(()=>{});
+    }
   }
   await expect(page.locator('aside.app-sidebar')).toBeVisible();
   return true;
