@@ -121,16 +121,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 40); do
+          stable=0
+          for attempt in $(seq 1 60); do
             body="$(curl -fsS "$BASE_URL/api/health" 2>/dev/null || true)"
             if printf '%s' "$body" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
-              echo "Production is ready."
-              exit 0
+              stable=$((stable + 1))
+              echo "Healthy check $stable/3."
+              if [[ "$stable" -ge 3 ]]; then
+                echo "Production is stably ready."
+                exit 0
+              fi
+            else
+              stable=0
+              echo "Health not ready; stability counter reset (attempt $attempt/60)."
             fi
-            echo "Health not ready yet (attempt $attempt/40)."
             sleep 5
           done
-          echo "::error::Production did not become ready before UAT."
+          echo "::error::Production did not remain ready for 3 consecutive checks before UAT."
           exit 1
 
       - name: Run selected UAT spec
