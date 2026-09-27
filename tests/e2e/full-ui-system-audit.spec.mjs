@@ -8,14 +8,21 @@ async function login(page){
   if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
   if(!hasCredentials)return false;
 
-  for(let attempt=1;attempt<=4;attempt+=1){
-    await page.goto('/',{waitUntil:'domcontentloaded'}).catch(()=>{});
-    if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
+  for(let attempt=1;attempt<=3;attempt+=1){
+    const apiLogin=await page.request.post('/api/login',{
+      data:{email,password},
+      failOnStatusCode:false,
+    }).catch(()=>null);
 
+    if(apiLogin?.ok()){
+      await page.goto('/',{waitUntil:'domcontentloaded'}).catch(()=>{});
+      if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
+    }
+
+    await page.goto('/',{waitUntil:'domcontentloaded'}).catch(()=>{});
     const emailInput=page.getByPlaceholder('nama@perusahaan.com');
     const passwordInput=page.getByPlaceholder('Masukkan password');
     const submit=page.locator('form.login-form button.login-submit').first();
-
     if(await emailInput.isVisible().catch(()=>false) && await submit.isVisible().catch(()=>false)){
       await emailInput.fill(email);
       await passwordInput.fill(password);
@@ -25,8 +32,7 @@ async function login(page){
         return true;
       } catch {}
     }
-
-    if(attempt<4) await page.waitForTimeout(1200*attempt);
+    if(attempt<3) await page.waitForTimeout(1500*attempt);
   }
 
   await expect(page.locator('aside.app-sidebar')).toBeVisible({timeout:15000});
