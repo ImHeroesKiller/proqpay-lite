@@ -968,26 +968,14 @@ function ARSection({ rows, canControl, canFollow, payment, follow, history }: an
   const appliedVariance = control.variance;
   return (
     <div className="ui-panel-grid">
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))",
-          gap: 10,
-        }}
-      >
+      <div className="billing-metric-grid">
         <Metric label="Invoice total" value={formatIDR(control.invoice)} note="Nilai AR terbentuk" />
         <Metric label="Applied payment" value={formatIDR(control.paid)} note="Sudah dialokasikan" />
         <Metric label="Unapplied cash" value={formatIDR(control.unapplied)} note="Kelebihan / belum dialokasikan" danger={control.unapplied > 0} />
         <Metric label="Outstanding" value={formatIDR(control.outstanding)} note="Saldo piutang" />
         <Metric label="Control variance" value={formatIDR(appliedVariance)} note="Invoice − paid − outstanding" danger={appliedVariance !== 0} />
       </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))",
-          gap: 10,
-        }}
-      >
+      <div className="billing-metric-grid">
         {buckets.map((b) => (
           <Metric
             key={b}
@@ -1500,8 +1488,7 @@ function ActionNoteForm({ label, value, onChange, buttonText, submit }: { label:
     <Form submit={submit} buttonText={buttonText}>
       <label style={labelStyle}>
         {label}
-        <textarea
-          style={{ ...input, minHeight: 110, resize: "vertical" }}
+        <textarea className="billing-textarea"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           required
@@ -1516,8 +1503,7 @@ function FollowUpForm({ form, setForm, submit }: any) {
     <Form submit={submit} buttonText="Simpan follow-up">
       <label style={labelStyle}>
         Catatan follow-up
-        <textarea
-          style={{ ...input, minHeight: 110, resize: "vertical" }}
+        <textarea className="billing-textarea"
           value={form.notes || ""}
           onChange={(event) => setForm({ ...form, notes: event.target.value })}
           required
@@ -1530,7 +1516,7 @@ function FollowUpForm({ form, setForm, submit }: any) {
         onChange={(value: string) => setForm({ ...form, nextFollowUpAt: value })}
         required={false}
       />
-      <label style={{ ...labelStyle, display: "flex", gridTemplateColumns: undefined, alignItems: "center", gap: 8 }}>
+      <label className="ui-toggle-row">
         <input
           type="checkbox"
           checked={Boolean(form.disputed)}
