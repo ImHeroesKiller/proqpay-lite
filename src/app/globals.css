@@ -1765,3 +1765,163 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   .integration-runtime-strip>div{padding:3px 5px}
   .e2pay-account-balance strong{font-size:24px}
 }
+
+
+/* Invoice print preview — official ProQPay brand assets */
+.invoice-print-preview{
+  display:grid;
+  gap:18px;
+  padding:24px !important;
+  background:#fff;
+  color:#0f172a;
+}
+.invoice-preview-header{
+  display:flex;
+  justify-content:space-between;
+  gap:24px;
+  align-items:flex-start;
+}
+.invoice-preview-brand{
+  display:flex;
+  gap:12px;
+  align-items:flex-start;
+  min-width:0;
+}
+.invoice-preview-icon{
+  width:42px;
+  height:42px;
+  object-fit:contain;
+  flex:0 0 auto;
+}
+.invoice-preview-logo-stack{
+  display:grid;
+  gap:3px;
+  min-width:0;
+}
+.invoice-preview-logo{
+  width:142px;
+  max-width:100%;
+  height:auto;
+  object-fit:contain;
+  object-position:left center;
+}
+.invoice-preview-logo-stack>strong{font-size:13px;color:#0b2a66}
+.invoice-preview-logo-stack>small{font-size:10px;color:#64748b}
+.invoice-preview-title{
+  display:grid;
+  gap:3px;
+  text-align:right;
+  justify-items:end;
+}
+.invoice-preview-title h2{
+  margin:0 0 2px;
+  font-size:28px;
+  letter-spacing:-.03em;
+  color:#0b2a66;
+}
+.invoice-preview-title>strong{font-size:12px}
+.invoice-preview-title>small{font-size:10px;color:#64748b}
+.invoice-preview-accent{
+  height:4px;
+  border-radius:999px;
+  background:linear-gradient(90deg,#0b2a66 0 82%,#ff6a00 82% 100%);
+}
+.invoice-preview-parties{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:28px;
+}
+.invoice-preview-parties>div{display:grid;gap:4px;align-content:start}
+.invoice-preview-parties span,
+.invoice-preview-meta span,
+.invoice-preview-payment span{
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.08em;
+  color:#ff6a00;
+}
+.invoice-preview-parties strong{font-size:13px}
+.invoice-preview-parties small{font-size:10px;line-height:1.45;color:#64748b}
+.invoice-preview-meta{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:0;
+  border:1px solid #e2e8f0;
+  border-radius:12px;
+  background:#f8fafc;
+  overflow:hidden;
+}
+.invoice-preview-meta>div{display:grid;gap:5px;padding:12px}
+.invoice-preview-meta>div+div{border-left:1px solid #e2e8f0}
+.invoice-preview-meta span{color:#64748b}
+.invoice-preview-meta strong{font-size:11px;overflow-wrap:anywhere}
+.invoice-preview-table-wrap{overflow:hidden;border-radius:10px}
+.invoice-preview-payment{
+  display:grid;
+  grid-template-columns:1fr minmax(220px,.8fr);
+  gap:22px;
+  align-items:center;
+  padding:14px;
+  border:1px solid #e2e8f0;
+  border-radius:12px;
+  background:#f8fafc;
+}
+.invoice-preview-payment>div{display:grid;gap:4px}
+.invoice-preview-payment strong{font-size:12px}
+.invoice-preview-payment small{font-size:10px;line-height:1.45;color:#64748b}
+.invoice-preview-tax{margin:0;font-size:10px;color:#475569}
+.invoice-preview-footer{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:20px;
+  align-items:end;
+  padding-top:13px;
+  border-top:1px solid #e2e8f0;
+}
+.invoice-preview-footer>div{display:grid;gap:3px}
+.invoice-preview-footer>div:last-child{text-align:right;justify-items:end}
+.invoice-preview-footer strong{font-size:10px;color:#0b2a66}
+.invoice-preview-footer span,
+.invoice-preview-footer small{font-size:8.5px;color:#64748b}
+.invoice-preview-activity{display:grid;gap:8px;margin-top:4px;padding-top:12px;border-top:1px dashed #cbd5e1}
+.invoice-preview-activity>div{display:grid;gap:7px}
+.invoice-preview-activity>div>div{display:grid;gap:2px;padding-bottom:7px;border-bottom:1px solid #eef2f7}
+.invoice-preview-actions{display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:14px;flex-wrap:wrap}
+
+@media(max-width:700px){
+  .invoice-preview-header,
+  .invoice-preview-parties,
+  .invoice-preview-payment,
+  .invoice-preview-footer{grid-template-columns:1fr;display:grid}
+  .invoice-preview-title{text-align:left;justify-items:start}
+  .invoice-preview-meta{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .invoice-preview-meta>div:nth-child(3){border-left:0;border-top:1px solid #e2e8f0}
+  .invoice-preview-meta>div:nth-child(4){border-top:1px solid #e2e8f0}
+  .invoice-preview-footer>div:last-child{text-align:left;justify-items:start}
+}
+
+@media print{
+  body *{visibility:hidden !important}
+  .billing-print-area,
+  .billing-print-area *{visibility:visible !important}
+  .billing-print-area{
+    position:absolute;
+    inset:0;
+    width:210mm;
+    min-height:297mm;
+    margin:0;
+    padding:14mm !important;
+    box-sizing:border-box;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  .billing-print-area img{
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  .billing-print-area .no-print,
+  .no-print{display:none !important}
+  .invoice-preview-meta{break-inside:avoid}
+  .invoice-preview-payment{break-inside:avoid}
+  @page{size:A4 portrait;margin:0}
+}

@@ -153,8 +153,9 @@ test('Invoice branding is canonical MSG + ProQPay and source-backed contact fiel
   assert.match(core,/People\. Operations\. Technology\./);
   assert.match(core,/ProQPay Lite/);
   assert.match(core,/AI Payroll OS/);
-  assert.match(core,/proqpayLogoCmd/);
-  assert.match(core,/template:'MSG_PROQPAY_A4_V2'/);
+  assert.match(core,/imageCmd\('PqIcon'/);
+  assert.match(core,/imageCmd\('PqLogo'/);
+  assert.match(core,/template:'MSG_PROQPAY_A4_V3_OFFICIAL_ASSETS'/);
 
   assert.match(billing,/const legalName='PT Mandiri Semesta Gemilang'/);
   assert.match(billing,/canonicalWebsite='www\.msg-os\.com'/);
@@ -165,4 +166,27 @@ test('Invoice branding is canonical MSG + ProQPay and source-backed contact fiel
   assert.match(migration,/PT Mandiri Semesta Gemilang/);
   assert.match(migration,/Graha MSG/);
   assert.match(migration,/rizal@msg-os\.com/);
+});
+
+
+test('Print preview and PDF use the official ProQPay logo and icon assets',async()=>{
+  const ui=await read('src/components/BillingWorkspace.tsx');
+  const core=await read('functions/api/invoice-document-core.js');
+  const assets=await read('functions/api/proqpay-invoice-assets.js');
+  const icon=await read('public/branding/proqpay-icon.svg');
+  const logo=await read('public/branding/proqpay-logo.svg');
+  const css=await read('src/app/globals.css');
+
+  assert.match(ui,/\/branding\/proqpay-icon\.svg/);
+  assert.match(ui,/\/branding\/proqpay-logo\.svg/);
+  assert.match(ui,/invoice-preview-brand/);
+  assert.match(core,/\/PqIcon 7 0 R/);
+  assert.match(core,/\/PqLogo 8 0 R/);
+  assert.match(core,/ASCIIHexDecode \/DCTDecode/);
+  assert.match(assets,/PROQPAY_ICON_JPEG_BASE64/);
+  assert.match(assets,/PROQPAY_LOGO_JPEG_BASE64/);
+  assert.match(icon,/data:image\/jpeg;base64/);
+  assert.match(logo,/data:image\/jpeg;base64/);
+  assert.match(css,/@media print/);
+  assert.match(css,/print-color-adjust:exact/);
 });

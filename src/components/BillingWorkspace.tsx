@@ -1362,60 +1362,116 @@ function IssuerProfileForm({ form, setForm, submit }: any) {
 }
 
 function InvoiceDetail({ row }: any) {
+  const issuerAddress =
+    "Graha MSG, Jl. Raya Pos Pengumben Raya No.Kav 188, Klp. Dua, Kec. Kb. Jeruk, Kota Jakarta Barat, DKI Jakarta 11550";
   return (
     <div>
-      <div className="billing-print-area" style={{ padding: 8 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 20,
-            borderBottom: "2px solid var(--accent)",
-            paddingBottom: 16,
-          }}
-        >
-          <div>
-            <h2 style={{ margin: 0 }}>INVOICE</h2>
-            <small>ProQPay</small>
+      <div className="billing-print-area invoice-print-preview">
+        <header className="invoice-preview-header">
+          <div className="invoice-preview-brand">
+            <img
+              src="/branding/proqpay-icon.svg"
+              alt="ProQPay icon"
+              className="invoice-preview-icon"
+            />
+            <div className="invoice-preview-logo-stack">
+              <img
+                src="/branding/proqpay-logo.svg"
+                alt="ProQPay"
+                className="invoice-preview-logo"
+              />
+              <strong>PT Mandiri Semesta Gemilang</strong>
+              <small>People. Operations. Technology.</small>
+            </div>
           </div>
-          <div style={{ textAlign: "right" }}>
+          <div className="invoice-preview-title">
+            <h2>INVOICE</h2>
             <strong>{row.invoice_number}</strong>
             <small>Tanggal: {date(row.issued_at || row.created_at)}</small>
             <small>Jatuh tempo: {date(row.due_date)}</small>
           </div>
+        </header>
+
+        <div className="invoice-preview-accent" />
+
+        <section className="invoice-preview-parties">
+          <div>
+            <span>ISSUED BY</span>
+            <strong>PT Mandiri Semesta Gemilang</strong>
+            <small>{issuerAddress}</small>
+            <small>rizal@msg-os.com · +62 856-9766-6101</small>
+            <small>www.msg-os.com</small>
+          </div>
+          <div>
+            <span>BILL TO</span>
+            <strong>{row.company}</strong>
+            <small>{row.billing_address || "-"}</small>
+            {row.npwp ? <small>NPWP: {row.npwp}</small> : null}
+          </div>
+        </section>
+
+        <section className="invoice-preview-meta">
+          <div><span>INVOICE DATE</span><strong>{date(row.issued_at || row.created_at)}</strong></div>
+          <div><span>DUE DATE</span><strong>{date(row.due_date)}</strong></div>
+          <div><span>PERIOD</span><strong>{row.period || "-"}</strong></div>
+          <div><span>PROJECT</span><strong>{row.project_name || "-"}</strong></div>
+        </section>
+
+        <div className="invoice-preview-table-wrap">
+          <Table
+            headers={["Deskripsi", "Jumlah"]}
+            rows={[
+              [
+                `Jasa payroll periode ${row.period || "-"}`,
+                formatIDR(Number(row.subtotal || 0)),
+              ],
+              ["PPN", formatIDR(Number(row.tax_amount || 0))],
+              [
+                "TOTAL",
+                <strong key="t">
+                  {formatIDR(Number(row.total_amount || 0))}
+                </strong>,
+              ],
+            ]}
+          />
         </div>
-        <div style={{ margin: "20px 0" }}>
-          <small>Ditagihkan kepada</small>
-          <strong style={{ display: "block" }}>{row.company}</strong>
-          <span style={{ fontSize: 12 }}>{row.billing_address || "-"}</span>
-        </div>
-        <Table
-          headers={["Deskripsi", "Jumlah"]}
-          rows={[
-            [
-              `Jasa payroll periode ${row.period || "-"}`,
-              formatIDR(Number(row.subtotal || 0)),
-            ],
-            ["PPN", formatIDR(Number(row.tax_amount || 0))],
-            [
-              "Total",
-              <strong key="t">
-                {formatIDR(Number(row.total_amount || 0))}
-              </strong>,
-            ],
-          ]}
-        />
+
+        <section className="invoice-preview-payment">
+          <div>
+            <span>BILLING CONTACT</span>
+            <strong>rizal@msg-os.com</strong>
+            <small>+62 856-9766-6101 · www.msg-os.com</small>
+          </div>
+          <small>
+            Detail rekening pembayaran hanya ditampilkan pada PDF apabila sudah
+            dikonfigurasi di Billing Setup.
+          </small>
+        </section>
+
         {row.tax_invoice_number && (
-          <p style={{ fontSize: 12 }}>
+          <p className="invoice-preview-tax">
             Faktur pajak: <strong>{row.tax_invoice_number}</strong>
           </p>
         )}
+
+        <footer className="invoice-preview-footer">
+          <div>
+            <strong>PT Mandiri Semesta Gemilang</strong>
+            <small>{issuerAddress}</small>
+          </div>
+          <div>
+            <span>Generated securely by</span>
+            <strong>ProQPay Lite</strong>
+            <small>AI Payroll OS</small>
+          </div>
+        </footer>
+
         {Array.isArray(row.activity) && row.activity.length > 0 && (
-          <div style={{ marginTop: 18 }}>
-            <strong style={{ fontSize: 12 }}>Riwayat invoice</strong>
-            <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+          <div className="invoice-preview-activity no-print">
+            <strong>Riwayat invoice</strong>
+            <div>
               {row.activity.slice(0, 20).map((entry: any, index: number) => (
-                <div key={index} style={{ borderBottom: "1px solid var(--border-soft)", paddingBottom: 7 }}>
+                <div key={index}>
                   <small><strong>{String(entry.action || entry.type || "ACTIVITY").replaceAll("_", " ")}</strong> · {date(entry.at || entry.timestamp)}</small>
                   <small>{entry.username || entry.actor || "-"}{entry.detail ? ` · ${entry.detail}` : ""}</small>
                 </div>
@@ -1424,14 +1480,8 @@ function InvoiceDetail({ row }: any) {
           </div>
         )}
       </div>
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          justifyContent: "flex-end",
-          marginTop: 14,
-        }}
-      >
+
+      <div className="invoice-preview-actions no-print">
         {row.email_status === "SENT" ? <Badge text="EMAIL SENT" /> : <Badge text={row.email_status || "NOT SENT"} />}
         <a
           style={{ ...button, textDecoration: "none" }}
