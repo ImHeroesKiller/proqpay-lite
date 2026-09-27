@@ -117,6 +117,22 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Wait for production readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 40); do
+            body="$(curl -fsS "$BASE_URL/api/health" 2>/dev/null || true)"
+            if printf '%s' "$body" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
+              echo "Production is ready."
+              exit 0
+            fi
+            echo "Health not ready yet (attempt $attempt/40)."
+            sleep 5
+          done
+          echo "::error::Production did not become ready before UAT."
+          exit 1
+
       - name: Run selected UAT spec
         id: playwright
         run: npx playwright test "$SPEC_PATH" --config=playwright.uat.config.mjs
