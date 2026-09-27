@@ -382,13 +382,13 @@ export function Pagination({
         ? `${total} data`
         : "";
   return (
-    <div className={`ui-pagination${compact ? " ui-pagination-compact" : ""}`}>
-      <span>{label}</span>
+    <nav className={`ui-pagination${compact ? " ui-pagination-compact" : ""}`} aria-label="Navigasi halaman">
+      <span aria-live="polite">{label}</span>
       <div>
         <button type="button" className="btn" disabled={Boolean(previousDisabled)} onClick={onPrevious}>Sebelumnya</button>
         <button type="button" className="btn" disabled={Boolean(nextDisabled)} onClick={onNext}>Berikutnya</button>
       </div>
-    </div>
+    </nav>
   );
 }
 
