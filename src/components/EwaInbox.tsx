@@ -12,6 +12,7 @@ import {
   FilterBar as UiFilterBar,
   MetricCard as UiMetricCard,
   MetricGrid as UiMetricGrid,
+  Pagination as UiPagination,
   SectionCard as UiSectionCard,
   WorkspaceHeader as UiWorkspaceHeader,
 } from "@/components/ui/UnifiedSystem";
@@ -293,15 +294,15 @@ export default function EwaInbox() {
         </>
       ) : null}
 
-      <div className="portal-toolbar es-pagination">
-        <span className="ewa-muted" aria-live="polite">
-          {page.total ? `${offset + 1}–${Math.min(offset + rows.length, page.total)} dari ${page.total}` : "0 data"}
-        </span>
-        <span className="es-pagination-actions">
-          <button type="button" className="btn" disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - page.limit))}>Sebelumnya</button>
-          <button type="button" className="btn" disabled={!page.hasMore || loading} onClick={() => setOffset(page.nextOffset)}>Berikutnya</button>
-        </span>
-      </div>
+      <UiPagination
+        total={page.total}
+        from={page.total ? offset + 1 : 0}
+        to={Math.min(offset + rows.length, page.total)}
+        previousDisabled={offset === 0 || loading}
+        nextDisabled={!page.hasMore || loading}
+        onPrevious={() => setOffset(Math.max(0, offset - page.limit))}
+        onNext={() => setOffset(page.nextOffset)}
+      />
 
       {selected ? <EwaDetailPanel row={selected} onClose={() => setSelected(null)} /> : null}
       {disbursementTarget ? (
