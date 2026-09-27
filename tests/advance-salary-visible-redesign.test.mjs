@@ -14,7 +14,7 @@ test('Advance Salary visible redesign has a distinct control-center hierarchy',a
   assert.match(ui,/UiMetricGrid/);
   assert.match(ui,/ewa-filter-panel/);
   assert.match(ui,/ewa-list-card/);
-  assert.match(ui,/item\.key\.toLowerCase\(\)/);
+  assert.match(ui,/UiMetricCard/);
   assert.match(unified,/function WorkspaceHeader/);
   assert.match(unified,/function MetricCard/);
   assert.match(globalCss,/\.ui-workspace-header\{/);
