@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChangePasswordModal } from "@/components/AuthViews";
 import { listOperatingDashboard } from "@/lib/operating-model-api";
 import { allowedViewsForRole, type AppView } from "./Sidebar";
-import { getViewLabel, NAV_NAV_SEARCH_ITEMS } from "@/lib/navigation-config";
+import { getViewLabel, NAV_SEARCH_ITEMS } from "@/lib/navigation-config";
 import { IconBell, IconChevronDown, IconMenu, IconSearch } from "./Icons";
 
 type HeaderActor = {
