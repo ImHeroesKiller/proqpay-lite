@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { roleHasCapability, viewsForRole } from "../../shared/authority-matrix.js";
+import { getViewLabel } from "@/lib/navigation-config";
 import {
   IconAlertTriangle,
   IconArrowUpRight,
@@ -156,19 +157,19 @@ export default function Sidebar({
 
         {clientExperience ? (
           <NavGroup label="Workspace">
-            <NavBtn active={view === "dashboard"} icon={<IconDashboard />} title="Home" onClick={() => go("dashboard")} />
-            <NavBtn active={view === "operations"} icon={<IconWallet />} title="Payroll" onClick={() => go("operations")} />
-            <NavBtn active={view === "reports"} icon={<IconFile />} title="Documents" onClick={() => go("reports")} />
+            <NavBtn active={view === "dashboard"} icon={<IconDashboard />} title={getViewLabel("dashboard", role)} onClick={() => go("dashboard")} />
+            <NavBtn active={view === "operations"} icon={<IconWallet />} title={getViewLabel("operations", role)} onClick={() => go("operations")} />
+            <NavBtn active={view === "reports"} icon={<IconFile />} title={getViewLabel("reports", role)} onClick={() => go("reports")} />
           </NavGroup>
         ) : (
           <>
             <NavGroup label="Overview">
-              <NavBtn active={view === "dashboard"} icon={<IconDashboard />} title="Dashboard" onClick={() => go("dashboard")} />
+              <NavBtn active={view === "dashboard"} icon={<IconDashboard />} title={getViewLabel("dashboard", role)} onClick={() => go("dashboard")} />
             </NavGroup>
 
             <NavGroup label={simplifiedInternal ? "Work" : "Payroll Operations"}>
               {allowed.has("clients") && !simplifiedInternal ? (
-                <NavBtn active={view === "clients"} icon={<IconBuilding />} title="Clients & Projects" onClick={() => go("clients")} />
+                <NavBtn active={view === "clients"} icon={<IconBuilding />} title={getViewLabel("clients", role)} onClick={() => go("clients")} />
               ) : null}
               {canIntake ? (
                 <Link
@@ -187,7 +188,7 @@ export default function Sidebar({
                 <NavBtn
                   active={view === "exceptions"}
                   icon={<IconAlertTriangle />}
-                  title={simplifiedInternal ? "Issues" : "Data Readiness"}
+                  title={getViewLabel("exceptions", role)}
                   onClick={() => go("exceptions")}
                 />
               ) : null}
@@ -195,7 +196,7 @@ export default function Sidebar({
                 <NavBtn
                   active={view === "operations" && activePath !== "data-intake"}
                   icon={<IconClock />}
-                  title={simplifiedInternal ? "Payroll" : "Pay Runs"}
+                  title={getViewLabel("operations", role)}
                   onClick={() => go("operations")}
                 />
               ) : null}
@@ -203,7 +204,7 @@ export default function Sidebar({
                 <NavBtn
                   active={view === "payments"}
                   icon={<IconArrowUpRight />}
-                  title={simplifiedInternal ? "Payments" : "Payment Instructions"}
+                  title={getViewLabel("payments", role)}
                   onClick={() => go("payments")}
                 />
               ) : null}
@@ -211,7 +212,7 @@ export default function Sidebar({
                 <NavBtn
                   active={view === "billing"}
                   icon={<IconWallet />}
-                  title={simplifiedInternal ? "Close & Billing" : "Billing & AR"}
+                  title={getViewLabel("billing", role)}
                   onClick={() => go("billing")}
                 />
               ) : null}
@@ -222,10 +223,10 @@ export default function Sidebar({
                 <NavBtn active={view === "clients"} icon={<IconBuilding />} title="Clients & Projects" onClick={() => go("clients")} />
               ) : null}
               {allowed.has("employees") ? (
-                <NavBtn active={view === "employees"} icon={<IconUsers />} title="Employees" onClick={() => go("employees")} />
+                <NavBtn active={view === "employees"} icon={<IconUsers />} title={getViewLabel("employees", role)} onClick={() => go("employees")} />
               ) : null}
               {allowed.has("reports") ? (
-                <NavBtn active={view === "reports"} icon={<IconChart />} title="Reports" onClick={() => go("reports")} />
+                <NavBtn active={view === "reports"} icon={<IconChart />} title={getViewLabel("reports", role)} onClick={() => go("reports")} />
               ) : null}
             </NavGroup>
 
@@ -237,10 +238,10 @@ export default function Sidebar({
                 active={employeeServicesActive}
               >
                 {allowed.has("ewa") ? (
-                  <NavBtn active={view === "ewa"} icon={<IconWallet />} title="Advance Salary" onClick={() => go("ewa")} />
+                  <NavBtn active={view === "ewa"} icon={<IconWallet />} title={getViewLabel("ewa", role)} onClick={() => go("ewa")} />
                 ) : null}
                 {allowed.has("portalSettings") ? (
-                  <NavBtn active={view === "portalSettings"} icon={<IconSettings />} title="Portal Configuration" onClick={() => go("portalSettings")} />
+                  <NavBtn active={view === "portalSettings"} icon={<IconSettings />} title={getViewLabel("portalSettings", role)} onClick={() => go("portalSettings")} />
                 ) : null}
               </NavGroup>
             ) : null}
@@ -248,9 +249,9 @@ export default function Sidebar({
             {canViewAudit ? (
               <NavGroup label="System" collapsible={!compact} defaultOpen={false} active={systemActive}>
                 {allowed.has("integrations") ? (
-                  <NavBtn active={view === "integrations"} icon={<IconLayers />} title="Integrations" onClick={() => go("integrations")} />
+                  <NavBtn active={view === "integrations"} icon={<IconLayers />} title={getViewLabel("integrations", role)} onClick={() => go("integrations")} />
                 ) : null}
-                <NavBtn active={view === "logs"} icon={<IconShieldCheck />} title="Audit Logs" onClick={() => go("logs")} />
+                <NavBtn active={view === "logs"} icon={<IconShieldCheck />} title={getViewLabel("logs", role)} onClick={() => go("logs")} />
               </NavGroup>
             ) : null}
           </>
