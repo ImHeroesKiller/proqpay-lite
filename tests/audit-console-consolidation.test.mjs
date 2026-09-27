@@ -7,7 +7,9 @@ const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 test('Audit Logs is the only audit page in the application shell',async()=>{
   const sidebar=await read('src/components/Sidebar.tsx');
   const page=await read('src/app/page.tsx');
-  assert.match(sidebar,/title="Audit Logs"/);
+  const nav=await read('src/lib/navigation-config.ts');
+  assert.match(nav,/logs: "Audit Logs"/);
+  assert.match(sidebar,/getViewLabel\("logs", role\)/);
   assert.doesNotMatch(sidebar,/Portal Activity/);
   assert.doesNotMatch(sidebar,/portalAudit/);
   assert.doesNotMatch(page,/components\/PortalAudit/);
