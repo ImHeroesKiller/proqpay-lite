@@ -31,7 +31,10 @@ test.describe('Full application UI system audit',()=>{
     for(const raw of labels){
       const label=raw.trim().replace(/\s+/g,' ');
       if(!label)continue;
-      const current=page.locator('aside.app-sidebar').getByRole(/button|link/,{name:label,exact:true}).first();
+      const scope=page.locator('aside.app-sidebar');
+      const button=scope.getByRole('button',{name:label,exact:true});
+      const link=scope.getByRole('link',{name:label,exact:true});
+      const current=(await button.count())?button.first():link.first();
       if(!(await current.count()))continue;
       await current.click();
       await page.waitForLoadState('networkidle').catch(()=>{});
@@ -68,7 +71,10 @@ test.describe('Full application UI system audit',()=>{
 
     const probes=['Dashboard','Employees','Reports','Billing & AR','Integrations','Audit Logs','Portal Configuration','Advance Salary'];
     for(const label of probes){
-      const item=page.locator('aside.app-sidebar').getByRole(/button|link/,{name:label,exact:true}).first();
+      const scope=page.locator('aside.app-sidebar');
+      const button=scope.getByRole('button',{name:label,exact:true});
+      const link=scope.getByRole('link',{name:label,exact:true});
+      const item=(await button.count())?button.first():link.first();
       if(!(await item.count()))continue;
       await item.click();
       await page.waitForLoadState('networkidle').catch(()=>{});
@@ -90,7 +96,9 @@ test.describe('Full application UI system audit',()=>{
     for(const label of probes){
       await page.getByRole('button',{name:'Buka navigasi'}).first().click();
       const sidebar=page.locator('aside.app-sidebar');
-      const item=sidebar.getByRole(/button|link/,{name:label,exact:true}).first();
+      const button=sidebar.getByRole('button',{name:label,exact:true});
+      const link=sidebar.getByRole('link',{name:label,exact:true});
+      const item=(await button.count())?button.first():link.first();
       if(!(await item.count())){
         await page.keyboard.press('Escape');
         continue;
