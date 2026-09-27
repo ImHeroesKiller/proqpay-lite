@@ -56,7 +56,7 @@ test.describe('Invoice / Billing & AR production UAT', () => {
     await expect(page.getByRole('banner').getByText('Billing & AR', { exact: true })).toBeVisible();
     await expect(page.getByText('Outstanding AR', { exact: true })).toBeVisible();
 
-    const invoiceTab = page.getByRole('button', { name: /^Invoice$/i });
+    const invoiceTab = page.getByRole('tab', { name: /^Invoice$/i });
     if (await invoiceTab.count()) await invoiceTab.click();
 
     await expect(page.getByText('Daftar invoice', { exact: true })).toBeVisible();
@@ -86,7 +86,7 @@ test.describe('Invoice / Billing & AR production UAT', () => {
       }
     }
 
-    const arTab = page.getByRole('button', { name: /AR Monitoring/i });
+    const arTab = page.getByRole('tab', { name: /AR Monitoring/i });
     if (await arTab.count()) await arTab.click();
     await expect(page.getByText('Monitoring piutang & payment gate', { exact: true })).toBeVisible();
     await expect(page.getByText('Outstanding', { exact: true })).toBeVisible();
