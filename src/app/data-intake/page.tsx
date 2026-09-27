@@ -6,7 +6,12 @@ import { useRouter } from "next/navigation";
 import { parseIapWorkbook } from "@/lib/excel-iap";
 import { formatIDR } from "@/lib/format";
 import Sidebar, { type AppView } from "@/components/Sidebar";
+import AppHeader from "@/components/AppHeader";
+import AppFooter from "@/components/AppFooter";
 import { IconMenu } from "@/components/Icons";
+import dynamic from "next/dynamic";
+
+const HelpModal = dynamic(() => import("@/components/HelpModal"));
 import {
   PAYROLL_TEMPLATE_URL,
   PAYROLL_TEMPLATE_VERSION,
@@ -49,11 +54,17 @@ type Preview = {
 export default function DataIntakePage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [actor, setActor] = useState<{ email: string; role: string } | null>(
-    null,
-  );
+  const [actor, setActor] = useState<{
+    id: string;
+    name?: string;
+    email: string;
+    role: string;
+    authMode?: string;
+    clientIds?: string[] | null;
+  } | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [setup, setSetup] = useState<Setup>({
     clients: [],
     projects: [],
@@ -93,7 +104,7 @@ export default function DataIntakePage() {
     void Promise.all([
       fetch("/api/me", { signal: controller.signal, cache: "no-store" })
         .then(readJson)
-        .then((x) => x.user),
+        .then((x) => ({ ...(x.user || {}), authMode: x.authMode || "session" })),
       fetch("/api/payroll-intake-setup", {
         signal: controller.signal,
         cache: "no-store",
@@ -326,7 +337,7 @@ export default function DataIntakePage() {
         activePath="data-intake"
         onView={navigate}
         onOpenIda={() => navigate("dashboard")}
-        onOpenHelp={() => navigate("dashboard")}
+        onOpenHelp={() => setHelpOpen(true)}
         role={actor?.role}
         mobileOpen={mobileNavOpen}
         onMobileClose={() => setMobileNavOpen(false)}
@@ -334,8 +345,23 @@ export default function DataIntakePage() {
         onSettingsOpen={setSettingsOpen}
         period={form.period}
       />
-      <main className="data-intake-page">
-        <div className="data-intake-shell">
+      <div className="data-intake-shell-frame">
+        {actor ? (
+          <AppHeader
+            period={form.period}
+            periods={[form.period]}
+            view="operations"
+            clientCount={setup.clients.length}
+            onPeriodChange={(period) => setForm((current) => ({ ...current, period }))}
+            onNavigate={navigate}
+            onHelp={() => setHelpOpen(true)}
+            onMenu={() => setMobileNavOpen(true)}
+            actor={actor}
+            contextLabel="Data Intake"
+          />
+        ) : null}
+        <main className="data-intake-page">
+          <div className="data-intake-shell">
           <header className="data-intake-heading">
             <div>
               <button
@@ -866,8 +892,11 @@ export default function DataIntakePage() {
               tersimpan di D1
             </span>
           </footer>
-        </div>
-      </main>
+          </div>
+        </main>
+        <AppFooter onSupport={() => setHelpOpen(true)} />
+      </div>
+      {helpOpen ? <HelpModal open onClose={() => setHelpOpen(false)} /> : null}
     </div>
   );
 }
