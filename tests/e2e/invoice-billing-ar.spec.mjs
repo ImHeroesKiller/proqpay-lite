@@ -70,7 +70,9 @@ test.describe('Invoice / Billing & AR production UAT', () => {
         await view.click();
         await expect(page.locator('body')).toContainText(/Invoice/i);
         await expect(page.locator('body')).toContainText(/PT Mandiri Semesta Gemilang/i);
-        await page.keyboard.press('Escape').catch(() => {});
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('button').first().click();
+        await expect(dialog).toBeHidden();
       }
 
       const pdf = firstRow.getByRole('link', { name: /PDF A4/i });
