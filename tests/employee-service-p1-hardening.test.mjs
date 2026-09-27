@@ -59,7 +59,7 @@ test('Employee Services P1: EWA ops supports bounded filters and pagination',asy
   const ui=await read('src/components/EwaInbox.tsx');
   assert.match(ui,/type="month"/);
   assert.match(ui,/Reset filter/);
-  assert.match(ui,/Berikutnya/);
+  assert.match(ui,/UiPagination/);
   assert.match(ui,/onDisburse/);
   assert.match(ui,/function disburse\(id: string\)/);
 });
@@ -72,7 +72,7 @@ test('Employee Services P1: portal audit is consolidated into org-scoped unified
   assert.match(api,/LIMIT \? OFFSET \?/);
   assert.match(api,/EMPLOYEE_PORTAL_LOGIN_FAILED/);
   assert.match(ui,/Audit Logs Control Center/);
-  assert.match(ui,/Berikutnya/);
+  assert.match(ui,/UiPagination/);
 });
 
 test('Employee Services P1: Lite publishes a versioned contract for ESS init, EWA and payslips',async()=>{

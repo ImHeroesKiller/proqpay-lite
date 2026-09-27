@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -270,6 +271,20 @@ export function ModalShell({
   onClose: () => void;
   className?: string;
 }) {
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
   if (typeof document === "undefined") return null;
   return createPortal(
     <div className="ui-modal-backdrop" onMouseDown={onClose}>
@@ -314,4 +329,92 @@ export function FormActions({
       </div>
     </form>
   );
+}
+
+
+export function ActionBar({
+  children,
+  meta,
+  sticky = false,
+  className = "",
+}: {
+  children: ReactNode;
+  meta?: ReactNode;
+  sticky?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={`ui-action-bar${sticky ? " ui-action-bar-sticky" : ""} ${className}`.trim()}>
+      <div className="ui-action-bar-meta">{meta}</div>
+      <div className="ui-action-bar-actions">{children}</div>
+    </div>
+  );
+}
+
+export function Pagination({
+  page,
+  pageCount,
+  total,
+  from,
+  to,
+  onPrevious,
+  onNext,
+  previousDisabled,
+  nextDisabled,
+  compact = false,
+}: {
+  page?: number;
+  pageCount?: number;
+  total?: number;
+  from?: number;
+  to?: number;
+  onPrevious: () => void;
+  onNext: () => void;
+  previousDisabled?: boolean;
+  nextDisabled?: boolean;
+  compact?: boolean;
+}) {
+  const label = typeof from === "number" && typeof to === "number" && typeof total === "number"
+    ? `${from}–${to} dari ${total}`
+    : typeof page === "number" && typeof pageCount === "number"
+      ? `Halaman ${page} dari ${pageCount}`
+      : typeof total === "number"
+        ? `${total} data`
+        : "";
+  return (
+    <nav className={`ui-pagination${compact ? " ui-pagination-compact" : ""}`} aria-label="Navigasi halaman">
+      <span aria-live="polite">{label}</span>
+      <div>
+        <button type="button" className="btn" disabled={Boolean(previousDisabled)} onClick={onPrevious}>Sebelumnya</button>
+        <button type="button" className="btn" disabled={Boolean(nextDisabled)} onClick={onNext}>Berikutnya</button>
+      </div>
+    </nav>
+  );
+}
+
+export function DataTableState({
+  loading,
+  empty,
+  loadingTitle = "Memuat data…",
+  loadingBody,
+  emptyTitle = "Belum ada data",
+  emptyBody,
+  onRetry,
+  error,
+}: {
+  loading?: boolean;
+  empty?: boolean;
+  loadingTitle?: ReactNode;
+  loadingBody?: ReactNode;
+  emptyTitle?: ReactNode;
+  emptyBody?: ReactNode;
+  onRetry?: () => void;
+  error?: ReactNode;
+}) {
+  if (error) {
+    return <Notice tone="error" title="Gagal memuat data" action={onRetry ? <button type="button" className="btn" onClick={onRetry}>Coba lagi</button> : undefined}>{error}</Notice>;
+  }
+  if (loading) return <LoadingState title={loadingTitle} body={loadingBody} />;
+  if (empty) return <EmptyState title={emptyTitle} body={emptyBody} />;
+  return null;
 }
