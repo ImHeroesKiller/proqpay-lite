@@ -13,6 +13,7 @@ import { writeSystemLog } from "@/lib/system-log";
 import AccountManagement from "@/components/AccountManagement";
 import PaymentGatewaySettings from "@/components/PaymentGatewaySettings";
 import PortalSettings from "@/components/PortalSettings";
+import { roleHasCapability } from "../../shared/authority-matrix.js";
 
 type Tab =
   | "general"
@@ -146,7 +147,11 @@ export default function SettingsModal({
   }, [open, onClose]);
 
   if (!open || !settings) return null;
-  const visibleTabs = TABS.filter((item) => item.id !== "paymentGateway" || role === "SUPER_ADMIN");
+  const visibleTabs = TABS.filter((item) => {
+    if (item.id === "paymentGateway") return role === "SUPER_ADMIN";
+    if (item.id === "portal") return roleHasCapability(role || "", "employee-services:manage");
+    return true;
+  });
   const activeTab = visibleTabs.find((item) => item.id === tab) || visibleTabs[0] || TABS[0];
 
   function patch(values: Partial<AppSettings>) {
