@@ -6,33 +6,30 @@ const hasCredentials=Boolean(email&&password);
 
 async function login(page){
   if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
-  await page.goto('/',{waitUntil:'networkidle'});
-  if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
   if(!hasCredentials)return false;
 
-  for(let attempt=1;attempt<=2;attempt+=1){
+  for(let attempt=1;attempt<=4;attempt+=1){
+    await page.goto('/',{waitUntil:'domcontentloaded'}).catch(()=>{});
+    if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
+
     const emailInput=page.getByPlaceholder('nama@perusahaan.com');
     const passwordInput=page.getByPlaceholder('Masukkan password');
-    if(!(await emailInput.isVisible().catch(()=>false))){
-      await page.goto('/',{waitUntil:'networkidle'}).catch(()=>{});
-      if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
-    }
-    if(await emailInput.isVisible().catch(()=>false)){
+    const submit=page.locator('form.login-form button.login-submit').first();
+
+    if(await emailInput.isVisible().catch(()=>false) && await submit.isVisible().catch(()=>false)){
       await emailInput.fill(email);
       await passwordInput.fill(password);
-      const submit=page.locator('form.login-form button.login-submit').first();
-      if(await submit.isVisible().catch(()=>false)){
-        await submit.click();
-        await page.waitForLoadState('networkidle').catch(()=>{});
-        if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
-      }
+      await submit.click();
+      try {
+        await page.locator('aside.app-sidebar').waitFor({state:'visible',timeout:7000});
+        return true;
+      } catch {}
     }
-    if(attempt<2){
-      await page.waitForTimeout(1500);
-      await page.goto('/',{waitUntil:'networkidle'}).catch(()=>{});
-    }
+
+    if(attempt<4) await page.waitForTimeout(1200*attempt);
   }
-  await expect(page.locator('aside.app-sidebar')).toBeVisible();
+
+  await expect(page.locator('aside.app-sidebar')).toBeVisible({timeout:15000});
   return true;
 }
 
