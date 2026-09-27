@@ -7,10 +7,17 @@ const hasCredentials=Boolean(email&&password);
 async function login(page){
   await page.goto('/',{waitUntil:'networkidle'});
   if(!hasCredentials)return false;
-  await page.getByPlaceholder('nama@perusahaan.com').fill(email);
-  await page.getByPlaceholder('Masukkan password').fill(password);
-  await page.getByRole('button',{name:/Masuk ke ProQPay/i}).click();
-  await page.waitForLoadState('networkidle');
+  for(let attempt=1;attempt<=2;attempt+=1){
+    await page.getByPlaceholder('nama@perusahaan.com').fill(email);
+    await page.getByPlaceholder('Masukkan password').fill(password);
+    await page.getByRole('button',{name:/Masuk ke ProQPay/i}).click();
+    await page.waitForLoadState('networkidle').catch(()=>{});
+    if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
+    if(attempt<2){
+      await page.waitForTimeout(1500);
+      await page.goto('/',{waitUntil:'networkidle'});
+    }
+  }
   await expect(page.locator('aside.app-sidebar')).toBeVisible();
   return true;
 }
