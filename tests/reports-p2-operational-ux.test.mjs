@@ -41,9 +41,9 @@ test('Reports P2: UI uses server filters and stable facets instead of self-colla
 
 test('Reports P2: report errors have visible retry behavior',async()=>{
   const source=await read('src/components/ReportsWorkspace.tsx');
-  assert.match(source,/className="card report-error"/);
-  assert.match(source,/Coba lagi/);
-  assert.match(source,/onClick=\{\(\)=>void load\(\)\}/);
+  assert.match(source,/UiDataTableState/);
+  assert.match(source,/error=\{error \|\| undefined\}/);
+  assert.match(source,/onRetry=\{\(\) => void load\(\)\}/);
 });
 
 test('Reports P2: payment and generic reports expose mobile card representations',async()=>{
