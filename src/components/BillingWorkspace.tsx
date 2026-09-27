@@ -1,11 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import { formatIDR } from "@/lib/format";
 import { executeOperatingAction, getPayRunDetail, listOperatingResource } from "@/lib/operating-model-api";
 import { arControlSummary, billingDateLabel, billingModalTitle, billingPermission, type ArRecord, type BillablePayment, type BillingActor, type BillingClient, type BillingData, type BillingModalState, type BillingSection, type BillingSubmission, type InvoiceRecord } from "@/lib/billing-ui";
 import { PROQPAY_ICON_JPEG_BASE64, PROQPAY_LOGO_JPEG_BASE64 } from "../../functions/api/proqpay-invoice-assets.js";
+import {
+  DataTable as UiDataTable,
+  EmptyState as UiEmptyState,
+  FormActions as UiFormActions,
+  FormField as UiFormField,
+  FormGrid as UiFormGrid,
+  MetricCard as UiMetricCard,
+  MetricGrid as UiMetricGrid,
+  ModalShell as UiModalShell,
+  SectionCard as UiSectionCard,
+  StatusBadge as UiStatusBadge,
+  Tabs as UiTabs,
+} from "@/components/ui/UnifiedSystem";
 
 
 const sections: Record<BillingSection, string> = {
@@ -441,7 +453,7 @@ export default function BillingWorkspace({
     );
 
   return (
-    <div className="billing-workspace" style={{ display: "grid", gap: 16 }}>
+    <div className="billing-workspace ui-workspace-stack">
       {(focusSubmissionId || focusSection) && (
         <div className="dashboard-focus-banner" role="status">
           <span>
@@ -452,13 +464,7 @@ export default function BillingWorkspace({
           ) : null}
         </div>
       )}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
-          gap: 12,
-        }}
-      >
+      <UiMetricGrid>
         <Metric
           label="Siap ditagihkan"
           value={String(totals.billable)}
@@ -485,20 +491,14 @@ export default function BillingWorkspace({
           note="Lewat jatuh tempo"
           danger={totals.overdue > 0}
         />
-      </div>
+      </UiMetricGrid>
 
-      <div className="billing-tabs" style={{ display: "flex", gap: 8, overflowX: "auto" }}>
-        {(Object.keys(sections) as BillingSection[]).map((key) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setSection(key)}
-            style={tabStyle(section === key)}
-          >
-            {sections[key]}
-          </button>
-        ))}
-      </div>
+      <UiTabs
+        items={(Object.keys(sections) as BillingSection[]).map((key) => ({ value: key, label: sections[key] }))}
+        value={section}
+        onChange={(value) => setSection(value as BillingSection)}
+        ariaLabel="Billing & AR sections"
+      />
 
       {notice && (
         <div
@@ -1077,7 +1077,7 @@ function SetupSection({ clients, issuerProfile, canEdit, canManageIssuer, open, 
         detail="Identitas legal dan rekening penerimaan yang dicetak pada PDF A4 invoice."
         action={canManageIssuer ? <button style={secondary} onClick={openIssuer}>{issuerProfile ? "Edit profil" : "Lengkapi profil"}</button> : null}
       >
-        {issuerProfile ? <div style={grid2}>
+        {issuerProfile ? <UiFormGrid>
           <Info label="Nama legal" value="PT Mandiri Semesta Gemilang" />
           <Info label="Alamat" value={issuerProfile.address || "Graha MSG, Jl. Raya Pos Pengumben Raya No.Kav 188, Jakarta Barat 11550"} />
           <Info label="Email" value={issuerProfile.email || "rizal@msg-os.com"} />
@@ -1087,7 +1087,7 @@ function SetupSection({ clients, issuerProfile, canEdit, canManageIssuer, open, 
           <Info label="Bank" value={issuerProfile.bank_name || "Belum diisi"} />
           <Info label="Nama rekening" value={issuerProfile.bank_account_name || "Belum diisi"} />
           <Info label="No. rekening" value={issuerProfile.bank_account_no || "Belum diisi"} />
-        </div> : <Empty text="Profil penerbit belum dilengkapi. PDF tetap dapat dibuat, tetapi detail legal/rekening akan terbatas." />}
+        </UiFormGrid> : <Empty text="Profil penerbit belum dilengkapi. PDF tetap dapat dibuat, tetapi detail legal/rekening akan terbatas." />}
       </Panel>
       <Panel
         title="Billing profile klien"
@@ -1233,7 +1233,7 @@ function PaymentForm({ row, form, setForm, submit }: any) {
 function SetupForm({ form, setForm, submit }: any) {
   return (
     <Form submit={submit} buttonText="Simpan billing profile">
-      <div style={grid2}>
+      <UiFormGrid>
         <Field
           label="NPWP"
           value={form.npwp || ""}
@@ -1269,7 +1269,7 @@ function SetupForm({ form, setForm, submit }: any) {
         }
         required={false}
       />
-      <div style={grid2}>
+      <UiFormGrid>
         <Select
           label="Payment block AR"
           value={form.arPaymentBlockMode || "OVERDUE"}
@@ -1284,7 +1284,7 @@ function SetupForm({ form, setForm, submit }: any) {
         />
       </div>
       <small style={muted}>OVERDUE memblokir payment baru setelah invoice lewat jatuh tempo. ANY_OUTSTANDING memblokir selama masih ada saldo AR. Reconciliation/payment yang sudah berjalan tetap dapat diselesaikan.</small>
-      <div style={grid2}>
+      <UiFormGrid>
         <Field
           label="TOP (hari)"
           type="number"
@@ -1311,7 +1311,7 @@ function SetupForm({ form, setForm, submit }: any) {
         options={["FIXED", "PER_EMPLOYEE", "PERCENTAGE_OF_PAYROLL"]}
         onChange={(v: any) => setForm({ ...form, billingMethod: v })}
       />
-      <div style={grid2}>
+      <UiFormGrid>
         <Field
           label="Rate"
           type="number"
@@ -1342,17 +1342,17 @@ function IssuerProfileForm({ form, setForm, submit }: any) {
         <strong>Issuer canonical · PT Mandiri Semesta Gemilang</strong>
         <span>Nama legal, alamat, email, telepon, website, dan branding ProQPay mengikuti Company Profile MSG 2026 dan tidak diedit dari billing setup.</span>
       </div>
-      <div style={grid2}>
+      <UiFormGrid>
         <Info label="Nama legal" value="PT Mandiri Semesta Gemilang" />
         <Info label="Website" value={form.website || "www.msg-os.com"} />
       </div>
       <Info label="Alamat" value={form.address || "Graha MSG, Jl. Raya Pos Pengumben Raya No.Kav 188, Jakarta Barat 11550"} />
-      <div style={grid2}>
+      <UiFormGrid>
         <Info label="Email" value={form.email || "rizal@msg-os.com"} />
         <Info label="Telepon" value={form.phone || "+62 856-9766-6101"} />
       </div>
       <Field label="NPWP" value={form.npwp || ""} onChange={(v:any)=>setForm({...form,npwp:v})} required={false} />
-      <div style={grid2}>
+      <UiFormGrid>
         <Field label="Bank penerimaan" value={form.bankName || ""} onChange={(v:any)=>setForm({...form,bankName:v})} required={false} />
         <Field label="Nomor rekening" value={form.bankAccountNo || ""} onChange={(v:any)=>setForm({...form,bankAccountNo:v})} required={false} />
       </div>
@@ -1573,7 +1573,7 @@ function ARHistory({ row }: any) {
   const control = row.control || {};
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <div style={grid2}>
+      <UiFormGrid>
         <Info label="Invoice total" value={formatIDR(Number(control.invoiceTotal ?? row.amount ?? 0))} />
         <Info label="Applied payment" value={formatIDR(Number(control.paid ?? row.paid_amount ?? 0))} />
         <Info label="Unapplied cash" value={formatIDR(Number(control.unapplied ?? 0))} />
@@ -1602,227 +1602,57 @@ function ARHistory({ row }: any) {
 }
 
 function Modal({ title, close, children }: any) {
-  if (typeof document === "undefined") return null;
-  return createPortal(
-    <div
-      className="billing-modal-backdrop"
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 10000,
-        background: "rgba(15,23,42,.55)",
-        display: "grid",
-        placeItems: "center",
-        padding: 18,
-      }}
-      onMouseDown={close}
-    >
-      <div
-        className="card billing-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        style={{
-          width: "min(680px,100%)",
-          maxHeight: "88vh",
-          overflow: "auto",
-          padding: 22,
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            alignItems: "center",
-            marginBottom: 18,
-          }}
-        >
-          <h3 style={{ margin: 0 }}>{title}</h3>
-          <button style={iconButton} onClick={close}>
-            ✕
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>,
-    document.body,
-  );
+  return <UiModalShell title={title} onClose={close} className="billing-modal">{children}</UiModalShell>;
 }
 
 function Panel({ title, detail, action, children }: any) {
-  return (
-    <div className="card" style={{ padding: 18 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          alignItems: "flex-start",
-          marginBottom: 14,
-        }}
-      >
-        <div>
-          <h3 style={{ fontSize: 15, margin: 0 }}>{title}</h3>
-          {detail && <p style={{ ...muted, margin: "5px 0 0" }}>{detail}</p>}
-        </div>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
+  return <UiSectionCard title={title} detail={detail} action={action}>{children}</UiSectionCard>;
 }
 function Metric({ label, value, note, danger = false }: any) {
-  return (
-    <div
-      className="card"
-      style={{
-        padding: 16,
-        borderColor: danger ? "rgba(220,38,38,.28)" : undefined,
-      }}
-    >
-      <span style={muted}>{label}</span>
-      <strong
-        style={{
-          display: "block",
-          fontSize: 20,
-          margin: "6px 0",
-          color: danger ? "#dc2626" : undefined,
-        }}
-      >
-        {value}
-      </strong>
-      <span style={muted}>{note}</span>
-    </div>
-  );
+  return <UiMetricCard label={label} value={value} note={note} tone={danger ? "danger" : "neutral"} />;
 }
 function Table({ headers, rows }: any) {
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <table
-        style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}
-      >
-        <thead>
-          <tr>
-            {headers.map((h: string) => (
-              <th key={h} style={th}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row: any[], i: number) => (
-            <tr
-              key={i}
-              style={{ borderBottom: "1px solid var(--border-soft)" }}
-            >
-              {row.map((cell: any, j: number) => (
-                <td key={j} style={td}>
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  return <UiDataTable headers={headers} rows={rows} />;
 }
 function Empty({ text }: any) {
-  return (
-    <div
-      style={{
-        padding: "28px 12px",
-        textAlign: "center",
-        color: "var(--text3)",
-        fontSize: 13,
-      }}
-    >
-      {text}
-    </div>
-  );
+  return <UiEmptyState title={text} />;
 }
 function Badge({ text }: any) {
-  const good = /PAID|ISSUED|APPROVED|CURRENT|NON_PKP/.test(text);
-  const bad = /REJECT|OVERDUE|DISPUT/.test(text);
-  const tone = good
-    ? "billing-badge-good"
-    : bad
-      ? "billing-badge-bad"
-      : "billing-badge-neutral";
+  const good = /PAID|ISSUED|APPROVED|CURRENT|NON_PKP|CLEAR/.test(text);
+  const bad = /REJECT|OVERDUE|DISPUT|BLOCKED/.test(text);
+  const warn = /PENDING|WARNING|REVIEW/.test(text);
   return (
-    <span className={`billing-status-badge ${tone}`}>
+    <UiStatusBadge tone={good ? "success" : bad ? "danger" : warn ? "warning" : "neutral"}>
       {String(text || "-").replaceAll("_", " ")}
-    </span>
+    </UiStatusBadge>
   );
 }
 function Form({ submit, buttonText, children }: any) {
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        submit();
-      }}
-      style={{ display: "grid", gap: 13 }}
-    >
-      {children}
-      <button
-        style={{ ...button, marginTop: 6, padding: "10px 14px" }}
-        type="submit"
-      >
-        {buttonText}
-      </button>
-    </form>
-  );
+  return <UiFormActions onSubmit={submit} submitLabel={buttonText}>{children}</UiFormActions>;
 }
 function Field({ label, value, onChange, type = "text", required }: any) {
   return (
-    <label style={labelStyle}>
-      {label}
+    <UiFormField label={label}>
       <input
-        style={input}
         type={type}
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value)}
         required={required ?? ["email", "date"].includes(type)}
       />
-    </label>
+    </UiFormField>
   );
 }
 function Select({ label, value, onChange, options }: any) {
   return (
-    <label style={labelStyle}>
-      {label}
-      <select
-        style={input}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((o: string) => (
-          <option key={o}>{o}</option>
-        ))}
+    <UiFormField label={label}>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o: string) => <option key={o}>{o}</option>)}
       </select>
-    </label>
+    </UiFormField>
   );
 }
 function Info({ label, value }: any) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        gap: 16,
-        fontSize: 12,
-        padding: "9px 0",
-        borderBottom: "1px solid var(--border-soft)",
-      }}
-    >
-      <span style={{ color: "var(--text3)" }}>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
+  return <div className="ui-info-row"><span>{label}</span><strong>{value}</strong></div>;
 }
 const date = billingDateLabel;
 const csvCell = (v: any) => `"${String(v ?? "").replaceAll('"', '""')}"`;
