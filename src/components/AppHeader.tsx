@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChangePasswordModal } from "@/components/AuthViews";
 import { listOperatingDashboard } from "@/lib/operating-model-api";
 import { allowedViewsForRole, type AppView } from "./Sidebar";
+import { getViewLabel, NAV_SEARCH_ITEMS } from "@/lib/navigation-config";
 import { IconBell, IconChevronDown, IconMenu, IconSearch } from "./Icons";
 
 type HeaderActor = {
@@ -25,94 +26,6 @@ type Props = {
   onMenu: () => void;
   actor: HeaderActor;
 };
-const VIEW_LABELS: Record<AppView, string> = {
-  dashboard: "Dashboard",
-  operations: "Pay Runs",
-  exceptions: "Action Center",
-  payments: "Payment Control",
-  billing: "Billing & AR",
-  integrations: "Integrations",
-  employees: "Employees",
-  clients: "Clients & Projects",
-  reports: "Reports",
-  logs: "Audit Logs",
-  ewa: "Advance Salary",
-  portalSettings: "Portal Settings",
-};
-function viewLabel(view:AppView, role:string) {
-  if (role === "CLIENT_USER") {
-    const clientLabels:Partial<Record<AppView,string>>={
-      dashboard:"Home",
-      operations:"Payroll",
-      reports:"Documents",
-      exceptions:"Payroll",
-      payments:"Payroll",
-      billing:"Documents",
-    };
-    return clientLabels[view] || VIEW_LABELS[view];
-  }
-  const simplifiedInternal=["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role);
-  if (!simplifiedInternal) return VIEW_LABELS[view];
-  const labels:Partial<Record<AppView,string>>={
-    operations:"Payroll",
-    exceptions:"Issues",
-    payments:"Payments",
-    billing:"Close & Billing",
-  };
-  return labels[view] || VIEW_LABELS[view];
-}
-
-const SEARCH_ITEMS: Array<{ label: string; keywords: string; view: AppView }> =
-  [
-    {
-      label: "Dashboard",
-      keywords: "home control tower ringkasan",
-      view: "dashboard",
-    },
-    {
-      label: "Pay Runs",
-      keywords: "payroll submission proses",
-      view: "operations",
-    },
-    {
-      label: "Action Center",
-      keywords: "exception blocker approval",
-      view: "exceptions",
-    },
-    {
-      label: "Payment Control",
-      keywords: "payment instruction proof reconciliation",
-      view: "payments",
-    },
-    {
-      label: "Billing & AR",
-      keywords: "invoice billing piutang finance",
-      view: "billing",
-    },
-    {
-      label: "Integrations",
-      keywords: "payment gateway e2pay api endpoint connected apps monitoring",
-      view: "integrations",
-    },
-    {
-      label: "Advance Salary",
-      keywords: "ewa advance gaji borongan cair",
-      view: "ewa",
-    },
-    {
-      label: "Portal Settings",
-      keywords: "banner iklan ewa fee plafond tenure ess portal",
-      view: "portalSettings",
-    },
-    {
-      label: "Audit Logs",
-      keywords: "audit log login ess portal security payment billing integration gateway api",
-      view: "logs",
-    },
-    { label: "Employees", keywords: "karyawan rekening", view: "employees" },
-    { label: "Clients & Projects", keywords: "klien project", view: "clients" },
-    { label: "Reports", keywords: "laporan payment", view: "reports" },
-  ];
 
 export default function AppHeader({
   period,
@@ -287,7 +200,7 @@ export default function AppHeader({
 
   const matches = useMemo(() => {
     const allowed = new Set(allowedViewsForRole(actor.role));
-    return SEARCH_ITEMS.filter(
+    return NAV_SEARCH_ITEMS.filter(
       (item) =>
         allowed.has(item.view) &&
         `${item.label} ${item.keywords}`
@@ -338,7 +251,7 @@ export default function AppHeader({
                   ? "1 Client"
                   : `${clientCount} Clients`}
             </span>
-            <strong>{viewLabel(view, actor.role)}</strong>
+            <strong>{getViewLabel(view, actor.role)}</strong>
           </div>
         </div>
         <div className="header-actions" ref={shellRef}>
@@ -415,7 +328,7 @@ export default function AppHeader({
                         setQuery("");
                       }}
                     >
-                      <strong>{viewLabel(item.view, actor.role)}</strong>
+                      <strong>{getViewLabel(item.view, actor.role)}</strong>
                       <small>{item.keywords}</small>
                     </button>
                   ))}

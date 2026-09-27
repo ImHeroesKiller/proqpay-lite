@@ -14,11 +14,16 @@ test('Phase 3 dashboard uses the operational control tower without a redundant s
 
 test('internal navigation uses simple business language and hides secondary employee-portal admin menus', async()=>{
   const sidebar=await read('src/components/Sidebar.tsx');
+  const navigation=await read('src/lib/navigation-config.ts');
   assert.match(sidebar,/simplifiedInternal \? "Work" : "Payroll Operations"/);
-  assert.match(sidebar,/simplifiedInternal \? "Issues" : "Data Readiness"/);
-  assert.match(sidebar,/simplifiedInternal \? "Payroll" : "Pay Runs"/);
-  assert.match(sidebar,/simplifiedInternal\s*\? "Payments"/);
-  assert.match(sidebar,/simplifiedInternal \? "Close & Billing" : "Billing & AR"/);
+  assert.match(sidebar,/getViewLabel\("exceptions", role\)/);
+  assert.match(navigation,/exceptions: "Issues"/);
+  assert.match(sidebar,/getViewLabel\("operations", role\)/);
+  assert.match(navigation,/operations: "Payroll"/);
+  assert.match(sidebar,/getViewLabel\("payments", role\)/);
+  assert.match(navigation,/payments: "Payments"/);
+  assert.match(sidebar,/getViewLabel\("billing", role\)/);
+  assert.match(navigation,/billing: "Close & Billing"/);
   assert.match(sidebar,/simplifiedInternal \? "Reference & Reports" : "People & Reporting"/);
   assert.match(sidebar,/canManageEmployeeServices && \(allowed\.has\("ewa"\)/);
 });
@@ -61,10 +66,12 @@ test('internal payment workspace uses business labels while technical PI states 
 
 test('header labels and work alerts are role-owned for Processor and Controller', async()=>{
   const source=await read('src/components/AppHeader.tsx');
-  assert.match(source,/operations:"Payroll"/);
-  assert.match(source,/exceptions:"Issues"/);
-  assert.match(source,/payments:"Payments"/);
-  assert.match(source,/billing:"Close & Billing"/);
+  const navigation=await read('src/lib/navigation-config.ts');
+  assert.match(source,/getViewLabel\(/);
+  assert.match(navigation,/operations: "Payroll"/);
+  assert.match(navigation,/exceptions: "Issues"/);
+  assert.match(navigation,/payments: "Payments"/);
+  assert.match(navigation,/billing: "Close & Billing"/);
   assert.match(source,/actor\.role === "PAYROLL_PROCESSOR"/);
   assert.match(source,/actor\.role === "PAYROLL_CONTROLLER"/);
   assert.match(source,/row\.status\s*===\s*"PAYMENT_APPROVAL_PENDING"/);
