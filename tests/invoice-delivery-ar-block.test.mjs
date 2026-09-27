@@ -177,8 +177,9 @@ test('Print preview and PDF use the official ProQPay logo and icon assets',async
   const logo=await read('public/branding/proqpay-logo.svg');
   const css=await read('src/app/globals.css');
 
-  assert.match(ui,/\/branding\/proqpay-icon\.svg/);
-  assert.match(ui,/\/branding\/proqpay-logo\.svg/);
+  assert.match(ui,/PROQPAY_ICON_JPEG_BASE64/);
+  assert.match(ui,/PROQPAY_LOGO_JPEG_BASE64/);
+  assert.match(ui,/data:image\/jpeg;base64/);
   assert.match(ui,/invoice-preview-brand/);
   assert.match(core,/\/PqIcon 7 0 R/);
   assert.match(core,/\/PqLogo 8 0 R/);
@@ -189,4 +190,22 @@ test('Print preview and PDF use the official ProQPay logo and icon assets',async
   assert.match(logo,/data:image\/jpeg;base64/);
   assert.match(css,/@media print/);
   assert.match(css,/print-color-adjust:exact/);
+});
+
+
+test('Invoice P1 visual refinement keeps compact hierarchy and professional totals',async()=>{
+  const ui=await read('src/components/BillingWorkspace.tsx');
+  const css=await read('src/app/globals.css');
+
+  assert.match(ui,/invoice-preview-items-head/);
+  assert.match(ui,/UNIT PRICE/);
+  assert.match(ui,/invoice-preview-grand-total/);
+  assert.match(ui,/GRAND TOTAL/);
+  assert.doesNotMatch(ui,/billing_address \|\| "-"/);
+
+  assert.match(css,/Invoice P1 visual refinement/);
+  assert.match(css,/grid-template-columns:34px minmax\(0,1fr\) 54px 108px 112px/);
+  assert.match(css,/invoice-preview-grand-total/);
+  assert.match(css,/background:#0b2a66/);
+  assert.match(css,/billing-print-area\.invoice-print-preview/);
 });
