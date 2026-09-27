@@ -23,34 +23,27 @@ test.describe('Data Intake unified shell', () => {
     const sidebar = page.locator('aside.app-sidebar');
     const dataIntake = sidebar.getByRole('link', { name: 'Data Intake' });
     const hasDataIntakeNav = (await dataIntake.count()) > 0;
-    if (hasDataIntakeNav) {
-      await dataIntake.click();
-      await page.waitForLoadState('networkidle');
-    } else {
-      await page.goto('/data-intake', { waitUntil: 'networkidle' });
-    }
+    test.skip(!hasDataIntakeNav, 'UAT account does not have data-intake capability');
+    await dataIntake.click();
+    await page.waitForLoadState('networkidle');
 
     await expect(page).toHaveURL(/\/data-intake\/?(?:\?|$)/);
     await expect(page.locator('aside.app-sidebar')).toBeVisible();
     await expect(page.locator('header.app-header')).toBeVisible();
     await expect(page.locator('footer.app-footer')).toBeVisible();
     await expect(page.locator('.header-context strong')).toHaveText('Data Intake');
-    if (hasDataIntakeNav) {
-      await expect(page.locator('aside.app-sidebar').getByRole('link', { name: 'Data Intake' }))
-        .toHaveAttribute('aria-current', 'page');
-    }
+    await expect(page.locator('aside.app-sidebar').getByRole('link', { name: 'Data Intake' }))
+      .toHaveAttribute('aria-current', 'page');
 
-    if (hasDataIntakeNav) {
-      const styles = await dataIntake.evaluate((node) => {
-        const style = getComputedStyle(node);
-        return {
-          textDecoration: style.textDecorationLine,
-          display: style.display,
-        };
-      });
-      expect(styles.textDecoration).toBe('none');
-      expect(styles.display).toBe('flex');
-    }
+    const styles = await dataIntake.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        textDecoration: style.textDecorationLine,
+        display: style.display,
+      };
+    });
+    expect(styles.textDecoration).toBe('none');
+    expect(styles.display).toBe('flex');
   });
 
   test('mobile Data Intake uses the same drawer and header menu behavior', async ({ page }) => {
@@ -58,10 +51,13 @@ test.describe('Data Intake unified shell', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await login(page);
 
-    await page.getByRole('button', { name: 'Buka navigasi' }).click();
     const sidebar = page.locator('aside.app-sidebar');
+    const dataIntake = sidebar.getByRole('link', { name: 'Data Intake' });
+    test.skip((await dataIntake.count()) === 0, 'UAT account does not have data-intake capability');
+
+    await page.getByRole('button', { name: 'Buka navigasi' }).click();
     await expect(sidebar).toHaveClass(/mobile-open/);
-    await sidebar.getByRole('link', { name: 'Data Intake' }).click();
+    await dataIntake.click();
     await page.waitForLoadState('networkidle');
 
     await expect(page.locator('header.app-header')).toBeVisible();
