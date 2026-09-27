@@ -25,6 +25,7 @@ type Props = {
   onHelp: () => void;
   onMenu: () => void;
   actor: HeaderActor;
+  contextLabel?: string;
 };
 
 export default function AppHeader({
@@ -37,6 +38,7 @@ export default function AppHeader({
   onHelp,
   onMenu,
   actor,
+  contextLabel,
 }: Props) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
@@ -251,7 +253,7 @@ export default function AppHeader({
                   ? "1 Client"
                   : `${clientCount} Clients`}
             </span>
-            <strong>{getViewLabel(view, actor.role)}</strong>
+            <strong>{contextLabel || getViewLabel(view, actor.role)}</strong>
           </div>
         </div>
         <div className="header-actions" ref={shellRef}>
