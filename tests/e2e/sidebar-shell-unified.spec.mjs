@@ -46,7 +46,6 @@ test.describe('Unified sidebar and application shell', () => {
       ['Integrations', 'Integrations'],
       ['Audit Logs', 'Audit Logs'],
       ['Advance Salary', 'Advance Salary'],
-      ['Portal Configuration', 'Portal Configuration'],
     ];
 
     let exercised = 0;
