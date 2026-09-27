@@ -3,6 +3,10 @@
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import PanelPagination from '@/components/PanelPagination';
+import {
+  DataTableState as UiDataTableState,
+  FilterBar as UiFilterBar,
+} from '@/components/ui/UnifiedSystem';
 import { IconDownload } from '@/components/Icons';
 import {
   REPORT_COLUMNS,
@@ -185,9 +189,27 @@ export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Pr
       : type === 'control' ? <div className="report-summary-grid"><Summary label="Pay Run" value={String(filteredPayroll.length)} note="Jumlah Pay Run pada filter aktif." /><Summary label="Sesuai kontrol" value={String(controlBalanced)} note="Gross - potongan sama dengan netto." tone="success" /><Summary label="Selisih PI" value={String(controlPiMismatch)} note="PI berbeda dengan payroll net." tone={controlPiMismatch?'warning':'success'} /><Summary label="Selisih rekonsiliasi" value={String(controlReconDiff)} note="Settlement belum balance." tone={controlReconDiff?'warning':'success'} /></div>
       : <GenericSummary type={type} rows={filteredPayroll} period={period} />}
 
-    <div className="card report-filter"><label><span>Cari</span><input value={query} placeholder="Cari karyawan, klien, project, batch, pay run…" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></label><label><span>Periode</span><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }}><option value="ALL">Semua periode</option>{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span>Status</span><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">Semua status</option>{statusOptions.map((item) => <option key={item} value={item}>{reportStatusLabel(item)}</option>)}</select></label><button type="button" className="btn report-reset-btn" disabled={!filtersActive} onClick={resetFilters}>Reset</button></div>
-    {error ? <div className="card report-error" role="alert"><span>{error}</span><button type="button" className="btn" disabled={loading} onClick={()=>void load()}>{loading?'Memuat…':'Coba lagi'}</button></div> : null}
-    {loading ? <div className="card report-loading" role="status" aria-live="polite"><span className="report-loading-bar" /><span className="report-loading-bar" /><span className="report-loading-bar" /><strong>Memuat laporan…</strong></div> : !activeRows.length ? <div className="card directory-empty report-empty"><span>{filtersActive?'Tidak ada data yang cocok dengan filter ini.':'Belum ada data laporan.'}</span>{filtersActive?<button type="button" className="btn" onClick={resetFilters}>Reset filter</button>:null}</div> : <>
+    <UiFilterBar
+      title="Filter laporan"
+      detail="Pencarian, periode, dan status berlaku pada seluruh data laporan aktif."
+      action={<button type="button" className="btn" disabled={!filtersActive} onClick={resetFilters}>Reset filter</button>}
+      className="report-filter"
+    >
+      <label><span>Cari</span><input value={query} placeholder="Cari karyawan, klien, project, batch, pay run…" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></label>
+      <label><span>Periode</span><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }}><option value="ALL">Semua periode</option>{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+      <label><span>Status</span><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">Semua status</option>{statusOptions.map((item) => <option key={item} value={item}>{reportStatusLabel(item)}</option>)}</select></label>
+    </UiFilterBar>
+    <UiDataTableState
+      loading={loading}
+      empty={!loading && !error && !activeRows.length}
+      error={error || undefined}
+      loadingTitle="Memuat laporan…"
+      loadingBody="Menyiapkan data sesuai filter aktif."
+      emptyTitle={filtersActive ? "Tidak ada data yang cocok" : "Belum ada data laporan"}
+      emptyBody={filtersActive ? "Ubah atau reset filter untuk melihat data lain." : "Data laporan akan muncul setelah proses payroll tersedia."}
+      onRetry={() => void load()}
+    />
+    {!loading && !error && activeRows.length ? <>
       {type === 'payments' ? <PaymentTable rows={visible as PaymentReport[]} /> : <GenericTable rows={visible as ReportRow[]} type={type} />}
       <PanelPagination page={Math.min(page,pageCount)} pageCount={pageCount} total={activeRows.length} pageSize={pageSize} label="baris" onPage={setPage} />
     </>}
