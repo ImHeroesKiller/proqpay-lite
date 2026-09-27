@@ -510,15 +510,7 @@ export default function PortalSettings() {
 
       {tab === "ads" ? (
         <div>
-          <label
-            style={{
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              marginBottom: 12,
-              fontSize: 13,
-            }}
-          >
+          <label className="ui-toggle-row portal-config-toggle">
             <input
               type="checkbox"
               checked={adsEnabled}
@@ -531,13 +523,7 @@ export default function PortalSettings() {
               key={ad.id || index}
               className="card ui-banner-card"
             >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginBottom: 10,
-                }}
-              >
+              <div className="ui-banner-card-head">
                 <strong>Banner {index + 1}</strong>
                 <span className="ui-cluster">
                   <button
@@ -565,13 +551,7 @@ export default function PortalSettings() {
                   </button>
                 </span>
               </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                  gap: 12,
-                }}
-              >
+              <div className="ui-banner-grid">
                 <label className="es-field">
                   Tag
                   <input
@@ -699,14 +679,7 @@ export default function PortalSettings() {
                     </label>
                   </div>
                 </details>
-                <label
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    fontSize: 13,
-                  }}
-                >
+                <label className="ui-toggle-row">
                   <input
                     type="checkbox"
                     checked={ad.enabled}
