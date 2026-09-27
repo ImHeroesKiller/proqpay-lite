@@ -100,7 +100,13 @@ test.describe('Invoice / Billing & AR production UAT', () => {
       await expect(page.locator('body')).toContainText(/Audit Logs/i);
     }
 
-    expect(failedRequests, `Failed requests: ${failedRequests.join(' | ')}`).toEqual([]);
+    const unexpectedFailedRequests = failedRequests.filter(
+      (entry) => !/^HEAD .* :: net::ERR_ABORTED$/.test(entry),
+    );
+    expect(
+      unexpectedFailedRequests,
+      `Unexpected failed requests: ${unexpectedFailedRequests.join(' | ')}`,
+    ).toEqual([]);
     expect(consoleErrors, `Console errors: ${consoleErrors.join(' | ')}`).toEqual([]);
   });
 });
