@@ -4,6 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import EmployeeCredentialsPanel from '@/components/EmployeeCredentialsPanel';
 import EmployeeDetailDrawer from '@/components/EmployeeDetailDrawer';
+import { EmptyState as UiEmptyState, Pagination as UiPagination } from '@/components/ui/UnifiedSystem';
 import {
   employeeDateLabel,
   employeeInitials,
@@ -177,9 +178,16 @@ export default function EmployeeDirectory({
               </button>;
             })}
           </div>
-          {!visible.length?<div className="employee-empty"><strong>Data tidak ditemukan</strong><span>Coba ubah kata pencarian atau filter.</span></div>:null}
+          {!visible.length?<UiEmptyState title="Data tidak ditemukan" body="Coba ubah kata pencarian atau filter." />:null}
         </div>
-        <div className="employee-pagination"><span>Halaman {safePage} dari {pageCount}</span><div><button type="button" disabled={safePage<=1} onClick={()=>setPage((value)=>Math.max(1,value-1))}>← Sebelumnya</button><button type="button" disabled={safePage>=pageCount} onClick={()=>setPage((value)=>Math.min(pageCount,value+1))}>Berikutnya →</button></div></div>
+        <UiPagination
+          page={safePage}
+          pageCount={pageCount}
+          previousDisabled={safePage<=1}
+          nextDisabled={safePage>=pageCount}
+          onPrevious={()=>setPage((value)=>Math.max(1,value-1))}
+          onNext={()=>setPage((value)=>Math.min(pageCount,value+1))}
+        />
       </div>
 
       {selected?<EmployeeDetailDrawer employee={selected} actor={actor} maskSensitiveData={maskSensitiveData} onClose={()=>setSelected(null)} onSaved={async()=>{setSelected(null);await onChanged?.();}}/>:null}
