@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  ActionBar as UiActionBar,
   LoadingState as UiLoadingState,
   Notice as UiNotice,
   SectionCard as UiSectionCard,
@@ -917,27 +918,30 @@ export default function PortalSettings() {
         </aside>
       </div>
 
-      <div className="portal-config-savebar">
-        <div>
-          <strong>{dirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}</strong>
-          <p>{dirty ? "Simpan sebelum berpindah lingkup klien." : "Konfigurasi ini siap dipakai ESS pada muatan berikutnya."}</p>
-        </div>
-        <span className="portal-config-savebar-actions">
-          {dirty ? (
-            <button type="button" className="btn" disabled={busy || loading} onClick={() => void load(clientId)}>
-              Batalkan perubahan
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={busy || !dirty}
-            onClick={() => void save()}
-          >
-            {busy ? "Menyimpan…" : "Simpan perubahan"}
+      <UiActionBar
+        sticky
+        className="portal-config-savebar"
+        meta={
+          <div>
+            <strong>{dirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}</strong>
+            <p>{dirty ? "Simpan sebelum berpindah lingkup klien." : "Konfigurasi ini siap dipakai ESS pada muatan berikutnya."}</p>
+          </div>
+        }
+      >
+        {dirty ? (
+          <button type="button" className="btn" disabled={busy || loading} onClick={() => void load(clientId)}>
+            Batalkan perubahan
           </button>
-        </span>
-      </div>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={busy || !dirty}
+          onClick={() => void save()}
+        >
+          {busy ? "Menyimpan…" : "Simpan perubahan"}
+        </button>
+      </UiActionBar>
     </section>
   );
 }
