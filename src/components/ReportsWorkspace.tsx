@@ -212,7 +212,7 @@ export default function ReportsWorkspace({clientMode=false,hideHeading=false}:Pr
     {!loading && !error && activeRows.length ? <>
       {type === 'payments' ? <PaymentTable rows={visible as PaymentReport[]} /> : <GenericTable rows={visible as ReportRow[]} type={type} />}
       <PanelPagination page={Math.min(page,pageCount)} pageCount={pageCount} total={activeRows.length} pageSize={pageSize} label="baris" onPage={setPage} />
-    </>}
+    </> : null}
   </section>;
 }
 
