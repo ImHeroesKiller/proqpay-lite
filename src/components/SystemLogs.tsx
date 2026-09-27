@@ -8,7 +8,6 @@ import {
   MetricGrid as UiMetricGrid,
   Notice as UiNotice,
   SectionCard as UiSectionCard,
-  StatusBadge as UiStatusBadge,
   WorkspaceHeader as UiWorkspaceHeader,
 } from "@/components/ui/UnifiedSystem";
 import {
