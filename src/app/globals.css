@@ -2306,3 +2306,25 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
     transition: none !important;
   }
 }
+
+
+/* Data Intake shell consistency */
+.data-intake-shell-frame{
+  display:flex;
+  min-width:0;
+  min-height:100vh;
+  flex:1;
+  flex-direction:column;
+  overflow:hidden;
+}
+.data-intake-shell-frame>.data-intake-page{
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+}
+.sidebar-nav-button,
+.sidebar-nav-button:hover,
+.sidebar-nav-button:focus,
+.sidebar-nav-button:active{
+  text-decoration:none;
+}
