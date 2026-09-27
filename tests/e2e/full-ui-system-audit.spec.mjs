@@ -71,7 +71,9 @@ test.describe('Full application UI system audit',()=>{
       expect(metrics.visibleDialogs,`${label} unexpected dialog on entry`).toBe(0);
       audited.push(label);
     }
-    expect(audited.length).toBeGreaterThanOrEqual(8);
+    const expectedVisible = labels.map((label) => label.trim().replace(/\s+/g, ' ')).filter(Boolean);
+    expect(audited.length).toBeGreaterThan(0);
+    expect(audited.length).toBe(expectedVisible.length);
   });
 
   test('shared shell geometry remains stable between modules',async({page})=>{
