@@ -6,7 +6,7 @@ const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
 test('Clients & Projects P3 replaces explanatory cards with operational summary metrics',async()=>{
   const ui=await read('src/components/DirectoryManager.tsx');
-  assert.match(ui,/directory-summary/);
+  assert.match(ui,/UiMetricGrid/);
   assert.match(ui,/Klien aktif/);
   assert.match(ui,/Project aktif/);
   assert.match(ui,/totalEmployees/);
@@ -28,8 +28,8 @@ test('Clients & Projects P3 uses grouped modal sections and read-only code prese
 
 test('Clients & Projects P3 reduces row density with metadata chips',async()=>{
   const ui=await read('src/components/DirectoryManager.tsx');
-  assert.match(ui,/directory-row-chips/);
-  assert.match(ui,/directory-row-description/);
+  assert.match(ui,/directory-entity-meta/);
+  assert.match(ui,/directory-entity-copy/);
   assert.match(ui,/filteredClients\.length/);
   assert.match(ui,/filteredProjects\.length/);
 });
@@ -43,5 +43,7 @@ test('Clients & Projects P3 adds detail hierarchy and mobile ergonomics',async()
   assert.match(css,/\.directory-code-field code/);
   assert.match(css,/\.directory-detail-hero/);
   assert.match(css,/\.directory-modal-actions \{[\s\S]*position:sticky/);
-  assert.match(css,/\.directory-summary \{[\s\S]*grid-template-columns:repeat\(4/);
+  const globals=await read('src/app/globals.css');
+  assert.match(globals,/Clients & Projects — robust master workspace/);
+  assert.match(globals,/\.directory-entity-card\{/);
 });
