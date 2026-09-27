@@ -25,7 +25,7 @@ test("sidebar presents the role-filtered business workflow in operational order"
   ];
   let cursor = -1;
   for (const label of labels) {
-    const next = sidebar.indexOf(label);
+    const next = sidebar.indexOf(label, cursor + 1);
     assert.ok(next > cursor, `${label} harus berada setelah tahap sebelumnya`);
     cursor = next;
   }
