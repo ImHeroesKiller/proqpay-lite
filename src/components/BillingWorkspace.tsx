@@ -1244,7 +1244,7 @@ function SetupForm({ form, setForm, submit }: any) {
           value={form.nitku || ""}
           onChange={(v: any) => setForm({ ...form, nitku: v })}
         />
-      </div>
+      </UiFormGrid>
       <Field
         label="Alamat tagihan"
         value={form.billing_address || ""}
@@ -1282,7 +1282,7 @@ function SetupForm({ form, setForm, submit }: any) {
           value={form.arWarningDays ?? 7}
           onChange={(v: any) => setForm({ ...form, arWarningDays: v })}
         />
-      </div>
+      </UiFormGrid>
       <small style={muted}>OVERDUE memblokir payment baru setelah invoice lewat jatuh tempo. ANY_OUTSTANDING memblokir selama masih ada saldo AR. Reconciliation/payment yang sudah berjalan tetap dapat diselesaikan.</small>
       <UiFormGrid>
         <Field
@@ -1297,7 +1297,7 @@ function SetupForm({ form, setForm, submit }: any) {
           options={["NON_PKP", "PKP"]}
           onChange={(v: any) => setForm({ ...form, taxStatus: v })}
         />
-      </div>
+      </UiFormGrid>
       <Field
         label="Nomor PO / kontrak"
         value={form.purchase_order || ""}
@@ -1324,7 +1324,7 @@ function SetupForm({ form, setForm, submit }: any) {
           value={form.billingAdminFee}
           onChange={(v: any) => setForm({ ...form, billingAdminFee: v })}
         />
-      </div>
+      </UiFormGrid>
       <Field
         label="Tarif PPN (%)"
         type="number"
@@ -1345,17 +1345,17 @@ function IssuerProfileForm({ form, setForm, submit }: any) {
       <UiFormGrid>
         <Info label="Nama legal" value="PT Mandiri Semesta Gemilang" />
         <Info label="Website" value={form.website || "www.msg-os.com"} />
-      </div>
+      </UiFormGrid>
       <Info label="Alamat" value={form.address || "Graha MSG, Jl. Raya Pos Pengumben Raya No.Kav 188, Jakarta Barat 11550"} />
       <UiFormGrid>
         <Info label="Email" value={form.email || "rizal@msg-os.com"} />
         <Info label="Telepon" value={form.phone || "+62 856-9766-6101"} />
-      </div>
+      </UiFormGrid>
       <Field label="NPWP" value={form.npwp || ""} onChange={(v:any)=>setForm({...form,npwp:v})} required={false} />
       <UiFormGrid>
         <Field label="Bank penerimaan" value={form.bankName || ""} onChange={(v:any)=>setForm({...form,bankName:v})} required={false} />
         <Field label="Nomor rekening" value={form.bankAccountNo || ""} onChange={(v:any)=>setForm({...form,bankAccountNo:v})} required={false} />
-      </div>
+      </UiFormGrid>
       <Field label="Nama pemilik rekening" value={form.bankAccountName || ""} onChange={(v:any)=>setForm({...form,bankAccountName:v})} required={false} />
       <Field label="Catatan pembayaran" value={form.paymentNotes || ""} onChange={(v:any)=>setForm({...form,paymentNotes:v})} required={false} />
     </Form>
@@ -1580,7 +1580,7 @@ function ARHistory({ row }: any) {
         <Info label="Outstanding" value={formatIDR(Number(control.outstanding ?? row.balance ?? 0))} />
         <Info label="Aging" value={Number(control.agingDays ?? row.aging_days ?? 0) > 0 ? `${Number(control.agingDays ?? row.aging_days)} hari` : "Belum jatuh tempo"} />
         <Info label="Control variance" value={formatIDR(Number(control.appliedDifference ?? 0))} />
-      </div>
+      </UiFormGrid>
       <div>
         <strong style={{ fontSize: 12 }}>Financial activity</strong>
         <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
