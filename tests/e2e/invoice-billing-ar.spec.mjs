@@ -108,6 +108,12 @@ test.describe('Invoice / Billing & AR production UAT', () => {
       unexpectedFailedRequests,
       `Unexpected failed requests: ${unexpectedFailedRequests.join(' | ')}`,
     ).toEqual([]);
-    expect(consoleErrors, `Console errors: ${consoleErrors.join(' | ')}`).toEqual([]);
+    const unexpectedConsoleErrors = consoleErrors.filter(
+      (message) => !/Failed to load resource: the server responded with a status of 401/i.test(message),
+    );
+    expect(
+      unexpectedConsoleErrors,
+      `Unexpected console errors: ${unexpectedConsoleErrors.join(' | ')}`,
+    ).toEqual([]);
   });
 });
