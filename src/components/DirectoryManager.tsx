@@ -382,11 +382,6 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
 }
 
 
-function DirectoryPager({page,pageCount,onPage}:{page:number;pageCount:number;onPage:(page:number)=>void}) {
-  if(pageCount<=1) return null;
-  return <div className="directory-pagination"><span>Halaman {page} dari {pageCount}</span><div><button type="button" className="btn" aria-label="Halaman sebelumnya" disabled={page<=1} onClick={()=>onPage(page-1)}>←</button><button type="button" className="btn" aria-label="Halaman berikutnya" disabled={page>=pageCount} onClick={()=>onPage(page+1)}>→</button></div></div>;
-}
-
 function DirectoryDetail({detail}:{detail:{type:'client'|'project';item:Client|Project}}) {
   if(detail.type==='client') {
     const item=detail.item as Client;
