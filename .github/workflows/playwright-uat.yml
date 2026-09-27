@@ -128,11 +128,11 @@ jobs:
           {
             echo "## Playwright UAT"
             echo ""
-            echo "- Target: `$BASE_URL`"
-            echo "- Spec: `$SPEC_PATH`"
-            echo "- Commit: `${GITHUB_SHA}`"
-            echo "- Credentials exposed: `$UAT_CREDENTIALS_ENABLED`"
-            echo "- Result: `${{ steps.playwright.outcome }}`"
+            printf '%s\n' "- Target: $BASE_URL"
+            printf '%s\n' "- Spec: $SPEC_PATH"
+            printf '%s\n' "- Commit: $GITHUB_SHA"
+            printf '%s\n' "- Credentials mode: $UAT_CREDENTIALS_ENABLED"
+            printf '%s\n' "- Result: ${{ steps.playwright.outcome }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Playwright evidence
