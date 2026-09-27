@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -270,6 +271,20 @@ export function ModalShell({
   onClose: () => void;
   className?: string;
 }) {
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
   if (typeof document === "undefined") return null;
   return createPortal(
     <div className="ui-modal-backdrop" onMouseDown={onClose}>
