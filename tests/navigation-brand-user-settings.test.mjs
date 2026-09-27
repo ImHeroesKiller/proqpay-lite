@@ -10,17 +10,18 @@ const intake = readFileSync("src/app/data-intake/page.tsx", "utf8");
 const accounts = readFileSync("functions/api/accounts.js", "utf8");
 const migration = readFileSync("migrations/0019_app_user_profiles.sql", "utf8");
 const authority = readFileSync("shared/authority-matrix.js", "utf8");
+const navigation = readFileSync("src/lib/navigation-config.ts", "utf8");
 
 test("sidebar presents the role-filtered business workflow in operational order", () => {
   const labels = [
-    'title="Clients & Projects"',
+    'getViewLabel("clients", role)',
     'title="Data Intake"',
-    'title={simplifiedInternal ? "Issues" : "Data Readiness"}',
-    'title={simplifiedInternal ? "Payroll" : "Pay Runs"}',
-    'title={simplifiedInternal ? "Payments" : "Payment Instructions"}',
-    'title={simplifiedInternal ? "Close & Billing" : "Billing & AR"}',
-    'title="Employees"',
-    'title="Reports"',
+    'getViewLabel("exceptions", role)',
+    'getViewLabel("operations", role)',
+    'getViewLabel("payments", role)',
+    'getViewLabel("billing", role)',
+    'getViewLabel("employees", role)',
+    'getViewLabel("reports", role)',
   ];
   let cursor = -1;
   for (const label of labels) {
@@ -34,6 +35,8 @@ test("sidebar presents the role-filtered business workflow in operational order"
   assert.match(sidebar, /canManageEmployeeServices/);
   assert.match(sidebar, /canViewAudit/);
   assert.match(authority, /SUPER_ADMIN:[\s\S]*?'employee-services:manage'/);
+  assert.match(navigation, /exceptions: "Data Readiness"/);
+  assert.match(navigation, /payments: "Payment Instructions"/);
 });
 
 
