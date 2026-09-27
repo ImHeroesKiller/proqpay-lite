@@ -1,0 +1,137 @@
+name: Playwright UAT Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: Production/preview URL to test
+        required: true
+        default: https://proqpay-lite.pages.dev
+        type: string
+      spec_path:
+        description: Playwright spec under tests/e2e/
+        required: true
+        default: tests/e2e/production-smoke.spec.mjs
+        type: string
+      use_uat_credentials:
+        description: Expose PROQPAY_UAT_EMAIL/PASSWORD secrets to the selected spec
+        required: true
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      target_url:
+        required: false
+        default: https://proqpay-lite.pages.dev
+        type: string
+      spec_path:
+        required: false
+        default: tests/e2e/production-smoke.spec.mjs
+        type: string
+      use_uat_credentials:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      PROQPAY_UAT_EMAIL:
+        required: false
+      PROQPAY_UAT_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playwright-uat-${{ github.ref }}-${{ inputs.spec_path }}
+  cancel-in-progress: false
+
+jobs:
+  uat:
+    name: Playwright UAT
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      BASE_URL: ${{ inputs.target_url }}
+      SPEC_PATH: ${{ inputs.spec_path }}
+      UAT_CREDENTIALS_ENABLED: ${{ inputs.use_uat_credentials }}
+      PROQPAY_UAT_EMAIL: ${{ inputs.use_uat_credentials && secrets.PROQPAY_UAT_EMAIL || '' }}
+      PROQPAY_UAT_PASSWORD: ${{ inputs.use_uat_credentials && secrets.PROQPAY_UAT_PASSWORD || '' }}
+
+    steps:
+      - name: Checkout reviewed code
+        uses: actions/checkout@v4
+
+      - name: Validate UAT inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BASE_URL" =~ ^https:// ]] || {
+            echo "::error::target_url must use https://"
+            exit 1
+          }
+          [[ "$SPEC_PATH" =~ ^tests/e2e/[A-Za-z0-9._/-]+\.spec\.(mjs|js)$ ]] || {
+            echo "::error::spec_path must be a .spec.mjs/.spec.js file inside tests/e2e/"
+            exit 1
+          }
+          [[ "$SPEC_PATH" != *".."* ]] || {
+            echo "::error::spec_path cannot contain '..'"
+            exit 1
+          }
+          test -f "$SPEC_PATH" || {
+            echo "::error::Spec not found: $SPEC_PATH"
+            exit 1
+          }
+          if [[ "$UAT_CREDENTIALS_ENABLED" == "true" ]]; then
+            test -n "$PROQPAY_UAT_EMAIL" || {
+              echo "::error::PROQPAY_UAT_EMAIL secret is required when credentials are enabled"
+              exit 1
+            }
+            test -n "$PROQPAY_UAT_PASSWORD" || {
+              echo "::error::PROQPAY_UAT_PASSWORD secret is required when credentials are enabled"
+              exit 1
+            }
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Install Playwright runner
+        run: npm install --no-save --package-lock=false @playwright/test@1.56.1
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run selected UAT spec
+        id: playwright
+        run: npx playwright test "$SPEC_PATH" --config=playwright.uat.config.mjs
+
+      - name: Publish UAT summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Playwright UAT"
+            echo ""
+            echo "- Target: `$BASE_URL`"
+            echo "- Spec: `$SPEC_PATH`"
+            echo "- Commit: `${GITHUB_SHA}`"
+            echo "- Credentials exposed: `$UAT_CREDENTIALS_ENABLED`"
+            echo "- Result: `${{ steps.playwright.outcome }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Playwright evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-uat-${{ github.run_id }}
+          path: |
+            artifacts/playwright-report/
+            artifacts/test-results/
+          if-no-files-found: warn
+          retention-days: 14
