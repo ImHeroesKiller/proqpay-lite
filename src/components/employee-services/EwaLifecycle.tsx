@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import type { EwaRow } from "@/lib/employee-services";
 import { ewaMeta, formatPortalDate } from "@/lib/employee-services";
+import { StatusBadge as UiStatusBadge } from "@/components/ui/UnifiedSystem";
 
 const IDR = new Intl.NumberFormat("id-ID", {
   style: "currency",
@@ -12,11 +13,8 @@ const IDR = new Intl.NumberFormat("id-ID", {
 
 export function EwaStatusBadge({ status }: { status?: string }) {
   const meta = ewaMeta(status);
-  return (
-    <span className={`status-pill ewa-tone-${meta.tone}`} aria-label={`Status: ${meta.label}`}>
-      {meta.label}
-    </span>
-  );
+  const tone = meta.tone === "danger" ? "danger" : meta.tone === "warning" ? "warning" : meta.tone === "success" ? "success" : "neutral";
+  return <UiStatusBadge tone={tone}>{meta.label}</UiStatusBadge>;
 }
 
 export function EwaLifecycleProgress({ status }: { status?: string }) {
