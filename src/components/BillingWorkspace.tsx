@@ -747,7 +747,7 @@ function InvoiceSection({
   issueAndSend,
 }: any) {
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    <div className="ui-panel-grid">
       <Panel
         title="Payment siap ditagihkan"
         detail="Hanya payment berstatus COMPLETED yang dapat dibuatkan invoice."
@@ -819,14 +819,11 @@ function InvoiceSection({
                 }
               />,
               <Badge key="s" text={r.status} />,
-              <div key="d" style={{ display:"grid", gap:3 }}>
+              <div key="d" className="billing-cell-stack">
                 <Badge text={r.email_status === "SENT" ? "EMAIL SENT" : r.email_status || "NOT SENT"} />
                 {r.email_recipient ? <small>{r.email_recipient}</small> : <small>{r.billing_email || "Email belum diatur"}</small>}
               </div>,
-              <div
-                key="a"
-                style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
-              >
+              <div key="a" className="ui-cluster">
                 {canPrepare && r.status === "DRAFT" && (
                   <button
                     style={button}
@@ -932,10 +929,7 @@ function TaxSection({ rows, canControl, openTax, exportCoretax }: any) {
             ["APPROVED", "ISSUED", "PARTIALLY_PAID", "PAID"].includes(
               r.status,
             ) ? (
-              <div
-                key="a"
-                style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
-              >
+              <div key="a" className="ui-cluster">
                 <button style={secondary} onClick={() => openTax(r)}>
                   Update / upload
                 </button>
@@ -973,27 +967,15 @@ function ARSection({ rows, canControl, canFollow, payment, follow, history }: an
   const control = arControlSummary(rows as ArRecord[]);
   const appliedVariance = control.variance;
   return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))",
-          gap: 10,
-        }}
-      >
+    <div className="ui-panel-grid">
+      <div className="billing-metric-grid">
         <Metric label="Invoice total" value={formatIDR(control.invoice)} note="Nilai AR terbentuk" />
         <Metric label="Applied payment" value={formatIDR(control.paid)} note="Sudah dialokasikan" />
         <Metric label="Unapplied cash" value={formatIDR(control.unapplied)} note="Kelebihan / belum dialokasikan" danger={control.unapplied > 0} />
         <Metric label="Outstanding" value={formatIDR(control.outstanding)} note="Saldo piutang" />
         <Metric label="Control variance" value={formatIDR(appliedVariance)} note="Invoice − paid − outstanding" danger={appliedVariance !== 0} />
       </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))",
-          gap: 10,
-        }}
-      >
+      <div className="billing-metric-grid">
         {buckets.map((b) => (
           <Metric
             key={b}
@@ -1036,15 +1018,12 @@ function ARSection({ rows, canControl, canFollow, payment, follow, history }: an
               formatIDR(Number(r.control?.unapplied || 0)),
               formatIDR(Number(r.balance || 0)),
               <Badge key="s" text={r.display_status || r.status} />,
-              <div key="g" style={{ display: "grid", gap: 3 }}>
+              <div key="g" className="billing-cell-stack">
                 <Badge text={r.payment_gate_state || "CLEAR"} />
                 {r.payment_gate_state === "BLOCKED" ? <small>{formatIDR(Number(r.client_overdue || r.client_outstanding || 0))}</small> : null}
                 {r.payment_gate_state === "WARNING" ? <small>{formatIDR(Number(r.client_outstanding || 0))} outstanding</small> : null}
               </div>,
-              <div
-                key="a"
-                style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
-              >
+              <div key="a" className="ui-cluster">
                 {canControl && Number(r.balance) > 0 && (
                   <button style={button} onClick={() => payment(r)}>
                     Catat bayar
@@ -1071,7 +1050,7 @@ function ARSection({ rows, canControl, canFollow, payment, follow, history }: an
 
 function SetupSection({ clients, issuerProfile, canEdit, canManageIssuer, open, openIssuer }: any) {
   return (
-    <div style={{ display:"grid", gap:16 }}>
+    <div className="ui-panel-grid">
       <Panel
         title="Profil penerbit invoice"
         detail="Identitas legal dan rekening penerimaan yang dicetak pada PDF A4 invoice."
@@ -1182,7 +1161,7 @@ function TaxForm({ form, setForm, submit }: any) {
         value={form.coretaxReference}
         onChange={(v: any) => setForm({ ...form, coretaxReference: v })}
       />
-      <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 700 }}>
+      <label className="ui-form-field billing-file-field">
         File faktur pajak (opsional)
         <input
           type="file"
@@ -1191,7 +1170,7 @@ function TaxForm({ form, setForm, submit }: any) {
             setForm({ ...form, file: event.target.files?.[0] || null })
           }
         />
-        <small style={muted}>
+        <small className="ui-subtle-copy">
           Fallback manual ketika API Coretax belum aktif. PDF/JPG/PNG, maksimal
           5 MB.
         </small>
@@ -1283,7 +1262,7 @@ function SetupForm({ form, setForm, submit }: any) {
           onChange={(v: any) => setForm({ ...form, arWarningDays: v })}
         />
       </UiFormGrid>
-      <small style={muted}>OVERDUE memblokir payment baru setelah invoice lewat jatuh tempo. ANY_OUTSTANDING memblokir selama masih ada saldo AR. Reconciliation/payment yang sudah berjalan tetap dapat diselesaikan.</small>
+      <small className="ui-subtle-copy">OVERDUE memblokir payment baru setelah invoice lewat jatuh tempo. ANY_OUTSTANDING memblokir selama masih ada saldo AR. Reconciliation/payment yang sudah berjalan tetap dapat diselesaikan.</small>
       <UiFormGrid>
         <Field
           label="TOP (hari)"
@@ -1509,8 +1488,7 @@ function ActionNoteForm({ label, value, onChange, buttonText, submit }: { label:
     <Form submit={submit} buttonText={buttonText}>
       <label style={labelStyle}>
         {label}
-        <textarea
-          style={{ ...input, minHeight: 110, resize: "vertical" }}
+        <textarea className="billing-textarea"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           required
@@ -1525,8 +1503,7 @@ function FollowUpForm({ form, setForm, submit }: any) {
     <Form submit={submit} buttonText="Simpan follow-up">
       <label style={labelStyle}>
         Catatan follow-up
-        <textarea
-          style={{ ...input, minHeight: 110, resize: "vertical" }}
+        <textarea className="billing-textarea"
           value={form.notes || ""}
           onChange={(event) => setForm({ ...form, notes: event.target.value })}
           required
@@ -1539,7 +1516,7 @@ function FollowUpForm({ form, setForm, submit }: any) {
         onChange={(value: string) => setForm({ ...form, nextFollowUpAt: value })}
         required={false}
       />
-      <label style={{ ...labelStyle, display: "flex", gridTemplateColumns: undefined, alignItems: "center", gap: 8 }}>
+      <label className="ui-toggle-row">
         <input
           type="checkbox"
           checked={Boolean(form.disputed)}
@@ -1562,7 +1539,7 @@ function CloseConfirmation({ row, submit }: { row: BillingSubmission; submit: ()
         <Info label="Reconciliation" value={String(row.reconciliation_status || "-")} />
         <Info label="Invoice" value={String(row.invoice_status || "-")} />
       </div>
-      <p style={{ ...muted, margin: 0 }}>
+      <p className="ui-subtle-copy">
         Setelah payroll period ditutup, snapshot payroll tetap terkunci. Outstanding AR tetap aktif sampai pelunasan.
       </p>
     </Form>
@@ -1572,7 +1549,7 @@ function CloseConfirmation({ row, submit }: { row: BillingSubmission; submit: ()
 function ARHistory({ row }: any) {
   const control = row.control || {};
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    <div className="ui-panel-grid">
       <UiFormGrid>
         <Info label="Invoice total" value={formatIDR(Number(control.invoiceTotal ?? row.amount ?? 0))} />
         <Info label="Applied payment" value={formatIDR(Number(control.paid ?? row.paid_amount ?? 0))} />
@@ -1582,10 +1559,10 @@ function ARHistory({ row }: any) {
         <Info label="Control variance" value={formatIDR(Number(control.appliedDifference ?? 0))} />
       </UiFormGrid>
       <div>
-        <strong style={{ fontSize: 12 }}>Financial activity</strong>
-        <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+        <strong className="billing-activity-title">Financial activity</strong>
+        <div className="ui-activity-list">
           {(row.activity || []).slice(0, 50).map((entry: any, index: number) => (
-            <div key={index} style={{ borderBottom: "1px solid var(--border-soft)", paddingBottom: 8 }}>
+            <div key={index} className="ui-activity-item">
               <small><strong>{String(entry.type || entry.action || "ACTIVITY").replaceAll("_", " ")}</strong> · {date(entry.at)}</small>
               <small>
                 {entry.reference ? `Ref ${entry.reference}` : entry.actor || entry.username || "-"}

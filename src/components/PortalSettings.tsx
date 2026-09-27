@@ -510,15 +510,7 @@ export default function PortalSettings() {
 
       {tab === "ads" ? (
         <div>
-          <label
-            style={{
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              marginBottom: 12,
-              fontSize: 13,
-            }}
-          >
+          <label className="ui-toggle-row portal-config-toggle">
             <input
               type="checkbox"
               checked={adsEnabled}
@@ -529,18 +521,11 @@ export default function PortalSettings() {
           {ads.map((ad, index) => (
             <div
               key={ad.id || index}
-              className="card"
-              style={{ padding: 16, marginBottom: 12 }}
+              className="card ui-banner-card"
             >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginBottom: 10,
-                }}
-              >
+              <div className="ui-banner-card-head">
                 <strong>Banner {index + 1}</strong>
-                <span style={{ display: "flex", gap: 6 }}>
+                <span className="ui-cluster">
                   <button
                     type="button"
                     className="btn"
@@ -566,13 +551,7 @@ export default function PortalSettings() {
                   </button>
                 </span>
               </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                  gap: 12,
-                }}
-              >
+              <div className="ui-banner-grid">
                 <label className="es-field">
                   Tag
                   <input
@@ -700,14 +679,7 @@ export default function PortalSettings() {
                     </label>
                   </div>
                 </details>
-                <label
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    fontSize: 13,
-                  }}
-                >
+                <label className="ui-toggle-row">
                   <input
                     type="checkbox"
                     checked={ad.enabled}
@@ -737,7 +709,7 @@ export default function PortalSettings() {
       ) : null}
 
       {tab === "copy" ? (
-        <div className="card" style={{ display: "grid", gap: 12, padding: 18 }}>
+        <div className="card ui-settings-panel">
           <label className="es-field">
             Tagline perusahaan
             <input
@@ -806,11 +778,8 @@ export default function PortalSettings() {
       ) : null}
 
       {tab === "platform" ? (
-        <div
-          className="card"
-          style={{ display: "grid", gap: 12, padding: 18, maxWidth: 560 }}
-        >
-          <p style={{ margin: 0, fontSize: 13, color: "var(--text2)" }}>
+        <div className="card ui-settings-panel ui-settings-panel-narrow">
+          <p className="ui-subtle-copy portal-config-platform-copy">
             Integrasi iklan memakai pixel gambar (1×1), bukan skrip pihak
             ketiga. Ini aman untuk portal karyawan.
           </p>
