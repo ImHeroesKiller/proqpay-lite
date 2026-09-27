@@ -3,6 +3,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
+import {
+  DataTableState as UiDataTableState,
+  FilterBar as UiFilterBar,
+  MetricCard as UiMetricCard,
+  MetricGrid as UiMetricGrid,
+  Notice as UiNotice,
+  Pagination as UiPagination,
+  SectionCard as UiSectionCard,
+  StatusBadge as UiStatusBadge,
+  Tabs as UiTabs,
+} from '@/components/ui/UnifiedSystem';
 
 type Actor = { role: string; permissions: string[] };
 type Client = {
@@ -59,6 +70,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const [projectClientFilter,setProjectClientFilter] = useState('ALL');
   const [clientPage,setClientPage] = useState(1);
   const [projectPage,setProjectPage] = useState(1);
+  const [activeDirectoryTab,setActiveDirectoryTab] = useState<'clients'|'projects'>('clients');
   const [projectsTruncated,setProjectsTruncated] = useState(false);
   const [originalProjectClientId,setOriginalProjectClientId] = useState('');
   const [detail,setDetail] = useState<{type:'client'|'project';item:Client|Project}|null>(null);
@@ -182,56 +194,161 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
     };
   },[mode,detail]);
 
-  const statusClass=(status?:string)=>String(status||'ACTIVE').toLowerCase().replaceAll('_','-');
+  const statusTone=(status?:string):'success'|'warning'|'danger'|'neutral' => {
+    const value=String(status||'ACTIVE');
+    if(value==='ACTIVE'||value==='COMPLETED') return 'success';
+    if(value==='ON_HOLD') return 'warning';
+    if(value==='INACTIVE') return 'danger';
+    return 'neutral';
+  };
   const activeClients=visibleClients.filter((client)=>String(client.status||'ACTIVE')==='ACTIVE').length;
   const activeProjects=visibleProjects.filter((project)=>String(project.status||'ACTIVE')==='ACTIVE').length;
   const totalEmployees=visibleClients.reduce((sum,client)=>sum+Number(client.employee_count||0),0);
   const assignedAccounts=visibleClients.reduce((sum,client)=>sum+Number(client.assigned_user_count||0),0);
 
   return (
-    <section>
+    <section className="directory-workspace">
       <div className="directory-header">
-        <div><h2>Klien & Project</h2><p>Identitas, relasi akun, dan konteks layanan dalam satu master data.</p></div>
         <div>
+          <h2>Klien & Project</h2>
+          <p>Identitas, relasi akun, dan konteks layanan dalam satu master data.</p>
+        </div>
+        <div className="directory-header-actions">
           {canCreateClient ? <button type="button" className="btn" onClick={() => { setEditingId(''); setForm(EMPTY_FORM); setMode('client'); }}>+ Tambah Klien</button> : null}
           {canCreateProject ? <button type="button" className="btn btn-primary" onClick={() => { setEditingId(''); setForm(EMPTY_FORM); setMode('project'); }}>+ Tambah Project</button> : null}
         </div>
       </div>
-      <div className="directory-toolbar card">
-        <label><span>Cari</span><input type="search" value={query} onChange={(event)=>setQuery(event.target.value)} placeholder="Klien, project, PIC, layanan…" /></label>
-        <label><span>Status</span><select value={statusFilter} onChange={(event)=>setStatusFilter(event.target.value)}><option value="ALL">Semua status</option><option value="ACTIVE">Aktif</option><option value="ON_HOLD">Ditunda</option><option value="COMPLETED">Selesai</option><option value="INACTIVE">Nonaktif</option></select></label>
-        <label><span>Project client</span><select value={projectClientFilter} onChange={(event)=>setProjectClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{visibleClients.map((client)=><option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
-        <button type="button" className="btn" disabled={!query&&statusFilter==='ALL'&&projectClientFilter==='ALL'} onClick={()=>{setQuery('');setStatusFilter('ALL');setProjectClientFilter('ALL');}}>Reset</button>
-      </div>
-      <div className="directory-summary" aria-label="Ringkasan master data">
-        <div><span>Klien aktif</span><strong>{activeClients}</strong><small>{visibleClients.length} total</small></div>
-        <div><span>Project aktif</span><strong>{activeProjects}</strong><small>{visibleProjects.length} total</small></div>
-        <div><span>Karyawan</span><strong>{totalEmployees}</strong><small>terhubung ke klien</small></div>
-        <div><span>Akun klien</span><strong>{assignedAccounts}</strong><small>scope terpasang</small></div>
-      </div>
-      {message ? <div className={`directory-message ${messageTone}`} role={messageTone==='error'?'alert':'status'}>{message}</div> : null}
-      {projectsTruncated ? <div className="directory-message warning" role="status">Daftar project dibatasi 500 record oleh API. Gunakan pencarian/filter untuk mempersempit data; hasil di bawah belum tentu mencakup seluruh project.</div> : null}
-      {loading ? <div className="card directory-empty">Memuat master data…</div> : (
-        <div className="directory-grid">
-          <div className="card directory-section">
-            <h3><span className="directory-section-title">Klien</span><span>{filteredClients.length} / {visibleClients.length}</span></h3>
-            {clientPageRows.map((client) => <div className="directory-row" key={client.id}>
-              <ClientIcon client={client} />
-              <div className="directory-row-main"><b>{client.name}</b><small>{client.code} · {client.industry || 'Industri belum diisi'}</small><small>{client.contact_name ? `PIC ${client.contact_name}` : 'PIC belum diisi'}{client.website ? ` · ${client.website.replace(/^https?:\/\//, '')}` : ''}</small><div className="directory-row-chips"><span>{client.tax_status==='PKP'?'PKP':'Non-PKP'}</span><span>{client.project_count || 0} project</span><span>{client.employee_count || 0} karyawan</span></div></div>
-              <div><span className={`directory-badge ${statusClass(client.status)}`}>{client.status || 'ACTIVE'}</span><small>{client.assigned_user_count || 0} akun terhubung</small><div className="directory-row-actions"><button className="btn" onClick={() => setDetail({type:'client',item:client})}>Detail</button>{canCreateClient ? <button className="btn" onClick={() => editClient(client)}>Kelola</button> : null}</div></div>
-            </div>)}
-            {!filteredClients.length ? <p className="directory-empty">Tidak ada klien sesuai filter.</p> : null}<DirectoryPager page={clientPage} pageCount={clientPageCount} onPage={setClientPage} />
+
+      <UiMetricGrid>
+        <UiMetricCard label="Klien aktif" value={activeClients} note={`${visibleClients.length} total klien`} tone="accent" />
+        <UiMetricCard label="Project aktif" value={activeProjects} note={`${visibleProjects.length} total project`} />
+        <UiMetricCard label="Karyawan terhubung" value={totalEmployees.toLocaleString('id-ID')} note="berdasarkan master klien" />
+        <UiMetricCard label="Akun klien" value={assignedAccounts} note="scope akun terpasang" />
+      </UiMetricGrid>
+
+      {message ? <UiNotice tone={messageTone} title={messageTone==='error'?'Master data bermasalah':messageTone==='success'?'Perubahan tersimpan':'Informasi'}>{message}</UiNotice> : null}
+      {projectsTruncated ? <UiNotice tone="warning" title="Daftar project dibatasi">API mengembalikan maksimal 500 project. Gunakan filter klien atau pencarian untuk mempersempit data.</UiNotice> : null}
+
+      <UiFilterBar
+        title="Cari & filter master data"
+        detail={activeDirectoryTab==='clients'?'Filter berlaku pada daftar klien aktif.':'Filter berlaku pada daftar project aktif.'}
+        action={<button type="button" className="btn" disabled={!query&&statusFilter==='ALL'&&projectClientFilter==='ALL'} onClick={()=>{setQuery('');setStatusFilter('ALL');setProjectClientFilter('ALL');}}>Reset filter</button>}
+        className="directory-filter-bar"
+      >
+        <label>
+          <span>Cari</span>
+          <input type="search" value={query} onChange={(event)=>setQuery(event.target.value)} placeholder={activeDirectoryTab==='clients'?'Nama klien, PIC, industri, NPWP…':'Nama project, klien, layanan, tier…'} />
+        </label>
+        <label>
+          <span>Status</span>
+          <select value={statusFilter} onChange={(event)=>setStatusFilter(event.target.value)}>
+            <option value="ALL">Semua status</option>
+            <option value="ACTIVE">Aktif</option>
+            <option value="ON_HOLD">Ditunda</option>
+            <option value="COMPLETED">Selesai</option>
+            <option value="INACTIVE">Nonaktif</option>
+          </select>
+        </label>
+        {activeDirectoryTab==='projects' ? <label>
+          <span>Klien</span>
+          <select value={projectClientFilter} onChange={(event)=>setProjectClientFilter(event.target.value)}>
+            <option value="ALL">Semua klien</option>
+            {visibleClients.map((client)=><option key={client.id} value={client.id}>{client.name}</option>)}
+          </select>
+        </label> : <div className="directory-filter-context"><span>Mode</span><strong>Master Klien</strong><small>{filteredClients.length} data sesuai filter</small></div>}
+      </UiFilterBar>
+
+      <UiSectionCard
+        className="directory-master-card"
+        title="Master Data"
+        detail="Kelola profil klien dan project dalam satu workspace dengan konteks yang tetap jelas."
+        action={<UiTabs ariaLabel="Jenis master data" value={activeDirectoryTab} onChange={(value)=>setActiveDirectoryTab(value as 'clients'|'projects')} items={[
+          {value:'clients',label:`Klien · ${filteredClients.length}`},
+          {value:'projects',label:`Project · ${filteredProjects.length}`},
+        ]} />}
+      >
+        <UiDataTableState
+          loading={loading}
+          empty={!loading && (activeDirectoryTab==='clients' ? filteredClients.length===0 : filteredProjects.length===0)}
+          error={messageTone==='error' ? message : undefined}
+          onRetry={()=>void load()}
+          loadingTitle="Memuat master data…"
+          loadingBody="Mengambil klien, project, scope akun, dan ringkasan operasional."
+          emptyTitle={activeDirectoryTab==='clients'?'Tidak ada klien sesuai filter':'Tidak ada project sesuai filter'}
+          emptyBody="Ubah kata pencarian atau reset filter untuk menampilkan data lain."
+        />
+
+        {!loading && messageTone!=='error' && activeDirectoryTab==='clients' && filteredClients.length ? <>
+          <div className="directory-list directory-client-list">
+            {clientPageRows.map((client) => <article className="directory-entity-card" key={client.id}>
+              <div className="directory-entity-main">
+                <ClientIcon client={client} />
+                <div className="directory-entity-copy">
+                  <div className="directory-entity-title-row">
+                    <strong>{client.name}</strong>
+                    <UiStatusBadge tone={statusTone(client.status)}>{client.status || 'ACTIVE'}</UiStatusBadge>
+                  </div>
+                  <span>{client.code} · {client.industry || 'Industri belum diisi'}</span>
+                  <small>{client.contact_name ? `PIC ${client.contact_name}` : 'PIC belum diisi'}{client.website ? ` · ${client.website.replace(/^https?:\/\//, '')}` : ''}</small>
+                  <div className="directory-entity-meta">
+                    <span>{client.tax_status==='PKP'?'PKP':'Non-PKP'}</span>
+                    <span>{client.project_count || 0} project</span>
+                    <span>{client.employee_count || 0} karyawan</span>
+                    <span>{client.assigned_user_count || 0} akun</span>
+                  </div>
+                </div>
+              </div>
+              <div className="directory-entity-actions">
+                <button type="button" className="btn" onClick={() => setDetail({type:'client',item:client})}>Lihat detail</button>
+                {canCreateClient ? <button type="button" className="btn btn-primary directory-manage-btn" onClick={() => editClient(client)}>Kelola</button> : null}
+              </div>
+            </article>)}
           </div>
-          <div className="card directory-section">
-            <h3><span className="directory-section-title">Project</span><span>{filteredProjects.length} / {visibleProjects.length}</span></h3>
-            {projectPageRows.map((project) => <div className="directory-row" key={project.id}>
-              <div className="directory-row-main"><b>{project.name}</b><small>{project.code} · {project.client_name || project.client_id}</small><small className="directory-row-description">{project.service_type || 'Layanan belum diisi'}{project.description ? ` · ${project.description}` : ''}</small><div className="directory-row-chips"><span>{project.tier?String(project.tier).replaceAll('_',' '):'Tier belum ditetapkan'}</span><span>{project.assigned_user_count || 0} akun</span></div></div>
-              <div><span className={`directory-badge ${statusClass(project.status)}`}>{project.status || 'ACTIVE'}</span><small>{project.start_date ? new Date(project.start_date).toLocaleDateString('id-ID') : 'Tanpa batas periode'}</small><div className="directory-row-actions"><button className="btn" onClick={() => setDetail({type:'project',item:project})}>Detail</button>{canCreateProject && project.client_id ? <button className="btn" onClick={() => editProject(project)}>Kelola</button> : null}</div></div>
-            </div>)}
-            {!filteredProjects.length ? <p className="directory-empty">Tidak ada project sesuai filter.</p> : null}<DirectoryPager page={projectPage} pageCount={projectPageCount} onPage={setProjectPage} />
+          <UiPagination
+            page={clientPage}
+            pageCount={clientPageCount}
+            previousDisabled={clientPage<=1}
+            nextDisabled={clientPage>=clientPageCount}
+            onPrevious={()=>setClientPage((value)=>Math.max(1,value-1))}
+            onNext={()=>setClientPage((value)=>Math.min(clientPageCount,value+1))}
+          />
+        </> : null}
+
+        {!loading && messageTone!=='error' && activeDirectoryTab==='projects' && filteredProjects.length ? <>
+          <div className="directory-list directory-project-list">
+            {projectPageRows.map((project) => <article className="directory-entity-card directory-project-card" key={project.id}>
+              <div className="directory-entity-main">
+                <div className="directory-project-mark" aria-hidden="true">{project.name.slice(0,1).toUpperCase() || 'P'}</div>
+                <div className="directory-entity-copy">
+                  <div className="directory-entity-title-row">
+                    <strong>{project.name}</strong>
+                    <UiStatusBadge tone={statusTone(project.status)}>{project.status || 'ACTIVE'}</UiStatusBadge>
+                  </div>
+                  <span>{project.code} · {project.client_name || project.client_id || 'Klien belum terhubung'}</span>
+                  <small>{project.service_type || 'Layanan belum diisi'}{project.description ? ` · ${project.description}` : ''}</small>
+                  <div className="directory-entity-meta">
+                    <span>{project.tier?String(project.tier).replaceAll('_',' '):'Tier belum ditetapkan'}</span>
+                    <span>{project.assigned_user_count || 0} akun</span>
+                    <span>{project.start_date ? new Date(project.start_date).toLocaleDateString('id-ID') : 'Tanpa tanggal mulai'}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="directory-entity-actions">
+                <button type="button" className="btn" onClick={() => setDetail({type:'project',item:project})}>Lihat detail</button>
+                {canCreateProject && project.client_id ? <button type="button" className="btn btn-primary directory-manage-btn" onClick={() => editProject(project)}>Kelola</button> : null}
+              </div>
+            </article>)}
           </div>
-        </div>
-      )}
+          <UiPagination
+            page={projectPage}
+            pageCount={projectPageCount}
+            previousDisabled={projectPage<=1}
+            nextDisabled={projectPage>=projectPageCount}
+            onPrevious={()=>setProjectPage((value)=>Math.max(1,value-1))}
+            onNext={()=>setProjectPage((value)=>Math.min(projectPageCount,value+1))}
+          />
+        </> : null}
+      </UiSectionCard>
       {mode ? createPortal(<div className="directory-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMode(null); }}>
         <div ref={dialogRef} className="directory-modal" role="dialog" aria-modal="true" aria-label={`${editingId ? 'Kelola' : 'Tambah'} ${mode}`}>
           <div className="directory-modal-title"><div><span>MASTER DATA</span><h3>{editingId ? 'Kelola' : 'Tambah'} {mode === 'client' ? 'Klien' : 'Project'}</h3></div><button type="button" aria-label="Tutup" onClick={() => setMode(null)}>✕</button></div>
@@ -264,11 +381,6 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   );
 }
 
-
-function DirectoryPager({page,pageCount,onPage}:{page:number;pageCount:number;onPage:(page:number)=>void}) {
-  if(pageCount<=1) return null;
-  return <div className="directory-pagination"><span>Halaman {page} dari {pageCount}</span><div><button type="button" className="btn" aria-label="Halaman sebelumnya" disabled={page<=1} onClick={()=>onPage(page-1)}>←</button><button type="button" className="btn" aria-label="Halaman berikutnya" disabled={page>=pageCount} onClick={()=>onPage(page+1)}>→</button></div></div>;
-}
 
 function DirectoryDetail({detail}:{detail:{type:'client'|'project';item:Client|Project}}) {
   if(detail.type==='client') {

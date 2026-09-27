@@ -18,16 +18,17 @@ test('Clients & Projects P2 supports search filters and local pagination',async(
   assert.match(ui,/const \[statusFilter,setStatusFilter\]/);
   assert.match(ui,/const \[projectClientFilter,setProjectClientFilter\]/);
   assert.match(ui,/const PAGE_SIZE=8/);
-  assert.match(ui,/DirectoryPager page=\{clientPage\}/);
-  assert.match(ui,/DirectoryPager page=\{projectPage\}/);
+  assert.match(ui,/UiPagination/);
+  assert.match(ui,/page=\{clientPage\}/);
+  assert.match(ui,/page=\{projectPage\}/);
 });
 
 test('Clients & Projects P2 distinguishes success error and truncation notices',async()=>{
   const ui=await read('src/components/DirectoryManager.tsx');
   assert.match(ui,/messageTone/);
-  assert.match(ui,/role=\{messageTone==='error'\?'alert':'status'\}/);
+  assert.match(ui,/UiNotice/);
   assert.match(ui,/projectsTruncated/);
-  assert.match(ui,/Daftar project dibatasi 500 record/);
+  assert.match(ui,/Daftar project dibatasi/);
 });
 
 test('Clients & Projects P2 modal supports escape focus trap restore and scroll lock',async()=>{
@@ -42,8 +43,8 @@ test('Clients & Projects P2 modal supports escape focus trap restore and scroll 
 
 test('Clients & Projects P2 has semantic status badges detail actions and transfer warning',async()=>{
   const ui=await read('src/components/DirectoryManager.tsx');
-  assert.match(ui,/statusClass\(client\.status\)/);
-  assert.match(ui,/statusClass\(project\.status\)/);
+  assert.match(ui,/UiStatusBadge tone=\{statusTone\(client\.status\)\}/);
+  assert.match(ui,/UiStatusBadge tone=\{statusTone\(project\.status\)\}/);
   assert.match(ui,/setDetail\(\{type:'client'/);
   assert.match(ui,/setDetail\(\{type:'project'/);
   assert.match(ui,/Project akan dipindahkan ke klien lain/);
