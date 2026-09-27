@@ -25,7 +25,8 @@ test('internal navigation uses simple business language and hides secondary empl
   assert.match(sidebar,/getViewLabel\("billing", role\)/);
   assert.match(navigation,/billing: "Close & Billing"/);
   assert.match(sidebar,/simplifiedInternal \? "Reference & Reports" : "People & Reporting"/);
-  assert.match(sidebar,/canManageEmployeeServices && \(allowed\.has\("ewa"\)/);
+  assert.match(sidebar,/canManageEmployeeServices && allowed\.has\("ewa"\)/);
+  assert.doesNotMatch(sidebar,/getViewLabel\("portalSettings", role\)/);
 });
 
 test('Control Tower becomes My Workspace with business-stage filtering for internal roles', async()=>{

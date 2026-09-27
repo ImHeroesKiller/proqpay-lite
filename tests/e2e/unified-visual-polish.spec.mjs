@@ -30,7 +30,7 @@ test.describe('P3 unified visual polish',()=>{
     await page.setViewportSize({width:1440,height:1000});
     await login(page);
     let audited=0;
-    for(const label of ['Billing & AR','Portal Configuration','Audit Logs','Advance Salary','Reports','Employees']){
+    for(const label of ['Billing & AR','Audit Logs','Advance Salary','Reports','Employees']){
       if(!(await openModule(page,label))) continue;
       const header=page.locator('.ui-workspace-header h1').first();
       if(await header.count()){

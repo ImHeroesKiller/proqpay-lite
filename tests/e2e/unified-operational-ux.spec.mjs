@@ -35,7 +35,6 @@ test.describe('P2 unified operational UX',()=>{
       ['Audit Logs',['.ui-filter-bar','.ui-pagination']],
       ['Advance Salary',['.ui-filter-bar','.ui-pagination']],
       ['Employees',['.ui-pagination']],
-      ['Portal Configuration',['.ui-action-bar']],
       ['Reports',['.ui-filter-bar']],
     ];
 

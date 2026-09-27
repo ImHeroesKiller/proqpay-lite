@@ -55,7 +55,6 @@ export const NAV_SEARCH_ITEMS: NavSearchItem[] = [
   { label: "Billing & AR", keywords: "invoice billing piutang finance", view: "billing" },
   { label: "Integrations", keywords: "payment gateway e2pay api endpoint connected apps monitoring", view: "integrations" },
   { label: "Advance Salary", keywords: "ewa advance gaji borongan cair", view: "ewa" },
-  { label: "Portal Configuration", keywords: "portal settings banner iklan ewa fee plafond tenure ess", view: "portalSettings" },
   { label: "Audit Logs", keywords: "audit log login ess portal security payment billing integration gateway api", view: "logs" },
   { label: "Employees", keywords: "karyawan rekening", view: "employees" },
   { label: "Clients & Projects", keywords: "klien project", view: "clients" },
