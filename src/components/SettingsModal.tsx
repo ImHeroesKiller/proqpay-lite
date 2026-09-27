@@ -12,6 +12,7 @@ import { emitDbChange } from "@/lib/events";
 import { writeSystemLog } from "@/lib/system-log";
 import AccountManagement from "@/components/AccountManagement";
 import PaymentGatewaySettings from "@/components/PaymentGatewaySettings";
+import PortalSettings from "@/components/PortalSettings";
 
 type Tab =
   | "general"
@@ -20,6 +21,7 @@ type Tab =
   | "ida"
   | "billing"
   | "paymentGateway"
+  | "portal"
   | "users"
   | "data";
 const RESET_CONFIRMATION = "HAPUS SEMUA DATA";
@@ -65,6 +67,12 @@ const TABS: Array<{
     label: "Payment Gateway",
     icon: "↗",
     description: "Provider dan credential E2Pay",
+  },
+  {
+    id: "portal",
+    label: "Portal Configuration",
+    icon: "▣",
+    description: "Banner, copy, advance salary, dan konfigurasi ESS",
   },
   {
     id: "users",
@@ -696,6 +704,10 @@ export default function SettingsModal({
               </SettingsSection>
             ) : null}
 
+            {tab === "portal" ? (
+              <PortalSettings />
+            ) : null}
+
             {tab === "users" ? (
               <SettingsSection
                 title="User Management"
@@ -804,7 +816,7 @@ export default function SettingsModal({
         </div>
 
         <footer className="settings-footer">
-          {tab !== "users" && tab !== "paymentGateway" ? (
+          {tab !== "users" && tab !== "paymentGateway" && tab !== "portal" ? (
             <>
               <button
                 type="button"
@@ -825,14 +837,16 @@ export default function SettingsModal({
             <span>
               {tab === "paymentGateway"
                 ? "Credential gateway disimpan melalui tombol pada panel E2Pay."
-                : "Perubahan user disimpan melalui tombol pada masing-masing kartu."}
+                : tab === "portal"
+                  ? "Konfigurasi portal disimpan melalui tombol pada panel Portal Configuration."
+                  : "Perubahan user disimpan melalui tombol pada masing-masing kartu."}
             </span>
           )}
           <div>
             <button type="button" className="btn" onClick={onClose}>
-              {tab === "users" || tab === "paymentGateway" ? "Tutup" : "Batal"}
+              {tab === "users" || tab === "paymentGateway" || tab === "portal" ? "Tutup" : "Batal"}
             </button>
-            {tab !== "users" && tab !== "paymentGateway" ? (
+            {tab !== "users" && tab !== "paymentGateway" && tab !== "portal" ? (
               <button
                 type="button"
                 className="btn btn-primary"
