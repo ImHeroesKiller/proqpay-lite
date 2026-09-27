@@ -9,17 +9,27 @@ async function login(page){
   if(!hasCredentials)return false;
 
   for(let attempt=1;attempt<=3;attempt+=1){
-    const apiLogin=await page.request.post('/api/login',{
-      data:{email,password},
-      failOnStatusCode:false,
-    }).catch(()=>null);
+    await page.goto('/',{waitUntil:'domcontentloaded'}).catch(()=>{});
 
-    if(apiLogin?.ok()){
-      await page.goto('/',{waitUntil:'domcontentloaded'}).catch(()=>{});
+    const status=await page.evaluate(async({email,password})=>{
+      try{
+        const response=await fetch('/api/login',{
+          method:'POST',
+          credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({email,password}),
+        });
+        return response.status;
+      }catch{
+        return 0;
+      }
+    },{email,password}).catch(()=>0);
+
+    if(status===200){
+      await page.reload({waitUntil:'domcontentloaded'}).catch(()=>{});
       if(await page.locator('aside.app-sidebar').isVisible().catch(()=>false)) return true;
     }
 
-    await page.goto('/',{waitUntil:'domcontentloaded'}).catch(()=>{});
     const emailInput=page.getByPlaceholder('nama@perusahaan.com');
     const passwordInput=page.getByPlaceholder('Masukkan password');
     const submit=page.locator('form.login-form button.login-submit').first();
