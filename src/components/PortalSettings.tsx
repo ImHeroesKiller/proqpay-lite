@@ -2,10 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  FilterBar as UiFilterBar,
   LoadingState as UiLoadingState,
-  MetricCard as UiMetricCard,
-  MetricGrid as UiMetricGrid,
   Notice as UiNotice,
   SectionCard as UiSectionCard,
   Tabs as UiTabs,
