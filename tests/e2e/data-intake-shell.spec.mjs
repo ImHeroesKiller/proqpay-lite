@@ -26,7 +26,7 @@ test.describe('Data Intake unified shell', () => {
     await dataIntake.click();
     await page.waitForLoadState('networkidle');
 
-    await expect(page).toHaveURL(/\/data-intake(?:\?|$)/);
+    await expect(page).toHaveURL(/\/data-intake\/?(?:\?|$)/);
     await expect(page.locator('aside.app-sidebar')).toBeVisible();
     await expect(page.locator('header.app-header')).toBeVisible();
     await expect(page.locator('footer.app-footer')).toBeVisible();
