@@ -9,6 +9,13 @@ import {
 import { EmployeeServiceState } from "@/components/employee-services/OperationalState";
 import DisbursementDialog from "@/components/employee-services/DisbursementDialog";
 import {
+  FilterBar as UiFilterBar,
+  MetricCard as UiMetricCard,
+  MetricGrid as UiMetricGrid,
+  SectionCard as UiSectionCard,
+  WorkspaceHeader as UiWorkspaceHeader,
+} from "@/components/ui/UnifiedSystem";
+import {
   EWA_STATUSES,
   ewaMeta,
   formatPortalDate,
@@ -174,46 +181,36 @@ export default function EwaInbox() {
     <section className="portal-workspace">
 
 
-      <section className="ewa-hero">
-        <div className="ewa-hero-copy">
-          <span className="ewa-hero-eyebrow">EMPLOYEE SERVICES · FINANCIAL CONTROL</span>
-          <h1>Advance Salary Control Center</h1>
-          <p>Kelola seluruh lifecycle advance dalam satu layar: review, approval, pencairan, potong payroll, hingga lunas setelah rekonsiliasi.</p>
-          <div className="ewa-hero-meta">
-            <span><strong>{pending}</strong> perlu review</span>
-            <span><strong>{total}</strong> total pengajuan</span>
-            <span>Maker-checker aktif</span>
-          </div>
-        </div>
-        <div className="ewa-hero-actions">
-          <button type="button" className="btn" onClick={() => void load()} disabled={loading}>
-            {loading ? "Memuat…" : "Refresh data"}
-          </button>
-        </div>
-      </section>
+      <UiWorkspaceHeader
+        eyebrow="EMPLOYEE SERVICES · FINANCIAL CONTROL"
+        title="Advance Salary Control Center"
+        description="Kelola seluruh lifecycle advance dalam satu layar: review, approval, pencairan, potong payroll, hingga lunas setelah rekonsiliasi."
+        meta={<>
+          <span><strong>{pending}</strong> perlu review</span>
+          <span><strong>{total}</strong> total pengajuan</span>
+          <span>Maker-checker aktif</span>
+        </>}
+        action={<button type="button" className="btn" onClick={() => void load()} disabled={loading}>{loading ? "Memuat…" : "Refresh data"}</button>}
+      />
 
-      <div className="ewa-summary" aria-label="Ringkasan lifecycle">
+      <UiMetricGrid>
         {visibleSummary.map((item) => (
-          <div key={item.key} className={`ewa-summary-card ewa-summary-${item.key.toLowerCase()}`}>
-            <div className="ewa-summary-top">
-              <span>{item.label}</span>
-              <i aria-hidden="true" />
-            </div>
-            <b>{item.value}</b>
-            <small>{item.key === "SUBMITTED" ? "Perlu keputusan" : item.key === "APPROVED" ? "Siap proses pencairan" : item.key === "DISBURSED" ? "Sudah dicairkan" : "Sedang dipotong payroll"}</small>
-          </div>
+          <UiMetricCard
+            key={item.key}
+            label={item.label}
+            value={item.value}
+            note={item.key === "SUBMITTED" ? "Perlu keputusan" : item.key === "APPROVED" ? "Siap proses pencairan" : item.key === "DISBURSED" ? "Sudah dicairkan" : "Sedang dipotong payroll"}
+            tone={item.key === "SUBMITTED" ? "warning" : item.key === "APPROVED" ? "accent" : item.key === "DISBURSED" ? "success" : "neutral"}
+          />
         ))}
-      </div>
+      </UiMetricGrid>
 
-      <section className="card ewa-filter-panel" aria-label="Filter Advance Salary">
-        <div className="ewa-filter-heading">
-          <div>
-            <strong>Filter & pencarian</strong>
-            <span>Gunakan filter untuk mempersempit daftar pengajuan.</span>
-          </div>
-          {hasFilters ? <button type="button" className="btn" onClick={resetFilters}>Reset filter</button> : null}
-        </div>
-        <div className="ewa-filter-grid">
+      <UiFilterBar
+        title="Filter & pencarian"
+        detail="Gunakan filter untuk mempersempit daftar pengajuan."
+        action={hasFilters ? <button type="button" className="btn" onClick={resetFilters}>Reset filter</button> : null}
+        className="ewa-filter-panel"
+      >
         <label><span>Status</span><select value={status} onChange={(event) => { setStatus(event.target.value); setOffset(0); }} aria-label="Filter status">
           <option value="">Semua status ({total})</option>
           {EWA_STATUSES.map((value) => (
@@ -231,14 +228,13 @@ export default function EwaInbox() {
           <option value={50}>50 baris</option>
           <option value={100}>100 baris</option>
         </select></label>
-        </div>
-      </section>
+        </UiFilterBar>
 
       {operationalState}
 
       {rows.length > 0 ? (
         <>
-          <section className="card ewa-list-card ewa-desktop">
+          <UiSectionCard title="Daftar pengajuan" detail={`${page.total} data sesuai filter`} className="ewa-list-card ewa-desktop">
             <div className="ewa-list-head">
               <div><strong>Daftar pengajuan</strong><span>{page.total} data sesuai filter</span></div>
               <span className="ewa-list-badge">{status ? ewaMeta(status).label : "Semua status"}</span>
@@ -270,7 +266,7 @@ export default function EwaInbox() {
               </tbody>
             </table>
             </div>
-          </section>
+          </UiSectionCard>
 
           <div className="ewa-mobile" aria-label="Daftar advance versi mobile">
             {rows.map((row) => (

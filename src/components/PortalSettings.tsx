@@ -1,6 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  LoadingState as UiLoadingState,
+  Notice as UiNotice,
+  SectionCard as UiSectionCard,
+  Tabs as UiTabs,
+  WorkspaceHeader as UiWorkspaceHeader,
+} from "@/components/ui/UnifiedSystem";
 
 type Policy = {
   enabled: boolean;
@@ -230,18 +237,14 @@ export default function PortalSettings() {
   }
 
   if (!policy || !copy) {
-    return (
-      <div className="card portal-config-loading" aria-busy={loading}>
-        <strong>{message ? "Pengaturan portal gagal dimuat" : "Memuat pengaturan portal…"}</strong>
-        <p>
-          {message || "Mengambil policy, tampilan, banner, dan konfigurasi ESS."}
-        </p>
-        {message ? (
-          <button type="button" className="btn" disabled={loading} onClick={() => void load(clientId)}>
-            {loading ? "Memuat…" : "Coba lagi"}
-          </button>
-        ) : null}
-      </div>
+    return message ? (
+      <UiSectionCard
+        title="Pengaturan portal gagal dimuat"
+        detail={message}
+        action={<button type="button" className="btn" disabled={loading} onClick={() => void load(clientId)}>{loading ? "Memuat…" : "Coba lagi"}</button>}
+      />
+    ) : (
+      <UiLoadingState title="Memuat pengaturan portal…" body="Mengambil policy, tampilan, banner, dan konfigurasi ESS." />
     );
   }
 
@@ -259,23 +262,17 @@ export default function PortalSettings() {
 
   return (
     <section className="portal-workspace portal-config-workspace">
-      <section className="portal-config-hero">
-        <div className="portal-config-hero-copy">
-          <span className="portal-config-eyebrow">EMPLOYEE SERVICES · CONFIGURATION</span>
-          <h1>Portal Configuration Control Center</h1>
-          <p>Atur policy Advance Salary, konten ESS, promosi, dan tracking per organisasi atau per klien tanpa menyentuh pay run, PI, maupun billing.</p>
-          <div className="portal-config-hero-meta">
-            <span><strong>{scopeLabel}</strong> scope aktif</span>
-            <span>{inherited ? "Inherited dari organisasi" : "Client override aktif"}</span>
-            <span>{dirty ? "Ada perubahan belum disimpan" : "Konfigurasi sinkron"}</span>
-          </div>
-        </div>
-        <div className="portal-config-hero-actions">
-          <button type="button" className="btn" disabled={loading || busy} onClick={() => void load(clientId)}>
-            {loading ? "Memuat…" : "Refresh konfigurasi"}
-          </button>
-        </div>
-      </section>
+      <UiWorkspaceHeader
+        eyebrow="EMPLOYEE SERVICES · CONFIGURATION"
+        title="Portal Configuration Control Center"
+        description="Atur policy Advance Salary, konten ESS, promosi, dan tracking per organisasi atau per klien tanpa menyentuh pay run, PI, maupun billing."
+        meta={<>
+          <span><strong>{scopeLabel}</strong> scope aktif</span>
+          <span>{inherited ? "Inherited dari organisasi" : "Client override aktif"}</span>
+          <span>{dirty ? "Ada perubahan belum disimpan" : "Konfigurasi sinkron"}</span>
+        </>}
+        action={<button type="button" className="btn" disabled={loading || busy} onClick={() => void load(clientId)}>{loading ? "Memuat…" : "Refresh konfigurasi"}</button>}
+      />
 
       <section className="portal-config-scope-card card">
         <div className="portal-config-scope-copy">
@@ -306,33 +303,23 @@ export default function PortalSettings() {
       <div className="portal-config-layout">
         <aside className="portal-config-nav card" aria-label="Bagian konfigurasi">
           <div className="portal-config-nav-title">Konfigurasi</div>
-          {(
-            [
-              ["rules", "Advance Salary", "Policy, limit, fee, eligibility"],
-              ["copy", "Portal Content", "Headline, label, dan copy ESS"],
-              ["ads", "Promotion", "Banner dan CTA portal"],
-              ["platform", "Tracking", "Ads platform dan conversion"],
-            ] as const
-          ).map(([id, label, desc]) => (
-            <button key={id} type="button" className={`portal-config-nav-item${tab === id ? " active" : ""}`} onClick={() => setTab(id)}>
-              <span>{label}</span>
-              <small>{desc}</small>
-            </button>
-          ))}
+          <UiTabs
+            items={[
+              { value: "rules", label: "Advance Salary" },
+              { value: "copy", label: "Portal Content" },
+              { value: "ads", label: "Promotion" },
+              { value: "platform", label: "Tracking" },
+            ]}
+            value={tab}
+            onChange={(value) => setTab(value as typeof tab)}
+            ariaLabel="Bagian konfigurasi portal"
+          />
         </aside>
 
         <div className="portal-config-main">
 
-      {message ? (
-        <p className="app-notice-bubble app-notice-error" role="status">
-          {message}
-        </p>
-      ) : null}
-      {ok ? (
-        <p className="app-notice-bubble" role="status">
-          {ok}
-        </p>
-      ) : null}
+      {message ? <UiNotice tone="error" title="Portal Configuration">{message}</UiNotice> : null}
+      {ok ? <UiNotice tone="success" title="Portal Configuration">{ok}</UiNotice> : null}
 
       {tab === "rules" ? (
         <div className="card portal-config-grid">

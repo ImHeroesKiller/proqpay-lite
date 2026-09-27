@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import {
+  FilterBar as UiFilterBar,
+  MetricCard as UiMetricCard,
+  MetricGrid as UiMetricGrid,
+  Notice as UiNotice,
+  SectionCard as UiSectionCard,
+  WorkspaceHeader as UiWorkspaceHeader,
+} from "@/components/ui/UnifiedSystem";
+import {
   clearSystemLogs,
   loadSystemLogs,
   onSystemLogChange,
@@ -248,22 +256,17 @@ export default function SystemLogs() {
 
   return (
     <section className="audit-console">
-      <section className="audit-hero">
-        <div>
-          <span className="audit-eyebrow">GOVERNANCE · SECURITY · OPERATIONS</span>
-          <h1>Audit Logs Control Center</h1>
-          <p>
-            Satu console untuk seluruh audit bisnis, payroll, payment, billing, Employee Services,
-            security, integration, dan runtime aplikasi.
-          </p>
-          <div className="audit-hero-meta">
-            <span><strong>D1</strong> canonical audit authority</span>
-            <span><strong>{summary.failedLogins}</strong> login portal gagal</span>
-            <span><strong>{localLogs.length}</strong> runtime local</span>
-          </div>
-        </div>
-        <button type="button" className="btn" disabled={loading} onClick={() => void load()}>{loading ? "Memuat…" : "Refresh audit"}</button>
-      </section>
+      <UiWorkspaceHeader
+        eyebrow="GOVERNANCE · SECURITY · OPERATIONS"
+        title="Audit Logs Control Center"
+        description="Satu console untuk seluruh audit bisnis, payroll, payment, billing, Employee Services, security, integration, dan runtime aplikasi."
+        meta={<>
+          <span><strong>D1</strong> canonical audit authority</span>
+          <span><strong>{summary.failedLogins}</strong> login portal gagal</span>
+          <span><strong>{localLogs.length}</strong> runtime local</span>
+        </>}
+        action={<button type="button" className="btn" disabled={loading} onClick={() => void load()}>{loading ? "Memuat…" : "Refresh audit"}</button>}
+      />
 
       {traceCorrelation ? <div className="app-notice-bubble app-notice-info" role="status">
         <strong>Correlation trace aktif</strong>
@@ -271,12 +274,12 @@ export default function SystemLogs() {
         <button type="button" className="btn" onClick={resetFilters}>Tampilkan semua audit</button>
       </div> : null}
 
-      <div className="audit-kpis">
-        <div className="audit-kpi"><span>Total canonical</span><strong>{summary.total}</strong><small>event sesuai filter</small></div>
-        <div className="audit-kpi audit-kpi-error"><span>Error</span><strong>{summary.errors}</strong><small>butuh investigasi</small></div>
-        <div className="audit-kpi audit-kpi-warn"><span>Warning</span><strong>{summary.warnings}</strong><small>perlu perhatian</small></div>
-        <div className="audit-kpi audit-kpi-ess"><span>Employee Services</span><strong>{summary.employeeServices}</strong><small>termasuk portal login</small></div>
-      </div>
+      <UiMetricGrid>
+        <UiMetricCard label="Total canonical" value={summary.total} note="event sesuai filter" />
+        <UiMetricCard label="Error" value={summary.errors} note="butuh investigasi" tone={summary.errors ? "danger" : "neutral"} />
+        <UiMetricCard label="Warning" value={summary.warnings} note="perlu perhatian" tone={summary.warnings ? "warning" : "neutral"} />
+        <UiMetricCard label="Employee Services" value={summary.employeeServices} note="termasuk portal login" tone="accent" />
+      </UiMetricGrid>
 
       <section className="audit-health-strip" aria-label="Status operasional">
         <div><span>Payment Gateway</span><strong className={health.gatewayFailed?"bad":health.gatewayActive?"warn":"ok"}>{health.gatewayFailed ? health.gatewayFailed+" gagal" : health.gatewayActive ? health.gatewayActive+" aktif" : "Normal"}</strong></div>
@@ -285,27 +288,29 @@ export default function SystemLogs() {
         <div><span>ESS failed login</span><strong className={summary.failedLogins?"warn":"ok"}>{summary.failedLogins}</strong></div>
       </section>
 
-      <section className="card audit-filter-panel">
-        <div className="audit-filter-head"><div><strong>Filter console</strong><span>Semua event canonical tersedia dari satu endpoint D1.</span></div>{hasFilters ? <button type="button" className="btn" onClick={resetFilters}>Reset filter</button> : null}</div>
-        <div className="audit-filter-grid">
+      <UiFilterBar
+        title="Filter console"
+        detail="Semua event canonical tersedia dari satu endpoint D1."
+        action={hasFilters ? <button type="button" className="btn" onClick={resetFilters}>Reset filter</button> : null}
+        className="audit-filter-panel"
+      >
           <label className="audit-search"><span>Pencarian</span><input value={q} onChange={(event) => { setQ(event.target.value); setTraceCorrelation(""); setOffset(0); }} placeholder="Event, actor, entity, correlation ID, IP…" /></label>
           <label><span>Source</span><select value={source} onChange={(event) => { setSource(event.target.value); setOffset(0); setSelected(null); }}><option value="">Semua canonical D1</option>{sourceOptions.map((item) => <option key={item.key} value={item.key}>{SOURCE_LABELS[item.key] || item.key} ({item.total})</option>)}<option value="LOCAL_RUNTIME">Runtime Local ({localLogs.length})</option></select></label>
           <label><span>Level</span><select value={level} onChange={(event) => { setLevel(event.target.value); setOffset(0); }}><option value="">Semua level</option><option>INFO</option><option>SUCCESS</option><option>WARN</option><option>ERROR</option></select></label>
           <label><span>Dari</span><input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setOffset(0); }} /></label>
           <label><span>Sampai</span><input type="date" value={to} onChange={(event) => { setTo(event.target.value); setOffset(0); }} /></label>
           <label><span>Baris</span><select value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setOffset(0); }}><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
-        </div>
-      </section>
+        </UiFilterBar>
 
-      {message ? <div className="app-notice-bubble app-notice-error" role="alert"><span>{message}</span><button type="button" className="btn" onClick={() => void load()}>Coba lagi</button></div> : null}
+      {message ? <UiNotice tone="error" title="Audit Logs" action={<button type="button" className="btn" onClick={() => void load()}>Coba lagi</button>}>{message}</UiNotice> : null}
 
-      <section className="card audit-stream">
+      <UiSectionCard className="audit-stream">
         <div className="audit-stream-head"><div><strong>{source === "LOCAL_RUNTIME" ? "Runtime Local" : source ? SOURCE_LABELS[source] || source : "Semua Canonical Audit"}</strong><span>{activeTotal} event · {source === "LOCAL_RUNTIME" ? "browser-only, non-authoritative" : "Cloudflare D1 authoritative"}</span></div>{source === "LOCAL_RUNTIME" && localLogs.length ? <button type="button" className="btn" onClick={clearSystemLogs}>Bersihkan runtime local</button> : null}</div>
         {loading && source !== "LOCAL_RUNTIME" && activeRows.length === 0 ? <div className="audit-empty">Memuat audit log…</div> : null}
         {!loading && !message && activeRows.length === 0 ? <div className="audit-empty">Tidak ada event yang cocok dengan filter.</div> : null}
         {activeRows.length > 0 ? <div className="audit-table-wrap"><table className="audit-table"><thead><tr><th>Waktu</th><th>Level</th><th>Source</th><th>Event</th><th>Actor</th><th>Entity</th><th /></tr></thead><tbody>{activeRows.map((row) => <tr key={row.id}><td className="audit-time">{fmtTime(row.timestamp)} WIB</td><td><span className={`audit-level audit-level-${row.level.toLowerCase()}`}>{row.level}</span></td><td><span className="audit-source">{SOURCE_LABELS[row.source] || row.source}</span></td><td><strong>{humanize(row.event)}</strong><small>{row.message || row.event}</small></td><td>{row.actor || "SYSTEM"}<small>{row.actor_role || "—"}</small></td><td>{row.entity || "—"}<small>{row.entity_id || row.ip || "—"}</small></td><td className="audit-action"><button type="button" className="btn" onClick={() => setSelected(row)}>Detail</button></td></tr>)}</tbody></table></div> : null}
         <div className="audit-pagination"><span>{activeTotal ? `${offset + 1}–${Math.min(offset + activeRows.length, activeTotal)} dari ${activeTotal}` : "0 event"}</span><div><button type="button" className="btn" disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - limit))}>Sebelumnya</button><button type="button" className="btn" disabled={!activeHasMore || loading} onClick={() => setOffset(nextOffset)}>Berikutnya</button></div></div>
-      </section>
+      </UiSectionCard>
 
       {selected ? <div className="es-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setSelected(null); }}><aside className="es-drawer audit-drawer" role="dialog" aria-modal="true" aria-labelledby="audit-detail-title"><div className="es-drawer-head"><div><span className="audit-eyebrow">AUDIT DETAIL</span><h2 id="audit-detail-title">{humanize(selected.event)}</h2><small>{selected.id}</small></div><button type="button" className="btn" onClick={() => setSelected(null)}>Tutup</button></div><div className="es-detail-grid"><div><span>Waktu</span>{fmtTime(selected.timestamp)} WIB</div><div><span>Level</span>{selected.level}</div><div><span>Source</span>{SOURCE_LABELS[selected.source] || selected.source}</div><div><span>Origin</span>{selected.origin || "—"}</div><div><span>Actor</span>{selected.actor || "SYSTEM"} · {selected.actor_role || "—"}</div><div><span>IP</span>{selected.ip || "—"}</div><div><span>Entity</span>{selected.entity || "—"}</div><div><span>Entity ID</span>{selected.entity_id || "—"}</div><div><span>Correlation ID</span>{selected.correlation_id || "—"}</div><div className="audit-detail-wide"><span>Raw event</span>{selected.event}</div><div className="audit-detail-wide"><span>Detail</span>{selected.message || "—"}</div></div></aside></div> : null}
     </section>

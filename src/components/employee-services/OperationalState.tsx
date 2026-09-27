@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  EmptyState as UiEmptyState,
+  LoadingState as UiLoadingState,
+  Notice as UiNotice,
+} from "@/components/ui/UnifiedSystem";
+
 export function EmployeeServiceState({
   loading,
   error,
@@ -20,27 +26,26 @@ export function EmployeeServiceState({
   onReset?: () => void;
 }) {
   if (loading) {
-    return (
-      <div className="card employee-service-state" role="status" aria-live="polite" aria-busy="true" style={{ padding: 24 }}>
-        <strong>{loadingText}</strong>
-      </div>
-    );
+    return <UiLoadingState title={loadingText} />;
   }
   if (error) {
     return (
-      <div className="app-notice-bubble app-notice-error employee-service-state" role="alert" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <span>{error}</span>
-        <button type="button" className="btn" onClick={onRetry}>Coba lagi</button>
-      </div>
+      <UiNotice
+        tone="error"
+        title="Employee Services"
+        action={<button type="button" className="btn" onClick={onRetry}>Coba lagi</button>}
+      >
+        {error}
+      </UiNotice>
     );
   }
   if (empty) {
     return (
-      <div className="card employee-service-state employee-service-empty" role="status" style={{ padding: 24, textAlign: "center" }}>
-        <strong>{emptyTitle}</strong>
-        <p style={{ color: "var(--text3)", margin: "6px 0 12px" }}>{emptyBody}</p>
-        {onReset ? <button type="button" className="btn" onClick={onReset}>Reset filter</button> : null}
-      </div>
+      <UiEmptyState
+        title={emptyTitle}
+        body={emptyBody}
+        action={onReset ? <button type="button" className="btn" onClick={onReset}>Reset filter</button> : null}
+      />
     );
   }
   return null;

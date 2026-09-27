@@ -21,11 +21,13 @@ test('Employee Service P2: EWA admin exposes lifecycle facets, retry and respons
   const api=await read('functions/api/ewa.js');
   const ui=await read('src/components/EwaInbox.tsx');
   const states=await read('src/components/employee-services/OperationalState.tsx');
+  const unified=await read('src/components/ui/UnifiedSystem.tsx');
   const details=await read('src/components/employee-services/EwaLifecycle.tsx');
   assert.match(api,/statusCounts/);
   assert.match(api,/SELECT DISTINCT c\.id,c\.name/);
   assert.match(states,/Coba lagi/);
-  assert.match(states,/aria-busy="true"/);
+  assert.match(states,/UiLoadingState/);
+  assert.match(unified,/aria-busy="true"/);
   assert.match(ui,/ewa-mobile-card/);
   assert.match(details,/ewa-detail-panel/);
   assert.match(details,/Tutup detail advance/);
