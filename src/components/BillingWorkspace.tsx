@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { formatIDR } from "@/lib/format";
 import { executeOperatingAction, getPayRunDetail, listOperatingResource } from "@/lib/operating-model-api";
 import { arControlSummary, billingDateLabel, billingModalTitle, billingPermission, type ArRecord, type BillablePayment, type BillingActor, type BillingClient, type BillingData, type BillingModalState, type BillingSection, type BillingSubmission, type InvoiceRecord } from "@/lib/billing-ui";
+import { PROQPAY_ICON_JPEG_BASE64, PROQPAY_LOGO_JPEG_BASE64 } from "../../functions/api/proqpay-invoice-assets.js";
 
 
 const sections: Record<BillingSection, string> = {
@@ -1364,22 +1365,25 @@ function IssuerProfileForm({ form, setForm, submit }: any) {
 function InvoiceDetail({ row }: any) {
   const issuerAddress =
     "Graha MSG, Jl. Raya Pos Pengumben Raya No.Kav 188, Klp. Dua, Kec. Kb. Jeruk, Kota Jakarta Barat, DKI Jakarta 11550";
+  const invoiceItems = Array.isArray(row.items) && row.items.length
+    ? row.items
+    : [{
+        description: `Jasa payroll periode ${row.period || "-"}`,
+        quantity: 1,
+        rate: Number(row.subtotal || 0),
+        amount: Number(row.subtotal || 0),
+      }];
+  const iconSrc = `data:image/jpeg;base64,${PROQPAY_ICON_JPEG_BASE64}`;
+  const logoSrc = `data:image/jpeg;base64,${PROQPAY_LOGO_JPEG_BASE64}`;
+
   return (
     <div>
       <div className="billing-print-area invoice-print-preview">
         <header className="invoice-preview-header">
           <div className="invoice-preview-brand">
-            <img
-              src="/branding/proqpay-icon.svg"
-              alt="ProQPay icon"
-              className="invoice-preview-icon"
-            />
+            <img src={iconSrc} alt="ProQPay icon" className="invoice-preview-icon" />
             <div className="invoice-preview-logo-stack">
-              <img
-                src="/branding/proqpay-logo.svg"
-                alt="ProQPay"
-                className="invoice-preview-logo"
-              />
+              <img src={logoSrc} alt="ProQPay" className="invoice-preview-logo" />
               <strong>PT Mandiri Semesta Gemilang</strong>
               <small>People. Operations. Technology.</small>
             </div>
@@ -1387,8 +1391,8 @@ function InvoiceDetail({ row }: any) {
           <div className="invoice-preview-title">
             <h2>INVOICE</h2>
             <strong>{row.invoice_number}</strong>
-            <small>Tanggal: {date(row.issued_at || row.created_at)}</small>
-            <small>Jatuh tempo: {date(row.due_date)}</small>
+            <small>Invoice date · {date(row.issued_at || row.created_at)}</small>
+            <small>Due date · {date(row.due_date)}</small>
           </div>
         </header>
 
@@ -1405,8 +1409,8 @@ function InvoiceDetail({ row }: any) {
           <div>
             <span>BILL TO</span>
             <strong>{row.company}</strong>
-            <small>{row.billing_address || "-"}</small>
-            {row.npwp ? <small>NPWP: {row.npwp}</small> : null}
+            {row.billing_address ? <small>{row.billing_address}</small> : null}
+            {row.npwp ? <small>NPWP · {row.npwp}</small> : null}
           </div>
         </section>
 
@@ -1417,24 +1421,29 @@ function InvoiceDetail({ row }: any) {
           <div><span>PROJECT</span><strong>{row.project_name || "-"}</strong></div>
         </section>
 
-        <div className="invoice-preview-table-wrap">
-          <Table
-            headers={["Deskripsi", "Jumlah"]}
-            rows={[
-              [
-                `Jasa payroll periode ${row.period || "-"}`,
-                formatIDR(Number(row.subtotal || 0)),
-              ],
-              ["PPN", formatIDR(Number(row.tax_amount || 0))],
-              [
-                "TOTAL",
-                <strong key="t">
-                  {formatIDR(Number(row.total_amount || 0))}
-                </strong>,
-              ],
-            ]}
-          />
-        </div>
+        <section className="invoice-preview-items" aria-label="Invoice line items">
+          <div className="invoice-preview-items-head">
+            <span>NO</span><span>DESCRIPTION</span><span>QTY</span><span>UNIT PRICE</span><span>AMOUNT</span>
+          </div>
+          {invoiceItems.slice(0, 12).map((item: any, index: number) => (
+            <div className="invoice-preview-item-row" key={index}>
+              <span>{index + 1}</span>
+              <strong>{item.description || "Payroll Services"}</strong>
+              <span>{Number(item.quantity || 1).toLocaleString("id-ID")}</span>
+              <span>{formatIDR(Number(item.rate || item.amount || 0))}</span>
+              <strong>{formatIDR(Number(item.amount || 0))}</strong>
+            </div>
+          ))}
+        </section>
+
+        <section className="invoice-preview-summary">
+          <div className="invoice-preview-summary-spacer" />
+          <div className="invoice-preview-totals">
+            <div><span>Subtotal</span><strong>{formatIDR(Number(row.subtotal || 0))}</strong></div>
+            <div><span>PPN {Number(row.tax_rate || 0)}%</span><strong>{formatIDR(Number(row.tax_amount || 0))}</strong></div>
+            <div className="invoice-preview-grand-total"><span>GRAND TOTAL</span><strong>{formatIDR(Number(row.total_amount || 0))}</strong></div>
+          </div>
+        </section>
 
         <section className="invoice-preview-payment">
           <div>
@@ -1443,16 +1452,16 @@ function InvoiceDetail({ row }: any) {
             <small>+62 856-9766-6101 · www.msg-os.com</small>
           </div>
           <small>
-            Detail rekening pembayaran hanya ditampilkan pada PDF apabila sudah
+            Detail rekening pembayaran akan tampil pada invoice setelah
             dikonfigurasi di Billing Setup.
           </small>
         </section>
 
-        {row.tax_invoice_number && (
+        {row.tax_invoice_number ? (
           <p className="invoice-preview-tax">
-            Faktur pajak: <strong>{row.tax_invoice_number}</strong>
+            Faktur pajak · <strong>{row.tax_invoice_number}</strong>
           </p>
-        )}
+        ) : null}
 
         <footer className="invoice-preview-footer">
           <div>
