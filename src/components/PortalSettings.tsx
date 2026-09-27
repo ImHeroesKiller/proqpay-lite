@@ -529,8 +529,7 @@ export default function PortalSettings() {
           {ads.map((ad, index) => (
             <div
               key={ad.id || index}
-              className="card"
-              style={{ padding: 16, marginBottom: 12 }}
+              className="card ui-banner-card"
             >
               <div
                 style={{
@@ -540,7 +539,7 @@ export default function PortalSettings() {
                 }}
               >
                 <strong>Banner {index + 1}</strong>
-                <span style={{ display: "flex", gap: 6 }}>
+                <span className="ui-cluster">
                   <button
                     type="button"
                     className="btn"
@@ -737,7 +736,7 @@ export default function PortalSettings() {
       ) : null}
 
       {tab === "copy" ? (
-        <div className="card" style={{ display: "grid", gap: 12, padding: 18 }}>
+        <div className="card ui-settings-panel">
           <label className="es-field">
             Tagline perusahaan
             <input
@@ -806,11 +805,8 @@ export default function PortalSettings() {
       ) : null}
 
       {tab === "platform" ? (
-        <div
-          className="card"
-          style={{ display: "grid", gap: 12, padding: 18, maxWidth: 560 }}
-        >
-          <p style={{ margin: 0, fontSize: 13, color: "var(--text2)" }}>
+        <div className="card ui-settings-panel ui-settings-panel-narrow">
+          <p className="ui-subtle-copy portal-config-platform-copy">
             Integrasi iklan memakai pixel gambar (1×1), bukan skrip pihak
             ketiga. Ini aman untuk portal karyawan.
           </p>
