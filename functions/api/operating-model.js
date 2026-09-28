@@ -200,7 +200,7 @@ async function guardSensitivePaymentActions(body, actor, env) {
     if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
     if (APPROVED_OR_LATER_STATUSES.has(String(payment.status || '').toUpperCase())) {
       const approval = await d1First(env.DB, `SELECT * FROM payment_approvals
-        WHERE payment_instruction_id=? AND action_hash=? LIMIT 1`, [payment.id, String(body.actionHash || '')]);
+        WHERE payment_instruction_id=? AND action_hash=? AND status='APPROVED' LIMIT 1`, [payment.id, String(body.actionHash || '')]);
       if (approval && payment.content_hash && String(body.actionHash || '') === String(payment.content_hash)) {
         return { status: 200, data: { ok: true, approval, idempotentReplay: true } };
       }
