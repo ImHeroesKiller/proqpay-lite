@@ -91,8 +91,35 @@ export function isRetryableE2PayFailure(item) {
   const status=String(item?.status || '');
   if(status==='RETRY_READY') return true;
   if(status!=='FAILED') return false;
-  if(Number(item?.attempt_count || 0)===0) return true;
-  return String(item?.response_code || '').trim()==='99';
+
+  // Never turn deterministic preflight/control failures into an automatic retry
+  // just because no financial POST was attempted yet.
+  const errorCode=String(item?.error_code || '').trim();
+  const deterministicPreflightFailures=new Set([
+    'E2PAY_BANK_NOT_MAPPED',
+    'E2PAY_INQUIRY_CONTROL_MISMATCH',
+    'E2PAY_TRANSACTION_INVALID',
+    'E2PAY_ACCOUNT_SRC_MISSING',
+    'E2PAY_ACCOUNT_SRC_MISMATCH',
+    'E2PAY_SOURCE_ID_MISSING',
+    'E2PAY_PASSWORD_MD5_INVALID',
+  ]);
+  if(deterministicPreflightFailures.has(errorCode)) return false;
+  if(deterministicClientHttpFailure(item)) return false;
+
+  // Provider response code 99 is the explicit retryable failure contract.
+  if(String(item?.response_code || '').trim()==='99') return true;
+
+  // Before any financial POST, only transient inquiry/network failures are safe
+  // to repeat. Everything else remains blocked for operator review.
+  if(Number(item?.attempt_count || 0)===0){
+    return [
+      'E2PAY_TIMEOUT',
+      'E2PAY_NETWORK_ERROR',
+      'E2PAY_INQUIRY_FAILED',
+    ].includes(errorCode);
+  }
+  return false;
 }
 
 export function isRetryInquiryReady(item) {
