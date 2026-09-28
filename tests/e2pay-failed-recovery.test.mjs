@@ -120,7 +120,7 @@ test('P0 source uses explicit RETRY_READY -> RETRY_INQUIRY_READY -> financial PO
   assert.match(service,/status:retryCycle \? 'RETRY_INQUIRY_READY' : 'INQUIRY_READY'/);
   assert.match(service,/retryFailed\s*\? item\.status === 'RETRY_INQUIRY_READY'/);
   assert.match(service,/attempt_count:Number\(item\.attempt_count \|\| 0\) \+ 1/);
-  assert.match(endpoint,/status IN \('RETRY_READY','RETRY_INQUIRY_READY'\)/);
+  assert.match(endpoint,/retryItems\.filter\(\(item\) => isE2PayRetryCandidate\(item\)\)/);
   assert.match(migration,/RETRY_READY/);
   assert.match(migration,/RETRY_INQUIRY_READY/);
   assert.doesNotMatch(service,/E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY/);
