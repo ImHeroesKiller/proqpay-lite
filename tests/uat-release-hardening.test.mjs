@@ -91,8 +91,8 @@ test('UAT: E2Pay UI exposes controlled failed-item retry and blocks generic whol
   const ui = await readFile(new URL('../src/components/PaymentGatewayExecutionActions.tsx', import.meta.url), 'utf8');
   const api = await readFile(new URL('../functions/api/payment-gateway.js', import.meta.url), 'utf8');
   assert.match(ui, /retryFailedE2PayPayment/);
-  assert.match(ui, /e2payRetryable/);
-  assert.match(ui, /Retry \$\{e2payRetryable\} Gagal/);
+  assert.match(ui, /Retry Aman \(\$\{e2payRetryable\}\)/);
+  assert.match(ui, /Retry Aman \(\$\{e2payRetryable\}\)/);
   assert.match(ui, /!isE2Pay \|\| e2payFailed === 0/);
   assert.match(api, /RETRY_FAILED/);
   assert.match(api, /response_code,''\)\)='99'/);
