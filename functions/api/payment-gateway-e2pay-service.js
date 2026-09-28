@@ -5,6 +5,7 @@ import {
   e2payBankList,
   e2payClientRef,
   e2payDisburse,
+  e2payEffectiveDestination,
   e2payInquiry,
   e2payMerchantAccount,
   e2payResponseStatus,
@@ -145,31 +146,38 @@ async function prepareBeneficiaries(database, env, transactionId, payment, benef
     if (item.status === 'FAILED' && Number(item.attempt_count || 0) > 0
       && !(retryFailed && isRetryableE2PayFailure(item))) continue;
 
-    const bank = resolveE2PayBank(banks, beneficiary);
+    const effectiveDestination=e2payEffectiveDestination(env,beneficiary);
+    const bank = effectiveDestination.isUatDummy
+      ? resolveE2PayBank(banks,{bankCode:effectiveDestination.bankId,bankName:effectiveDestination.bankId})
+      : resolveE2PayBank(banks, beneficiary);
     if (!bank) {
       await updateItem(database, item.id, {
         status:'FAILED',
         error_code:'E2PAY_BANK_NOT_MAPPED',
-        error_message:'Bank ' + (beneficiary.bankCode || beneficiary.bankName || '-') + ' tidak ditemukan pada directory E2Pay',
+        error_message:effectiveDestination.isUatDummy
+          ? 'Dummy bank Permata untuk E2Pay UAT tidak ditemukan pada directory provider'
+          : 'Bank ' + (beneficiary.bankCode || beneficiary.bankName || '-') + ' tidak ditemukan pada directory E2Pay',
       });
       continue;
     }
 
     try {
       const inquiry = await e2payInquiry(env, accessToken, {
-        accountId:beneficiary.accountNumber,
+        accountId:effectiveDestination.accountId,
         bankId:bank.id,
-        amount:beneficiary.amount,
+        amount:effectiveDestination.amount,
       });
       const returnedAccount = String(inquiry?.accountId || '').trim();
       const returnedAmount = Math.trunc(number(inquiry?.amount));
       const inquiryId = String(inquiry?.id || '').trim();
-      if (!inquiryId || returnedAccount !== String(beneficiary.accountNumber || '').trim() || returnedAmount !== Number(beneficiary.amount)) {
+      if (!inquiryId || returnedAccount !== effectiveDestination.accountId || returnedAmount !== effectiveDestination.amount) {
         await updateItem(database, item.id, {
           status:'FAILED',
           bank_id:String(bank.id),
           error_code:'E2PAY_INQUIRY_CONTROL_MISMATCH',
-          error_message:'Hasil inquiry tidak sesuai beneficiary snapshot',
+          error_message:effectiveDestination.isUatDummy
+            ? 'Hasil inquiry tidak sesuai dummy destination resmi E2Pay UAT'
+            : 'Hasil inquiry tidak sesuai beneficiary snapshot',
         });
         continue;
       }
@@ -413,9 +421,10 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
 
     let result;
     try {
+      const uatDummy=String(env?.E2PAY_ENV || 'UAT').trim().toUpperCase()==='UAT';
       result = await e2payDisburse(env, auth.accessToken, {
         clientRef:item.client_ref,
-        description:(payment.document_no || payment.id) + ' · ' + beneficiary.beneficiaryName,
+        description:(uatDummy?'[UAT DUMMY] ':'') + (payment.document_no || payment.id) + ' · ' + beneficiary.beneficiaryName,
         inquiryId:item.inquiry_id,
       });
     } catch (error) {
