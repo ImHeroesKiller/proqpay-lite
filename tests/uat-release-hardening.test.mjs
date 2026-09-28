@@ -95,7 +95,10 @@ test('UAT: E2Pay UI exposes controlled failed-item retry and blocks generic whol
   assert.match(ui, /Retry Aman \(\$\{e2payRetryable\}\)/);
   assert.match(ui, /!isE2Pay \|\| e2payFailed === 0/);
   assert.match(api, /RETRY_FAILED/);
-  assert.match(api, /response_code,''\)\)='99'/);
+  assert.match(api, /retryItems\.filter\(\(item\) => isE2PayRetryCandidate\(item\)\)/);
+  assert.match(api, /E2PAY_RECONCILIATION_REQUIRED/);
+  assert.match(api, /E2PAY_CONTROLLED_RETRY_REQUIRED/);
+  assert.doesNotMatch(api, /status='FAILED' AND \(attempt_count=0 OR/);
 });
 
 test('UAT: E2Pay reconciliation never treats missing response code as success', async () => {
