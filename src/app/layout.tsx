@@ -4,6 +4,7 @@ import "./globals.css";
 import "./polish.css";
 import "./employee-services.css";
 import "./audit-console.css";
+import "./e2pay-wallet.css";
 import PwaRegister from "@/components/PwaRegister";
 
 const inter = Inter({

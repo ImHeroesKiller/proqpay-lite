@@ -34,6 +34,7 @@ type FormState = {
   username: string;
   password: string;
   merchantId: string;
+  fundingBank: string;
 };
 
 const EMPTY: FormState = {
@@ -47,6 +48,7 @@ const EMPTY: FormState = {
   username:'',
   password:'',
   merchantId:'',
+  fundingBank:'',
 };
 
 function profileSummary(settings: GatewaySettings | null, environment: FormState['environment']) {
@@ -70,7 +72,7 @@ export default function PaymentGatewaySettings() {
   const [executionReady, setExecutionReady] = useState(false);
   const [activationAcknowledged, setActivationAcknowledged] = useState(false);
   const [message, setMessage] = useState<{ type:'success' | 'error' | 'info'; text:string } | null>(null);
-  const [connection, setConnection] = useState<{ hostAuthorized:boolean; merchantLoginAuthorized:boolean; tokenType:string; expiresIn:number|null; merchantName:string; merchantStatus:string; merchantId:string; partnerId:string; sourceId:string; accountSrcMasked:string; bankCount:number; nextStep:string } | null>(null);
+  const [connection, setConnection] = useState<{ hostAuthorized:boolean; merchantLoginAuthorized:boolean; tokenType:string; expiresIn:number|null; merchantName:string; merchantStatus:string; merchantId:string; partnerId:string; sourceId:string; fundingBank:string; accountSrcMasked:string; bankCount:number; nextStep:string } | null>(null);
 
   const activeProvider = server?.activeProvider || server?.provider || 'UNCONFIGURED';
   const activeEnvironment = server?.activeEnvironment || server?.environment || 'UAT';
@@ -138,6 +140,7 @@ export default function PaymentGatewaySettings() {
         username:'',
         password:'',
         merchantId:'',
+        fundingBank:'',
       }));
       setDraftSaved(true);
       setExecutionReady(false);
@@ -223,6 +226,7 @@ export default function PaymentGatewaySettings() {
     { key:'username', label:'username', placeholder:'Masukkan username merchant' },
     { key:'password', label:'password', secret:true, placeholder:'Masukkan password merchant' },
     { key:'merchantId', label:'merchantId', placeholder:'Masukkan Merchant ID' },
+    { key:'fundingBank', label:'Funding bank (Top Up)', placeholder:'Bank VA dari E2Pay, contoh: BCA / Mandiri / Permata' },
   ];
 
   const canActivate = form.provider === 'UNCONFIGURED'
@@ -303,7 +307,8 @@ export default function PaymentGatewaySettings() {
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Merchant ID: {connection.merchantId || '-'}</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Partner ID: {connection.partnerId || '-'}</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Source ID: {connection.sourceId || '-'}</span>
-      <span style={{ fontSize:11.5, color:'var(--text3)' }}>Source account: {connection.accountSrcMasked || 'belum ditemukan'}</span>
+      <span style={{ fontSize:11.5, color:'var(--text3)' }}>Source account / VA: {connection.accountSrcMasked || 'belum ditemukan'}</span>
+      <span style={{ fontSize:11.5, color:'var(--text3)' }}>Funding bank: {connection.fundingBank || 'belum dikonfigurasi'}</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>Bank directory: {connection.bankCount || 0} bank</span>
       <span style={{ fontSize:11.5, color:'var(--text3)' }}>{connection.nextStep}</span>
     </div> : null}
@@ -321,7 +326,7 @@ export default function PaymentGatewaySettings() {
     </div> : null}
 
     <div style={{ borderTop:'1px solid var(--border-soft)', paddingTop:12, color:'var(--text3)', fontSize:11.5, lineHeight:1.6 }}>
-      Credential disimpan terenkripsi di server. Password merchant dinormalisasi menjadi MD5 uppercase di backend dan tidak dikirim kembali ke browser. Test Connection tidak menyimpan source account atau mengubah runtime; source account baru dipersist saat aktivasi eksplisit berhasil.
+      Credential disimpan terenkripsi di server. Password merchant dinormalisasi menjadi MD5 uppercase di backend dan tidak dikirim kembali ke browser. Funding bank dipakai hanya sebagai petunjuk bank tujuan VA untuk Top Up Wallet dan harus mengikuti informasi resmi dari E2Pay. Test Connection tidak menyimpan source account atau mengubah runtime; source account baru dipersist saat aktivasi eksplisit berhasil.
       {server?.updatedAt ? <div>Last draft update: {new Date(server.updatedAt).toLocaleString('id-ID')} · {server.updatedBy || '-'}</div> : null}
       {server?.activatedAt ? <div>Last activation: {new Date(server.activatedAt).toLocaleString('id-ID')} · {server.activatedBy || '-'}</div> : null}
     </div>

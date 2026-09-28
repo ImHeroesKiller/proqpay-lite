@@ -11,6 +11,12 @@ export type E2PayAccountSnapshot = {
   phoneMasked?:string|null;
   bankCount?:number|null;
   refreshedAt?:string|null;
+  funding?:{
+    ready:boolean;
+    bankName?:string|null;
+    vaNumber?:string|null;
+    accountName?:string|null;
+  };
   readiness?:{ configured:boolean; provider:string; environment?:string|null; reason?:string|null };
 };
 
