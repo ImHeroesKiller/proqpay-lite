@@ -19,7 +19,7 @@ test('E2Pay PI fixtures create several low-value approved scenarios',()=>{
   assert.match(source,/SUB-E2PAY-UAT-005/);
   assert.match(source,/amount:15000/);
   assert.match(source,/APPROVE_PAYMENT/);
-  assert.match(source,/APPROVED_FOR_PAYMENT/);
+  assert.match(source,/action:'APPROVE_PAYMENT'/);
 });
 
 test('E2Pay UAT fixtures use the provider dummy destination and do not auto execute',()=>{
