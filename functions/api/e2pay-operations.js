@@ -95,13 +95,21 @@ async function liveAccount(database,runtimeEnv,organizationId,includeBanks=false
   return saveSnapshot(database,organizationId,String(runtimeEnv.E2PAY_ENV||'UAT'),account,bankCount);
 }
 
-function publicSnapshot(row,readiness){
-  if(!row) return { available:false,balance:null,refreshedAt:null,readiness };
+function publicSnapshot(row,readiness,runtimeEnv){
+  if(!row) return {
+    available:false,
+    balance:null,
+    refreshedAt:null,
+    readiness,
+    funding:{ ready:false, bankName:clean(runtimeEnv?.E2PAY_FUNDING_BANK,160)||null, vaNumber:null, accountName:null },
+  };
+  const fundingBank=clean(runtimeEnv?.E2PAY_FUNDING_BANK,160);
+  const vaNumber=clean(row.account_id,200);
   return {
     available:true,
     provider:'E2PAY',
     environment:row.environment,
-    accountIdMasked:row.account_id ? '••••'+String(row.account_id).slice(-4) : null,
+    accountIdMasked:vaNumber ? '••••'+vaNumber.slice(-4) : null,
     accountName:row.account_name,
     merchantStatus:row.merchant_status,
     accountTypeName:row.account_type_name,
@@ -110,6 +118,12 @@ function publicSnapshot(row,readiness){
     phoneMasked:row.phone_masked,
     bankCount:row.bank_count===null ? null : Number(row.bank_count),
     refreshedAt:row.refreshed_at,
+    funding:{
+      ready:Boolean(fundingBank && vaNumber),
+      bankName:fundingBank || null,
+      vaNumber:vaNumber || null,
+      accountName:row.account_name || null,
+    },
     readiness,
   };
 }
@@ -151,7 +165,7 @@ export async function onRequest({request,env}){
         if(readiness.configured && (force || !row || !isFresh(row.refreshed_at))){
           row=await liveAccount(env.DB,runtimeEnv,organizationId,resource==='overview');
         }
-        return secureJson({ok:true,account:publicSnapshot(row,readiness),catalogCount:CATALOG.length},200,request,env,METHODS);
+        return secureJson({ok:true,account:publicSnapshot(row,readiness,runtimeEnv),catalogCount:CATALOG.length},200,request,env,METHODS);
       }
 
       if(!readiness.configured) return secureJson({error:readiness.reason,code:'E2PAY_NOT_READY',readiness},503,request,env,METHODS);
@@ -189,7 +203,7 @@ export async function onRequest({request,env}){
     if(action==='REFRESH_ACCOUNT'){
       if(!readiness.configured) return secureJson({error:readiness.reason,code:'E2PAY_NOT_READY'},503,request,env,METHODS);
       const row=await liveAccount(env.DB,runtimeEnv,organizationId,true);
-      result={account:publicSnapshot(row,readiness)};
+      result={account:publicSnapshot(row,readiness,runtimeEnv)};
     } else if(action==='VERIFY_USERNAME'){
       const host=await hostToken(runtimeEnv);
       result={verification:await e2payVerifyUsername(runtimeEnv,host.accessToken,body.username||runtimeEnv.E2PAY_USERNAME)};
