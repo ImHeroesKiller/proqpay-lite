@@ -62,6 +62,7 @@ function parseCredentials(body) {
     sourceId:clean(body.sourceId, 200),
     username:clean(body.username, 200),
     merchantId:clean(body.merchantId, 100),
+    fundingBank:clean(body.fundingBank, 160),
     passwordMd5:password ? normalizeE2PayPassword(password) : '',
   };
   return Object.fromEntries(Object.entries(values).filter(([, value]) => Boolean(value)));
@@ -88,6 +89,7 @@ async function testE2PayConnection(database, env, organizationId, body) {
     E2PAY_USERNAME:draft.username || storedRuntime.E2PAY_USERNAME || '',
     E2PAY_PASSWORD_MD5:draft.passwordMd5 || storedRuntime.E2PAY_PASSWORD_MD5 || '',
     E2PAY_MERCHANT_ID:draft.merchantId || storedRuntime.E2PAY_MERCHANT_ID || '',
+    E2PAY_FUNDING_BANK:draft.fundingBank || storedRuntime.E2PAY_FUNDING_BANK || '',
   });
 
   const hostReadiness = e2payHostReadiness(runtimeEnv);
@@ -151,6 +153,7 @@ async function testE2PayConnection(database, env, organizationId, body) {
       merchantId:clean(runtimeEnv.E2PAY_MERCHANT_ID, 100),
       partnerId:clean(verified?.partnerId || runtimeEnv.E2PAY_PARTNER_ID, 100),
       sourceId:clean(runtimeEnv.E2PAY_SOURCE_ID, 200),
+      fundingBank:clean(runtimeEnv.E2PAY_FUNDING_BANK, 160),
       accountSrcMasked:accountSrc ? '••••' + accountSrc.slice(-4) : '',
       bankCount:banks.length,
       nextStep:executionReadiness.configured
