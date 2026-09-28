@@ -36,7 +36,7 @@ test('gateway endpoint exposes controller-only VERIFY_FAILED before retry',async
   assert.match(source,/VERIFY_FAILED/);
   assert.match(source,/verifyFailedE2PayBatch/);
   assert.match(source,/E2PAY_FAILED_ITEMS_VERIFIED/);
-  assert.match(source,/E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY/);
+  assert.match(source,/RETRY_READY/);
 });
 
 test('UI shows explicit verify-before-retry recovery and provider error',async()=>{
@@ -45,7 +45,8 @@ test('UI shows explicit verify-before-retry recovery and provider error',async()
   assert.match(source,/Verifikasi E2Pay/);
   assert.match(source,/Verifikasi Transaction History E2Pay dulu/);
   assert.match(source,/Error provider:/);
-  assert.match(source,/E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY/);
+  assert.match(source,/RETRY_READY/);
+  assert.match(source,/RETRY_INQUIRY_READY/);
   assert.match(source,/Retry Aman/);
   assert.match(source,/belum ada pembayaran provider dan retry terkontrol tersedia/);
   assert.match(source,/role="status"/);
