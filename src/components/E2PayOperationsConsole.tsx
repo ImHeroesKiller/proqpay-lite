@@ -15,6 +15,8 @@ import {
 
 type Props={ canManage:boolean };
 
+const E2PAY_UAT_DUMMY={accountId:'701075327',bankId:'permata',amount:'15000'} as const;
+
 function dateTime(value?:string|null){
   if(!value) return '—';
   const date=new Date(value);
@@ -72,6 +74,14 @@ export default function E2PayOperationsConsole({canManage}:Props){
   },[]);
 
   useEffect(()=>{void loadOverview(false);},[loadOverview]);
+
+  useEffect(()=>{
+    if(String(account?.environment||'').toUpperCase()!=='UAT') return;
+    setInquiry((current)=>{
+      if(current.accountId||current.bankId||current.amount) return current;
+      return {...E2PAY_UAT_DUMMY};
+    });
+  },[account?.environment]);
 
   const run=useCallback(async(action:string,payload:Record<string,unknown>={})=>{
     setActionLoading(action);setError('');setNotice('');
@@ -256,12 +266,19 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <details className="e2pay-admin-detail">
           <summary>Disbursement inquiry</summary>
           <p>Validasi rekening tujuan dan fee tanpa mengirim uang.</p>
+          {String(account?.environment||'').toUpperCase()==='UAT'?<div className="app-notice-bubble app-notice-info" role="note">
+            <strong>E2Pay UAT dummy destination</strong>
+            <span>Sesuai arahan E2Pay untuk environment UAT: gunakan bank <b>Permata</b> dengan rekening dummy <b>701075327</b>. Nominal Rp15.000 berasal dari contoh dokumen dan dapat diubah sesuai skenario test.</span>
+          </div>:null}
           <div className="e2pay-form-grid">
             <Field label="Destination account" value={inquiry.accountId} onChange={(value)=>setInquiry({...inquiry,accountId:value})} />
             <Field label="Bank ID" value={inquiry.bankId} onChange={(value)=>setInquiry({...inquiry,bankId:value})} />
             <Field label="Amount" type="number" value={inquiry.amount} onChange={(value)=>setInquiry({...inquiry,amount:value})} />
           </div>
-          <button type="button" className="btn" disabled={Boolean(actionLoading)} onClick={()=>void run('INQUIRY',{...inquiry,amount:Number(inquiry.amount)})}>Run inquiry</button>
+          <div className="e2pay-action-row">
+            {String(account?.environment||'').toUpperCase()==='UAT'?<button type="button" className="btn" onClick={()=>setInquiry({...E2PAY_UAT_DUMMY})}>Gunakan dummy UAT</button>:null}
+            <button type="button" className="btn" disabled={Boolean(actionLoading)} onClick={()=>void run('INQUIRY',{...inquiry,amount:Number(inquiry.amount)})}>Run inquiry</button>
+          </div>
         </details>
 
         <details className="e2pay-admin-detail">
