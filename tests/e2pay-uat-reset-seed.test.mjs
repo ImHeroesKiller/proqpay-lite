@@ -22,6 +22,9 @@ test('E2Pay reset purge is tightly scoped to dedicated UAT namespace',async()=>{
   assert.match(sql,/payroll_intake_missing_resolutions/);
   assert.match(sql,/payroll_upload_batches/);
   assert.match(sql,/portal_settings/);
+  assert.doesNotMatch(sql,/CREATE TEMP TABLE/);
+  assert.match(sql,/CREATE TABLE _e2pay_uat_submissions/);
+  assert.match(sql,/DROP TABLE IF EXISTS _e2pay_uat_submissions/);
   assert.doesNotMatch(sql,/DELETE FROM clients\s*;/);
   assert.doesNotMatch(sql,/DELETE FROM employees\s*;/);
   assert.doesNotMatch(sql,/DELETE FROM payroll_submissions\s*;/);

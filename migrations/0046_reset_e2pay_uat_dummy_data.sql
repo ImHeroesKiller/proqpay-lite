@@ -3,11 +3,14 @@ PRAGMA foreign_keys = ON;
 -- One-time cleanup of E2Pay UAT fixtures created during gateway integration testing.
 -- Scope is limited to dedicated E2Pay UAT namespaces and their dependency closure.
 -- Production/shared client, employee, payroll and payment records are untouched.
+-- D1 does not permit TEMP schema usage in remote migrations, so helper tables are
+-- short-lived regular tables that are dropped before and after this migration.
 
 DROP TRIGGER IF EXISTS payment_instruction_lines_immutable_delete;
 DROP TRIGGER IF EXISTS payroll_run_lines_locked_delete;
 
-CREATE TEMP TABLE _e2pay_uat_submissions (id TEXT PRIMARY KEY);
+DROP TABLE IF EXISTS _e2pay_uat_submissions;
+CREATE TABLE _e2pay_uat_submissions (id TEXT PRIMARY KEY);
 INSERT OR IGNORE INTO _e2pay_uat_submissions(id)
 WITH RECURSIVE target(id) AS (
   SELECT id
@@ -22,21 +25,24 @@ WITH RECURSIVE target(id) AS (
 )
 SELECT id FROM target;
 
-CREATE TEMP TABLE _e2pay_uat_pis (id TEXT PRIMARY KEY);
+DROP TABLE IF EXISTS _e2pay_uat_pis;
+CREATE TABLE _e2pay_uat_pis (id TEXT PRIMARY KEY);
 INSERT OR IGNORE INTO _e2pay_uat_pis(id)
 SELECT id
 FROM payment_instructions
 WHERE submission_id IN (SELECT id FROM _e2pay_uat_submissions)
    OR client_id LIKE 'CLI-E2PAY-UAT-%';
 
-CREATE TEMP TABLE _e2pay_uat_tx (id TEXT PRIMARY KEY);
+DROP TABLE IF EXISTS _e2pay_uat_tx;
+CREATE TABLE _e2pay_uat_tx (id TEXT PRIMARY KEY);
 INSERT OR IGNORE INTO _e2pay_uat_tx(id)
 SELECT id
 FROM payment_gateway_transactions
 WHERE payment_instruction_id IN (SELECT id FROM _e2pay_uat_pis)
    OR client_id LIKE 'CLI-E2PAY-UAT-%';
 
-CREATE TEMP TABLE _e2pay_uat_invoices (id TEXT PRIMARY KEY);
+DROP TABLE IF EXISTS _e2pay_uat_invoices;
+CREATE TABLE _e2pay_uat_invoices (id TEXT PRIMARY KEY);
 INSERT OR IGNORE INTO _e2pay_uat_invoices(id)
 SELECT id
 FROM invoices
@@ -44,7 +50,8 @@ WHERE payment_instruction_id IN (SELECT id FROM _e2pay_uat_pis)
    OR client_id LIKE 'CLI-E2PAY-UAT-%'
    OR project_id LIKE 'PRJ-E2PAY-UAT-%';
 
-CREATE TEMP TABLE _e2pay_uat_ar (id TEXT PRIMARY KEY);
+DROP TABLE IF EXISTS _e2pay_uat_ar;
+CREATE TABLE _e2pay_uat_ar (id TEXT PRIMARY KEY);
 INSERT OR IGNORE INTO _e2pay_uat_ar(id)
 SELECT id
 FROM ar_monitor
@@ -52,7 +59,8 @@ WHERE invoice_id IN (SELECT id FROM _e2pay_uat_invoices)
    OR client_id LIKE 'CLI-E2PAY-UAT-%'
    OR project_id LIKE 'PRJ-E2PAY-UAT-%';
 
-CREATE TEMP TABLE _e2pay_uat_employees (id TEXT PRIMARY KEY);
+DROP TABLE IF EXISTS _e2pay_uat_employees;
+CREATE TABLE _e2pay_uat_employees (id TEXT PRIMARY KEY);
 INSERT OR IGNORE INTO _e2pay_uat_employees(id)
 SELECT id
 FROM employees
@@ -60,13 +68,15 @@ WHERE id LIKE 'EMP-E2PAY-UAT-%'
    OR client_id LIKE 'CLI-E2PAY-UAT-%'
    OR project_id LIKE 'PRJ-E2PAY-UAT-%';
 
-CREATE TEMP TABLE _e2pay_uat_upload_batches (id TEXT PRIMARY KEY);
+DROP TABLE IF EXISTS _e2pay_uat_upload_batches;
+CREATE TABLE _e2pay_uat_upload_batches (id TEXT PRIMARY KEY);
 INSERT OR IGNORE INTO _e2pay_uat_upload_batches(id)
 SELECT id
 FROM payroll_upload_batches
 WHERE submission_id IN (SELECT id FROM _e2pay_uat_submissions);
 
-CREATE TEMP TABLE _e2pay_uat_service_plans (id TEXT PRIMARY KEY);
+DROP TABLE IF EXISTS _e2pay_uat_service_plans;
+CREATE TABLE _e2pay_uat_service_plans (id TEXT PRIMARY KEY);
 INSERT OR IGNORE INTO _e2pay_uat_service_plans(id)
 SELECT id
 FROM client_service_plans
@@ -74,7 +84,8 @@ WHERE id LIKE 'SP-E2PAY-UAT-%'
    OR client_id LIKE 'CLI-E2PAY-UAT-%'
    OR project_id LIKE 'PRJ-E2PAY-UAT-%';
 
-CREATE TEMP TABLE _e2pay_uat_connections (id TEXT PRIMARY KEY);
+DROP TABLE IF EXISTS _e2pay_uat_connections;
+CREATE TABLE _e2pay_uat_connections (id TEXT PRIMARY KEY);
 INSERT OR IGNORE INTO _e2pay_uat_connections(id)
 SELECT id FROM integration_connections
 WHERE client_id LIKE 'CLI-E2PAY-UAT-%';
