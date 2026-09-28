@@ -95,6 +95,11 @@ WHERE provider='E2PAY'
     SELECT 1 FROM payment_gateway_items pgi
     WHERE pgi.payment_gateway_transaction_id=payment_gateway_transactions.id
       AND pgi.status IN ('PENDING','PROCESSING','UNKNOWN')
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM payment_gateway_items pgi
+    WHERE pgi.payment_gateway_transaction_id=payment_gateway_transactions.id
+      AND pgi.status='FAILED'
   );
 
 COMMIT;
