@@ -109,6 +109,7 @@ export type PaymentGatewayOperationalStatus = {
   failedItems: number;
   retryableFailedItems?: number;
   retryReadyItems?: number;
+  blockingFailedItems?: number;
   succeededItems: number;
   lastActivityAt?: string | null;
 };
@@ -210,6 +211,13 @@ export async function retryFailedE2PayPayment(paymentInstructionId: string) {
     gateway: PaymentGatewayReadiness;
     transaction: PaymentGatewayTransaction;
     items?: PaymentGatewayItem[];
+    hasMore?: boolean;
+    remaining?: number;
+    processedThisCall?: number;
+    chunkLimit?: number;
+    blockedByUnresolved?: boolean;
+    preflightOnly?: boolean;
+    parentStatus?: string;
     summary?: {
       total: number;
       succeeded: number;
