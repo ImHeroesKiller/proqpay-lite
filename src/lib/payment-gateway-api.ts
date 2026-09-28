@@ -147,6 +147,22 @@ export async function executeSeamlessPayment(paymentInstructionId: string, payme
 }
 
 
+export async function verifyFailedE2PayPayment(paymentInstructionId: string) {
+  return parseResponse(await fetch('/api/payment-gateway', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paymentInstructionId, action:'VERIFY_FAILED' }),
+  })) as Promise<{
+    ok: boolean;
+    verifiedSafe: number;
+    providerFound: number;
+    unchanged: number;
+    gateway: PaymentGatewayReadiness;
+    transaction: PaymentGatewayTransaction;
+    items?: PaymentGatewayItem[];
+  }>;
+}
+
 export async function retryFailedE2PayPayment(paymentInstructionId: string) {
   return parseResponse(await fetch('/api/payment-gateway', {
     method: 'POST',
