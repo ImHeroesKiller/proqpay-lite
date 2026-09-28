@@ -228,6 +228,7 @@ export default function Home() {
   const periods = [...new Set([period,...(canonicalPeriods.length ? canonicalPeriods : (db.payrolls || []).map((item:any)=>item.period).filter(Boolean))])].sort((a:string,b:string)=>b.localeCompare(a));
   const gatewayCanView = roleCanAction(actor.role,'payment.prepare') || roleCanAction(actor.role,'payment.approve');
   const gatewayCanExecute = roleCanAction(actor.role,'payment.execute');
+  const integrationsCanManage = roleCanAction(actor.role,'integrations.manage');
 
   return (
     <div className={`app-shell theme-${settings.theme} accent-${settings.accentColor} density-${settings.density}${settings.enableAnimations ? '' : ' animations-off'}`} style={{ display: 'flex', minHeight: '100vh' }}>
@@ -257,6 +258,7 @@ export default function Home() {
             settings={settings}
             gatewayCanView={gatewayCanView}
             gatewayCanExecute={gatewayCanExecute}
+            integrationsCanManage={integrationsCanManage}
             onNavigate={navigate}
             onRefreshCanonical={refreshCanonical}
             onOpenAuditCorrelation={openAuditCorrelation}
