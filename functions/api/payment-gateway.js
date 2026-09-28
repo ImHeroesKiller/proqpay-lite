@@ -107,6 +107,63 @@ function publicGatewayItem(row) {
   return { ...safe, request_diagnostics };
 }
 
+export function buildGatewayTimeline(transaction, items = []) {
+  const events = [];
+  if (transaction?.created_at) events.push({
+    id:`tx-created-${transaction.id}`,
+    at:transaction.created_at,
+    type:'TRANSACTION_CREATED',
+    status:transaction.status || 'CREATED',
+    label:'Execution ledger dibuat',
+    detail:transaction.provider ? `Provider ${transaction.provider}` : 'Payment gateway',
+  });
+  if (transaction?.paid_at) events.push({
+    id:`tx-paid-${transaction.id}`,
+    at:transaction.paid_at,
+    type:'TRANSACTION_SETTLED',
+    status:'SUCCEEDED',
+    label:'Provider payment settled',
+    detail:transaction.provider_reference || transaction.provider_transaction_id || null,
+  });
+
+  for (const item of items) {
+    const suffix=String(item.account_last4 || '').padStart(4,'•');
+    if (item.created_at) events.push({
+      id:`item-created-${item.id}`,
+      at:item.created_at,
+      type:'BENEFICIARY_CREATED',
+      status:'CREATED',
+      label:`Beneficiary ••••${suffix} masuk execution ledger`,
+      detail:item.client_ref || null,
+      itemId:item.id,
+    });
+    if (item.last_attempt_at) events.push({
+      id:`item-attempt-${item.id}-${item.attempt_count || 0}`,
+      at:item.last_attempt_at,
+      type:'FINANCIAL_ATTEMPT',
+      status:item.status || 'PENDING',
+      label:`Attempt ${Number(item.attempt_count || 0)} · ••••${suffix}`,
+      detail:item.failure_stage || 'DISBURSEMENT_POST',
+      itemId:item.id,
+    });
+    const checkedAt=item.last_checked_at || item.updated_at;
+    if (checkedAt) events.push({
+      id:`item-status-${item.id}-${checkedAt}`,
+      at:checkedAt,
+      type:'BENEFICIARY_STATUS',
+      status:item.status || 'UNKNOWN',
+      label:`Status ••••${suffix} · ${String(item.status || 'UNKNOWN').replaceAll('_',' ')}`,
+      detail:item.error_message || item.response_message || item.response_code || null,
+      itemId:item.id,
+    });
+  }
+
+  return events
+    .filter((event)=>event.at)
+    .sort((a,b)=>String(b.at).localeCompare(String(a.at)))
+    .slice(0,200);
+}
+
 export function gatewayOperationalStatus(transaction, items = [], nowMs = Date.now()) {
   if (!transaction) return {
     state:'IDLE', stale:false, staleMinutes:0, needsReconciliation:false, safeToRetry:false,
@@ -212,6 +269,7 @@ export async function onRequest(context) {
         transaction:publicTransaction(transaction),
         items:items.map(publicGatewayItem),
         operational,
+        timeline:buildGatewayTimeline(transaction,items),
         arGate,
       },200,request,env,METHODS);
     }
