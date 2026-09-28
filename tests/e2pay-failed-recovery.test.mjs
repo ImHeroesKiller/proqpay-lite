@@ -10,6 +10,44 @@ import { gatewayOperationalStatus } from '../functions/api/payment-gateway.js';
 
 const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
+test('deterministic preflight failures never enter the retry loop',()=>{
+  for(const error_code of [
+    'E2PAY_BANK_NOT_MAPPED',
+    'E2PAY_INQUIRY_CONTROL_MISMATCH',
+    'E2PAY_TRANSACTION_INVALID',
+    'E2PAY_ACCOUNT_SRC_MISSING',
+    'E2PAY_ACCOUNT_SRC_MISMATCH',
+    'E2PAY_SOURCE_ID_MISSING',
+    'E2PAY_PASSWORD_MD5_INVALID',
+  ]){
+    assert.equal(isRetryableE2PayFailure({
+      status:'FAILED',
+      attempt_count:0,
+      response_code:null,
+      error_code,
+    }),false,error_code);
+  }
+
+  assert.equal(isRetryableE2PayFailure({
+    status:'FAILED',
+    attempt_count:0,
+    response_code:null,
+    error_code:'E2PAY_NETWORK_ERROR',
+  }),true);
+  assert.equal(isRetryableE2PayFailure({
+    status:'FAILED',
+    attempt_count:0,
+    response_code:null,
+    error_code:'E2PAY_TIMEOUT',
+  }),true);
+  assert.equal(isRetryableE2PayFailure({
+    status:'FAILED',
+    attempt_count:0,
+    response_code:null,
+    error_code:'UNCLASSIFIED_FAILURE',
+  }),false);
+});
+
 test('E2Pay failed HTTP 4xx needs provider verification before retry',()=>{
   assert.equal(isRetryableE2PayFailure({
     status:'FAILED',
