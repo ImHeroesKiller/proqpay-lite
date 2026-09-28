@@ -188,6 +188,7 @@ export async function gatewayRuntimeEnv(database, env, organizationId, environme
     E2PAY_USERNAME:String(credentials.username || ''),
     E2PAY_PASSWORD_MD5:String(credentials.passwordMd5 || ''),
     E2PAY_ACCOUNT_SRC:String(credentials.accountSrc || ''),
+    E2PAY_FUNDING_BANK:String(credentials.fundingBank || env?.E2PAY_FUNDING_BANK || ''),
   };
   return Object.assign(Object.create(env || null), overrides);
 }
@@ -211,6 +212,7 @@ function profileSummary(credentials = {}) {
       username:Boolean(credentials.username),
       passwordMd5:Boolean(credentials.passwordMd5),
       accountSrc:Boolean(credentials.accountSrc),
+      fundingBank:Boolean(credentials.fundingBank),
     },
     masked:{
       merchantName:credentials.merchantName ? String(credentials.merchantName) : null,
@@ -222,6 +224,7 @@ function profileSummary(credentials = {}) {
       username:masked(credentials.username),
       passwordMd5:credentials.passwordMd5 ? '••••••••' : null,
       accountSrc:masked(credentials.accountSrc),
+      fundingBank:credentials.fundingBank ? String(credentials.fundingBank) : null,
     },
   };
 }
