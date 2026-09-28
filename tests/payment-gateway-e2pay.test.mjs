@@ -134,7 +134,9 @@ test('E2Pay response codes are fail-closed and sync batch limit is bounded', () 
 
 test('E2Pay retry policy uses explicit retry states and preserves fail-closed behavior', () => {
   assert.equal(isRetryableE2PayFailure({ status:'RETRY_READY', attempt_count:1, response_code:null }), true);
-  assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:0, response_code:null }), true);
+  assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:0, response_code:null, error_code:'E2PAY_NETWORK_ERROR' }), true);
+  assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:0, response_code:null, error_code:'E2PAY_BANK_NOT_MAPPED' }), false);
+  assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:0, response_code:null }), false);
   assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:1, response_code:'99' }), true);
   assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:1, response_code:null }), false);
   assert.equal(isRetryableE2PayFailure({ status:'UNKNOWN', attempt_count:1, response_code:null }), false);
