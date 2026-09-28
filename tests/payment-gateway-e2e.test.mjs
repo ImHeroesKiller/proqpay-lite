@@ -110,7 +110,12 @@ test('Hosted gateway E2E expires stale sessions, retries safely, resumes webhook
   };
   const { pi,makerSession,controllerSession } = await prepareApprovedPi(DB,env);
 
-  const firstCreate = await hostedPayment({ request:authed('/api/payment-gateway-hosted',makerSession.token,{
+  const makerDenied = await hostedPayment({ request:authed('/api/payment-gateway-hosted',makerSession.token,{
+    method:'POST',body:JSON.stringify({ paymentInstructionId:pi.id,returnPath:'/?view=payments' }),
+  }),env });
+  assert.equal(makerDenied.status,403,await makerDenied.clone().text());
+
+  const firstCreate = await hostedPayment({ request:authed('/api/payment-gateway-hosted',controllerSession.token,{
     method:'POST',body:JSON.stringify({ paymentInstructionId:pi.id,returnPath:'/?view=payments' }),
   }),env });
   assert.equal(firstCreate.status,201,await firstCreate.clone().text());
@@ -122,17 +127,21 @@ test('Hosted gateway E2E expires stale sessions, retries safely, resumes webhook
 
   const controllerRead = await hostedPayment({ request:authed(`/api/payment-gateway-hosted?paymentInstructionId=${encodeURIComponent(pi.id)}`,controllerSession.token,{ method:'GET' }),env });
   assert.equal(controllerRead.status,200,await controllerRead.clone().text());
-  assert.equal((await controllerRead.json()).session.checkout_url,null,'Controller must not receive bearer-like checkout URL');
+  assert.match((await controllerRead.json()).session.checkout_url,/^https:\/\/gateway\.mock\/checkout/,'Controller owns the final hosted-payment action');
+
+  const processorRead = await hostedPayment({ request:authed(`/api/payment-gateway-hosted?paymentInstructionId=${encodeURIComponent(pi.id)}`,makerSession.token,{ method:'GET' }),env });
+  assert.equal(processorRead.status,200,await processorRead.clone().text());
+  assert.equal((await processorRead.json()).session.checkout_url,null,'Processor may monitor but must not receive executable checkout URL');
 
   DB.sqlite.prepare(`UPDATE hosted_payment_sessions SET expires_at='2020-01-01T00:00:00.000Z' WHERE id=?`).run(firstSession.id);
-  const expiredRead = await hostedPayment({ request:authed(`/api/payment-gateway-hosted?paymentInstructionId=${encodeURIComponent(pi.id)}`,makerSession.token,{ method:'GET' }),env });
+  const expiredRead = await hostedPayment({ request:authed(`/api/payment-gateway-hosted?paymentInstructionId=${encodeURIComponent(pi.id)}`,controllerSession.token,{ method:'GET' }),env });
   assert.equal(expiredRead.status,200,await expiredRead.clone().text());
   const expiredSession = (await expiredRead.json()).session;
   assert.equal(expiredSession.status,'EXPIRED');
   assert.equal(expiredSession.checkout_url,null);
   assert.equal(DB.sqlite.prepare('SELECT status FROM payment_gateway_transactions WHERE id=?').get(firstSession.payment_gateway_transaction_id).status,'EXPIRED');
 
-  const retryCreate = await hostedPayment({ request:authed('/api/payment-gateway-hosted',makerSession.token,{
+  const retryCreate = await hostedPayment({ request:authed('/api/payment-gateway-hosted',controllerSession.token,{
     method:'POST',body:JSON.stringify({ paymentInstructionId:pi.id,returnPath:'/?view=payments' }),
   }),env });
   assert.equal(retryCreate.status,201,await retryCreate.clone().text());
