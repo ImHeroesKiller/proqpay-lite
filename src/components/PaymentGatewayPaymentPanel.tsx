@@ -43,7 +43,7 @@ export default function PaymentGatewayPaymentPanel({ role }: Props) {
       <div>
         <span style={{ color:'var(--text3)', fontSize:10.5, fontWeight:700, letterSpacing:'.08em' }}>GATEWAY EXECUTION</span>
         <h3 style={{ margin:'4px 0 0', fontSize:17 }}>Payment Gateway Queue</h3>
-        <p style={{ color:'var(--text3)', fontSize:12, margin:'5px 0 0' }}>PI yang sudah approved dan menunggu eksekusi akhir oleh Payroll Controller melalui Seamless atau Hosted.</p>
+        <p style={{ color:'var(--text3)', fontSize:12, margin:'5px 0 0' }}>PI yang sudah approved dan siap dieksekusi, dipantau, atau direcovery oleh Payroll Controller. Approval PI tetap valid meski attempt gateway gagal.</p>
       </div>
       <button className="btn" type="button" disabled={loading} onClick={() => void load()}>{loading ? 'Refreshing…' : 'Refresh queue'}</button>
     </div>
@@ -63,6 +63,6 @@ export default function PaymentGatewayPaymentPanel({ role }: Props) {
       </div>)}
     </div> : null}
 
-    <small style={{ color:'var(--text3)' }}>Manual bank file dan bukti pembayaran tetap tersedia pada Payment Control di atas sebagai fallback.</small>
+    <small style={{ color:'var(--text3)' }}>Status APPROVED FOR PAYMENT adalah status approval PI, bukan bukti bahwa gateway sukses. Status E2Pay di sisi kanan adalah authority eksekusi yang aktual.</small>
   </section>;
 }
