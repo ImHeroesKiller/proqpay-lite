@@ -9,6 +9,8 @@ import {
   e2payLoginReadiness,
   e2payPasswordMd5,
   normalizeE2PayPassword,
+  normalizeE2PayDescription,
+  e2payClientRef,
   e2payDisburse,
   e2payInquirySignature,
   e2payReadiness,
@@ -136,6 +138,34 @@ test('E2Pay retry policy permits only preflight failures or provider-confirmed c
   assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:1, response_code:null }), false);
   assert.equal(isRetryableE2PayFailure({ status:'UNKNOWN', attempt_count:1, response_code:null }), false);
   assert.equal(isRetryableE2PayFailure({ status:'SUCCEEDED', attempt_count:1, response_code:'00' }), false);
+});
+
+test('E2Pay provider-facing transaction fields stay compact ASCII and diagnostics preserve safe HTTP 400 detail', async () => {
+  const clientRef=await e2payClientRef(
+    {id:'PI-LONG-IDENTIFIER',content_hash:'a'.repeat(64)},
+    {id:'LINE-LONG-IDENTIFIER'},
+  );
+  assert.equal(clientRef.length,32);
+  assert.match(clientRef,/^PQP-[a-f0-9]{28}$/);
+
+  assert.equal(
+    normalizeE2PayDescription('[UAT DUMMY] PI/209905/399BFF340E · Dummy Recipient 01'),
+    'UAT DUMMY PI 209905 399BFF340E Dummy Recipient 01',
+  );
+
+  const fakeFetch=async()=>new Response(JSON.stringify({
+    errorCode:'INVALID_CLIENT_REF',
+    detail:'clientRef invalid',
+  }),{status:400,headers:{'Content-Type':'application/json'}});
+
+  await assert.rejects(
+    e2payDisburse(baseEnv,'ACCESS',{
+      clientRef,
+      description:'Payroll UAT',
+      inquiryId:'INQ-1',
+    },fakeFetch),
+    /E2Pay HTTP 400 · clientRef invalid|E2Pay HTTP 400 · INVALID_CLIENT_REF/,
+  );
 });
 
 test('financial POST is attempted once; ambiguous network failure is not auto-retried', async () => {
