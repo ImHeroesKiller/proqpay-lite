@@ -8,7 +8,12 @@ import {
   gatewayReadiness,
   gatewayRequestHash,
 } from './payment-gateway-core.js';
-import { executeE2PayBatch, reconcileE2PayBatch, verifyFailedE2PayBatch } from './payment-gateway-e2pay-service.js';
+import {
+  executeE2PayBatch,
+  reconcileE2PayBatch,
+  verifyFailedE2PayBatch,
+  isRetryableE2PayFailure,
+} from './payment-gateway-e2pay-service.js';
 import { e2payLoginReadiness } from './payment-gateway-e2pay.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { arGateMessage, evaluateClientArGate } from './ar-payment-control.js';
@@ -99,7 +104,9 @@ export function gatewayOperationalStatus(transaction, items = [], nowMs = Date.n
   const unresolved = items.filter((item) => ['PENDING','PROCESSING','UNKNOWN'].includes(String(item.status || '')));
   const failed = items.filter((item) => String(item.status || '') === 'FAILED');
   const succeeded = items.filter((item) => String(item.status || '') === 'SUCCEEDED');
-  const retryableFailed = failed.filter((item) => Number(item.attempt_count || 0) === 0 || String(item.response_code || '').trim() === '99');
+  const retryableItems = items.filter((item) => isRetryableE2PayFailure(item));
+  const retryReadyItems = items.filter((item) => String(item.status || '') === 'RETRY_READY');
+  const blockingFailed = failed.filter((item) => !isRetryableE2PayFailure(item));
   const itemActivity = items.map((item) => item.last_checked_at || item.updated_at || item.created_at).filter(Boolean).sort().at(-1);
   const lastActivityAt = itemActivity || transaction.updated_at || transaction.created_at || null;
   const ageMs = lastActivityAt ? Math.max(0, nowMs - new Date(lastActivityAt).getTime()) : 0;
@@ -110,7 +117,8 @@ export function gatewayOperationalStatus(transaction, items = [], nowMs = Date.n
   const stale = active && !activeLease && staleMinutes >= 15;
   const needsReconciliation = unresolved.length > 0 || (stale && status === 'PROCESSING');
   const safeToRetry = status === 'FAILED' && unresolved.length === 0
-    && (!items.length || (failed.length > 0 && retryableFailed.length === failed.length));
+    && retryableItems.length > 0
+    && blockingFailed.length === 0;
   const state = status === 'SUCCEEDED' ? 'SETTLED'
     : needsReconciliation ? (stale ? 'STALE' : 'RECONCILE')
     : status === 'FAILED' ? 'FAILED'
@@ -118,8 +126,12 @@ export function gatewayOperationalStatus(transaction, items = [], nowMs = Date.n
     : status || 'IDLE';
   return {
     state, stale, staleMinutes, needsReconciliation, safeToRetry, activeLease,
-    unresolvedItems:unresolved.length, failedItems:failed.length, retryableFailedItems:retryableFailed.length,
-    succeededItems:succeeded.length, lastActivityAt,
+    unresolvedItems:unresolved.length,
+    failedItems:failed.length,
+    retryableFailedItems:retryableItems.length,
+    retryReadyItems:retryReadyItems.length,
+    succeededItems:succeeded.length,
+    lastActivityAt,
   };
 }
 
@@ -266,9 +278,11 @@ export async function onRequest(context) {
       if (readiness.provider !== 'E2PAY') return secureJson({ error: 'Retry beneficiary hanya tersedia untuk adapter E2Pay' }, 422, request, env, METHODS);
       if (!transaction) return secureJson({ error: 'Execution ledger E2Pay belum tersedia' }, 404, request, env, METHODS);
       const retryable = await d1First(database, `SELECT COUNT(*) AS count FROM payment_gateway_items
-        WHERE payment_gateway_transaction_id=? AND status='FAILED'
-          AND (attempt_count=0 OR TRIM(COALESCE(response_code,''))='99'
-            OR TRIM(COALESCE(error_code,''))='E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY')`, [transaction.id]);
+        WHERE payment_gateway_transaction_id=?
+          AND (
+            status='RETRY_READY'
+            OR (status='FAILED' AND (attempt_count=0 OR TRIM(COALESCE(response_code,''))='99'))
+          )`, [transaction.id]);
       if (Number(retryable?.count || 0) <= 0) {
         return secureJson({ error:'Tidak ada beneficiary gagal yang aman untuk di-retry', code:'E2PAY_NO_RETRYABLE_FAILURES' }, 409, request, env, METHODS);
       }
