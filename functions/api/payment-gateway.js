@@ -8,7 +8,7 @@ import {
   gatewayReadiness,
   gatewayRequestHash,
 } from './payment-gateway-core.js';
-import { executeE2PayBatch, reconcileE2PayBatch } from './payment-gateway-e2pay-service.js';
+import { executeE2PayBatch, reconcileE2PayBatch, verifyFailedE2PayBatch } from './payment-gateway-e2pay-service.js';
 import { e2payLoginReadiness } from './payment-gateway-e2pay.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { arGateMessage, evaluateClientArGate } from './ar-payment-control.js';
@@ -193,7 +193,7 @@ export async function onRequest(context) {
     if (!paymentInstructionId) return secureJson({ error: 'paymentInstructionId wajib diisi' }, 422, request, env, METHODS);
     if (!['EXECUTE','RECONCILE','VERIFY_FAILED','RETRY_FAILED'].includes(action)) return secureJson({ error: 'action gateway tidak valid' }, 422, request, env, METHODS);
 
-    const actionReadiness = ['RECONCILE','VERIFY_FAILED'].includes(action) && readiness.provider === 'E2PAY'
+    const actionReadiness = (action === 'RECONCILE' || action === 'VERIFY_FAILED') && readiness.provider === 'E2PAY'
       ? e2payLoginReadiness(runtimeEnv)
       : readiness;
     if (!actionReadiness.configured) {
