@@ -422,9 +422,12 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     let result;
     try {
       const uatDummy=String(env?.E2PAY_ENV || 'UAT').trim().toUpperCase()==='UAT';
+      const description=uatDummy
+        ? '[UAT DUMMY] ' + (payment.document_no || payment.id) + ' ' + String(item.client_ref || '').slice(-8)
+        : (payment.document_no || payment.id) + ' ' + beneficiary.beneficiaryName;
       result = await e2payDisburse(env, auth.accessToken, {
         clientRef:item.client_ref,
-        description:(uatDummy?'[UAT DUMMY] ':'') + (payment.document_no || payment.id) + ' · ' + beneficiary.beneficiaryName,
+        description,
         inquiryId:item.inquiry_id,
       });
     } catch (error) {
