@@ -193,7 +193,12 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
   const safeRetryVerified = runtime.items.filter((item) => item.status === 'RETRY_READY').length;
   const firstFailure = runtime.items.find((item) => item.status === 'FAILED'
     && (item.error_message || item.response_message));
+  const diagnosticItem = runtime.items.find((item) => item.request_diagnostics)
+    || runtime.items.find((item) => item.provider_http_status || item.failure_stage)
+    || firstFailure;
+  const diagnostics = diagnosticItem?.request_diagnostics || null;
   const operational = runtime.operational;
+  const gatewayState = operational?.state || runtime.transaction?.provider_status || runtime.transaction?.status || 'IDLE';
   const staleReconcile = Boolean(isE2Pay && operational?.stale && operational.needsReconciliation);
   const arBlocked = Boolean(runtime.arGate?.blocked && !transactionActive && !hostedActive);
 
@@ -208,6 +213,15 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
       {onManualProof ? <button className="btn" type="button" onClick={onManualProof}>Catat Bukti</button> : null}
       <button className="btn" type="button" disabled={loading} onClick={() => void load()} aria-label="Refresh status gateway">↻</button>
     </div>
+    {isE2Pay?<div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+      <span className="integration-health-pill">{`Gateway · ${String(gatewayState).replaceAll('_',' ')}`}</span>
+      {runtime.transaction?.provider_status && runtime.transaction.provider_status!==runtime.transaction.status
+        ? <span className="integration-health-pill">{`Provider · ${String(runtime.transaction.provider_status).replaceAll('_',' ')}`}</span>
+        : null}
+      {diagnosticItem?.attempt_count
+        ? <span className="integration-health-pill">{`Attempt · ${diagnosticItem.attempt_count}`}</span>
+        : null}
+    </div>:null}
     {arBlocked ? <div className="app-notice-bubble app-notice-error" role="alert" style={{ margin:0 }}>
       <strong>Payment blocked · Outstanding AR</strong>
       <span>{runtime.arGate?.mode === 'ANY_OUTSTANDING'
@@ -225,6 +239,19 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
         ? 'Request ditolak HTTP 4xx. Verifikasi Transaction History E2Pay dulu; jangan retry langsung.'
         : 'Ada beneficiary gagal yang tidak aman diulang otomatis. Review provider/reference sebelum tindakan manual.'}</small> : null}
     {isE2Pay && firstFailure ? <small style={{ color:'#b91c1c' }}><strong>Error provider:</strong> {String(firstFailure.error_message || firstFailure.response_message || 'Unknown error')}</small> : null}
+    {isE2Pay && diagnosticItem && (diagnostics || diagnosticItem.provider_http_status || diagnosticItem.failure_stage) ? <details className="integration-diagnostics">
+      <summary>Diagnostik request E2Pay</summary>
+      <div style={{ display:'grid', gap:4, paddingTop:6, fontSize:11, color:'var(--text3)' }}>
+        <span>Stage: <strong>{diagnosticItem.failure_stage||'—'}</strong> · HTTP: <strong>{diagnosticItem.provider_http_status||'—'}</strong></span>
+        {diagnostics?.accountSrc?<span>accountSrc: ••••{diagnostics.accountSrc.last4||'—'} · len {diagnostics.accountSrc.length} · merchant match {diagnostics.accountSrc.matchesMerchantAccount===true?'YES':diagnostics.accountSrc.matchesMerchantAccount===false?'NO':'UNKNOWN'} · fp {diagnostics.accountSrc.fingerprint||'—'}</span>:null}
+        {diagnostics?.sourceId?<span>sourceId: configured · len {diagnostics.sourceId.length} · fp {diagnostics.sourceId.fingerprint||'—'} · validation {diagnostics.sourceId.verification||'CONFIG ONLY'}</span>:null}
+        {diagnostics?.clientRef?<span>clientRef: {diagnostics.clientRef.value||'—'} · len {diagnostics.clientRef.length} · ASCII {diagnostics.clientRef.ascii?'YES':'NO'}</span>:null}
+        {diagnostics?.description?<span>description: len {diagnostics.description.length} · fp {diagnostics.description.fingerprint||'—'}</span>:null}
+        {diagnostics?.inquiryId?<span>inquiryId: len {diagnostics.inquiryId.length} · fp {diagnostics.inquiryId.fingerprint||'—'}</span>:null}
+        {diagnostics?.password?<span>password contract: present {diagnostics.password.present?'YES':'NO'} · MD5 uppercase {diagnostics.password.md5Uppercase?'YES':'NO'}</span>:null}
+        <small>Diagnostik ini tidak menyimpan password, token, full accountSrc, atau raw sourceId.</small>
+      </div>
+    </details> : null}
     {hostedActive ? <small style={{ color:'var(--text3)' }}>Hosted {runtime.session?.status} · berlaku sampai {runtime.session?.expires_at ? new Date(runtime.session.expires_at).toLocaleTimeString('id-ID') : '-'}</small> : null}
     {!loading && runtime.session?.status === 'EXPIRED' ? <small style={{ color:'var(--text3)' }}>Hosted session sebelumnya sudah expired. Payment dapat dicoba kembali.</small> : null}
     {!loading && !seamlessReady && !hostedReady ? <small style={{ color:'var(--text3)' }}>Gateway belum ready. <a href="?view=integrations">Cek Integrations</a></small> : null}
