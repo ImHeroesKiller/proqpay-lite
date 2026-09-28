@@ -94,6 +94,7 @@ test('readonly diagnose latest payment gateway failures',async({page})=>{
           status:item.status,
           amount:Number(item.amount||0),
           feeAmount:Number(item.fee_amount||0),
+          clientRef:item.client_ref||null,
           bankId:item.bank_id||null,
           accountLast4:item.account_last4||null,
           responseCode:item.response_code||null,
@@ -105,7 +106,55 @@ test('readonly diagnose latest payment gateway failures',async({page})=>{
         })):[],
       });
     }
-    return {listStatus:listResponse.status,count:rows.length,details};
+    const overviewResponse=await fetch('/api/e2pay-operations?resource=overview&refresh=1',{
+      credentials:'same-origin',
+      headers:{Accept:'application/json'},
+      cache:'no-store',
+    });
+    const overviewBody=await overviewResponse.json().catch(()=>({}));
+
+    const clientRefs=[...new Set(details.flatMap((entry)=>entry.items.map((item)=>item.clientRef).filter(Boolean)))];
+    const providerHistory=[];
+    for(const clientRef of clientRefs.slice(0,20)){
+      const response=await fetch('/api/e2pay-operations?resource=transactions&limit=20&clientRef='+encodeURIComponent(clientRef),{
+        credentials:'same-origin',
+        headers:{Accept:'application/json'},
+        cache:'no-store',
+      });
+      const body=await response.json().catch(()=>({}));
+      providerHistory.push({
+        clientRef,
+        httpStatus:response.status,
+        rowCount:Number(body?.rowCount||0),
+        rows:Array.isArray(body?.data)?body.data.map((row)=>({
+          clientRef:row.clientRef||null,
+          amount:Number(row.amount||0),
+          feeAmount:Number(row.feeAmount||0),
+          transactionName:row.transactionName||null,
+          transactionCode:row.transactionCode||null,
+          responseCode:row.responseCode||null,
+          responseMessage:row.responseMessage||null,
+          journalId:row.journalId||null,
+          transactionTimestamp:row.transactionTimestamp||null,
+        })):[],
+      });
+    }
+
+    return {
+      listStatus:listResponse.status,
+      count:rows.length,
+      account:{
+        httpStatus:overviewResponse.status,
+        available:Boolean(overviewBody?.account?.available),
+        environment:overviewBody?.account?.environment||null,
+        merchantStatus:overviewBody?.account?.merchantStatus||null,
+        balance:Number(overviewBody?.account?.balance||0),
+        accountIdMasked:overviewBody?.account?.accountIdMasked||null,
+        refreshedAt:overviewBody?.account?.refreshedAt||null,
+      },
+      details,
+      providerHistory,
+    };
   });
 
   console.log('PAYMENT_FAILURE_DIAGNOSTIC='+JSON.stringify(diagnostics));
