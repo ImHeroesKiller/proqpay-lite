@@ -41,7 +41,9 @@ const MONITOR = {
   clientApproved: () => result('CLIENT_APPROVAL_RECORDED','Client Approval Recorded','Client approval is complete. Payment Instruction preparation can continue.','operations',{actionable:false,tone:'success',priority:4,category:'WAIT',owner:'PAYROLL_PROCESSOR'}),
   processor: () => result('WAIT_PROCESSOR','Waiting for Processor','Payroll preparation must be completed by the Processor.','operations',{actionable:false,tone:'info',priority:5,category:'WAIT',owner:'PAYROLL_PROCESSOR'}),
   paymentApproval: () => result('WAIT_PAYMENT_APPROVAL','Waiting for Payment Approval','Payment Instruction is waiting for Controller approval.','payments',{actionable:false,tone:'warning',priority:4,category:'WAIT',owner:'PAYROLL_CONTROLLER'}),
-  paymentExecution: () => result('WAIT_PAYMENT_EXECUTION','Waiting for Payment Execution','Payment is approved and waiting for execution.','payments',{actionable:false,tone:'info',priority:4,category:'WAIT',owner:'PAYROLL_PROCESSOR'}),
+  paymentExecution: () => result('WAIT_PAYMENT_EXECUTION','Waiting for Payment Execution','Payment is approved and waiting for Payroll Controller execution.','payments',{actionable:false,tone:'info',priority:4,category:'WAIT',owner:'PAYROLL_CONTROLLER'}),
+  paymentReconciliation: () => result('WAIT_PAYMENT_RECONCILIATION','Waiting for Payment Reconciliation','Final payment confirmation and reconciliation are owned by Payroll Controller.','payments',{actionable:false,tone:'info',priority:4,category:'WAIT',owner:'PAYROLL_CONTROLLER'}),
+  paymentException: () => result('WAIT_PAYMENT_EXCEPTION_REVIEW','Waiting for Payment Exception Review','Payment exception requires Payroll Controller review.','payments',{actionable:false,tone:'warning',priority:4,category:'WAIT',owner:'PAYROLL_CONTROLLER'}),
   payment: () => result('MONITOR_PAYMENT','Monitor Payment','Payment is being processed.','payments',{actionable:false,tone:'info',priority:5,category:'MONITOR'}),
 };
 
@@ -137,9 +139,7 @@ function processorAction(context, stage) {
   if (state === 'PAYMENT_APPROVAL_PENDING' || piStatus === 'PAYMENT_APPROVAL_PENDING') return MONITOR.paymentApproval();
 
   if (state === 'APPROVED_FOR_PAYMENT' || piStatus === 'APPROVED_FOR_PAYMENT') {
-    return result('PROCESS_PAYMENT','Process Payment','Approved payment is ready for execution.','payments',{
-      actionable:true,tone:'warning',priority:2,category:'PAYMENT',owner:'PAYROLL_PROCESSOR',
-    });
+    return MONITOR.paymentExecution();
   }
 
   if (['DISBURSEMENT_PROCESSING','PAYMENT_CONFIRMED'].includes(state) || ['DISBURSEMENT_PROCESSING','PAYMENT_CONFIRMED'].includes(piStatus)) {
@@ -148,15 +148,11 @@ function processorAction(context, stage) {
 
   if (['PROOF_UPLOADED','RECONCILIATION'].includes(state) || ['PROOF_UPLOADED','RECONCILIATION'].includes(piStatus)
     || normalize(context.reconciliationStatus ?? context.recStatus) === 'PENDING') {
-    return result('RECONCILE_PAYMENT','Reconcile Payment','Match payment evidence against the approved Payment Instruction.','payments',{
-      actionable:true,tone:'warning',priority:2,category:'RECONCILIATION',owner:'PAYROLL_PROCESSOR',
-    });
+    return MONITOR.paymentReconciliation();
   }
 
   if (state === 'PAYMENT_EXCEPTION' || piStatus === 'PAYMENT_EXCEPTION') {
-    return result('RESOLVE_PAYMENT_EXCEPTION','Resolve Payment Exception','Payment exception must be resolved before closing.','payments',{
-      actionable:true,tone:'danger',priority:1,category:'EXCEPTION',owner:'PAYROLL_PROCESSOR',
-    });
+    return MONITOR.paymentException();
   }
 
   if (stage.stage === 'CLOSE') {
@@ -200,8 +196,8 @@ function controllerAction(context, stage) {
   const state = normalize(context.state ?? context.submissionState);
   const piStatus = normalize(context.paymentInstructionStatus ?? context.piStatus);
   const hasPi = Boolean(context.hasPaymentInstruction || context.paymentInstructionId || piStatus);
-  const canApprovePayment = CONTROLLER_ROLES.has(normalize(context.role))
-    || hasPermission(context,'payment:approve') || hasPermission(context,'PAYMENT_APPROVER');
+  const canApprovePayment = normalize(context.role) === 'PAYROLL_CONTROLLER'
+    && (hasPermission(context,'payment:approve') || hasPermission(context,'PAYMENT_APPROVER'));
 
   if (state === 'CLIENT_ACTION_REQUIRED') return MONITOR.client();
 
@@ -253,7 +249,11 @@ function controllerAction(context, stage) {
     return MONITOR.paymentApproval();
   }
 
-  if (state === 'APPROVED_FOR_PAYMENT' || piStatus === 'APPROVED_FOR_PAYMENT') return MONITOR.paymentExecution();
+  if (state === 'APPROVED_FOR_PAYMENT' || piStatus === 'APPROVED_FOR_PAYMENT') {
+    return result('PROCESS_PAYMENT','Process Payment','Approved payment is ready for final execution by Payroll Controller.','payments',{
+      actionable:true,tone:'warning',priority:2,category:'PAYMENT',owner:'PAYROLL_CONTROLLER',
+    });
+  }
   if (['DISBURSEMENT_PROCESSING','PAYMENT_CONFIRMED'].includes(state) || ['DISBURSEMENT_PROCESSING','PAYMENT_CONFIRMED'].includes(piStatus)) return MONITOR.payment();
 
   if (['PROOF_UPLOADED','RECONCILIATION'].includes(state) || ['PROOF_UPLOADED','RECONCILIATION'].includes(piStatus)
