@@ -1,7 +1,3 @@
-PRAGMA foreign_keys = OFF;
-
-BEGIN TRANSACTION;
-
 -- P0 E2Pay retry state-machine hardening.
 -- Provider-verified retries are explicit states instead of overloading FAILED/error_code.
 ALTER TABLE payment_gateway_items RENAME TO payment_gateway_items_legacy_retry_state;
@@ -102,6 +98,3 @@ WHERE provider='E2PAY'
       AND pgi.status='FAILED'
   );
 
-COMMIT;
-
-PRAGMA foreign_keys = ON;
