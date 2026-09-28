@@ -32,7 +32,7 @@ test('Integrations presents an ewallet-style Top Up Wallet flow with safe transf
   assert.match(consoleSource,/\+ Top Up Wallet/);
   assert.match(consoleSource,/Virtual Account \(VA\)/);
   assert.match(consoleSource,/Bank tujuan/);
-  assert.match(consoleSource,/Salin VA untuk Top Up/);
+  assert.match(consoleSource,/Salin Info Top Up/);
   assert.match(consoleSource,/Refresh saldo/);
   assert.match(consoleSource,/Jangan melakukan transfer sebelum Super Admin/);
   assert.match(settings,/Funding bank \(Top Up\)/);
