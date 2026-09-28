@@ -177,7 +177,7 @@ test('UAT E2E: Processor → Controller → Client → PI → payment → billin
   form.set('file',new File([new Uint8Array([0x25,0x50,0x44,0x46,0x2d,0x31,0x2e,0x34])],'audit-proof.pdf',{type:'application/pdf'}));
   const proofResponse=await paymentProof({request:new Request(origin+'/api/payment-proof',{
     method:'POST',
-    headers:{Origin:origin,'Sec-Fetch-Site':'same-origin',Cookie:`proqpay_session=${processorSession.token}`},
+    headers:{Origin:origin,'Sec-Fetch-Site':'same-origin',Cookie:`proqpay_session=${controllerSession.token}`},
     body:form,
   }),env});
   assert.equal(proofResponse.status,201,await proofResponse.clone().text());
