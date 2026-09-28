@@ -57,7 +57,10 @@ export default function PaymentGatewayPaymentPanel({ role }: Props) {
         <div style={{ minWidth:0 }}>
           <strong style={{ display:'block', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.document_no || row.id}</strong>
           <span style={{ display:'block', color:'var(--text3)', fontSize:11, marginTop:3 }}>{row.client_name || row.client_id || '-'} · {formatIDR(Number(row.expected_total || 0))}</span>
-          <span style={{ display:'block', color:'var(--text3)', fontSize:10.5, marginTop:3 }}>{String(row.status || '').replaceAll('_',' ')} · {Number(row.recipient_count || 0).toLocaleString('id-ID')} penerima</span>
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center', marginTop:6 }}>
+            <span className="integration-health-pill">{`Approval · ${String(row.status || '').replaceAll('_',' ')}`}</span>
+            <span style={{ color:'var(--text3)', fontSize:10.5 }}>{Number(row.recipient_count || 0).toLocaleString('id-ID')} penerima</span>
+          </div>
         </div>
         <PaymentGatewayExecutionActions paymentInstructionId={row.id} canExecuteGateway={canExecuteGateway} onChanged={load} />
       </div>)}
