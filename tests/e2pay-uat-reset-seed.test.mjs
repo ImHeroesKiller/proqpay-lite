@@ -74,3 +74,18 @@ test('E2Pay UAT employees never receive employee portal credentials',async()=>{
   const seed=await read('scripts/seed-employee-portal-passwords.mjs');
   assert.match(seed,/e\.id NOT LIKE 'EMP-E2PAY-UAT-%'/);
 });
+
+
+test('fresh UAT seed includes canonical Pay Run and immutable bank snapshots',async()=>{
+  const sql=await read('ops/e2pay-uat-fresh-seed.sql');
+  assert.match(sql,/INSERT OR IGNORE INTO payroll_run_lines/);
+  assert.match(sql,/INSERT OR IGNORE INTO payroll_bank_snapshots/);
+  assert.match(sql,/PRL-E2PAY-UAT-001/);
+  assert.match(sql,/SUB-E2PAY-UAT-FRESH-001/);
+  assert.match(sql,/ad80d5580ceae56e56a1bb6980fddc39d4b188969fe1368a2b7141687f8734b0/);
+  assert.match(sql,/8086dcb8092196821ee0b94da2519d835ca7beed4fcc1de554ca6c1765e1d9f4/);
+  assert.match(sql,/55eaeb6e906bfa39ff29bcfa93bf9e98f72376829e019dc832c477f0621f13dd/);
+  assert.match(sql,/60b8b701913589c1c49ffabb912e50de61eff2b5c2537f62f7d079f6d42f4bfd/);
+  assert.match(sql,/0aead901b752f7132e8dcdd73cba52401c4a1694ed63f1acc843029b3e2a361d/);
+  assert.match(sql,/E2PAY_UAT_CANONICAL_BANK_SNAPSHOT_SEEDED/);
+});
