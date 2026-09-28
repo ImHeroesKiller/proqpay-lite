@@ -94,6 +94,29 @@
   margin-top:4px;
 }
 
+.e2pay-topup-share{
+  display:grid;
+  gap:8px;
+}
+
+.e2pay-topup-share>span{
+  color:var(--text3);
+  font-size:11px;
+  line-height:1.5;
+}
+
+.e2pay-topup-share pre{
+  margin:0;
+  padding:12px 14px;
+  border:1px dashed var(--border-soft);
+  border-radius:12px;
+  background:var(--surface-soft, rgba(148,163,184,.05));
+  color:var(--text2);
+  font:11px/1.65 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+
 .e2pay-topup-actions{
   display:flex;
   gap:8px;
