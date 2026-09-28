@@ -36,7 +36,7 @@ test('Integrations presents an ewallet-style Top Up Wallet flow with safe transf
   assert.match(consoleSource,/Refresh saldo/);
   assert.match(consoleSource,/Jangan melakukan transfer sebelum Super Admin/);
   assert.match(settings,/Funding bank \(Top Up\)/);
-  assert.match(settings,/informasi resmi E2Pay/);
+  assert.match(settings,/informasi resmi (?:dari )?E2Pay/);
   assert.match(css,/\.e2pay-topup-card/);
   assert.match(css,/@media \(max-width:560px\)/);
 });
