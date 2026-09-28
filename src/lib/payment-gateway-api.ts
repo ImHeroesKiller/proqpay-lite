@@ -41,7 +41,7 @@ export type PaymentGatewayItem = {
   correlation_id?: string | null;
   response_code?: string | null;
   response_message?: string | null;
-  status: 'CREATED' | 'INQUIRY_READY' | 'PENDING' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN';
+  status: 'CREATED' | 'INQUIRY_READY' | 'RETRY_READY' | 'RETRY_INQUIRY_READY' | 'PENDING' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN';
   attempt_count: number;
   last_checked_at?: string | null;
   error_code?: string | null;
@@ -72,6 +72,7 @@ export type PaymentGatewayOperationalStatus = {
   unresolvedItems: number;
   failedItems: number;
   retryableFailedItems?: number;
+  retryReadyItems?: number;
   succeededItems: number;
   lastActivityAt?: string | null;
 };
