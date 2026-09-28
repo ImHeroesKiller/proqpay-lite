@@ -18,7 +18,7 @@ import {
   e2paySyncBeneficiaryLimit,
   resolveE2PayBank,
 } from '../functions/api/payment-gateway-e2pay.js';
-import { isRetryableE2PayFailure, selectE2PayExecutionChunk } from '../functions/api/payment-gateway-e2pay-service.js';
+import { isRetryableE2PayFailure, isE2PayRetryCandidate, selectE2PayExecutionChunk } from '../functions/api/payment-gateway-e2pay-service.js';
 
 const baseEnv = {
   E2PAY_ENV:'UAT',
@@ -132,12 +132,22 @@ test('E2Pay response codes are fail-closed and sync batch limit is bounded', () 
   assert.deepEqual(selectE2PayExecutionChunk(large,25,false).map((item)=>item.id),large.slice(0,25).map((item)=>item.id));
 });
 
-test('E2Pay retry policy permits only preflight failures or provider-confirmed code 99', () => {
+test('E2Pay retry policy uses explicit retry states and preserves fail-closed behavior', () => {
+  assert.equal(isRetryableE2PayFailure({ status:'RETRY_READY', attempt_count:1, response_code:null }), true);
   assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:0, response_code:null }), true);
   assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:1, response_code:'99' }), true);
   assert.equal(isRetryableE2PayFailure({ status:'FAILED', attempt_count:1, response_code:null }), false);
   assert.equal(isRetryableE2PayFailure({ status:'UNKNOWN', attempt_count:1, response_code:null }), false);
   assert.equal(isRetryableE2PayFailure({ status:'SUCCEEDED', attempt_count:1, response_code:'00' }), false);
+  assert.equal(isE2PayRetryCandidate({ status:'RETRY_INQUIRY_READY', attempt_count:1 }), true);
+  assert.deepEqual(
+    selectE2PayExecutionChunk([
+      {id:'r1',status:'RETRY_READY',attempt_count:1},
+      {id:'r2',status:'RETRY_INQUIRY_READY',attempt_count:1},
+      {id:'x',status:'FAILED',attempt_count:1,response_code:null},
+    ],25,true).map((item)=>item.id),
+    ['r1','r2'],
+  );
 });
 
 test('E2Pay provider-facing transaction fields stay compact ASCII and diagnostics preserve safe HTTP 400 detail', async () => {
