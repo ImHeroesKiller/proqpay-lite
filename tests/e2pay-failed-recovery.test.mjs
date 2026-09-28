@@ -125,3 +125,37 @@ test('P0 source uses explicit RETRY_READY -> RETRY_INQUIRY_READY -> financial PO
   assert.match(migration,/RETRY_INQUIRY_READY/);
   assert.doesNotMatch(service,/E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY/);
 });
+
+
+test('P2 endpoint uses canonical retry classifier and blocks recovery bypass',async()=>{
+  const endpoint=await read('functions/api/payment-gateway.js');
+  assert.match(endpoint,/retryItems\.filter\(\(item\) => isE2PayRetryCandidate\(item\)\)/);
+  assert.match(endpoint,/E2PAY_RECONCILIATION_REQUIRED/);
+  assert.match(endpoint,/E2PAY_CONTROLLED_RETRY_REQUIRED/);
+  assert.match(endpoint,/E2PAY_FAILED_REVIEW_REQUIRED/);
+  assert.doesNotMatch(endpoint,/status='FAILED' AND \(attempt_count=0 OR/);
+});
+
+test('P2 operational state distinguishes retryable and blocking failures',()=>{
+  const operational=gatewayOperationalStatus(
+    {status:'FAILED',provider_status:'FAILED',updated_at:new Date().toISOString()},
+    [
+      {status:'RETRY_READY',attempt_count:1,response_code:null,updated_at:new Date().toISOString()},
+      {status:'FAILED',attempt_count:0,response_code:null,error_code:'E2PAY_BANK_NOT_MAPPED',updated_at:new Date().toISOString()},
+    ],
+  );
+  assert.equal(operational.retryableFailedItems,1);
+  assert.equal(operational.blockingFailedItems,1);
+  assert.equal(operational.safeToRetry,false);
+  assert.equal(operational.state,'FAILED');
+});
+
+test('P2 UI consumes backend retry authority and guards retry continuation loops',async()=>{
+  const source=await read('src/components/PaymentGatewayExecutionActions.tsx');
+  assert.match(source,/runtime\.operational\?\.retryableFailedItems/);
+  assert.match(source,/runtime\.operational\?\.blockingFailedItems/);
+  assert.match(source,/Boolean\(operational\?\.safeToRetry\)/);
+  assert.match(source,/while \(result\.hasMore && continuationCalls < 100\)/);
+  assert.match(source,/Progress retry E2Pay tidak berubah/);
+  assert.doesNotMatch(source,/Number\(item\.attempt_count \|\| 0\) === 0/);
+});
