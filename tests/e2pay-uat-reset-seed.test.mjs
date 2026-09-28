@@ -23,7 +23,7 @@ test('E2Pay reset purge is tightly scoped to dedicated UAT namespace',async()=>{
 });
 
 test('fresh E2Pay UAT seed contains complete isolated master and payroll data',async()=>{
-  const sql=await read('migrations/0047_seed_fresh_e2pay_uat_dataset.sql');
+  const sql=await read('ops/e2pay-uat-fresh-seed.sql');
   assert.match(sql,/CLI-E2PAY-UAT-FRESH/);
   assert.match(sql,/PRJ-E2PAY-UAT-FRESH/);
   assert.match(sql,/SP-E2PAY-UAT-FRESH/);
@@ -41,13 +41,16 @@ test('fresh E2Pay UAT seed contains complete isolated master and payroll data',a
   assert.match(sql,/No PI, payment approval, gateway transaction, or provider payment was pre-created/);
 });
 
-test('fresh UAT seed does not bypass final payment authority',async()=>{
-  const sql=await read('migrations/0047_seed_fresh_e2pay_uat_dataset.sql');
+test('fresh UAT seed is remote-only and does not bypass final payment authority',async()=>{
+  const sql=await read('ops/e2pay-uat-fresh-seed.sql');
+  const workflow=await read('.github/workflows/cloudflare-deploy.yml');
   assert.doesNotMatch(sql,/INSERT INTO payment_instructions/i);
   assert.doesNotMatch(sql,/INSERT INTO payment_approvals/i);
   assert.doesNotMatch(sql,/INSERT INTO payment_gateway_transactions/i);
   assert.doesNotMatch(sql,/APPROVED_FOR_PAYMENT/);
   assert.doesNotMatch(sql,/UAT-CONTROLLER-/);
+  assert.match(workflow,/Seed fresh isolated E2Pay UAT dataset/);
+  assert.match(workflow,/--file=ops\/e2pay-uat-fresh-seed\.sql/);
 });
 
 test('UAT provider destination safety remains enforced independently of dummy master bank data',async()=>{
@@ -56,4 +59,10 @@ test('UAT provider destination safety remains enforced independently of dummy ma
   assert.match(safety,/701075327/);
   assert.match(safety,/bankId:'permata'/);
   assert.match(provider,/E2PAY_UAT_DUMMY_DESTINATION/);
+});
+
+
+test('E2Pay UAT employees never receive employee portal credentials',async()=>{
+  const seed=await read('scripts/seed-employee-portal-passwords.mjs');
+  assert.match(seed,/e\.id NOT LIKE 'EMP-E2PAY-UAT-%'/);
 });
