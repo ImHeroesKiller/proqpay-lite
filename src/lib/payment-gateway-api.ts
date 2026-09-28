@@ -98,6 +98,16 @@ export type ArPaymentGate = {
   code?: string | null;
 };
 
+export type PaymentGatewayTimelineEvent = {
+  id: string;
+  at: string;
+  type: string;
+  status: string;
+  label: string;
+  detail?: string | null;
+  itemId?: string;
+};
+
 export type PaymentGatewayOperationalStatus = {
   state: string;
   stale: boolean;
@@ -149,6 +159,7 @@ export async function getPaymentGatewayStatus(paymentInstructionId?: string) {
     transaction?: PaymentGatewayTransaction | null;
     items?: PaymentGatewayItem[];
     operational?: PaymentGatewayOperationalStatus;
+    timeline?: PaymentGatewayTimelineEvent[];
     arGate?: ArPaymentGate;
   }>;
 }
