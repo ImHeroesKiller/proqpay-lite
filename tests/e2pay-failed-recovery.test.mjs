@@ -37,6 +37,9 @@ test('UI shows explicit verify-before-retry recovery and provider error',async()
   assert.match(source,/Verifikasi Transaction History E2Pay dulu/);
   assert.match(source,/Error provider:/);
   assert.match(source,/E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY/);
+  assert.match(source,/Retry Aman/);
+  assert.match(source,/belum ada pembayaran provider dan retry terkontrol tersedia/);
+  assert.match(source,/role="status"/);
   assert.match(panel,/Approval PI tetap valid meski attempt gateway gagal/);
   assert.match(panel,/APPROVED FOR PAYMENT adalah status approval PI/);
 });
