@@ -88,6 +88,9 @@ jobs:
       - name: Seed missing employee portal credentials
         run: node scripts/seed-employee-portal-passwords.mjs
 
+      - name: Seed fresh isolated E2Pay UAT dataset
+        run: npx wrangler d1 execute proqpay-lite-production --remote --file=ops/e2pay-uat-fresh-seed.sql
+
       - name: Reconcile canonical payment invariants
         shell: bash
         run: |
