@@ -44,7 +44,7 @@ function seed(DB){
       VALUES('PIL-P2','PI-P2','P2 Employee','BCA','BCA','******7890','cipher','iv','7890','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',1000000);
     INSERT INTO app_users
       (id,org_id,name,email,role,status,password_hash,password_salt,password_iterations,must_change_password,payment_approver,created_by)
-      VALUES('USR-P2-P','ORG-OTSINDO','P2 Processor','processor.p2@proqpay.test','PAYROLL_PROCESSOR','ACTIVE','hash','salt',100000,0,0,'seed');
+      VALUES('USR-P2-C','ORG-OTSINDO','P2 Controller','controller.p2@proqpay.test','PAYROLL_CONTROLLER','ACTIVE','hash','salt',100000,0,1,'seed');
   `);
 }
 
@@ -66,7 +66,7 @@ function proofRequest(token,reference='REF-P2'){
 test('P2 proof stores immutable evidence fingerprint metadata and rejects duplicate file content',async()=>{
   const DB=new D1Mock(); seed(DB);
   const env={DB,FILES:new R2Mock(),AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
-  const session=await createSession(DB,'USR-P2-P',env);
+  const session=await createSession(DB,'USR-P2-C',env);
 
   let response=await paymentProof({request:proofRequest(session.token),env});
   assert.equal(response.status,201,await response.clone().text());
@@ -74,7 +74,7 @@ test('P2 proof stores immutable evidence fingerprint metadata and rejects duplic
   assert.match(proof.file_sha256,/^[a-f0-9]{64}$/);
   assert.equal(proof.file_size,8);
   assert.equal(proof.mime_type,'application/pdf');
-  assert.equal(proof.uploaded_by,'processor.p2@proqpay.test');
+  assert.equal(proof.uploaded_by,'controller.p2@proqpay.test');
   assert.equal(env.FILES.objects.values().next().value.customMetadata.fileSha256,proof.file_sha256);
 
   response=await paymentProof({request:proofRequest(session.token,'REF-P2-DUP'),env});
