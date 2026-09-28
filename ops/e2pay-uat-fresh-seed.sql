@@ -102,6 +102,33 @@ INSERT OR IGNORE INTO payroll_submissions (
   datetime('now'),'uat.client.seed@proqpay.test','Synthetic UAT client payroll approval for isolated dummy dataset.','APPROVED'
 );
 
+INSERT OR IGNORE INTO payroll_run_lines (
+  id,submission_id,employee_id,employee_code,employee_name,employment_status,bank_name,account_last4,
+  gross_amount,deduction_amount,net_amount,components,source,included,snapshot_hash
+) VALUES
+('PRL-E2PAY-UAT-001','SUB-E2PAY-UAT-FRESH-001','EMP-E2PAY-UAT-001','E2UAT-001','Dummy Employee 01','ACTIVE','BCA','0001',15000,0,15000,'{"uat":true,"component":"E2Pay Dummy Net"}','MASTER_CURRENT',1,'UAT-SNAPSHOT-001'),
+('PRL-E2PAY-UAT-002','SUB-E2PAY-UAT-FRESH-001','EMP-E2PAY-UAT-002','E2UAT-002','Dummy Employee 02','ACTIVE','MANDIRI','0002',25000,0,25000,'{"uat":true,"component":"E2Pay Dummy Net"}','MASTER_CURRENT',1,'UAT-SNAPSHOT-002'),
+('PRL-E2PAY-UAT-003','SUB-E2PAY-UAT-FRESH-001','EMP-E2PAY-UAT-003','E2UAT-003','Dummy Employee 03','ACTIVE','BRI','0003',35000,0,35000,'{"uat":true,"component":"E2Pay Dummy Net"}','MASTER_CURRENT',1,'UAT-SNAPSHOT-003'),
+('PRL-E2PAY-UAT-004','SUB-E2PAY-UAT-FRESH-001','EMP-E2PAY-UAT-004','E2UAT-004','Dummy Employee 04','ACTIVE','BNI','0004',45000,0,45000,'{"uat":true,"component":"E2Pay Dummy Net"}','MASTER_CURRENT',1,'UAT-SNAPSHOT-004'),
+('PRL-E2PAY-UAT-005','SUB-E2PAY-UAT-FRESH-001','EMP-E2PAY-UAT-005','E2UAT-005','Dummy Employee 05','ACTIVE','PERMATA','0005',55000,0,55000,'{"uat":true,"component":"E2Pay Dummy Net"}','MASTER_CURRENT',1,'UAT-SNAPSHOT-005');
+
+INSERT OR IGNORE INTO payroll_bank_snapshots (
+  submission_id,employee_id,bank_name,account_last4,account_fingerprint,captured_at
+) VALUES
+('SUB-E2PAY-UAT-FRESH-001','EMP-E2PAY-UAT-001','BCA','0001','ad80d5580ceae56e56a1bb6980fddc39d4b188969fe1368a2b7141687f8734b0',datetime('now')),
+('SUB-E2PAY-UAT-FRESH-001','EMP-E2PAY-UAT-002','MANDIRI','0002','8086dcb8092196821ee0b94da2519d835ca7beed4fcc1de554ca6c1765e1d9f4',datetime('now')),
+('SUB-E2PAY-UAT-FRESH-001','EMP-E2PAY-UAT-003','BRI','0003','55eaeb6e906bfa39ff29bcfa93bf9e98f72376829e019dc832c477f0621f13dd',datetime('now')),
+('SUB-E2PAY-UAT-FRESH-001','EMP-E2PAY-UAT-004','BNI','0004','60b8b701913589c1c49ffabb912e50de61eff2b5c2537f62f7d079f6d42f4bfd',datetime('now')),
+('SUB-E2PAY-UAT-FRESH-001','EMP-E2PAY-UAT-005','PERMATA','0005','0aead901b752f7132e8dcdd73cba52401c4a1694ed63f1acc843029b3e2a361d',datetime('now'));
+
+INSERT OR IGNORE INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
+VALUES (
+  'AUD-E2PAY-UAT-FRESH-BANK-SNAPSHOT','ORG-OTSINDO','system:uat-seed','SYSTEM',
+  'E2PAY_UAT_CANONICAL_BANK_SNAPSHOT_SEEDED',
+  'Canonical Pay Run and bank snapshots created for 5 synthetic recipients. Account fingerprints are SHA-256 of normalized BANK|ACCOUNT and match the current dummy primary accounts.',
+  'payroll_submission','SUB-E2PAY-UAT-FRESH-001'
+);
+
 INSERT OR IGNORE INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
 VALUES (
   'AUD-E2PAY-UAT-FRESH-SEED','ORG-OTSINDO','system:uat-seed','SYSTEM',
