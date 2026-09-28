@@ -56,6 +56,8 @@ export default function E2PayOperationsConsole({canManage}:Props){
   const [password,setPassword]=useState({password:'',newPassword:''});
   const [phone,setPhone]=useState({password:'',phone:'',token:''});
   const [lastResult,setLastResult]=useState('');
+  const [topUpOpen,setTopUpOpen]=useState(false);
+  const [copied,setCopied]=useState('');
 
   const loadOverview=useCallback(async(force=false)=>{
     setLoading(true);setError('');
@@ -113,6 +115,17 @@ export default function E2PayOperationsConsole({canManage}:Props){
     }finally{setActionLoading('');}
   }
 
+  async function copyFunding(label:string,value?:string|null){
+    if(!value) return;
+    try{
+      await navigator.clipboard.writeText(value);
+      setCopied(label);
+      window.setTimeout(()=>setCopied(''),1600);
+    }catch{
+      setCopied('');
+    }
+  }
+
   const endpointCounts=useMemo(()=>{
     const map=new Map<string,number>();
     for(const item of catalog) map.set(item.mode,(map.get(item.mode)||0)+1);
@@ -133,6 +146,14 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <span>Available balance</span>
         <strong>{account?.balance!==null&&account?.balance!==undefined?formatIDR(Number(account.balance)):'—'}</strong>
         <small>{account?.environment||'—'} · {account?.merchantStatus||'status unavailable'}</small>
+        <button
+          type="button"
+          className="btn btn-primary e2pay-topup-button"
+          aria-expanded={topUpOpen}
+          onClick={()=>setTopUpOpen((open)=>!open)}
+        >
+          {topUpOpen?'Tutup Top Up':'+ Top Up Wallet'}
+        </button>
       </div>
       <div className="e2pay-account-meta">
         <div><span>Merchant</span><strong>{account?.accountName||'—'}</strong><small>{account?.accountIdMasked||'—'}</small></div>
@@ -140,6 +161,50 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <div><span>Last sync</span><strong>{dateTime(account?.refreshedAt)}</strong><small>{account?.readiness?.configured?'Execution ready':account?.readiness?.reason||'Not ready'}</small></div>
       </div>
     </div>
+
+    {topUpOpen?<section className="e2pay-topup-card" aria-label="Top Up Wallet E2Pay">
+      <div className="e2pay-topup-head">
+        <div>
+          <span className="workspace-eyebrow">WALLET FUNDING</span>
+          <h5>Top Up Wallet</h5>
+          <p>Transfer dana ke Virtual Account merchant E2Pay, lalu refresh saldo setelah transfer berhasil.</p>
+        </div>
+        <span className={account?.funding?.ready?'integration-health-pill is-healthy':'integration-health-pill is-warning'}>
+          {account?.funding?.ready?'READY':'NEEDS SETUP'}
+        </span>
+      </div>
+      <div className="e2pay-topup-details">
+        <div>
+          <span>Bank tujuan</span>
+          <strong>{account?.funding?.bankName||'Belum dikonfigurasi'}</strong>
+          {account?.funding?.bankName?<button type="button" className="btn btn-compact" onClick={()=>void copyFunding('bank',account.funding?.bankName)}>{copied==='bank'?'Tersalin':'Salin'}</button>:null}
+        </div>
+        <div>
+          <span>Virtual Account (VA)</span>
+          <strong className="e2pay-va-number">{account?.funding?.vaNumber||'Belum tersedia'}</strong>
+          {account?.funding?.vaNumber?<button type="button" className="btn btn-compact" onClick={()=>void copyFunding('va',account.funding?.vaNumber)}>{copied==='va'?'Tersalin':'Salin VA'}</button>:null}
+        </div>
+        <div>
+          <span>Nama akun</span>
+          <strong>{account?.funding?.accountName||account?.accountName||'—'}</strong>
+        </div>
+      </div>
+      {!account?.funding?.bankName?<div className="app-notice-bubble app-notice-error" role="alert">
+        <strong>Bank tujuan VA belum dikonfigurasi</strong>
+        <span>Jangan melakukan transfer sebelum Super Admin mengisi Funding bank di Settings → Payment Gateway berdasarkan informasi resmi E2Pay.</span>
+      </div>:null}
+      <ol className="e2pay-topup-steps">
+        <li>Buka mobile banking / internet banking perusahaan.</li>
+        <li>Pilih transfer ke <strong>{account?.funding?.bankName||'bank VA E2Pay'}</strong>.</li>
+        <li>Masukkan nomor VA di atas dan nominal yang akan ditambahkan ke wallet.</li>
+        <li>Setelah transfer sukses, klik <strong>Refresh saldo</strong> untuk memastikan balance E2Pay sudah bertambah.</li>
+      </ol>
+      <div className="e2pay-topup-actions">
+        <button type="button" className="btn btn-primary" disabled={loading||!account?.funding?.ready} onClick={()=>void copyFunding('va',account?.funding?.vaNumber)}>{copied==='va'?'VA tersalin':'Salin VA untuk Top Up'}</button>
+        <button type="button" className="btn" disabled={loading} onClick={()=>void loadOverview(true)}>{loading?'Refreshing…':'Refresh saldo'}</button>
+      </div>
+      <small className="e2pay-topup-note">ProQPay tidak mendebit rekening untuk proses top up. Dana masuk melalui transfer ke VA merchant dan saldo diverifikasi kembali dari E2Pay.</small>
+    </section>:null}
 
     <div className="integrations-two-col e2pay-operational-grid">
       <section className="integration-panel">
