@@ -76,7 +76,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
   }
 
   async function seamless() {
-    if (!window.confirm('Eksekusi payment gateway akan memproses pembayaran berdasarkan Payment Instruction yang sudah approved. Lanjutkan?')) return;
+    if (!window.confirm('Konfirmasi final Payroll Controller: Payment Instruction yang sudah approved akan dieksekusi melalui payment gateway. Lanjutkan pembayaran?')) return;
     setBusy('seamless'); setError('');
     try {
       let result = await executeSeamlessPayment(paymentInstructionId, 'BANK_TRANSFER');
@@ -134,6 +134,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
   }
 
   async function hosted() {
+    if (!window.confirm('Konfirmasi final Payroll Controller: lanjutkan ke Hosted Payment untuk Payment Instruction yang sudah approved?')) return;
     setBusy('hosted'); setError('');
     try {
       const result = await createHostedPaymentSession(paymentInstructionId, '/?view=payments');
