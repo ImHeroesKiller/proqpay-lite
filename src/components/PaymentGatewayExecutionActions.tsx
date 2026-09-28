@@ -7,6 +7,7 @@ import {
   getHostedPaymentStatus,
   getPaymentGatewayStatus,
   reconcileE2PayPayment,
+  verifyFailedE2PayPayment,
   retryFailedE2PayPayment,
   type HostedPaymentSession,
   type PaymentGatewayItem,
@@ -120,6 +121,26 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     }
   }
 
+  async function verifyFailedE2Pay() {
+    if (!window.confirm('Verifikasi ke E2Pay Transaction History bahwa beneficiary gagal tidak pernah tercatat di provider. Tidak ada pembayaran yang dikirim pada langkah ini. Lanjutkan?')) return;
+    setBusy('verify-failed'); setError('');
+    try {
+      const result=await verifyFailedE2PayPayment(paymentInstructionId);
+      await changed();
+      if(result.verifiedSafe > 0){
+        setError(`${result.verifiedSafe} beneficiary terverifikasi tidak tercatat di provider dan sekarang eligible untuk Retry terkontrol oleh Payroll Controller.`);
+      }else if(result.providerFound > 0){
+        setError('Provider menemukan transaksi untuk sebagian item. Status sudah diselaraskan; review sebelum tindakan berikutnya.');
+      }else{
+        setError('Tidak ada item yang dapat dinyatakan aman untuk retry. Review error provider diperlukan.');
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Verifikasi failed item E2Pay gagal');
+    } finally {
+      setBusy('');
+    }
+  }
+
   async function retryFailedE2Pay() {
     if (!window.confirm(`Retry hanya akan dilakukan untuk ${e2payRetryable} beneficiary yang dinilai aman untuk diulang. Lanjutkan?`)) return;
     setBusy('retry-failed'); setError('');
@@ -156,7 +177,16 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
   const e2payReady = runtime.items.filter((item) => ['CREATED','INQUIRY_READY'].includes(item.status)).length;
   const e2paySucceeded = runtime.items.filter((item) => item.status === 'SUCCEEDED').length;
   const e2payFailed = runtime.items.filter((item) => item.status === 'FAILED').length;
-  const e2payRetryable = runtime.items.filter((item) => item.status === 'FAILED' && (Number(item.attempt_count || 0) === 0 || String(item.response_code || '').trim() === '99')).length;
+  const e2payRetryable = runtime.items.filter((item) => item.status === 'FAILED' && (
+    Number(item.attempt_count || 0) === 0
+    || String(item.response_code || '').trim() === '99'
+    || String(item.error_code || '').trim() === 'E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY'
+  )).length;
+  const e2payNeedsVerification = runtime.items.filter((item) => item.status === 'FAILED'
+    && String(item.error_code || '') === 'E2PAY_HTTP_ERROR'
+    && /E2Pay HTTP\s+4\d\d/i.test(String(item.error_message || ''))
+    && !/E2Pay HTTP\s+(408|409|429)/i.test(String(item.error_message || ''))).length;
+  const firstFailure = runtime.items.find((item) => item.status === 'FAILED' && (item.error_message || item.response_message));
   const operational = runtime.operational;
   const staleReconcile = Boolean(isE2Pay && operational?.stale && operational.needsReconciliation);
   const arBlocked = Boolean(runtime.arGate?.blocked && !transactionActive && !hostedActive);
@@ -165,7 +195,8 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
       {canExecuteGateway && !arBlocked && seamlessReady && ((!transactionActive && (!isE2Pay || e2payFailed === 0)) || (isE2Pay && e2payReady > 0 && e2payFailed === 0)) && !hostedActive ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void seamless()}>{busy === 'seamless' ? 'Memproses…' : isE2Pay ? (transactionActive ? 'Lanjut E2Pay' : 'Bayar via E2Pay') : 'Seamless'}</button> : null}
       {canExecuteGateway && isE2Pay && transactionActive && e2payUnresolved > 0 ? <button className={staleReconcile ? 'btn btn-primary' : 'btn'} type="button" disabled={Boolean(busy)} onClick={() => void reconcileE2Pay()}>{busy === 'reconcile' ? 'Sinkron…' : staleReconcile ? 'Sync status sekarang' : 'Sync E2Pay'}</button> : null}
-      {canExecuteGateway && isE2Pay && e2payRetryable > 0 && e2payUnresolved === 0 ? <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void retryFailedE2Pay()}>{busy === 'retry-failed' ? 'Retry…' : `Retry ${e2payRetryable} Gagal`}</button> : null}
+      {canExecuteGateway && isE2Pay && e2payNeedsVerification > 0 && e2payRetryable === 0 && e2payUnresolved === 0 ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void verifyFailedE2Pay()}>{busy === 'verify-failed' ? 'Verifikasi…' : 'Verifikasi E2Pay'}</button> : null}
+      {canExecuteGateway && isE2Pay && e2payRetryable > 0 && e2payUnresolved === 0 ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void retryFailedE2Pay()}>{busy === 'retry-failed' ? 'Retry…' : `Retry ${e2payRetryable} Gagal`}</button> : null}
       {canExecuteGateway && !arBlocked && hostedReady && !transactionActive && !hostedActive ? <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void hosted()}>{busy === 'hosted' ? 'Membuka…' : 'Hosted'}</button> : null}
       {canExecuteGateway && hostedCanContinue ? <button className="btn btn-primary" type="button" onClick={() => window.location.assign(String(runtime.session?.checkout_url))}>Lanjut Hosted</button> : null}
       {onManualProof ? <button className="btn" type="button" onClick={onManualProof}>Catat Bukti</button> : null}
@@ -182,7 +213,12 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     {operational?.state === 'RECONCILE' && !operational.stale ? <small style={{ color:'#b45309' }}>Status provider belum final. Selesaikan reconciliation sebelum retry.</small> : null}
     {runtime.transaction?.error_code === 'GATEWAY_EXECUTION_UNKNOWN' ? <small style={{ color:'#b91c1c' }}>Hasil eksekusi belum pasti. Retry diblokir sampai ada konfirmasi provider.</small> : null}
     {isE2Pay && runtime.items.length ? <small style={{ color:'var(--text3)' }}>E2Pay {e2paySucceeded}/{runtime.items.length} sukses · {e2payUnresolved} proses · {e2payReady} siap · {e2payFailed} gagal</small> : null}
-    {isE2Pay && e2payFailed > 0 && e2payUnresolved === 0 && e2paySucceeded < runtime.items.length ? <small style={{ color:'#b45309' }}>{e2payRetryable > 0 ? 'Ada beneficiary gagal final. Retry terkontrol tersedia hanya untuk item yang aman diulang.' : 'Ada beneficiary gagal yang tidak aman diulang otomatis. Review provider/reference sebelum tindakan manual.'}</small> : null}
+    {isE2Pay && e2payFailed > 0 && e2payUnresolved === 0 && e2paySucceeded < runtime.items.length ? <small style={{ color:'#b45309' }}>{e2payRetryable > 0
+      ? 'Provider sudah diverifikasi. Retry terkontrol tersedia hanya untuk item yang dipastikan tidak tercatat di E2Pay.'
+      : e2payNeedsVerification > 0
+        ? 'Request ditolak HTTP 4xx. Verifikasi Transaction History E2Pay dulu; jangan retry langsung.'
+        : 'Ada beneficiary gagal yang tidak aman diulang otomatis. Review provider/reference sebelum tindakan manual.'}</small> : null}
+    {isE2Pay && firstFailure ? <small style={{ color:'#b91c1c' }}><strong>Error provider:</strong> {String(firstFailure.error_message || firstFailure.response_message || 'Unknown error')}</small> : null}
     {hostedActive ? <small style={{ color:'var(--text3)' }}>Hosted {runtime.session?.status} · berlaku sampai {runtime.session?.expires_at ? new Date(runtime.session.expires_at).toLocaleTimeString('id-ID') : '-'}</small> : null}
     {!loading && runtime.session?.status === 'EXPIRED' ? <small style={{ color:'var(--text3)' }}>Hosted session sebelumnya sudah expired. Payment dapat dicoba kembali.</small> : null}
     {!loading && !seamlessReady && !hostedReady ? <small style={{ color:'var(--text3)' }}>Gateway belum ready. <a href="?view=integrations">Cek Integrations</a></small> : null}
