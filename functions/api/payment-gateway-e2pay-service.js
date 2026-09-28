@@ -40,7 +40,8 @@ export function summarizeE2PayItems(items = []) {
     succeeded: counts.SUCCEEDED || 0,
     processing: (counts.PROCESSING || 0) + (counts.PENDING || 0) + (counts.UNKNOWN || 0),
     failed: counts.FAILED || 0,
-    ready: (counts.CREATED || 0) + (counts.INQUIRY_READY || 0),
+    ready: (counts.CREATED || 0) + (counts.INQUIRY_READY || 0)
+      + (counts.RETRY_READY || 0) + (counts.RETRY_INQUIRY_READY || 0),
   };
 }
 
@@ -85,10 +86,19 @@ function beneficiaryMap(beneficiaries) {
 }
 
 export function isRetryableE2PayFailure(item) {
-  if (String(item?.status || '') !== 'FAILED') return false;
-  if (Number(item?.attempt_count || 0) === 0) return true;
-  if (String(item?.response_code || '').trim() === '99') return true;
-  return String(item?.error_code || '').trim() === 'E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY';
+  const status=String(item?.status || '');
+  if(status==='RETRY_READY') return true;
+  if(status!=='FAILED') return false;
+  if(Number(item?.attempt_count || 0)===0) return true;
+  return String(item?.response_code || '').trim()==='99';
+}
+
+export function isRetryInquiryReady(item) {
+  return String(item?.status || '')==='RETRY_INQUIRY_READY';
+}
+
+export function isE2PayRetryCandidate(item) {
+  return isRetryableE2PayFailure(item) || isRetryInquiryReady(item);
 }
 
 function deterministicClientHttpFailure(item) {
@@ -152,9 +162,10 @@ async function prepareBeneficiaries(database, env, transactionId, payment, benef
     // A continuation call intentionally passes only the bounded beneficiary chunk.
     // Items outside the chunk stay untouched for the next request.
     if (!beneficiary) continue;
-    if (['SUCCEEDED','PROCESSING','PENDING','UNKNOWN','INQUIRY_READY'].includes(item.status)) continue;
-    if (item.status === 'FAILED' && Number(item.attempt_count || 0) > 0
-      && !(retryFailed && isRetryableE2PayFailure(item))) continue;
+    if (['SUCCEEDED','PROCESSING','PENDING','UNKNOWN','INQUIRY_READY','RETRY_INQUIRY_READY'].includes(item.status)) continue;
+    const retryCycle=retryFailed && isRetryableE2PayFailure(item);
+    if (item.status === 'FAILED' && Number(item.attempt_count || 0) > 0 && !retryCycle) continue;
+    if (item.status === 'RETRY_READY' && !retryCycle) continue;
 
     const effectiveDestination=e2payEffectiveDestination(env,beneficiary);
     const bank = effectiveDestination.isUatDummy
@@ -192,7 +203,7 @@ async function prepareBeneficiaries(database, env, transactionId, payment, benef
         continue;
       }
       await updateItem(database, item.id, {
-        status:'INQUIRY_READY',
+        status:retryCycle ? 'RETRY_INQUIRY_READY' : 'INQUIRY_READY',
         bank_id:String(bank.id),
         provider_beneficiary_name:String(inquiry?.name || '').slice(0, 180) || null,
         inquiry_id:inquiryId,
@@ -227,7 +238,7 @@ function parentOutcome(items) {
 export function selectE2PayExecutionChunk(items = [], limit = 25, retryFailed = false) {
   const bounded = Math.max(1, Math.min(100, Number(limit) || 25));
   const eligible = retryFailed
-    ? items.filter((item) => isRetryableE2PayFailure(item))
+    ? items.filter((item) => isE2PayRetryCandidate(item))
     : items.filter((item) => item.status === 'CREATED'
       || (item.status === 'INQUIRY_READY' && Number(item.attempt_count || 0) === 0));
   return eligible.slice(0, bounded);
@@ -371,7 +382,7 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
   // Phase 2: all not-yet-paid beneficiaries must already have a durable inquiry.
   // Check the full remaining payroll + fees before the first disbursement.
   const remainingRequired = allItems
-    .filter((item) => item.status === 'INQUIRY_READY')
+    .filter((item) => ['INQUIRY_READY','RETRY_INQUIRY_READY'].includes(item.status))
     .reduce((sum, item) => sum + number(item.amount) + number(item.fee_amount), 0);
   if (!providerActivity && merchantBalance < remainingRequired) {
     await updateParent(database, transactionId, {
@@ -393,7 +404,9 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
   }
 
   const paymentChunk = allItems
-    .filter((item) => item.status === 'INQUIRY_READY' && Number(item.attempt_count || 0) === 0)
+    .filter((item) => retryFailed
+      ? item.status === 'RETRY_INQUIRY_READY'
+      : item.status === 'INQUIRY_READY' && Number(item.attempt_count || 0) === 0)
     .slice(0, limit);
 
   if (!paymentChunk.length) {
@@ -500,8 +513,9 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
   }
   await transitionPaymentState(database, payment, outcome.status, summary);
 
-  const remaining = allItems.filter((item) => item.status === 'INQUIRY_READY'
-    && Number(item.attempt_count || 0) === 0).length;
+  const remaining = allItems.filter((item) => retryFailed
+    ? item.status === 'RETRY_INQUIRY_READY'
+    : item.status === 'INQUIRY_READY' && Number(item.attempt_count || 0) === 0).length;
   return {
     ok:true,
     statusCode:201,
@@ -556,9 +570,12 @@ export async function verifyFailedE2PayBatch({ database, env, transactionId, pay
       }else{
         verifiedSafe+=1;
         await updateItem(database,item.id,{
+          status:'RETRY_READY',
           last_checked_at:new Date().toISOString(),
-          error_code:'E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY',
-          error_message:'Provider history tidak memiliki clientRef setelah deterministic HTTP 4xx; aman untuk retry terkontrol oleh Payroll Controller.',
+          response_code:null,
+          response_message:null,
+          error_code:null,
+          error_message:null,
         });
       }
     }catch(error){
@@ -573,13 +590,17 @@ export async function verifyFailedE2PayBatch({ database, env, transactionId, pay
 
   items=await loadItems(database,transactionId);
   const outcome=parentOutcome(items);
+  const retryReady=items.filter((item)=>item.status==='RETRY_READY').length;
+  const unresolved=items.filter((item)=>['PENDING','PROCESSING','UNKNOWN'].includes(item.status)).length;
+  const parentStatus=retryReady>0 && unresolved===0 ? 'FAILED' : outcome.status;
+  const providerStatus=retryReady>0 && unresolved===0 ? 'RETRY_READY' : outcome.status;
   await updateParent(database,transactionId,{
-    status:outcome.status,
-    provider_status:outcome.status,
+    status:parentStatus,
+    provider_status:providerStatus,
     error_code:null,
     error_message:null,
   });
-  await transitionPaymentState(database,payment,outcome.status,outcome.summary);
+  if(parentStatus!=='FAILED') await transitionPaymentState(database,payment,parentStatus,outcome.summary);
   return {
     ok:true,
     statusCode:200,
@@ -588,7 +609,8 @@ export async function verifyFailedE2PayBatch({ database, env, transactionId, pay
     unchanged,
     summary:outcome.summary,
     items,
-    parentStatus:outcome.status,
+    parentStatus,
+    providerStatus,
   };
 }
 
