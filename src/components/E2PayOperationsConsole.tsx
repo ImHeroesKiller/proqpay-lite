@@ -203,6 +203,10 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <strong>Bank tujuan VA belum dikonfigurasi</strong>
         <span>Jangan melakukan transfer sebelum Super Admin mengisi Funding bank di Settings → Payment Gateway berdasarkan informasi resmi E2Pay.</span>
       </div>:null}
+      {String(account?.environment||'').toUpperCase()==='UAT'?<div className="app-notice-bubble app-notice-info" role="note">
+        <strong>Permata 701075327 bukan VA Top Up</strong>
+        <span>Data dummy Permata tersebut hanya untuk pengujian transaksi/disbursement pada E2Pay UAT. Jangan gunakan sebagai tujuan pengisian saldo wallet.</span>
+      </div>:null}
       <ol className="e2pay-topup-steps">
         <li>Buka mobile banking / internet banking perusahaan.</li>
         <li>Pilih transfer ke <strong>{account?.funding?.bankName||'bank VA E2Pay'}</strong>.</li>
