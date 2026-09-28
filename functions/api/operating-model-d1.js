@@ -1598,7 +1598,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (serverHash !== payment.content_hash || serverHash !== body.actionHash) {
       return { status:409, data:{ error:'Content hash hasil verifikasi server tidak sesuai snapshot PI; approval diblokir', code:'PI_SERVER_HASH_MISMATCH' } };
     }
-    const existing = await d1First(database, 'SELECT * FROM payment_approvals WHERE payment_instruction_id=? AND action_hash=? LIMIT 1', [payment.id, body.actionHash]);
+    const existing = await d1First(database, `SELECT * FROM payment_approvals WHERE payment_instruction_id=? AND action_hash=? AND status='APPROVED' LIMIT 1`, [payment.id, body.actionHash]);
     if (existing) return { data: { ok: true, approval: existing, idempotentReplay: true } };
     const approvalId = `PA-${crypto.randomUUID()}`;
     await d1Batch(database, [
