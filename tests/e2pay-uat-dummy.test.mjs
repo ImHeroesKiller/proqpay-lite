@@ -38,4 +38,5 @@ test('Integration console clearly exposes the provider UAT rule without treating
   assert.match(source,/E2Pay UAT dummy destination/);
   assert.match(source,/Gunakan dummy UAT/);
   assert.match(source,/Nominal Rp15\.000 berasal dari contoh dokumen/);
+  assert.match(source,/Permata 701075327 bukan VA Top Up/);
 });
