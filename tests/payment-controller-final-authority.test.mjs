@@ -61,6 +61,7 @@ test('all payment mutation endpoints enforce Payroll Controller authority',async
   const gateway=await read('functions/api/payment-gateway.js');
   const hosted=await read('functions/api/payment-gateway-hosted.js');
   const proof=await read('functions/api/payment-proof.js');
+  const exporter=await read('functions/api/payment-instruction-export.js');
   const edge=await read('functions/api/operating-model.js');
   const d1=await read('functions/api/operating-model-d1.js');
 
@@ -70,6 +71,9 @@ test('all payment mutation endpoints enforce Payroll Controller authority',async
   assert.match(hosted,/PAYMENT_CONTROLLER_EXECUTION_REQUIRED/);
   assert.match(proof,/WRITE_ROLES = \['PAYROLL_CONTROLLER'\]/);
   assert.match(proof,/PAYMENT_CONTROLLER_EXECUTION_REQUIRED/);
+  assert.match(exporter,/format !== 'PDF'/);
+  assert.match(exporter,/authorization\.actor\.role !== 'PAYROLL_CONTROLLER'/);
+  assert.match(exporter,/PAYMENT_CONTROLLER_EXECUTION_REQUIRED/);
   assert.match(edge,/actor\.role !== 'PAYROLL_CONTROLLER'/);
   assert.match(d1,/actor\.role !== 'PAYROLL_CONTROLLER'/);
 });
