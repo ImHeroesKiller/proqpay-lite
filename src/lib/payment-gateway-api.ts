@@ -25,6 +25,38 @@ export type PaymentGatewayTransaction = {
 };
 
 
+export type E2PayRequestDiagnostics = {
+  environment: string;
+  accountSrc?: {
+    last4?: string | null;
+    length: number;
+    fingerprint?: string | null;
+    matchesMerchantAccount?: boolean | null;
+  };
+  sourceId?: {
+    length: number;
+    fingerprint?: string | null;
+    verification?: string;
+  };
+  clientRef?: {
+    value?: string | null;
+    length: number;
+    ascii: boolean;
+  };
+  description?: {
+    length: number;
+    fingerprint?: string | null;
+  };
+  inquiryId?: {
+    length: number;
+    fingerprint?: string | null;
+  };
+  password?: {
+    present: boolean;
+    md5Uppercase: boolean;
+  };
+};
+
 export type PaymentGatewayItem = {
   id: string;
   payment_instruction_line_id: string;
@@ -44,6 +76,10 @@ export type PaymentGatewayItem = {
   status: 'CREATED' | 'INQUIRY_READY' | 'RETRY_READY' | 'RETRY_INQUIRY_READY' | 'PENDING' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN';
   attempt_count: number;
   last_checked_at?: string | null;
+  provider_http_status?: number | null;
+  failure_stage?: string | null;
+  last_attempt_at?: string | null;
+  request_diagnostics?: E2PayRequestDiagnostics | null;
   error_code?: string | null;
   error_message?: string | null;
 };
