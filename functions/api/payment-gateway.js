@@ -117,11 +117,17 @@ export function gatewayOperationalStatus(transaction, items = [], nowMs = Date.n
   const active = ['CREATED','PENDING','PROCESSING'].includes(status);
   const stale = active && !activeLease && staleMinutes >= 15;
   const needsReconciliation = unresolved.length > 0 || (stale && status === 'PROCESSING');
-  const safeToRetry = status === 'FAILED' && unresolved.length === 0
+  const retryPipeline = unresolved.length === 0
     && retryableItems.length > 0
     && blockingFailed.length === 0;
+  const safeToRetry = retryPipeline && (
+    status === 'FAILED'
+    || String(transaction.provider_status || '') === 'RETRY_READY'
+    || String(transaction.provider_status || '') === 'PREFLIGHT'
+  );
   const state = status === 'SUCCEEDED' ? 'SETTLED'
     : needsReconciliation ? (stale ? 'STALE' : 'RECONCILE')
+    : safeToRetry ? 'RETRY_READY'
     : status === 'FAILED' ? 'FAILED'
     : active ? 'PROCESSING'
     : status || 'IDLE';
