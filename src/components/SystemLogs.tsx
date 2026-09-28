@@ -38,7 +38,7 @@ type AuditRow = {
 
 type ApiPage = { offset: number; limit: number; total: number; hasMore: boolean; nextOffset: number };
 type Summary = { total: number; errors: number; warnings: number; employeeServices: number; failedLogins: number };
-type Health = { gatewayFailed:number; gatewayActive:number; connectedApps:number; apiErrors24h:number };
+type Health = { gatewayFailed:number; gatewayActive:number; gatewayStale:number; gatewayUnresolved:number; gatewayRetryReady:number; connectedApps:number; apiErrors24h:number };
 
 const SOURCE_LABELS: Record<string, string> = {
   BUSINESS: "Business",
@@ -110,7 +110,7 @@ export default function SystemLogs() {
     failedLogins: 0,
   });
   const [sources, setSources] = useState<Array<{ source: string; total: number }>>([]);
-  const [health, setHealth] = useState<Health>({gatewayFailed:0,gatewayActive:0,connectedApps:0,apiErrors24h:0});
+  const [health, setHealth] = useState<Health>({gatewayFailed:0,gatewayActive:0,gatewayStale:0,gatewayUnresolved:0,gatewayRetryReady:0,connectedApps:0,apiErrors24h:0});
   const [page, setPage] = useState<ApiPage>({
     offset: 0,
     limit: 50,
@@ -168,6 +168,9 @@ export default function SystemLogs() {
       setHealth({
         gatewayFailed:Number(data.health?.gatewayFailed||0),
         gatewayActive:Number(data.health?.gatewayActive||0),
+        gatewayStale:Number(data.health?.gatewayStale||0),
+        gatewayUnresolved:Number(data.health?.gatewayUnresolved||0),
+        gatewayRetryReady:Number(data.health?.gatewayRetryReady||0),
         connectedApps:Number(data.health?.connectedApps||0),
         apiErrors24h:Number(data.health?.apiErrors24h||0),
       });
@@ -285,6 +288,9 @@ export default function SystemLogs() {
 
       <section className="audit-health-strip" aria-label="Status operasional">
         <div><span>Payment Gateway</span><strong className={health.gatewayFailed?"bad":health.gatewayActive?"warn":"ok"}>{health.gatewayFailed ? health.gatewayFailed+" gagal" : health.gatewayActive ? health.gatewayActive+" aktif" : "Normal"}</strong></div>
+        <div><span>Gateway stale</span><strong className={health.gatewayStale?"bad":"ok"}>{health.gatewayStale}</strong></div>
+        <div><span>Unresolved beneficiary</span><strong className={health.gatewayUnresolved?"warn":"ok"}>{health.gatewayUnresolved}</strong></div>
+        <div><span>Retry ready</span><strong className={health.gatewayRetryReady?"warn":"ok"}>{health.gatewayRetryReady}</strong></div>
         <div><span>Connected Apps</span><strong>{health.connectedApps}</strong></div>
         <div><span>API error 24 jam</span><strong className={health.apiErrors24h?"bad":"ok"}>{health.apiErrors24h}</strong></div>
         <div><span>ESS failed login</span><strong className={summary.failedLogins?"warn":"ok"}>{summary.failedLogins}</strong></div>

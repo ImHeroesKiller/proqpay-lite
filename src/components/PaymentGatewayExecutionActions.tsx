@@ -14,6 +14,7 @@ import {
   type PaymentGatewayReadiness,
   type PaymentGatewayTransaction,
   type PaymentGatewayOperationalStatus,
+  type PaymentGatewayTimelineEvent,
   type ArPaymentGate,
 } from '@/lib/payment-gateway-api';
 
@@ -31,6 +32,7 @@ type Runtime = {
   items: PaymentGatewayItem[];
   session: HostedPaymentSession | null;
   operational: PaymentGatewayOperationalStatus | null;
+  timeline: PaymentGatewayTimelineEvent[];
   arGate: ArPaymentGate | null;
 };
 
@@ -40,7 +42,7 @@ const activeHosted = (value: HostedPaymentSession | null) => Boolean(value
   && new Date(value.expires_at).getTime() > Date.now());
 
 export default function PaymentGatewayExecutionActions({ paymentInstructionId, canExecuteGateway, onManualProof, onChanged }: Props) {
-  const [runtime, setRuntime] = useState<Runtime>({ seamless:null, hosted:null, transaction:null, items:[], session:null, operational:null, arGate:null });
+  const [runtime, setRuntime] = useState<Runtime>({ seamless:null, hosted:null, transaction:null, items:[], session:null, operational:null, timeline:[], arGate:null });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -61,6 +63,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
         items: seamless.items || [],
         session: hosted.session || null,
         operational: seamless.operational || null,
+        timeline: seamless.timeline || [],
         arGate: seamless.arGate || null,
       });
     } catch (cause) {
@@ -251,6 +254,17 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
         ? 'Request ditolak HTTP 4xx. Verifikasi Transaction History E2Pay dulu; jangan retry langsung.'
         : `Ada ${e2payBlockingFailed || e2payFailed} beneficiary gagal yang tidak aman diulang otomatis. Review provider/reference sebelum tindakan manual.`}</small> : null}
     {isE2Pay && firstFailure ? <small style={{ color:'#b91c1c' }}><strong>Error provider:</strong> {String(firstFailure.error_message || firstFailure.response_message || 'Unknown error')}</small> : null}
+    {isE2Pay && runtime.timeline.length ? <details className="integration-diagnostics">
+      <summary>Riwayat eksekusi · {runtime.timeline.length} event</summary>
+      <div style={{ display:'grid', gap:7, paddingTop:8, maxHeight:260, overflow:'auto' }}>
+        {runtime.timeline.slice(0,30).map((event) => <div key={event.id} style={{ display:'grid', gap:2, padding:'7px 0', borderBottom:'1px solid var(--border-soft)' }}>
+          <span style={{ fontSize:11, fontWeight:700 }}>{event.label}</span>
+          <span style={{ fontSize:10.5, color:'var(--text3)' }}>{new Date(event.at).toLocaleString('id-ID', { timeZone:'Asia/Jakarta' })} WIB · {String(event.status || '').replaceAll('_',' ')}</span>
+          {event.detail ? <span style={{ fontSize:10.5, color:'var(--text3)', overflowWrap:'anywhere' }}>{event.detail}</span> : null}
+        </div>)}
+        {runtime.timeline.length > 30 ? <small style={{ color:'var(--text3)' }}>Menampilkan 30 event terbaru dari {runtime.timeline.length} event.</small> : null}
+      </div>
+    </details> : null}
     {isE2Pay && diagnosticItem && (diagnostics || diagnosticItem.provider_http_status || diagnosticItem.failure_stage) ? <details className="integration-diagnostics">
       <summary>Diagnostik request E2Pay</summary>
       <div style={{ display:'grid', gap:4, paddingTop:6, fontSize:11, color:'var(--text3)' }}>
