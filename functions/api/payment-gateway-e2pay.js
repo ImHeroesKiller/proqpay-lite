@@ -125,6 +125,29 @@ export function e2payBaseUrl(env = {}) {
   throw new E2PayConfigurationError('E2PAY_ENV wajib UAT atau PRODUCTION');
 }
 
+export const E2PAY_UAT_DUMMY_DESTINATION = Object.freeze({
+  bankId:'permata',
+  accountId:'701075327',
+});
+
+export function e2payEffectiveDestination(env = {}, beneficiary = {}) {
+  const mode=String(env.E2PAY_ENV || 'UAT').trim().toUpperCase();
+  if(mode==='UAT'){
+    return {
+      accountId:E2PAY_UAT_DUMMY_DESTINATION.accountId,
+      bankId:E2PAY_UAT_DUMMY_DESTINATION.bankId,
+      amount:Math.trunc(Number(beneficiary?.amount || 0)),
+      isUatDummy:true,
+    };
+  }
+  return {
+    accountId:String(beneficiary?.accountNumber || '').trim(),
+    bankId:null,
+    amount:Math.trunc(Number(beneficiary?.amount || 0)),
+    isUatDummy:false,
+  };
+}
+
 function timeoutMs(env) {
   const value = Number(env.E2PAY_TIMEOUT_MS || 15000);
   if (!Number.isFinite(value)) return 15000;
