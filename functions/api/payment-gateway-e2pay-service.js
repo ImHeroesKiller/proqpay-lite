@@ -87,7 +87,17 @@ function beneficiaryMap(beneficiaries) {
 export function isRetryableE2PayFailure(item) {
   if (String(item?.status || '') !== 'FAILED') return false;
   if (Number(item?.attempt_count || 0) === 0) return true;
-  return String(item?.response_code || '').trim() === '99';
+  if (String(item?.response_code || '').trim() === '99') return true;
+  return String(item?.error_code || '').trim() === 'E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY';
+}
+
+function deterministicClientHttpFailure(item) {
+  if (String(item?.status || '') !== 'FAILED') return false;
+  if (String(item?.error_code || '') !== 'E2PAY_HTTP_ERROR') return false;
+  const match=String(item?.error_message || '').match(/E2Pay HTTP\s+(\d{3})/i);
+  if(!match) return false;
+  const status=Number(match[1]);
+  return status >= 400 && status < 500 && ![408,409,429].includes(status);
 }
 
 async function updateItem(database, itemId, fields) {
@@ -503,6 +513,82 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     remaining,
     processedThisCall:paymentBeneficiaries.length,
     chunkLimit:limit,
+  };
+}
+
+export async function verifyFailedE2PayBatch({ database, env, transactionId, payment }) {
+  const auth=await e2payAuthorize(env);
+  let items=await loadItems(database,transactionId);
+  let verifiedSafe=0;
+  let providerFound=0;
+  let unchanged=0;
+
+  for(const item of items){
+    if(String(item.status||'')!=='FAILED'){
+      unchanged+=1;
+      continue;
+    }
+    if(isRetryableE2PayFailure(item)){
+      verifiedSafe+=1;
+      continue;
+    }
+    if(!deterministicClientHttpFailure(item)){
+      unchanged+=1;
+      continue;
+    }
+
+    try{
+      const history=await e2payTransactionHistory(env,auth.accessToken,item.client_ref);
+      if(history){
+        providerFound+=1;
+        const normalized=e2payResponseStatus(history.responseCode);
+        const status=normalized==='PENDING'?'UNKNOWN':normalized;
+        await updateItem(database,item.id,{
+          status,
+          provider_transaction_id:String(history?.journalId||item.provider_transaction_id||'')||null,
+          journal_id:String(history?.journalId||item.journal_id||'')||null,
+          response_code:String(history?.responseCode??''),
+          response_message:String(history?.responseMessage||'').slice(0,300)||null,
+          last_checked_at:new Date().toISOString(),
+          error_code:status==='FAILED'?'E2PAY_PROVIDER_REJECTED':null,
+          error_message:status==='FAILED'?String(history?.responseMessage||'E2Pay transaction failed').slice(0,300):null,
+        });
+      }else{
+        verifiedSafe+=1;
+        await updateItem(database,item.id,{
+          last_checked_at:new Date().toISOString(),
+          error_code:'E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY',
+          error_message:'Provider history tidak memiliki clientRef setelah deterministic HTTP 4xx; aman untuk retry terkontrol oleh Payroll Controller.',
+        });
+      }
+    }catch(error){
+      unchanged+=1;
+      await updateItem(database,item.id,{
+        last_checked_at:new Date().toISOString(),
+        error_code:'E2PAY_HISTORY_CHECK_FAILED',
+        error_message:String(error?.message||'Verifikasi provider E2Pay gagal').slice(0,300),
+      });
+    }
+  }
+
+  items=await loadItems(database,transactionId);
+  const outcome=parentOutcome(items);
+  await updateParent(database,transactionId,{
+    status:outcome.status,
+    provider_status:outcome.status,
+    error_code:null,
+    error_message:null,
+  });
+  await transitionPaymentState(database,payment,outcome.status,outcome.summary);
+  return {
+    ok:true,
+    statusCode:200,
+    verifiedSafe,
+    providerFound,
+    unchanged,
+    summary:outcome.summary,
+    items,
+    parentStatus:outcome.status,
   };
 }
 

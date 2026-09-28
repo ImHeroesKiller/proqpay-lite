@@ -8,7 +8,7 @@ import {
   gatewayReadiness,
   gatewayRequestHash,
 } from './payment-gateway-core.js';
-import { executeE2PayBatch, reconcileE2PayBatch } from './payment-gateway-e2pay-service.js';
+import { executeE2PayBatch, reconcileE2PayBatch, verifyFailedE2PayBatch } from './payment-gateway-e2pay-service.js';
 import { e2payLoginReadiness } from './payment-gateway-e2pay.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { arGateMessage, evaluateClientArGate } from './ar-payment-control.js';
@@ -191,9 +191,9 @@ export async function onRequest(context) {
     const paymentMethod = String(body.paymentMethod || '').trim().slice(0, 60);
     const action = String(body.action || 'EXECUTE').trim().toUpperCase();
     if (!paymentInstructionId) return secureJson({ error: 'paymentInstructionId wajib diisi' }, 422, request, env, METHODS);
-    if (!['EXECUTE','RECONCILE','RETRY_FAILED'].includes(action)) return secureJson({ error: 'action gateway tidak valid' }, 422, request, env, METHODS);
+    if (!['EXECUTE','RECONCILE','VERIFY_FAILED','RETRY_FAILED'].includes(action)) return secureJson({ error: 'action gateway tidak valid' }, 422, request, env, METHODS);
 
-    const actionReadiness = action === 'RECONCILE' && readiness.provider === 'E2PAY'
+    const actionReadiness = (action === 'RECONCILE' || action === 'VERIFY_FAILED') && readiness.provider === 'E2PAY'
       ? e2payLoginReadiness(runtimeEnv)
       : readiness;
     if (!actionReadiness.configured) {
@@ -237,12 +237,38 @@ export async function onRequest(context) {
         await releaseExecutionLease(database, transaction.id, reconcileLease);
       }
     }
+    if (action === 'VERIFY_FAILED') {
+      if (readiness.provider !== 'E2PAY') return secureJson({ error: 'Verifikasi failed item hanya tersedia untuk adapter E2Pay' }, 422, request, env, METHODS);
+      if (!transaction) return secureJson({ error: 'Execution ledger E2Pay belum tersedia' }, 404, request, env, METHODS);
+      const verifyLease=await acquireExecutionLease(database,transaction.id);
+      if(!verifyLease){
+        return secureJson({
+          error:'PI E2Pay sedang diproses oleh request lain. Muat ulang status sebelum verifikasi.',
+          code:'PAYMENT_GATEWAY_EXECUTION_BUSY',
+        },409,request,env,METHODS);
+      }
+      try{
+        const result=await verifyFailedE2PayBatch({database,env:runtimeEnv,transactionId:transaction.id,payment});
+        transaction=await d1First(database,'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1',[transaction.id]);
+        await d1Batch(database,[auditOperation(
+          organizationId,
+          authorization.actor,
+          'E2PAY_FAILED_ITEMS_VERIFIED',
+          `safe=${result.verifiedSafe} · providerFound=${result.providerFound} · unchanged=${result.unchanged}`,
+          payment.id,
+        )]);
+        return secureJson({...result,transaction:publicTransaction(transaction),gateway:readiness},200,request,env,METHODS);
+      }finally{
+        await releaseExecutionLease(database,transaction.id,verifyLease);
+      }
+    }
     if (action === 'RETRY_FAILED') {
       if (readiness.provider !== 'E2PAY') return secureJson({ error: 'Retry beneficiary hanya tersedia untuk adapter E2Pay' }, 422, request, env, METHODS);
       if (!transaction) return secureJson({ error: 'Execution ledger E2Pay belum tersedia' }, 404, request, env, METHODS);
       const retryable = await d1First(database, `SELECT COUNT(*) AS count FROM payment_gateway_items
         WHERE payment_gateway_transaction_id=? AND status='FAILED'
-          AND (attempt_count=0 OR TRIM(COALESCE(response_code,''))='99')`, [transaction.id]);
+          AND (attempt_count=0 OR TRIM(COALESCE(response_code,''))='99'
+            OR TRIM(COALESCE(error_code,''))='E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY')`, [transaction.id]);
       if (Number(retryable?.count || 0) <= 0) {
         return secureJson({ error:'Tidak ada beneficiary gagal yang aman untuk di-retry', code:'E2PAY_NO_RETRYABLE_FAILURES' }, 409, request, env, METHODS);
       }
