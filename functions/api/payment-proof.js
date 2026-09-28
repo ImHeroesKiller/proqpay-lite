@@ -8,7 +8,7 @@ import {
 
 const METHODS = 'GET, POST, OPTIONS';
 const READ_ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER'];
-const WRITE_ROLES = ['SUPER_ADMIN','PAYROLL_PROCESSOR'];
+const WRITE_ROLES = ['PAYROLL_CONTROLLER'];
 const MANUAL_PROOF_STATUSES = new Set(['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION']);
 
 function orgId(env) {
@@ -139,8 +139,11 @@ export async function onRequest({ request, env }) {
     if (!canAccessClient(authorization.actor, env, payment.client_id) || !canAccessProject(authorization.actor, payment.project_id)) {
       return respond({ error: 'Akun tidak memiliki akses ke Payment Instruction ini' }, 403);
     }
-    if (!['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(authorization.actor.role) || !authorization.actor.permissions?.includes('payment:prepare')) {
-      return respond({ error:'Pencatatan bukti pembayaran membutuhkan role Payroll Processor dan izin payment:prepare', code:'PAYMENT_PROOF_WRITE_PERMISSION_REQUIRED' },403);
+    if (authorization.actor.role !== 'PAYROLL_CONTROLLER' || !authorization.actor.permissions?.includes('payment:approve')) {
+      return respond({
+        error:'Pencatatan bukti pembayaran hanya dapat dilakukan Payroll Controller setelah approval final',
+        code:'PAYMENT_CONTROLLER_EXECUTION_REQUIRED',
+      },403);
     }
     if (!MANUAL_PROOF_STATUSES.has(String(payment.status || '').toUpperCase())) {
       return respond({ error: 'Payment instruction belum disetujui atau belum siap menerima bukti pembayaran' }, 409);

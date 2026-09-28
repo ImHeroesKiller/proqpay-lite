@@ -148,7 +148,11 @@ export async function onRequest(context) {
   if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
   if (!['GET', 'POST'].includes(request.method)) return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
 
-  const authorization = await authorize(request, env, { roles: ROLES, mutating: request.method === 'POST', methods: METHODS });
+  const authorization = await authorize(request, env, {
+    roles: request.method === 'POST' ? ['PAYROLL_CONTROLLER'] : ROLES,
+    mutating: request.method === 'POST',
+    methods: METHODS,
+  });
   if (authorization.response) return authorization.response;
   const limited = await enforceRateLimit(request, env, authorization.actor, 'payment-gateway', METHODS);
   if (limited) return limited;
@@ -175,8 +179,11 @@ export async function onRequest(context) {
       return secureJson({ ok: true, gateway: readiness, transaction:publicTransaction(transaction), items, operational, arGate }, 200, request, env, METHODS);
     }
 
-    if (!authorization.actor.permissions?.includes('payment:prepare')) {
-      return secureJson({ error: 'Role tidak memiliki izin mengeksekusi pembayaran' }, 403, request, env, METHODS);
+    if (authorization.actor.role !== 'PAYROLL_CONTROLLER' || !authorization.actor.permissions?.includes('payment:approve')) {
+      return secureJson({
+        error:'Eksekusi pembayaran hanya dapat dilakukan Payroll Controller setelah approval final',
+        code:'PAYMENT_CONTROLLER_EXECUTION_REQUIRED',
+      },403,request,env,METHODS);
     }
 
     const body = await readBody(request);

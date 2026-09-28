@@ -90,7 +90,12 @@ test('D1 processes 396 recipients through PI approval, proof, and reconciliation
     VALUES(?,?,?,?,?,'ACTIVE','test-hash','test-salt',100000,0,0,'seed')`).run(
     maker.id, 'ORG-OTSINDO', 'Payment Processor', maker.email, maker.role
   );
-  const session = await createSession(DB, maker.id, env);
+  DB.sqlite.prepare(`INSERT INTO app_users
+    (id,org_id,name,email,role,status,password_hash,password_salt,password_iterations,must_change_password,payment_approver,created_by)
+    VALUES(?,?,?,?,?,'ACTIVE','test-hash','test-salt',100000,0,1,'seed')`).run(
+    approver.id, 'ORG-OTSINDO', 'Payroll Controller', approver.email, approver.role
+  );
+  const session = await createSession(DB, approver.id, env);
   env.AUTH_MODE = 'session';
 
   const form = new FormData();

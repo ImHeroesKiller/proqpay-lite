@@ -121,10 +121,11 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   const simplifiedWorkspace = simplifiedInternal || clientExperience;
   const isProcessor = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role);
   const isController = ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role);
+  const isPaymentController = role === 'PAYROLL_CONTROLLER';
   const isClient = role === 'CLIENT_USER';
-  // The backend remains authoritative; role fallback prevents a stale /api/me
-  // permission payload from hiding the Controller approval workflow.
-  const canApprovePayment = isController || actor?.permissions?.includes('payment:approve') || false;
+  // Financial approval/execution is intentionally stricter than general admin authority.
+  // Super Admin may monitor and administer the system, but cannot confirm or execute payments.
+  const canApprovePayment = isPaymentController && Boolean(actor?.permissions?.includes('payment:approve'));
   const submissions = useMemo(() => data.submissions || [], [data.submissions]);
   const instructionBySubmission = useMemo(() => new Map((data.paymentInstructions || []).map((row) => [row.submission_id,row])), [data.paymentInstructions]);
   const periods = useMemo(() => [...new Set(submissions.map((row) => String(row.period || '')).filter(Boolean))].sort((a, b) => b.localeCompare(a)), [submissions]);
@@ -316,7 +317,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} payRuns={visibleSubmissions} role={role} canResolve={isProcessor || isClient} act={act} />}
-          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isProcessor} canReconcile={isController && Boolean(actor?.permissions?.includes('reconciliation:write') || role==='SUPER_ADMIN')} canApprove={canApprovePayment && isController} act={act} />}
+          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isPaymentController} canReconcile={isPaymentController && Boolean(actor?.permissions?.includes('reconciliation:write'))} canApprove={canApprovePayment} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace
             actor={actor}
             focusSubmissionId={focusSubmissionId}
@@ -932,7 +933,7 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
         <section className="pi-approval-section"><div className="pi-section-heading"><div><span>OPERATIONAL AUDIT</span><h4>Activity trail</h4></div><small>{detail.activity?.length || 0} event terakhir</small></div>{detail.activity?.length ? <div className="pi-approval-list">{detail.activity.slice(0,20).map((item)=><div key={item.id}><i>•</i><div><strong>{paymentActivityLabel(item.action)}</strong><span>{item.username || 'System'} · {dateTime(item.timestamp)}</span>{item.detail?<small>{item.detail}</small>:null}</div></div>)}</div> : <p className="directory-hint">Belum ada aktivitas operasional yang tercatat.</p>}</section>
       </div>
       <footer className="pi-detail-footer">
-        <div className="pi-export-actions"><a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">Unduh PDF resmi</a>{['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? ['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>) : null}</div>
+        <div className="pi-export-actions"><a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">Unduh PDF resmi</a>{role==='PAYROLL_CONTROLLER' && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? ['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>) : null}</div>
         {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Saya sudah memeriksa jumlah penerima, rekening, nominal, control total, dan content hash.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject PI</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>setDetail(null))}>Approve PI</button></div> : null}
       </footer>
     </div></div>, document.body) : null}

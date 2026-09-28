@@ -64,7 +64,7 @@ async function expireHostedSession(database, session) {
 
 function safeSessionForActor(session, actor) {
   if (!session) return null;
-  if (actor.permissions?.includes('payment:prepare')) return session;
+  if (actor.role === 'PAYROLL_CONTROLLER' && actor.permissions?.includes('payment:approve')) return session;
   return { ...session, checkout_url:null };
 }
 
@@ -72,7 +72,11 @@ export async function onRequest(context) {
   const { request, env } = context;
   if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
   if (!['GET','POST'].includes(request.method)) return secureJson({ error:'Method not allowed' },405,request,env,METHODS);
-  const authorization = await authorize(request, env, { roles:ROLES, mutating:request.method==='POST', methods:METHODS });
+  const authorization = await authorize(request, env, {
+    roles:request.method==='POST' ? ['PAYROLL_CONTROLLER'] : ROLES,
+    mutating:request.method==='POST',
+    methods:METHODS,
+  });
   if (authorization.response) return authorization.response;
   const limited = await enforceRateLimit(request,env,authorization.actor,'payment-gateway-hosted',METHODS);
   if (limited) return limited;
@@ -95,8 +99,11 @@ export async function onRequest(context) {
       return secureJson({ ok:true,hosted:readiness,session:safeSessionForActor(session, authorization.actor) },200,request,env,METHODS);
     }
 
-    if (!authorization.actor.permissions?.includes('payment:prepare')) {
-      return secureJson({ error:'Role tidak memiliki izin memulai Hosted Payment' },403,request,env,METHODS);
+    if (authorization.actor.role !== 'PAYROLL_CONTROLLER' || !authorization.actor.permissions?.includes('payment:approve')) {
+      return secureJson({
+        error:'Hosted Payment hanya dapat dimulai Payroll Controller setelah approval final',
+        code:'PAYMENT_CONTROLLER_EXECUTION_REQUIRED',
+      },403,request,env,METHODS);
     }
     if (!readiness.configured) return secureJson({ error:readiness.reason,code:'HOSTED_PAYMENT_NOT_READY',hosted:readiness },503,request,env,METHODS);
 

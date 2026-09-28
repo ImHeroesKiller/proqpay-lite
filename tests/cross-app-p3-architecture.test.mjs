@@ -24,10 +24,12 @@ test('canonical authority matrix keeps role navigation aligned with business res
 });
 
 test('canonical role action matrix preserves maker checker and admin boundaries',()=>{
-  assert.equal(roleCanAction('PAYROLL_PROCESSOR','payment.execute'),true);
+  assert.equal(roleCanAction('PAYROLL_PROCESSOR','payment.execute'),false);
   assert.equal(roleCanAction('PAYROLL_PROCESSOR','payment.approve'),false);
-  assert.equal(roleCanAction('PAYROLL_CONTROLLER','payment.execute'),false);
+  assert.equal(roleCanAction('PAYROLL_CONTROLLER','payment.execute'),true);
   assert.equal(roleCanAction('PAYROLL_CONTROLLER','payment.approve'),true);
+  assert.equal(roleCanAction('SUPER_ADMIN','payment.execute'),false);
+  assert.equal(roleCanAction('SUPER_ADMIN','payment.approve'),false);
   assert.equal(roleCanAction('CLIENT_USER','payment.prepare'),false);
   assert.equal(roleCanAction('SUPER_ADMIN','integrations.manage'),true);
   assert.equal(roleCanAction('SUPER_ADMIN','audit.view'),true);

@@ -23,8 +23,8 @@ export const ROLE_PERMISSIONS = Object.freeze({
   SUPER_ADMIN: Object.freeze([
     'read','employees:write','import:write','schema:write','settings:write',
     'client:write','project:write','service-plan:write','submission:write',
-    'exception:write','payment:prepare','PAYMENT_APPROVER','payment:approve',
-    'reconciliation:write','billing:prepare','billing:approve','ar:write',
+    'exception:write','payment:prepare',
+    'billing:prepare','billing:approve','ar:write',
   ]),
   PAYROLL_PROCESSOR: Object.freeze([
     'read','employees:write','import:write','submission:write','exception:write',
@@ -40,13 +40,13 @@ export const ROLE_PERMISSIONS = Object.freeze({
 export const ROLE_CAPABILITIES = Object.freeze({
   SUPER_ADMIN: Object.freeze([
     'data-intake','settings','integrations:view','integrations:manage',
-    'gateway:view','gateway:execute','audit:view','employee-services:manage',
+    'gateway:view','audit:view','employee-services:manage',
   ]),
   PAYROLL_PROCESSOR: Object.freeze([
-    'data-intake','gateway:view','gateway:execute',
+    'data-intake','gateway:view',
   ]),
   PAYROLL_CONTROLLER: Object.freeze([
-    'gateway:view',
+    'gateway:view','gateway:execute',
   ]),
   CLIENT_USER: Object.freeze([]),
 });

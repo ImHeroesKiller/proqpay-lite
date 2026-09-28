@@ -182,7 +182,7 @@ async function guardSensitivePaymentActions(body, actor, env) {
     return { status:403, data:{ error:'Aksi Payment Instruction membutuhkan role Payroll Processor dan izin payment:prepare', code:'PAYMENT_PREPARE_PERMISSION_REQUIRED' } };
   }
   if (['APPROVE_PAYMENT','REJECT_PAYMENT'].includes(body.action)
-    && (!['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(actor.role) || !actor.permissions?.includes('payment:approve'))) {
+    && (actor.role !== 'PAYROLL_CONTROLLER' || !actor.permissions?.includes('payment:approve'))) {
     return { status:403, data:{ error:'Approval Payment Instruction membutuhkan role Payroll Controller dan izin payment:approve', code:'PAYMENT_APPROVE_PERMISSION_REQUIRED' } };
   }
   if (body.action === 'APPROVE_PAYROLL_AND_GENERATE_PI') {
@@ -229,7 +229,7 @@ async function guardSensitivePaymentActions(body, actor, env) {
     } };
   }
   if (body.action !== 'RECONCILE_PAYMENT') return null;
-  if (!['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(actor.role) || !actor.permissions?.includes('reconciliation:write')) {
+  if (actor.role !== 'PAYROLL_CONTROLLER' || !actor.permissions?.includes('reconciliation:write')) {
     return { status:403, data:{ error:'Rekonsiliasi pembayaran membutuhkan role Payroll Controller dan izin reconciliation:write', code:'PAYMENT_RECONCILE_PERMISSION_REQUIRED' } };
   }
   const paymentInstructionId = String(body.paymentInstructionId || '').trim();

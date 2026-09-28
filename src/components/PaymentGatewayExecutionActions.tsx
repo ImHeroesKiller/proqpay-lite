@@ -76,7 +76,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
   }
 
   async function seamless() {
-    if (!window.confirm('Eksekusi payment gateway akan memproses pembayaran berdasarkan Payment Instruction yang sudah approved. Lanjutkan?')) return;
+    if (!window.confirm('Konfirmasi final Payroll Controller: Payment Instruction yang sudah approved akan dieksekusi melalui payment gateway. Lanjutkan pembayaran?')) return;
     setBusy('seamless'); setError('');
     try {
       let result = await executeSeamlessPayment(paymentInstructionId, 'BANK_TRANSFER');
@@ -134,6 +134,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
   }
 
   async function hosted() {
+    if (!window.confirm('Konfirmasi final Payroll Controller: lanjutkan ke Hosted Payment untuk Payment Instruction yang sudah approved?')) return;
     setBusy('hosted'); setError('');
     try {
       const result = await createHostedPaymentSession(paymentInstructionId, '/?view=payments');
@@ -185,7 +186,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     {hostedActive ? <small style={{ color:'var(--text3)' }}>Hosted {runtime.session?.status} · berlaku sampai {runtime.session?.expires_at ? new Date(runtime.session.expires_at).toLocaleTimeString('id-ID') : '-'}</small> : null}
     {!loading && runtime.session?.status === 'EXPIRED' ? <small style={{ color:'var(--text3)' }}>Hosted session sebelumnya sudah expired. Payment dapat dicoba kembali.</small> : null}
     {!loading && !seamlessReady && !hostedReady ? <small style={{ color:'var(--text3)' }}>Gateway belum ready. <a href="?view=integrations">Cek Integrations</a></small> : null}
-    {!canExecuteGateway && (seamlessReady || hostedReady) ? <small style={{ color:'var(--text3)' }}>Eksekusi gateway dilakukan Payroll Processor setelah approval.</small> : null}
+    {!canExecuteGateway && (seamlessReady || hostedReady) ? <small style={{ color:'var(--text3)' }}>Eksekusi pembayaran hanya dapat dilakukan oleh Payroll Controller setelah approval final.</small> : null}
     {error ? <small style={{ color:'#b91c1c' }} role="alert">{error}</small> : null}
   </div>;
 }

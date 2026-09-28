@@ -66,7 +66,8 @@ test('Payment Instructions P1 requires maker preview and protects bank exports u
   const exporter=await read('functions/api/payment-instruction-export.js');
   assert.match(ui,/Preview PI/);
   assert.match(ui,/Submit PI/);
-  assert.match(exporter,/PAYROLL_PROCESSOR.*format !== 'PDF'/);
+  assert.match(exporter,/format !== 'PDF'.*PAYROLL_CONTROLLER/s);
+  assert.match(exporter,/PAYMENT_CONTROLLER_EXECUTION_REQUIRED/);
   assert.match(exporter,/PAYMENT_INSTRUCTION_READY/);
   assert.match(exporter,/PI_EXPORT_CONTROL_MISMATCH/);
   assert.match(exporter,/File bank hanya tersedia setelah Payment Instruction disetujui/);

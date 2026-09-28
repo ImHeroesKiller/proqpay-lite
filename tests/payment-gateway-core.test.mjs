@@ -55,10 +55,12 @@ test('migration creates gateway ledger, webhook event idempotency and active-tra
   assert.match(sql, /idx_one_active_gateway_transaction/);
 });
 
-test('gateway endpoint requires approved hash and payment:prepare permission', async () => {
+test('gateway endpoint requires approved hash and Payroll Controller final authority', async () => {
   const source = await readFile(new URL('../functions/api/payment-gateway.js', import.meta.url), 'utf8');
   assert.match(source, /approved_hash !== payment\.content_hash/);
-  assert.match(source, /permissions\?\.includes\('payment:prepare'\)/);
+  assert.match(source, /actor\.role !== 'PAYROLL_CONTROLLER'/);
+  assert.match(source, /permissions\?\.includes\('payment:approve'\)/);
+  assert.match(source, /PAYMENT_CONTROLLER_EXECUTION_REQUIRED/);
   assert.match(source, /PAYMENT_GATEWAY_NOT_READY/);
   assert.match(source, /beneficiarySnapshot/);
 });

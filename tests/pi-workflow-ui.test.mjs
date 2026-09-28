@@ -11,8 +11,8 @@ test('Processor sees submit and rejected PI recovery actions', () => {
   assert.match(ui, /rejection_reason/);
 });
 
-test('Controller role fallback keeps approve action visible', () => {
-  assert.match(ui, /const canApprovePayment = isController \|\|/);
+test('Controller role and permission keep approve action visible', () => {
+  assert.match(ui, /const canApprovePayment = isPaymentController && Boolean\(actor\?\.permissions\?\.includes\('payment:approve'\)\)/);
   assert.match(ui, /Preview & Approve/);
 });
 

@@ -13,7 +13,7 @@ export default function PaymentGatewayPaymentPanel({ role }: Props) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const canExecuteGateway = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role);
+  const canExecuteGateway = role === 'PAYROLL_CONTROLLER';
   const canView = ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role);
 
   const load = useCallback(async () => {
@@ -43,7 +43,7 @@ export default function PaymentGatewayPaymentPanel({ role }: Props) {
       <div>
         <span style={{ color:'var(--text3)', fontSize:10.5, fontWeight:700, letterSpacing:'.08em' }}>GATEWAY EXECUTION</span>
         <h3 style={{ margin:'4px 0 0', fontSize:17 }}>Payment Gateway Queue</h3>
-        <p style={{ color:'var(--text3)', fontSize:12, margin:'5px 0 0' }}>PI yang sudah approved dan siap dieksekusi melalui Seamless atau Hosted.</p>
+        <p style={{ color:'var(--text3)', fontSize:12, margin:'5px 0 0' }}>PI yang sudah approved dan menunggu eksekusi akhir oleh Payroll Controller melalui Seamless atau Hosted.</p>
       </div>
       <button className="btn" type="button" disabled={loading} onClick={() => void load()}>{loading ? 'Refreshing…' : 'Refresh queue'}</button>
     </div>

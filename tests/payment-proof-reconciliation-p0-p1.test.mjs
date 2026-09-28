@@ -16,20 +16,20 @@ test('Payment Proof P0 enforces both client and project scope on direct download
   assert.match(source,/canAccessProject\(authorization\.actor, proof\.project_id\)/);
 });
 
-test('Payment Proof P1 only lets maker record manual evidence and checker reconcile',async()=>{
+test('Payment Proof P1 keeps all payment execution and final confirmation with Payroll Controller',async()=>{
   const proof=await read('functions/api/payment-proof.js');
   const edge=await read('functions/api/operating-model.js');
   const d1=await read('functions/api/operating-model-d1.js');
   const ui=await read('src/components/OperatingWorkspace.tsx');
 
-  assert.match(proof,/WRITE_ROLES = \['SUPER_ADMIN','PAYROLL_PROCESSOR'\]/);
-  assert.match(proof,/PAYMENT_PROOF_WRITE_PERMISSION_REQUIRED/);
+  assert.match(proof,/WRITE_ROLES = \['PAYROLL_CONTROLLER'\]/);
+  assert.match(proof,/PAYMENT_CONTROLLER_EXECUTION_REQUIRED/);
   assert.match(edge,/PAYMENT_RECONCILE_PERMISSION_REQUIRED/);
   assert.match(edge,/reconciliation:write/);
   assert.match(d1,/PAYMENT_RECONCILE_PERMISSION_REQUIRED/);
-  assert.match(d1,/CONTROLLER_ROLES\.has\(actor\.role\)/);
-  assert.match(ui,/canRecordProof=\{isProcessor\}/);
-  assert.match(ui,/canReconcile=\{isController/);
+  assert.match(d1,/actor\.role !== 'PAYROLL_CONTROLLER'/);
+  assert.match(ui,/canRecordProof=\{isPaymentController\}/);
+  assert.match(ui,/canReconcile=\{isPaymentController/);
 });
 
 test('Payment Proof P1 validates real calendar dates',()=>{

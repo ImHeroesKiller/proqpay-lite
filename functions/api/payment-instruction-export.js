@@ -32,8 +32,11 @@ export async function onRequest(context) {
     JOIN clients c ON c.id=pi.client_id LEFT JOIN projects p ON p.id=s.project_id
     WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [id, orgId(env)]);
   if (!instruction) return respond({error:'Payment instruction tidak ditemukan'},404);
-  if (authorization.actor.role === 'PAYROLL_PROCESSOR' && format !== 'PDF') {
-    return respond({error:'Payroll Processor hanya dapat mengunduh preview PDF; file bank tersedia setelah approval Controller'},403);
+  if (format !== 'PDF' && (authorization.actor.role !== 'PAYROLL_CONTROLLER' || !authorization.actor.permissions?.includes('payment:approve'))) {
+    return respond({
+      error:'File bank untuk eksekusi pembayaran hanya dapat diunduh Payroll Controller setelah approval final',
+      code:'PAYMENT_CONTROLLER_EXECUTION_REQUIRED',
+    },403);
   }
   if (!['PAYMENT_INSTRUCTION_READY','PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(instruction.status)) {
     return respond({error:'Payment instruction belum dapat diekspor'},409);

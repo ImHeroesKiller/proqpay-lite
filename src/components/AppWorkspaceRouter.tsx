@@ -43,6 +43,7 @@ type Props = {
   settings:AppSettings;
   gatewayCanView:boolean;
   gatewayCanExecute:boolean;
+  integrationsCanManage:boolean;
   onNavigate:(view:AppView)=>void;
   onRefreshCanonical:()=>Promise<void>;
   onOpenAuditCorrelation:(correlationId:string)=>void;
@@ -50,7 +51,7 @@ type Props = {
 
 export default function AppWorkspaceRouter(props:Props) {
   const [retryKey,setRetryKey]=useState(0);
-  const { view,actor,period,db,settings,gatewayCanView,gatewayCanExecute }=props;
+  const { view,actor,period,db,settings,gatewayCanView,integrationsCanManage }=props;
 
   return <div key={view} className="app-view-transition" style={{maxWidth:1180,margin:'0 auto'}}>
     <ModuleErrorBoundary moduleName={view} resetKey={`${view}:${retryKey}`} onRetry={() => setRetryKey((value)=>value+1)}>
@@ -82,7 +83,7 @@ export default function AppWorkspaceRouter(props:Props) {
       </>}
       {view === 'billing' && <OperatingWorkspace mode="billing" />}
       {view === 'integrations' && <IntegrationsWorkspace
-        canManage={gatewayCanExecute}
+        canManage={integrationsCanManage}
         canView={gatewayCanView}
         onOpenAuditCorrelation={props.onOpenAuditCorrelation}
       />}

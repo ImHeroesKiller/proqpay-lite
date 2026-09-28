@@ -46,7 +46,7 @@ test('PI generation and PI submission are not confused', () => {
   assert.equal(action.workflowCommand,null);
 });
 
-test('Payment approval belongs to Controller while execution belongs to Processor', () => {
+test('Payment approval and execution both end with Payroll Controller authority', () => {
   let action=derivePayrollNextAction({...processor,state:'PAYMENT_APPROVAL_PENDING',hasPaymentInstruction:true,paymentInstructionStatus:'PAYMENT_APPROVAL_PENDING'});
   assert.equal(action.code,'WAIT_PAYMENT_APPROVAL');
   assert.equal(action.actionable,false);
@@ -56,16 +56,21 @@ test('Payment approval belongs to Controller while execution belongs to Processo
   assert.equal(action.actionable,true);
 
   action=derivePayrollNextAction({...processor,state:'APPROVED_FOR_PAYMENT',hasPaymentInstruction:true,paymentInstructionStatus:'APPROVED_FOR_PAYMENT'});
-  assert.equal(action.code,'PROCESS_PAYMENT');
-  assert.equal(action.actionable,true);
-
-  action=derivePayrollNextAction({...controller,state:'APPROVED_FOR_PAYMENT',hasPaymentInstruction:true,paymentInstructionStatus:'APPROVED_FOR_PAYMENT'});
   assert.equal(action.code,'WAIT_PAYMENT_EXECUTION');
   assert.equal(action.actionable,false);
+  assert.equal(action.owner,'PAYROLL_CONTROLLER');
+
+  action=derivePayrollNextAction({...controller,state:'APPROVED_FOR_PAYMENT',hasPaymentInstruction:true,paymentInstructionStatus:'APPROVED_FOR_PAYMENT'});
+  assert.equal(action.code,'PROCESS_PAYMENT');
+  assert.equal(action.actionable,true);
+  assert.equal(action.owner,'PAYROLL_CONTROLLER');
 });
 
-test('Reconciliation is actionable for authorized internal roles and monitoring-only for client', () => {
-  assert.equal(derivePayrollNextAction({...processor,state:'RECONCILIATION',reconciliationStatus:'PENDING'}).code,'RECONCILE_PAYMENT');
+test('Reconciliation is actionable only for Payroll Controller and monitoring-only for others', () => {
+  const processorAction=derivePayrollNextAction({...processor,state:'RECONCILIATION',reconciliationStatus:'PENDING'});
+  assert.equal(processorAction.code,'WAIT_PAYMENT_RECONCILIATION');
+  assert.equal(processorAction.actionable,false);
+  assert.equal(processorAction.owner,'PAYROLL_CONTROLLER');
   assert.equal(derivePayrollNextAction({...controller,state:'RECONCILIATION',reconciliationStatus:'PENDING'}).code,'RECONCILE_PAYMENT');
 
   const action=derivePayrollNextAction({...client,state:'RECONCILIATION',reconciliationStatus:'PENDING'});

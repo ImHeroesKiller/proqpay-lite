@@ -85,9 +85,10 @@ test('final Payment Control UAT: page composes PI controls and gateway execution
   assert.match(page,/roleCanAction\(actor\.role,'payment\.prepare'\)/);
   assert.match(page,/roleCanAction\(actor\.role,'payment\.execute'\)/);
   assert.match(authority,/'payment\.execute'/);
-  assert.match(workspace,/canRecordProof=\{isProcessor\}/);
-  assert.match(workspace,/canReconcile=\{isController/);
-  assert.match(workspace,/canApprove=\{canApprovePayment && isController\}/);
+  assert.match(workspace,/canRecordProof=\{isPaymentController\}/);
+  assert.match(workspace,/canReconcile=\{isPaymentController/);
+  assert.match(workspace,/canApprove=\{canApprovePayment\}/);
+  assert.match(gateway,/role === 'PAYROLL_CONTROLLER'/);
   assert.match(gateway,/\['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'\]/);
   assert.match(evidence,/Payment Evidence Register/);
   assert.match(evidence,/RECONCILIATION CONTROL/);
@@ -107,6 +108,7 @@ test('final Payment Control UAT: backend keeps maker-checker, settlement conflic
   assert.match(proof,/PAYMENT_PROOF_DUPLICATE_FILE/);
   assert.match(proof,/fileSha256/);
   assert.match(proof,/canAccessProject\(authorization\.actor, proof\.project_id\)/);
+  assert.match(gateway,/PAYMENT_CONTROLLER_EXECUTION_REQUIRED/);
   assert.match(gateway,/PAYMENT_RECIPIENT_COUNT_MISMATCH/);
   assert.match(gateway,/GATEWAY_EXECUTION_UNKNOWN/);
 });

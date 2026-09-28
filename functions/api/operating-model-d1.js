@@ -1537,7 +1537,7 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'APPROVE_PAYMENT') {
-    if (!CONTROLLER_ROLES.has(actor.role) || !actor.permissions?.includes('payment:approve')) {
+    if (actor.role !== 'PAYROLL_CONTROLLER' || !actor.permissions?.includes('payment:approve')) {
       return { status: 403, data: { error: 'Hanya Payroll Controller dengan izin payment:approve yang dapat approve PI', code:'PAYMENT_APPROVE_PERMISSION_REQUIRED' } };
     }
     const payment = await d1First(database, `SELECT pi.*,s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,
@@ -1612,7 +1612,7 @@ async function executeAction(database, body, actor, env, organizationId) {
   }
 
   if (body.action === 'REJECT_PAYMENT') {
-    if (!CONTROLLER_ROLES.has(actor.role) || !actor.permissions?.includes('payment:approve')) {
+    if (actor.role !== 'PAYROLL_CONTROLLER' || !actor.permissions?.includes('payment:approve')) {
       return { status:403, data:{ error:'Hanya Payroll Controller dengan izin payment:approve yang dapat reject PI', code:'PAYMENT_APPROVE_PERMISSION_REQUIRED' } };
     }
     const payment = await d1First(database, `SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
@@ -1629,7 +1629,7 @@ async function executeAction(database, body, actor, env, organizationId) {
   if (body.action === 'UPLOAD_PAYMENT_PROOF') return { status: 409, data: { error: 'Use /api/payment-proof multipart upload so evidence is stored in R2' } };
 
   if (body.action === 'RECONCILE_PAYMENT') {
-    if (!CONTROLLER_ROLES.has(actor.role) || !actor.permissions?.includes('reconciliation:write')) {
+    if (actor.role !== 'PAYROLL_CONTROLLER' || !actor.permissions?.includes('reconciliation:write')) {
       return { status:403, data:{ error:'Rekonsiliasi pembayaran membutuhkan role Payroll Controller dan izin reconciliation:write', code:'PAYMENT_RECONCILE_PERMISSION_REQUIRED' } };
     }
     const payment = await d1First(database, `SELECT pi.id,pi.submission_id,pi.status,pi.expected_total,
