@@ -1,5 +1,5 @@
 -- P1 E2Pay execution observability.
--- Stores only sanitized diagnostics; no password, token, account number, or raw sourceId is persisted.
+-- Stores only sanitized execution metadata; sensitive credential payloads are not persisted.
 ALTER TABLE payment_gateway_items ADD COLUMN provider_http_status INTEGER;
 ALTER TABLE payment_gateway_items ADD COLUMN failure_stage TEXT;
 ALTER TABLE payment_gateway_items ADD COLUMN request_diagnostics_json TEXT;
