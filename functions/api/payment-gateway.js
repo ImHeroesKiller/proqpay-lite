@@ -13,6 +13,7 @@ import {
   reconcileE2PayBatch,
   verifyFailedE2PayBatch,
   isRetryableE2PayFailure,
+  isE2PayRetryCandidate,
 } from './payment-gateway-e2pay-service.js';
 import { e2payLoginReadiness } from './payment-gateway-e2pay.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
@@ -104,7 +105,7 @@ export function gatewayOperationalStatus(transaction, items = [], nowMs = Date.n
   const unresolved = items.filter((item) => ['PENDING','PROCESSING','UNKNOWN'].includes(String(item.status || '')));
   const failed = items.filter((item) => String(item.status || '') === 'FAILED');
   const succeeded = items.filter((item) => String(item.status || '') === 'SUCCEEDED');
-  const retryableItems = items.filter((item) => isRetryableE2PayFailure(item));
+  const retryableItems = items.filter((item) => isE2PayRetryCandidate(item));
   const retryReadyItems = items.filter((item) => String(item.status || '') === 'RETRY_READY');
   const blockingFailed = failed.filter((item) => !isRetryableE2PayFailure(item));
   const itemActivity = items.map((item) => item.last_checked_at || item.updated_at || item.created_at).filter(Boolean).sort().at(-1);
@@ -280,7 +281,7 @@ export async function onRequest(context) {
       const retryable = await d1First(database, `SELECT COUNT(*) AS count FROM payment_gateway_items
         WHERE payment_gateway_transaction_id=?
           AND (
-            status='RETRY_READY'
+            status IN ('RETRY_READY','RETRY_INQUIRY_READY')
             OR (status='FAILED' AND (attempt_count=0 OR TRIM(COALESCE(response_code,''))='99'))
           )`, [transaction.id]);
       if (Number(retryable?.count || 0) <= 0) {
