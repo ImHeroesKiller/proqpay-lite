@@ -220,9 +220,19 @@ export async function onRequest({ request, env }) {
       `SELECT
         (SELECT COUNT(*) FROM payment_gateway_transactions WHERE org_id=? AND status='FAILED') AS gateway_failed,
         (SELECT COUNT(*) FROM payment_gateway_transactions WHERE org_id=? AND status IN ('CREATED','PENDING','PROCESSING')) AS gateway_active,
+        (SELECT COUNT(*) FROM payment_gateway_transactions
+          WHERE org_id=? AND status IN ('CREATED','PENDING','PROCESSING')
+            AND (execution_lock_until IS NULL OR datetime(execution_lock_until)<=datetime('now'))
+            AND datetime(updated_at)<=datetime('now','-15 minutes')) AS gateway_stale,
+        (SELECT COUNT(*) FROM payment_gateway_items i
+          JOIN payment_gateway_transactions t ON t.id=i.payment_gateway_transaction_id
+          WHERE t.org_id=? AND i.status IN ('PENDING','PROCESSING','UNKNOWN')) AS gateway_unresolved,
+        (SELECT COUNT(*) FROM payment_gateway_items i
+          JOIN payment_gateway_transactions t ON t.id=i.payment_gateway_transaction_id
+          WHERE t.org_id=? AND i.status IN ('RETRY_READY','RETRY_INQUIRY_READY')) AS gateway_retry_ready,
         (SELECT COUNT(*) FROM api_connected_apps WHERE org_id=? AND status IN ('OBSERVED','ACTIVE')) AS connected_apps,
         (SELECT COUNT(*) FROM api_endpoint_events WHERE org_id=? AND status_code>=400 AND created_at>=datetime('now','-24 hours')) AS api_errors_24h`,
-      [organizationId,organizationId,organizationId,organizationId],
+      [organizationId,organizationId,organizationId,organizationId,organizationId,organizationId,organizationId],
     );
 
     return respond({
@@ -240,6 +250,9 @@ export async function onRequest({ request, env }) {
       health: {
         gatewayFailed: Number(health?.gateway_failed || 0),
         gatewayActive: Number(health?.gateway_active || 0),
+        gatewayStale: Number(health?.gateway_stale || 0),
+        gatewayUnresolved: Number(health?.gateway_unresolved || 0),
+        gatewayRetryReady: Number(health?.gateway_retry_ready || 0),
         connectedApps: Number(health?.connected_apps || 0),
         apiErrors24h: Number(health?.api_errors_24h || 0),
       },
