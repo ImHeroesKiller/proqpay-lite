@@ -125,16 +125,48 @@ export default function E2PayOperationsConsole({canManage}:Props){
     }finally{setActionLoading('');}
   }
 
-  async function copyFunding(label:string,value?:string|null){
+  async function copyText(label:string,value?:string|null){
     if(!value) return;
     try{
-      await navigator.clipboard.writeText(value);
+      if(navigator.clipboard?.writeText){
+        await navigator.clipboard.writeText(value);
+      }else{
+        const textarea=document.createElement('textarea');
+        textarea.value=value;
+        textarea.setAttribute('readonly','');
+        textarea.style.position='fixed';
+        textarea.style.opacity='0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+      }
       setCopied(label);
-      window.setTimeout(()=>setCopied(''),1600);
+      window.setTimeout(()=>setCopied(''),1800);
     }catch{
       setCopied('');
+      setError('Informasi Top Up gagal disalin. Salin data VA secara manual.');
     }
   }
+
+  const fundingClipboardText=useMemo(()=>{
+    const funding=account?.funding;
+    if(!funding?.vaNumber) return '';
+    const environment=String(account?.environment||'').toUpperCase()||'—';
+    const lines=[
+      'TOP UP WALLET E2PAY',
+      `Environment: ${environment}`,
+      `Bank Tujuan: ${funding.bankName||'Belum dikonfigurasi'}`,
+      `Virtual Account (VA): ${funding.vaNumber}`,
+      `Nama Akun: ${funding.accountName||account?.accountName||'—'}`,
+      'Provider: E2Pay',
+    ];
+    if(account?.refreshedAt) lines.push(`Terakhir Dicek: ${dateTime(account.refreshedAt)}`);
+    if(environment==='UAT'){
+      lines.push('Catatan: VA di atas untuk top up wallet E2Pay UAT. Dummy disbursement Permata 701075327 bukan rekening top up.');
+    }
+    return lines.join('\n');
+  },[account]);
 
   const endpointCounts=useMemo(()=>{
     const map=new Map<string,number>();
@@ -187,12 +219,12 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <div>
           <span>Bank tujuan</span>
           <strong>{account?.funding?.bankName||'Belum dikonfigurasi'}</strong>
-          {account?.funding?.bankName?<button type="button" className="btn btn-compact" onClick={()=>void copyFunding('bank',account?.funding?.bankName)}>{copied==='bank'?'Tersalin':'Salin'}</button>:null}
+          {account?.funding?.bankName?<button type="button" className="btn btn-compact" onClick={()=>void copyText('bank',account?.funding?.bankName)}>{copied==='bank'?'Tersalin':'Salin'}</button>:null}
         </div>
         <div>
           <span>Virtual Account (VA)</span>
           <strong className="e2pay-va-number">{account?.funding?.vaNumber||'Belum tersedia'}</strong>
-          {account?.funding?.vaNumber?<button type="button" className="btn btn-compact" onClick={()=>void copyFunding('va',account?.funding?.vaNumber)}>{copied==='va'?'Tersalin':'Salin VA'}</button>:null}
+          {account?.funding?.vaNumber?<button type="button" className="btn btn-compact" onClick={()=>void copyText('va',account?.funding?.vaNumber)}>{copied==='va'?'Tersalin':'Salin VA'}</button>:null}
         </div>
         <div>
           <span>Nama akun</span>
@@ -213,11 +245,22 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <li>Masukkan nomor VA di atas dan nominal yang akan ditambahkan ke wallet.</li>
         <li>Setelah transfer sukses, klik <strong>Refresh saldo</strong> untuk memastikan balance E2Pay sudah bertambah.</li>
       </ol>
+      <div className="e2pay-topup-share">
+        <span>Info siap ditempel ke WhatsApp, email, Slack, Notes, atau platform lain.</span>
+        {fundingClipboardText?<pre>{fundingClipboardText}</pre>:null}
+      </div>
       <div className="e2pay-topup-actions">
-        <button type="button" className="btn btn-primary" disabled={loading||!account?.funding?.ready} onClick={()=>void copyFunding('va',account?.funding?.vaNumber)}>{copied==='va'?'VA tersalin':'Salin VA untuk Top Up'}</button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={loading||!account?.funding?.ready||!fundingClipboardText}
+          onClick={()=>void copyText('funding-details',fundingClipboardText)}
+        >
+          {copied==='funding-details'?'Info Top Up tersalin':'Salin Info Top Up'}
+        </button>
         <button type="button" className="btn" disabled={loading} onClick={()=>void loadOverview(true)}>{loading?'Refreshing…':'Refresh saldo'}</button>
       </div>
-      <small className="e2pay-topup-note">ProQPay tidak mendebit rekening untuk proses top up. Dana masuk melalui transfer ke VA merchant dan saldo diverifikasi kembali dari E2Pay.</small>
+      <small className="e2pay-topup-note">Tombol utama menyalin Bank, VA, nama akun, environment, provider, dan waktu pengecekan dalam plain text. Tombol kecil “Salin VA” tetap tersedia jika hanya nomor VA yang dibutuhkan.</small>
     </section>:null}
 
     <div className="integrations-two-col e2pay-operational-grid">
