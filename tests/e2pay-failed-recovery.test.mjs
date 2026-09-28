@@ -69,6 +69,7 @@ test('P0 retry pipeline preserves historical attempts and selects fresh retry in
     [{status:'RETRY_READY',attempt_count:1,response_code:null,updated_at:new Date().toISOString()}],
   );
   assert.equal(operational.safeToRetry,true);
+  assert.equal(operational.state,'RETRY_READY');
   assert.equal(operational.retryableFailedItems,1);
   assert.equal(operational.retryReadyItems,1);
 });
