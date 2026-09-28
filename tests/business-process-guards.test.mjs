@@ -108,11 +108,11 @@ test('manual proof is a fallback only after gateway is no longer active', async 
       (id,org_id,client_id,payment_instruction_id,provider,provider_transaction_id,status,amount,currency,payment_method,idempotency_key,request_hash,created_by)
       VALUES('PGT-PAY','ORG-OTSINDO','CLI-BP','PI-PAY','MOCK','MOCK-TX','PROCESSING',1000000,'IDR','BANK_TRANSFER','PGT-key','${'b'.repeat(64)}','processor@proqpay.test');
   `);
-  const processor = { id:'USR-PAY', email:'processor@proqpay.test', role:'PAYROLL_PROCESSOR' };
-  addUser(DB, processor);
+  const controller = { id:'USR-PAY-C', email:'controller@proqpay.test', role:'PAYROLL_CONTROLLER' };
+  addUser(DB, controller);
   const FILES = new R2Mock();
   const env = { DB, FILES, AUTH_MODE:'session', DEFAULT_ORG_ID:'ORG-OTSINDO' };
-  const session = await createSession(DB, processor.id, env);
+  const session = await createSession(DB, controller.id, env);
 
   const makeRequest = () => {
     const form = new FormData();
