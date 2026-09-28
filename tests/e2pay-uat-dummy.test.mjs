@@ -23,12 +23,15 @@ test('E2Pay production never substitutes beneficiary bank account with the UAT d
   );
 });
 
-test('Payment Control inquiry validates against the effective UAT destination and labels financial POSTs as dummy',async()=>{
+test('Payment Control UAT uses only dummy provider destination and strips beneficiary PII from financial POST description',async()=>{
   const source=await read('functions/api/payment-gateway-e2pay-service.js');
   assert.match(source,/e2payEffectiveDestination\(env,beneficiary\)/);
   assert.match(source,/returnedAccount !== effectiveDestination\.accountId/);
   assert.match(source,/Dummy bank Permata untuk E2Pay UAT/);
   assert.match(source,/\[UAT DUMMY\]/);
+  assert.match(source,/uatDummy\s*\? '\[UAT DUMMY\] '/);
+  assert.match(source,/String\(item\.client_ref \|\| ''\)\.slice\(-8\)/);
+  assert.match(source,/: \(payment\.document_no \|\| payment\.id\) \+ ' ' \+ beneficiary\.beneficiaryName/);
 });
 
 test('Integration console clearly exposes the provider UAT rule without treating Permata as wallet funding',async()=>{
