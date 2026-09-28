@@ -175,22 +175,23 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
   const hostedCanContinue = hostedActive && Boolean(runtime.session?.checkout_url);
   const isE2Pay = runtime.seamless?.provider === 'E2PAY';
   const e2payUnresolved = runtime.items.filter((item) => ['PENDING','PROCESSING','UNKNOWN'].includes(item.status)).length;
-  const e2payReady = runtime.items.filter((item) => ['CREATED','INQUIRY_READY'].includes(item.status)).length;
+  const e2payReady = runtime.items.filter((item) => ['CREATED','INQUIRY_READY','RETRY_INQUIRY_READY'].includes(item.status)).length;
   const e2paySucceeded = runtime.items.filter((item) => item.status === 'SUCCEEDED').length;
   const e2payFailed = runtime.items.filter((item) => item.status === 'FAILED').length;
-  const e2payRetryable = runtime.items.filter((item) => item.status === 'FAILED' && (
-    Number(item.attempt_count || 0) === 0
-    || String(item.response_code || '').trim() === '99'
-    || String(item.error_code || '').trim() === 'E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY'
-  )).length;
+  const e2payRetryable = runtime.items.filter((item) =>
+    item.status === 'RETRY_READY'
+    || item.status === 'RETRY_INQUIRY_READY'
+    || (item.status === 'FAILED' && (
+      Number(item.attempt_count || 0) === 0
+      || String(item.response_code || '').trim() === '99'
+    ))
+  ).length;
   const e2payNeedsVerification = runtime.items.filter((item) => item.status === 'FAILED'
     && String(item.error_code || '') === 'E2PAY_HTTP_ERROR'
     && /E2Pay HTTP\s+4\d\d/i.test(String(item.error_message || ''))
     && !/E2Pay HTTP\s+(408|409|429)/i.test(String(item.error_message || ''))).length;
-  const safeRetryVerified = runtime.items.filter((item) => item.status === 'FAILED'
-    && String(item.error_code || '').trim() === 'E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY').length;
+  const safeRetryVerified = runtime.items.filter((item) => item.status === 'RETRY_READY').length;
   const firstFailure = runtime.items.find((item) => item.status === 'FAILED'
-    && String(item.error_code || '').trim() !== 'E2PAY_PROVIDER_NOT_FOUND_SAFE_RETRY'
     && (item.error_message || item.response_message));
   const operational = runtime.operational;
   const staleReconcile = Boolean(isE2Pay && operational?.stale && operational.needsReconciliation);
@@ -201,7 +202,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
       {canExecuteGateway && !arBlocked && seamlessReady && ((!transactionActive && (!isE2Pay || e2payFailed === 0)) || (isE2Pay && e2payReady > 0 && e2payFailed === 0)) && !hostedActive ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void seamless()}>{busy === 'seamless' ? 'Memproses…' : isE2Pay ? (transactionActive ? 'Lanjut E2Pay' : 'Bayar via E2Pay') : 'Seamless'}</button> : null}
       {canExecuteGateway && isE2Pay && transactionActive && e2payUnresolved > 0 ? <button className={staleReconcile ? 'btn btn-primary' : 'btn'} type="button" disabled={Boolean(busy)} onClick={() => void reconcileE2Pay()}>{busy === 'reconcile' ? 'Sinkron…' : staleReconcile ? 'Sync status sekarang' : 'Sync E2Pay'}</button> : null}
       {canExecuteGateway && isE2Pay && e2payNeedsVerification > 0 && e2payRetryable === 0 && e2payUnresolved === 0 ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void verifyFailedE2Pay()}>{busy === 'verify-failed' ? 'Verifikasi…' : 'Verifikasi E2Pay'}</button> : null}
-      {canExecuteGateway && isE2Pay && e2payRetryable > 0 && e2payUnresolved === 0 ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void retryFailedE2Pay()}>{busy === 'retry-failed' ? 'Retry…' : `Retry Aman (${e2payRetryable})`}</button> : null}
+      {canExecuteGateway && isE2Pay && e2payRetryable > 0 && e2payUnresolved === 0 ? <button className="btn btn-primary" type="button" disabled={Boolean(busy)} onClick={() => void retryFailedE2Pay()}>{busy === 'retry-failed' ? 'Retry…' : runtime.items.some((item)=>item.status==='RETRY_INQUIRY_READY') ? `Lanjut Retry (${e2payRetryable})` : `Retry Aman (${e2payRetryable})`}</button> : null}
       {canExecuteGateway && !arBlocked && hostedReady && !transactionActive && !hostedActive ? <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void hosted()}>{busy === 'hosted' ? 'Membuka…' : 'Hosted'}</button> : null}
       {canExecuteGateway && hostedCanContinue ? <button className="btn btn-primary" type="button" onClick={() => window.location.assign(String(runtime.session?.checkout_url))}>Lanjut Hosted</button> : null}
       {onManualProof ? <button className="btn" type="button" onClick={onManualProof}>Catat Bukti</button> : null}
