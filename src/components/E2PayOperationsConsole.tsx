@@ -177,12 +177,12 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <div>
           <span>Bank tujuan</span>
           <strong>{account?.funding?.bankName||'Belum dikonfigurasi'}</strong>
-          {account?.funding?.bankName?<button type="button" className="btn btn-compact" onClick={()=>void copyFunding('bank',account.funding?.bankName)}>{copied==='bank'?'Tersalin':'Salin'}</button>:null}
+          {account?.funding?.bankName?<button type="button" className="btn btn-compact" onClick={()=>void copyFunding('bank',account?.funding?.bankName)}>{copied==='bank'?'Tersalin':'Salin'}</button>:null}
         </div>
         <div>
           <span>Virtual Account (VA)</span>
           <strong className="e2pay-va-number">{account?.funding?.vaNumber||'Belum tersedia'}</strong>
-          {account?.funding?.vaNumber?<button type="button" className="btn btn-compact" onClick={()=>void copyFunding('va',account.funding?.vaNumber)}>{copied==='va'?'Tersalin':'Salin VA'}</button>:null}
+          {account?.funding?.vaNumber?<button type="button" className="btn btn-compact" onClick={()=>void copyFunding('va',account?.funding?.vaNumber)}>{copied==='va'?'Tersalin':'Salin VA'}</button>:null}
         </div>
         <div>
           <span>Nama akun</span>
