@@ -304,12 +304,14 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
 
     const preflightSummary = summarizeE2PayItems(allItems);
     const providerActivity = preflightSummary.succeeded > 0 || preflightSummary.processing > 0;
-    if (preflightSummary.failed > 0 && !providerActivity) {
+    const blockingPreflightFailures = allItems.filter((item) =>
+      item.status === 'FAILED' && !(retryFailed && isRetryableE2PayFailure(item))).length;
+    if (blockingPreflightFailures > 0 && !providerActivity) {
       await updateParent(database, transactionId, {
         status:'FAILED',
         provider_status:'PREFLIGHT_FAILED',
         error_code:'E2PAY_PREFLIGHT_FAILED',
-        error_message:preflightSummary.failed + ' beneficiary gagal preflight E2Pay',
+        error_message:blockingPreflightFailures + ' beneficiary gagal preflight E2Pay',
       });
       return {
         ok:false,
@@ -354,14 +356,16 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
 
   let summary = summarizeE2PayItems(allItems);
   const providerActivity = summary.succeeded > 0 || summary.processing > 0;
+  const blockingFailures = allItems.filter((item) =>
+    item.status === 'FAILED' && !(retryFailed && isRetryableE2PayFailure(item))).length;
 
   // A non-retryable preflight failure must also block the first money movement.
-  if (summary.failed > 0 && !providerActivity) {
+  if (blockingFailures > 0 && !providerActivity) {
     await updateParent(database, transactionId, {
       status:'FAILED',
       provider_status:'PREFLIGHT_FAILED',
       error_code:'E2PAY_PREFLIGHT_FAILED',
-      error_message:summary.failed + ' beneficiary gagal preflight E2Pay',
+      error_message:blockingFailures + ' beneficiary gagal preflight E2Pay',
     });
     return {
       ok:false,
