@@ -79,10 +79,10 @@ test.describe('E2Pay wallet Top Up E2E',()=>{
       expect(String(funding.vaNumber||'').trim()).not.toBe('');
       await expect(card.getByText(String(funding.bankName),{exact:true})).toBeVisible();
       await expect(card.getByText(String(funding.vaNumber),{exact:true})).toBeVisible();
-      await expect(card.getByRole('button',{name:'Salin VA untuk Top Up',exact:true})).toBeEnabled();
+      await expect(card.getByRole('button',{name:'Salin Info Top Up',exact:true})).toBeEnabled();
     }else{
       await expect(card.getByText('Bank tujuan VA belum dikonfigurasi',{exact:true})).toBeVisible();
-      await expect(card.getByRole('button',{name:'Salin VA untuk Top Up',exact:true})).toBeDisabled();
+      await expect(card.getByRole('button',{name:'Salin Info Top Up',exact:true})).toBeDisabled();
     }
 
     const refresh=card.getByRole('button',{name:'Refresh saldo',exact:true});
