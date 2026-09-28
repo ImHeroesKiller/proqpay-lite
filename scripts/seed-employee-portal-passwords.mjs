@@ -66,7 +66,9 @@ export function seedEmployeePortalPasswords() {
     LEFT JOIN projects p ON p.id=e.project_id
     LEFT JOIN employee_contracts c ON c.employee_id=e.id AND c.is_current=1
     LEFT JOIN employee_credentials cred ON cred.employee_id=e.id
-    WHERE e.org_id=${sqlString(ORG_ID)} AND cred.employee_id IS NULL
+    WHERE e.org_id=${sqlString(ORG_ID)}
+      AND cred.employee_id IS NULL
+      AND e.id NOT LIKE 'EMP-E2PAY-UAT-%'
     ORDER BY e.id
   `));
 
