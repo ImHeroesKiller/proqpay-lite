@@ -449,6 +449,81 @@ export function normalizeE2PayDescription(value) {
   return (ascii || 'ProQPay disbursement').slice(0,80);
 }
 
+async function e2payFingerprint(value) {
+  const raw=String(value ?? '');
+  if(!raw) return null;
+  return (await sha256Hex(raw)).slice(0,16);
+}
+
+export function e2payExecutionContract(env = {}, merchant = {}) {
+  const environment=String(env.E2PAY_ENV || 'UAT').trim().toUpperCase();
+  const accountSrc=required(env,'E2PAY_ACCOUNT_SRC');
+  const merchantAccountId=String(merchant?.accountId || '').trim();
+  const sourceId=required(env,'E2PAY_SOURCE_ID');
+  const password=required(env,'E2PAY_PASSWORD_MD5');
+  const accountSrcMatchesMerchant=merchantAccountId ? accountSrc === merchantAccountId : null;
+  const issues=[];
+  if(!accountSrc) issues.push('E2PAY_ACCOUNT_SRC_MISSING');
+  if(merchantAccountId && !accountSrcMatchesMerchant) issues.push('E2PAY_ACCOUNT_SRC_MISMATCH');
+  if(!sourceId) issues.push('E2PAY_SOURCE_ID_MISSING');
+  if(!/^[A-F0-9]{32}$/.test(password)) issues.push('E2PAY_PASSWORD_MD5_INVALID');
+  return {
+    valid:issues.length===0,
+    environment,
+    accountSrcMatchesMerchant,
+    sourceIdConfigured:Boolean(sourceId),
+    sourceIdVerification:'PROVIDER_ISSUED_CONFIG_ONLY',
+    passwordMd5Valid:/^[A-F0-9]{32}$/.test(password),
+    issues,
+  };
+}
+
+export async function e2payExecutionDiagnostics(env = {}, input = {}, merchant = {}) {
+  const accountSrc=required(env,'E2PAY_ACCOUNT_SRC');
+  const sourceId=required(env,'E2PAY_SOURCE_ID');
+  const clientRef=String(input?.clientRef || '').trim();
+  const inquiryId=String(input?.inquiryId || '').trim();
+  const description=normalizeE2PayDescription(input?.description);
+  const merchantAccountId=String(merchant?.accountId || '').trim();
+  const [accountSrcFingerprint,sourceIdFingerprint,inquiryIdFingerprint,descriptionFingerprint]=await Promise.all([
+    e2payFingerprint(accountSrc),
+    e2payFingerprint(sourceId),
+    e2payFingerprint(inquiryId),
+    e2payFingerprint(description),
+  ]);
+  return {
+    environment:String(env.E2PAY_ENV || 'UAT').trim().toUpperCase(),
+    accountSrc:{
+      last4:accountSrc ? accountSrc.slice(-4) : null,
+      length:accountSrc.length,
+      fingerprint:accountSrcFingerprint,
+      matchesMerchantAccount:merchantAccountId ? accountSrc===merchantAccountId : null,
+    },
+    sourceId:{
+      length:sourceId.length,
+      fingerprint:sourceIdFingerprint,
+      verification:'PROVIDER_ISSUED_CONFIG_ONLY',
+    },
+    clientRef:{
+      value:clientRef || null,
+      length:clientRef.length,
+      ascii:/^[\x20-\x7E]*$/.test(clientRef),
+    },
+    description:{
+      length:description.length,
+      fingerprint:descriptionFingerprint,
+    },
+    inquiryId:{
+      length:inquiryId.length,
+      fingerprint:inquiryIdFingerprint,
+    },
+    password:{
+      present:Boolean(required(env,'E2PAY_PASSWORD_MD5')),
+      md5Uppercase:/^[A-F0-9]{32}$/.test(required(env,'E2PAY_PASSWORD_MD5')),
+    },
+  };
+}
+
 export async function e2payDisburse(env, accessToken, input, fetchImpl = fetch) {
   const payload = {
     accountSrc:required(env, 'E2PAY_ACCOUNT_SRC'),

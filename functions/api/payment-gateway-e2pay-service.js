@@ -6,6 +6,8 @@ import {
   e2payClientRef,
   e2payDisburse,
   e2payEffectiveDestination,
+  e2payExecutionContract,
+  e2payExecutionDiagnostics,
   e2payInquiry,
   e2payMerchantAccount,
   e2payResponseStatus,
@@ -279,6 +281,33 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     e2payBankList(env, auth.accessToken),
   ]);
   const merchantBalance = number(merchant?.balance);
+  const executionContract=e2payExecutionContract(env,merchant);
+  if(!executionContract.valid){
+    const issue=executionContract.issues[0] || 'E2PAY_EXECUTION_CONTRACT_INVALID';
+    await updateParent(database,transactionId,{
+      status:'FAILED',
+      provider_status:'EXECUTION_CONTRACT_INVALID',
+      error_code:issue,
+      error_message:issue==='E2PAY_ACCOUNT_SRC_MISMATCH'
+        ? 'accountSrc konfigurasi tidak sama dengan merchant accountId E2Pay; financial POST diblokir.'
+        : 'Kontrak eksekusi E2Pay belum valid; financial POST diblokir.',
+    });
+    return {
+      ok:false,
+      statusCode:409,
+      code:issue,
+      error:issue==='E2PAY_ACCOUNT_SRC_MISMATCH'
+        ? 'Source account E2Pay tidak cocok dengan Merchant Account. Periksa konfigurasi sebelum payment.'
+        : 'Konfigurasi execution E2Pay belum valid.',
+      merchantBalance,
+      executionContract,
+      summary:summarizeE2PayItems(allItems),
+      items:allItems,
+      parentStatus:'FAILED',
+      hasMore:false,
+      processedThisCall:0,
+    };
+  }
 
   // Phase 1: finish beneficiary inquiry/preflight for the full immutable PI before
   // the first financial POST. This may span multiple Worker requests, but every
@@ -439,19 +468,29 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     const beneficiary = byLine.get(item.payment_instruction_line_id);
     if (!beneficiary) continue;
 
-    // Durable pre-call marker: once this succeeds, any subsequent uncertainty is
-    // reconciled by clientRef and never treated as safe for blind retry.
+    const uatDummy=String(env?.E2PAY_ENV || 'UAT').trim().toUpperCase()==='UAT';
+    const description=uatDummy
+      ? '[UAT DUMMY] ' + (payment.document_no || payment.id) + ' ' + String(item.client_ref || '').slice(-8)
+      : (payment.document_no || payment.id) + ' ' + beneficiary.beneficiaryName;
+    const requestDiagnostics=await e2payExecutionDiagnostics(env,{
+      clientRef:item.client_ref,
+      description,
+      inquiryId:item.inquiry_id,
+    },merchant);
+
+    // Durable pre-call marker: sanitized request contract is persisted before the
+    // financial POST. Secrets and raw accountSrc/sourceId are never stored here.
     await updateItem(database, item.id, {
       attempt_count:Number(item.attempt_count || 0) + 1,
       status:'PENDING',
+      request_diagnostics_json:JSON.stringify(requestDiagnostics),
+      provider_http_status:null,
+      failure_stage:'DISBURSEMENT_POST',
+      last_attempt_at:new Date().toISOString(),
     });
 
     let result;
     try {
-      const uatDummy=String(env?.E2PAY_ENV || 'UAT').trim().toUpperCase()==='UAT';
-      const description=uatDummy
-        ? '[UAT DUMMY] ' + (payment.document_no || payment.id) + ' ' + String(item.client_ref || '').slice(-8)
-        : (payment.document_no || payment.id) + ' ' + beneficiary.beneficiaryName;
       result = await e2payDisburse(env, auth.accessToken, {
         clientRef:item.client_ref,
         description,
@@ -463,6 +502,8 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
       await updateItem(database, item.id, {
         status:ambiguous ? 'UNKNOWN' : 'FAILED',
         last_checked_at:new Date().toISOString(),
+        provider_http_status:error instanceof E2PayRequestError && Number(error.httpStatus) ? Number(error.httpStatus) : null,
+        failure_stage:'DISBURSEMENT_POST',
         error_code:error instanceof E2PayRequestError ? error.code : 'E2PAY_TRANSACTION_FAILED',
         error_message:String(error?.message || 'Transaksi E2Pay gagal').slice(0, 300),
       });
@@ -481,6 +522,8 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
         response_code:String(result?.responseCode ?? ''),
         response_message:String(result?.responseMessage || '').slice(0, 300) || null,
         last_checked_at:new Date().toISOString(),
+        provider_http_status:null,
+        failure_stage:itemStatus === 'FAILED' ? 'PROVIDER_RESPONSE' : null,
         error_code:itemStatus === 'FAILED' ? 'E2PAY_PROVIDER_REJECTED' : null,
         error_message:itemStatus === 'FAILED' ? String(result?.responseMessage || 'E2Pay transaction failed').slice(0, 300) : null,
       });

@@ -182,6 +182,14 @@ export default function E2PayOperationsConsole({canManage}:Props){
 
     {error?<div className="app-notice-bubble app-notice-error" role="alert"><strong>E2Pay operation gagal</strong><span>{error}</span></div>:null}
     {notice?<div className="app-notice-bubble app-notice-info" role="status"><span>{notice}</span></div>:null}
+    {account?.executionContract && !account.executionContract.valid?<div className="app-notice-bubble app-notice-error" role="alert">
+      <strong>Execution contract belum valid</strong>
+      <span>{account.executionContract.issues.join(', ')}. Financial POST akan diblokir sampai source account/password/source ID memenuhi kontrak E2Pay.</span>
+    </div>:null}
+    {account?.executionContract?.sourceIdConfigured?<div className="app-notice-bubble app-notice-info" role="note">
+      <strong>Source ID berasal dari provisioning E2Pay</strong>
+      <span>ProQPay dapat memastikan Source ID terkonfigurasi, tetapi SSD tidak menyediakan read-only endpoint untuk memvalidasi nilainya sebelum transaksi. Nilai ini harus mengikuti Source ID resmi dari E2Pay.</span>
+    </div>:null}
 
     <div className="e2pay-account-hero">
       <div className="e2pay-account-balance">
@@ -201,6 +209,17 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <div><span>Merchant</span><strong>{account?.accountName||'—'}</strong><small>{account?.accountIdMasked||'—'}</small></div>
         <div><span>Account group</span><strong>{account?.accountGroupName||'—'}</strong><small>{account?.phoneMasked||'Phone unavailable'}</small></div>
         <div><span>Last sync</span><strong>{dateTime(account?.refreshedAt)}</strong><small>{account?.readiness?.configured?'Execution ready':account?.readiness?.reason||'Not ready'}</small></div>
+        <div>
+          <span>Execution contract</span>
+          <strong>{account?.executionContract?.valid?'VALID':'CHECK REQUIRED'}</strong>
+          <small>
+            {account?.executionContract?.accountSrcMatchesMerchant===true
+              ? 'Source account cocok dengan Merchant Account'
+              : account?.executionContract?.accountSrcMatchesMerchant===false
+                ? 'Source account tidak cocok dengan Merchant Account'
+                : 'Source account belum dapat dicross-check'}
+          </small>
+        </div>
       </div>
     </div>
 

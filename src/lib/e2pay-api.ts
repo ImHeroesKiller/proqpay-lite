@@ -17,6 +17,15 @@ export type E2PayAccountSnapshot = {
     vaNumber?:string|null;
     accountName?:string|null;
   };
+  executionContract?:{
+    valid:boolean;
+    environment:string;
+    accountSrcMatchesMerchant:boolean|null;
+    sourceIdConfigured:boolean;
+    sourceIdVerification:string;
+    passwordMd5Valid:boolean;
+    issues:string[];
+  };
   readiness?:{ configured:boolean; provider:string; environment?:string|null; reason?:string|null };
 };
 

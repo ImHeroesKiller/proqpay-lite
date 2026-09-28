@@ -4,6 +4,7 @@ import { activateGatewaySecureSettings, gatewayRuntimeEnv } from './payment-gate
 import {
   e2payAuthorize,
   e2payBankListPage,
+  e2payExecutionContract,
   e2payChangePassword,
   e2payChangePhoneConfirm,
   e2payChangePhoneRequest,
@@ -101,6 +102,7 @@ function publicSnapshot(row,readiness,runtimeEnv){
     balance:null,
     refreshedAt:null,
     readiness,
+    executionContract:e2payExecutionContract(runtimeEnv,{}),
     funding:{ ready:false, bankName:clean(runtimeEnv?.E2PAY_FUNDING_BANK,160)||null, vaNumber:null, accountName:null },
   };
   const fundingBank=clean(runtimeEnv?.E2PAY_FUNDING_BANK,160);
@@ -124,6 +126,7 @@ function publicSnapshot(row,readiness,runtimeEnv){
       vaNumber:vaNumber || null,
       accountName:row.account_name || null,
     },
+    executionContract:e2payExecutionContract(runtimeEnv,{accountId:vaNumber}),
     readiness,
   };
 }
