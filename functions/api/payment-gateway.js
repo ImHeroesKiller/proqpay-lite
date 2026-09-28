@@ -97,6 +97,16 @@ function publicTransaction(row) {
   return safe;
 }
 
+function publicGatewayItem(row) {
+  if(!row) return row;
+  const { request_diagnostics_json, ...safe }=row;
+  let request_diagnostics=null;
+  if(request_diagnostics_json){
+    try{ request_diagnostics=JSON.parse(request_diagnostics_json); }catch{}
+  }
+  return { ...safe, request_diagnostics };
+}
+
 export function gatewayOperationalStatus(transaction, items = [], nowMs = Date.now()) {
   if (!transaction) return {
     state:'IDLE', stale:false, staleMinutes:0, needsReconciliation:false, safeToRetry:false,
@@ -190,12 +200,19 @@ export async function onRequest(context) {
       if (!payment) return secureJson({ error: 'Payment Instruction tidak ditemukan' }, 404, request, env, METHODS);
       const transaction = await findTransaction(database, organizationId, paymentInstructionId);
       const items = transaction?.provider === 'E2PAY'
-        ? await d1All(database, `SELECT id,payment_instruction_line_id,employee_id,provider,client_ref,bank_id,beneficiary_name,provider_beneficiary_name,account_last4,amount,fee_amount,journal_id,correlation_id,response_code,response_message,status,attempt_count,last_checked_at,error_code,error_message,created_at,updated_at
+        ? await d1All(database, `SELECT id,payment_instruction_line_id,employee_id,provider,client_ref,bank_id,beneficiary_name,provider_beneficiary_name,account_last4,amount,fee_amount,journal_id,correlation_id,response_code,response_message,status,attempt_count,last_checked_at,error_code,error_message,provider_http_status,failure_stage,request_diagnostics_json,last_attempt_at,created_at,updated_at
             FROM payment_gateway_items WHERE payment_gateway_transaction_id=? ORDER BY created_at,id`, [transaction.id])
         : [];
       const operational = gatewayOperationalStatus(transaction,items);
       const arGate = await evaluateClientArGate(database, organizationId, payment.client_id);
-      return secureJson({ ok: true, gateway: readiness, transaction:publicTransaction(transaction), items, operational, arGate }, 200, request, env, METHODS);
+      return secureJson({
+        ok:true,
+        gateway:readiness,
+        transaction:publicTransaction(transaction),
+        items:items.map(publicGatewayItem),
+        operational,
+        arGate,
+      },200,request,env,METHODS);
     }
 
     if (authorization.actor.role !== 'PAYROLL_CONTROLLER' || !authorization.actor.permissions?.includes('payment:approve')) {
