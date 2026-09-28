@@ -121,10 +121,11 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   const simplifiedWorkspace = simplifiedInternal || clientExperience;
   const isProcessor = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role);
   const isController = ['SUPER_ADMIN','PAYROLL_CONTROLLER'].includes(role);
+  const isPaymentController = role === 'PAYROLL_CONTROLLER';
   const isClient = role === 'CLIENT_USER';
-  // The backend remains authoritative; role fallback prevents a stale /api/me
-  // permission payload from hiding the Controller approval workflow.
-  const canApprovePayment = isController || actor?.permissions?.includes('payment:approve') || false;
+  // Financial approval/execution is intentionally stricter than general admin authority.
+  // Super Admin may monitor and administer the system, but cannot confirm or execute payments.
+  const canApprovePayment = isPaymentController && Boolean(actor?.permissions?.includes('payment:approve'));
   const submissions = useMemo(() => data.submissions || [], [data.submissions]);
   const instructionBySubmission = useMemo(() => new Map((data.paymentInstructions || []).map((row) => [row.submission_id,row])), [data.paymentInstructions]);
   const periods = useMemo(() => [...new Set(submissions.map((row) => String(row.period || '')).filter(Boolean))].sort((a, b) => b.localeCompare(a)), [submissions]);
@@ -316,7 +317,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} payRuns={visibleSubmissions} role={role} canResolve={isProcessor || isClient} act={act} />}
-          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isProcessor} canReconcile={isController && Boolean(actor?.permissions?.includes('reconciliation:write') || role==='SUPER_ADMIN')} canApprove={canApprovePayment && isController} act={act} />}
+          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isPaymentController} canReconcile={isPaymentController && Boolean(actor?.permissions?.includes('reconciliation:write'))} canApprove={canApprovePayment} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace
             actor={actor}
             focusSubmissionId={focusSubmissionId}
