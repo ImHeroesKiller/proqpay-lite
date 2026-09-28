@@ -169,7 +169,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
           <h5>Top Up Wallet</h5>
           <p>Transfer dana ke Virtual Account merchant E2Pay, lalu refresh saldo setelah transfer berhasil.</p>
         </div>
-        <span className={account?.funding?.ready?'integration-health-pill is-healthy':'integration-health-pill is-warning'}>
+        <span className={account?.funding?.ready?'integration-health-pill integration-health-healthy':'integration-health-pill integration-health-degraded'}>
           {account?.funding?.ready?'READY':'NEEDS SETUP'}
         </span>
       </div>
