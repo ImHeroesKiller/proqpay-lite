@@ -170,9 +170,21 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
       catch { throw new E2PayRequestError('Response E2Pay bukan JSON valid', 'E2PAY_INVALID_JSON', response.status); }
     }
     if (!response.ok) {
-      const providerMessage = String(
-        body?.message || body?.error_description || body?.error || body?.responseMessage || ''
-      ).trim().slice(0, 240);
+      const scalar=(value)=>value===undefined||value===null?'':String(value).trim();
+      const nestedErrors=Array.isArray(body?.errors)
+        ? body.errors.map((item)=>scalar(item?.message || item?.detail || item?.code || item)).filter(Boolean).join('; ')
+        : scalar(body?.errors);
+      const providerMessage = [
+        scalar(body?.message),
+        scalar(body?.error_description),
+        scalar(body?.error),
+        scalar(body?.responseMessage),
+        scalar(body?.detail),
+        scalar(body?.errorMessage),
+        scalar(body?.errorCode),
+        scalar(body?.code),
+        nestedErrors,
+      ].find(Boolean)?.slice(0,240) || '';
       throw new E2PayRequestError(
         `E2Pay HTTP ${response.status}${providerMessage ? ` · ${providerMessage}` : ''}`,
         'E2PAY_HTTP_ERROR',
@@ -422,14 +434,26 @@ export function e2payResponseStatus(responseCode) {
 
 export async function e2payClientRef(paymentInstruction, line) {
   const digest = await sha256Hex(`${paymentInstruction.id}:${line.id}:${paymentInstruction.content_hash}`);
-  return `PQP-${digest.slice(0, 32)}`;
+  // Keep provider-facing clientRef ASCII and <=32 chars for conservative UAT compatibility.
+  // 28 hex chars still retain 112 bits of deterministic uniqueness behind the PQP- prefix.
+  return `PQP-${digest.slice(0, 28)}`;
+}
+
+export function normalizeE2PayDescription(value) {
+  const ascii=String(value ?? '')
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7E]/g,' ')
+    .replace(/[^A-Za-z0-9 .,_-]/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+  return (ascii || 'ProQPay disbursement').slice(0,80);
 }
 
 export async function e2payDisburse(env, accessToken, input, fetchImpl = fetch) {
   const payload = {
     accountSrc:required(env, 'E2PAY_ACCOUNT_SRC'),
     clientRef:String(input.clientRef || '').trim(),
-    description:String(input.description || '').trim().slice(0, 120),
+    description:normalizeE2PayDescription(input.description),
     password:required(env, 'E2PAY_PASSWORD_MD5'),
     inquiryId:String(input.inquiryId || '').trim(),
     sourceId:required(env, 'E2PAY_SOURCE_ID'),
