@@ -147,6 +147,7 @@ export function gatewayOperationalStatus(transaction, items = [], nowMs = Date.n
     failedItems:failed.length,
     retryableFailedItems:retryableItems.length,
     retryReadyItems:retryReadyItems.length,
+    blockingFailedItems:blockingFailed.length,
     succeededItems:succeeded.length,
     lastActivityAt,
   };
@@ -301,15 +302,33 @@ export async function onRequest(context) {
     if (action === 'RETRY_FAILED') {
       if (readiness.provider !== 'E2PAY') return secureJson({ error: 'Retry beneficiary hanya tersedia untuk adapter E2Pay' }, 422, request, env, METHODS);
       if (!transaction) return secureJson({ error: 'Execution ledger E2Pay belum tersedia' }, 404, request, env, METHODS);
-      const retryable = await d1First(database, `SELECT COUNT(*) AS count FROM payment_gateway_items
-        WHERE payment_gateway_transaction_id=?
-          AND (
-            status IN ('RETRY_READY','RETRY_INQUIRY_READY')
-            OR (status='FAILED' AND (attempt_count=0 OR TRIM(COALESCE(response_code,''))='99'))
-          )`, [transaction.id]);
-      if (Number(retryable?.count || 0) <= 0) {
+      const retryItems = await d1All(database, `SELECT status,attempt_count,response_code,error_code,error_message
+        FROM payment_gateway_items WHERE payment_gateway_transaction_id=?`, [transaction.id]);
+      const unresolvedRetryItems = retryItems.filter((item) => ['PENDING','PROCESSING','UNKNOWN'].includes(String(item.status || '')));
+      if (unresolvedRetryItems.length > 0) {
+        return secureJson({
+          error:'Masih ada beneficiary dengan status provider yang belum final. Jalankan reconciliation sebelum retry.',
+          code:'E2PAY_RECONCILIATION_REQUIRED',
+          unresolvedItems:unresolvedRetryItems.length,
+        },409,request,env,METHODS);
+      }
+      const retryableCount = retryItems.filter((item) => isE2PayRetryCandidate(item)).length;
+      if (retryableCount <= 0) {
         return secureJson({ error:'Tidak ada beneficiary gagal yang aman untuk di-retry', code:'E2PAY_NO_RETRYABLE_FAILURES' }, 409, request, env, METHODS);
       }
+    }
+
+    if (action === 'EXECUTE' && readiness.provider === 'E2PAY' && transaction?.status === 'FAILED') {
+      const failedItems = await d1All(database, `SELECT status,attempt_count,response_code,error_code,error_message
+        FROM payment_gateway_items WHERE payment_gateway_transaction_id=?`, [transaction.id]);
+      const recovery = gatewayOperationalStatus(transaction, failedItems);
+      return secureJson({
+        error: recovery.safeToRetry
+          ? 'Execution E2Pay sebelumnya gagal. Gunakan Retry Aman agar recovery tetap terkontrol.'
+          : 'Execution E2Pay sebelumnya gagal. Review/verifikasi status provider sebelum melakukan tindakan berikutnya.',
+        code: recovery.safeToRetry ? 'E2PAY_CONTROLLED_RETRY_REQUIRED' : 'E2PAY_FAILED_REVIEW_REQUIRED',
+        operational: recovery,
+      },409,request,env,METHODS);
     }
 
     if (transaction?.status === 'SUCCEEDED') {
