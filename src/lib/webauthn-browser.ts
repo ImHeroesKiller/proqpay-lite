@@ -1,8 +1,9 @@
-function base64UrlToBytes(value: string): Uint8Array {
+function base64UrlToArrayBuffer(value: string): ArrayBuffer {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
   const binary = atob(padded);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 function bytesToBase64Url(value: ArrayBuffer | ArrayBufferView): string {
@@ -22,17 +23,17 @@ function normalizeCreationOptions(input: Record<string, unknown>): PublicKeyCred
         const row = item as Record<string, unknown>;
         return {
           ...row,
-          id: base64UrlToBytes(String(row.id || "")),
-        } as PublicKeyCredentialDescriptor;
+          id: base64UrlToArrayBuffer(String(row.id || "")),
+        } as unknown as PublicKeyCredentialDescriptor;
       })
     : undefined;
 
   return {
     ...(input as unknown as PublicKeyCredentialCreationOptions),
-    challenge: base64UrlToBytes(String(input.challenge || "")),
+    challenge: base64UrlToArrayBuffer(String(input.challenge || "")),
     user: {
       ...(user as unknown as PublicKeyCredentialUserEntity),
-      id: base64UrlToBytes(String(user?.id || "")),
+      id: base64UrlToArrayBuffer(String(user?.id || "")),
     },
     excludeCredentials,
   };
@@ -44,14 +45,14 @@ function normalizeRequestOptions(input: Record<string, unknown>): PublicKeyCrede
         const row = item as Record<string, unknown>;
         return {
           ...row,
-          id: base64UrlToBytes(String(row.id || "")),
-        } as PublicKeyCredentialDescriptor;
+          id: base64UrlToArrayBuffer(String(row.id || "")),
+        } as unknown as PublicKeyCredentialDescriptor;
       })
     : undefined;
 
   return {
     ...(input as unknown as PublicKeyCredentialRequestOptions),
-    challenge: base64UrlToBytes(String(input.challenge || "")),
+    challenge: base64UrlToArrayBuffer(String(input.challenge || "")),
     allowCredentials,
   };
 }
