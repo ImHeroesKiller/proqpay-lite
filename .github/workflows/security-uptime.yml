@@ -1,6 +1,11 @@
 name: Production Security Uptime Monitor
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-uptime.yml'
+      - 'functions/api/health.js'
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
