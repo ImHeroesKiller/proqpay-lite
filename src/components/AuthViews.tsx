@@ -20,18 +20,55 @@ export function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [mfaStage, setMfaStage] = useState<'NONE'|'CODE'|'ENROLL'>('NONE');
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaSecret, setMfaSecret] = useState('');
+  const [mfaUri, setMfaUri] = useState('');
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
+      if (mfaStage === 'ENROLL') {
+        const activate = await fetch('/api/security-mfa', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'ENROLL_ACTIVATE',email,password,code:mfaCode}),
+        });
+        const activated = await activate.json().catch(() => ({}));
+        if (!activate.ok) throw new Error(activated.error || 'Aktivasi MFA gagal');
+      }
+
       const response = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, mfaCode:mfaCode || undefined }),
       });
       const data = await response.json().catch(() => ({}));
+
+      if (response.status === 428 && data.code === 'MFA_REQUIRED') {
+        setMfaStage('CODE');
+        setError('Masukkan kode MFA 6 digit dari aplikasi authenticator.');
+        return;
+      }
+
+      if (response.status === 428 && data.code === 'MFA_ENROLLMENT_REQUIRED') {
+        const enrollment = await fetch('/api/security-mfa', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'ENROLL_START',email,password}),
+        });
+        const enrolled = await enrollment.json().catch(() => ({}));
+        if (!enrollment.ok) throw new Error(enrolled.error || 'Enrollment MFA gagal');
+        setMfaSecret(String(enrolled.secret || ''));
+        setMfaUri(String(enrolled.otpauthUri || ''));
+        setMfaCode('');
+        setMfaStage('ENROLL');
+        setError('MFA wajib diaktifkan untuk role ini. Tambahkan secret ke authenticator lalu masukkan kode 6 digit.');
+        return;
+      }
+
       if (!response.ok) throw new Error(data.error || "Login gagal");
       window.location.reload();
     } catch (cause) {
@@ -149,6 +186,30 @@ export function LoginScreen() {
                 </button>
               </div>
             </label>
+            {mfaStage !== 'NONE' ? (
+              <label>
+                <span>Kode MFA</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  minLength={6}
+                  maxLength={6}
+                  required
+                  placeholder="6 digit"
+                  value={mfaCode}
+                  onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                />
+              </label>
+            ) : null}
+            {mfaStage === 'ENROLL' && mfaSecret ? (
+              <div className="login-error" role="note">
+                <strong>Aktifkan MFA di authenticator</strong>
+                <span>Secret: <code>{mfaSecret}</code></span>
+                {mfaUri ? <small>Gunakan URI TOTP bila aplikasi authenticator mendukung input URI.</small> : null}
+              </div>
+            ) : null}
             {error ? (
               <div className="login-error" role="alert">
                 <strong>Login belum berhasil</strong>
@@ -165,6 +226,10 @@ export function LoginScreen() {
                   <i className="login-spinner" />
                   Memverifikasi…
                 </>
+              ) : mfaStage === 'ENROLL' ? (
+                "Aktifkan MFA & Masuk"
+              ) : mfaStage === 'CODE' ? (
+                "Verifikasi MFA & Masuk"
               ) : (
                 "Masuk ke ProQPay"
               )}
