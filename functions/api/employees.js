@@ -10,6 +10,7 @@ import {
   secureJson,
 } from './_security.js';
 import { activeEmployeeSql } from './_employee-status.js';
+import { employeeBankStorageValue, prepareEmployeeBankAccount, revealEmployeeBankAccount } from './_employee-bank-security.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 
@@ -179,8 +180,10 @@ export async function onRequest(context) {
           COALESCE(cp.imported_net,0) AS "importedNet",
           COALESCE(cp.payroll_components,'{}') AS "payrollComponents",
           0 AS "allowanceTransport",0 AS "allowanceMeal",
-          pb.account_no AS "accountNo",
-          CASE WHEN pb.account_no IS NULL THEN '' WHEN pb.bank_name IS NULL THEN pb.account_no ELSE pb.bank_name||'-'||pb.account_no END AS "bankAccount",
+          pb.account_no AS "_legacyAccountNo",
+          pb.account_ciphertext AS "_accountCiphertext",
+          pb.account_iv AS "_accountIv",
+          pb.account_last4 AS "_accountLast4",
           pb.bank_name AS "bankName",
           ei.ktp_no AS nik,ei.npwp_no AS npwp,ei.address,ei.marital_status AS "maritalStatus",
           ei.ptkp_claimed AS "ptkpClaimed",ei.ptkp_updated AS "ptkpUpdated",
@@ -211,14 +214,32 @@ export async function onRequest(context) {
       `, [organizationId, ...(actor.role === 'CLIENT_USER' ? scopedClientIds : []), ...(actor.role === 'CLIENT_USER' && scopedProjectIds?.length ? scopedProjectIds : []), limit+1, offset]);
       const truncated=rows.length>limit;
       const pageRows=truncated?rows.slice(0,limit):rows;
-      const visibleRows = pageRows.map((row) => {
+      const visibleRows = await Promise.all(pageRows.map(async (row) => {
         try { row.payrollComponents = JSON.parse(row.payrollComponents || '{}'); } catch { row.payrollComponents = {}; }
         row.bpjsKesehatan = Boolean(row.bpjsKesehatan);
         row.bpjsKetenagakerjaan = Boolean(row.bpjsKetenagakerjaan);
         row.pph21 = Boolean(row.pph21);
         row.isActive = Boolean(row.isActive);
+        let accountNo = '';
+        try {
+          accountNo = await revealEmployeeBankAccount({
+            account_no:row._legacyAccountNo,
+            account_ciphertext:row._accountCiphertext,
+            account_iv:row._accountIv,
+          }, env);
+        } catch {
+          accountNo = '';
+        }
+        row.accountNo = accountNo || (row._accountLast4 ? `••••${row._accountLast4}` : '');
+        row.bankAccount = row.accountNo
+          ? (row.bankName ? `${row.bankName}-${row.accountNo}` : row.accountNo)
+          : '';
+        delete row._legacyAccountNo;
+        delete row._accountCiphertext;
+        delete row._accountIv;
+        delete row._accountLast4;
         return employeeView(row, actor);
-      });
+      }));
       return respond({ employees:visibleRows,count:visibleRows.length,role:actor.role,meta:{offset,limit,returned:visibleRows.length,nextOffset:truncated?offset+limit:null,truncated} });
     }
 
@@ -256,12 +277,24 @@ export async function onRequest(context) {
           cp.basic_salary,
           (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 ORDER BY created_at DESC LIMIT 1) AS bank_name,
           (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 ORDER BY created_at DESC LIMIT 1) AS account_no,
+          (SELECT account_ciphertext FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 ORDER BY created_at DESC LIMIT 1) AS account_ciphertext,
+          (SELECT account_iv FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 ORDER BY created_at DESC LIMIT 1) AS account_iv,
+          (SELECT account_last4 FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 ORDER BY created_at DESC LIMIT 1) AS account_last4,
           ei.ktp_no,ei.npwp_no,ei.address,bp.bpjs_kesehatan_no,bp.jamsostek_no
         FROM employees e
         LEFT JOIN employee_compensation cp ON cp.employee_id=e.id
         LEFT JOIN employee_identity ei ON ei.employee_id=e.id
         LEFT JOIN employee_bpjs bp ON bp.employee_id=e.id
         WHERE e.id=? AND e.org_id=? LIMIT 1`, [requestedId, organizationId]) : null;
+      let beforeAccountNo = '';
+      if (before) {
+        try {
+          beforeAccountNo = await revealEmployeeBankAccount(before, env);
+        } catch {
+          beforeAccountNo = '';
+        }
+      }
+
       if (requestedId && !existing) {
         const foreign = await d1First(database, 'SELECT org_id FROM employees WHERE id=? LIMIT 1', [requestedId]);
         if (foreign) return respond({ error: 'Karyawan berada di luar organization aktif', code: 'EMPLOYEE_ORG_SCOPE_DENIED' }, 403);
@@ -345,6 +378,21 @@ export async function onRequest(context) {
         }
       }
 
+      const suppliedAccountNo = supplied('accountNo','bankAccount','bank_account')
+        ? value('accountNo','bankAccount','bank_account')
+        : null;
+      let securedBank = null;
+      if (suppliedAccountNo) {
+        try {
+          securedBank = await prepareEmployeeBankAccount(suppliedAccountNo, env);
+        } catch (error) {
+          return respond({
+            error:'Enkripsi rekening karyawan gagal. Periksa EMPLOYEE_BANK_ENCRYPTION_KEY/PI_ENCRYPTION_KEY.',
+            code:'EMPLOYEE_BANK_ENCRYPTION_REQUIRED',
+          },503);
+        }
+      }
+
       const operations = [];
       if (creating) {
         operations.push({
@@ -376,17 +424,33 @@ export async function onRequest(context) {
           bindings: [assignmentId, id, body.position] });
       }
 
-      if (supplied('accountNo','bankAccount','bank_account')) {
-        const accountNo = value('accountNo','bankAccount','bank_account');
-        if (accountNo) {
-          const bankId = `BNK-${id}`;
-          operations.push(
-            { statement: 'UPDATE employee_bank_accounts SET is_primary=0 WHERE employee_id=? AND id<>?', bindings: [id, bankId] },
-            { statement: `INSERT INTO employee_bank_accounts (id, employee_id, bank_name, account_no, is_primary)
-              VALUES (?, ?, ?, ?, 1) ON CONFLICT (id) DO UPDATE SET bank_name=excluded.bank_name,
-              account_no=excluded.account_no, is_primary=1`, bindings: [bankId, id, supplied('bankName') ? body.bankName || null : before?.bank_name || 'UNKNOWN', accountNo] }
-          );
-        }
+      if (supplied('accountNo','bankAccount','bank_account') && securedBank) {
+        const bankId = `BNK-${id}`;
+        operations.push(
+          { statement: 'UPDATE employee_bank_accounts SET is_primary=0 WHERE employee_id=? AND id<>?', bindings: [id, bankId] },
+          { statement: `INSERT INTO employee_bank_accounts
+              (id,employee_id,bank_name,account_no,is_primary,account_ciphertext,account_iv,account_last4,account_fingerprint,encrypted_at)
+              VALUES (?,?,?,?,1,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+              ON CONFLICT (id) DO UPDATE SET
+                bank_name=excluded.bank_name,
+                account_no=excluded.account_no,
+                is_primary=1,
+                account_ciphertext=excluded.account_ciphertext,
+                account_iv=excluded.account_iv,
+                account_last4=excluded.account_last4,
+                account_fingerprint=excluded.account_fingerprint,
+                encrypted_at=excluded.encrypted_at`,
+            bindings: [
+              bankId,
+              id,
+              supplied('bankName') ? body.bankName || null : before?.bank_name || 'UNKNOWN',
+              employeeBankStorageValue(securedBank),
+              securedBank.ciphertext,
+              securedBank.iv,
+              securedBank.last4,
+              securedBank.fingerprint,
+            ] }
+        );
       }
 
       if (supplied('nik','npwp','address')) {
@@ -434,7 +498,7 @@ export async function onRequest(context) {
       if (has('nik')) track('nik',before?.ktp_no,body.nik,{sensitive:true});
       if (has('npwp')) track('npwp',before?.npwp_no,body.npwp,{sensitive:true});
       if (has('address')) track('address',before?.address,body.address,{sensitive:true});
-      if (supplied('accountNo','bankAccount','bank_account')) track('accountNo',before?.account_no,value('accountNo','bankAccount','bank_account'),{sensitive:true});
+      if (supplied('accountNo','bankAccount','bank_account')) track('accountNo',beforeAccountNo,value('accountNo','bankAccount','bank_account'),{sensitive:true});
       if (has('bankName')) track('bankName',before?.bank_name,body.bankName);
       if (has('bpjsKesehatanNo')) track('bpjsKesehatanNo',before?.bpjs_kesehatan_no,body.bpjsKesehatanNo,{sensitive:true});
       if (has('jamsostekNo')) track('jamsostekNo',before?.jamsostek_no,body.jamsostekNo,{sensitive:true});
