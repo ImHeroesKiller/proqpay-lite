@@ -6,6 +6,7 @@ import {
   payrollStageIndex, policyToRules, tenureDaysFromJoin, tenureMonthsFromJoin,
 } from '../_ewa.js';
 import { publicError } from '../_security.js';
+import { revealEmployeeBankAccount } from '../_employee-bank-security.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 
@@ -177,13 +178,18 @@ export async function onRequest({ request, env }) {
     const id = `EWA-${crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
     const bank = await d1First(
       env.DB,
-      `SELECT bank_name, account_no FROM employee_bank_accounts
+      `SELECT bank_name,account_no,account_ciphertext,account_iv,account_last4 FROM employee_bank_accounts
         WHERE employee_id=? AND is_primary=1 ORDER BY created_at DESC, id DESC LIMIT 1`,
       [actor.id],
     );
-    const accountDigits = String(bank?.account_no || '').replace(/\D/g, '');
+    let accountDigits = '';
+    try {
+      accountDigits = await revealEmployeeBankAccount(bank, env);
+    } catch {
+      accountDigits = '';
+    }
     const bankName = String(bank?.bank_name || '').trim().slice(0, 80);
-    const accountLast4 = accountDigits.slice(-4);
+    const accountLast4 = String(bank?.account_last4 || accountDigits.slice(-4)).slice(-4);
     if (String(body.method || 'SALARY_ACCOUNT').toUpperCase() === 'SALARY_ACCOUNT' && (!bankName || accountLast4.length !== 4)) {
       return respond({ error: 'Rekening utama belum lengkap. Hubungi HR sebelum mengajukan advance.' }, 409);
     }
