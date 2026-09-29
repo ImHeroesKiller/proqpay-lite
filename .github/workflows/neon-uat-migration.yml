@@ -1,13 +1,6 @@
 name: Neon to D1 UAT Data Migration
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/neon-uat-migration.yml"
-      - "scripts/migrate-neon-uat.mjs"
-      - "package.json"
-      - "package-lock.json"
   workflow_dispatch:
     inputs:
       confirmation:
@@ -34,10 +27,8 @@ jobs:
       - name: Require exact production confirmation
         env:
           DISPATCH_CONFIRMATION: ${{ inputs.confirmation }}
-          PUSH_CONFIRMATION: ${{ github.event.head_commit.message }}
         run: |
-          provided="${DISPATCH_CONFIRMATION:-${PUSH_CONFIRMATION:-}}"
-          test "$provided" = "MIGRATE NEON UAT DATA TO D1 PRODUCTION"
+          test "${DISPATCH_CONFIRMATION:-}" = "MIGRATE NEON UAT DATA TO D1 PRODUCTION"
 
       - name: Checkout reviewed main
         uses: actions/checkout@v4
