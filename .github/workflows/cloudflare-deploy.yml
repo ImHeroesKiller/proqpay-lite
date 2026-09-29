@@ -20,6 +20,8 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'proqpay-lite' }}
+      PROQPAY_UAT_EMAIL: ${{ secrets.PROQPAY_UAT_EMAIL }}
+      PROQPAY_UAT_PASSWORD: ${{ secrets.PROQPAY_UAT_PASSWORD }}
 
     steps:
       - name: Checkout main
@@ -63,6 +65,8 @@ jobs:
           grep -q '"binding": "DB"' wrangler.jsonc
           grep -q '"binding": "FILES"' wrangler.jsonc
           grep -q '"binding": "AI"' wrangler.jsonc
+          grep -q '"SECURITY_MFA_ENFORCEMENT": "ENFORCE"' wrangler.jsonc
+          grep -q '"API_MONITOR_RETENTION_DAYS": "180"' wrangler.jsonc
 
       - name: Validate resumable D1 state
         shell: bash
@@ -119,6 +123,13 @@ jobs:
           cat /tmp/proqpay-health.json 2>/dev/null || true
           echo "Production health check failed."
           exit 1
+
+      - name: Verify production MFA enforcement
+        shell: bash
+        run: |
+          test -n "${PROQPAY_UAT_EMAIL:-}" || { echo "PROQPAY_UAT_EMAIL is missing"; exit 1; }
+          test -n "${PROQPAY_UAT_PASSWORD:-}" || { echo "PROQPAY_UAT_PASSWORD is missing"; exit 1; }
+          BASE_URL=https://proqpay-lite.pages.dev node scripts/verify-production-mfa.mjs
 
       - name: Production smoke test
         shell: bash
