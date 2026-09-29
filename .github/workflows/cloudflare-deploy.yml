@@ -52,16 +52,16 @@ jobs:
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
           npx wrangler whoami
 
-      - name: Close custom domain and WAF controls
+      - name: Close custom domain controls
         shell: bash
-        run: node scripts/cloudflare-edge-closure.mjs
+        run: node scripts/cloudflare-domain-closure.mjs
 
-      - name: Preserve edge closure evidence
+      - name: Preserve custom-domain closure evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: proqpay-edge-closure-${{ github.run_id }}
-          path: /tmp/proqpay-edge-closure.json
+          name: proqpay-edge-domain-closure-${{ github.run_id }}
+          path: /tmp/proqpay-edge-domain-closure.json
           retention-days: 90
           if-no-files-found: warn
 
