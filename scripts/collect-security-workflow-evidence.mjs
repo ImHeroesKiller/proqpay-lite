@@ -17,7 +17,8 @@ const workflowFiles=[
 ];
 
 async function latest(file){
-  const response=await fetch(`https://api.github.com/repos/${repository}/actions/workflows/${file}/runs?branch=main&per_page=5`,{
+  const branchQuery=file==='security-dast.yml' ? '' : '&branch=main';
+  const response=await fetch(`https://api.github.com/repos/${repository}/actions/workflows/${file}/runs?per_page=10${branchQuery}`,{
     headers:{
       Authorization:`Bearer ${token}`,
       Accept:'application/vnd.github+json',
