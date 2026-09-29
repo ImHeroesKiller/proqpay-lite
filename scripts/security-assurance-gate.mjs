@@ -46,6 +46,7 @@ const requiredWorkflows=new Map([
   ['Security Audit Integrity Checkpoint',2],
   ['Production Security Uptime Monitor',1],
   ['Security DAST Baseline',14],
+  ['Security Quarterly Restore Assurance',100],
   ['Cloudflare Pages Production Deploy',30],
 ]);
 
