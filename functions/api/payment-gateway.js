@@ -19,6 +19,7 @@ import { e2payLoginReadiness } from './payment-gateway-e2pay.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { arGateMessage, evaluateClientArGate } from './ar-payment-control.js';
 import { actorFraudDecision, beneficiaryFraudDecision, paymentLimitDecision } from './_fraud-controls.js';
+import { recordFraudIncident } from './_fraud-incidents.js';
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 
 const METHODS = 'GET, POST, OPTIONS';
@@ -285,6 +286,19 @@ export async function onRequest(context) {
 
     const actorFraud = await actorFraudDecision(database, organizationId, authorization.actor, runtimeEnv);
     if (actorFraud.blocked) {
+      await recordFraudIncident(database,{
+        orgId:organizationId,
+        source:'PAYMENT_GATEWAY',
+        ruleCode:actorFraud.code || 'PAYMENT_FRAUD_BLOCKED',
+        severity:'HIGH',
+        entity:'app_user',
+        entityId:authorization.actor.id || 'SECURITY-ACTOR',
+        actorUserId:authorization.actor.id || null,
+        actorIpHash:authorization.actor.requestIpHash || authorization.actor.sessionIpHash || null,
+        actorDeviceHash:authorization.actor.requestDeviceHash || authorization.actor.sessionDeviceHash || null,
+        summary:'Payment execution blocked by actor fraud control',
+        metadata:{blockId:actorFraud.blockId,blockType:actorFraud.blockType},
+      });
       await d1Batch(database,[auditOperation(organizationId,authorization.actor,'PAYMENT_BLOCKED_BY_FRAUD',
         JSON.stringify({code:actorFraud.code,blockId:actorFraud.blockId,blockType:actorFraud.blockType}), 'SECURITY-ACTOR')]);
       return secureJson({
@@ -318,6 +332,24 @@ export async function onRequest(context) {
       ? await paymentLimitDecision(database, organizationId, payment, { isNewExecution:action === 'EXECUTE' && !transaction })
       : null;
     if (riskDecision?.blocked) {
+      await recordFraudIncident(database,{
+        orgId:organizationId,
+        source:'PAYMENT_GATEWAY',
+        ruleCode:riskDecision.code || 'PAYMENT_LIMIT_BLOCKED',
+        severity:'HIGH',
+        entity:'payment_instruction',
+        entityId:payment.id,
+        actorUserId:authorization.actor.id || null,
+        actorIpHash:authorization.actor.requestIpHash || authorization.actor.sessionIpHash || null,
+        actorDeviceHash:authorization.actor.requestDeviceHash || authorization.actor.sessionDeviceHash || null,
+        summary:'Payment execution exceeded configured transaction security limit',
+        metadata:{
+          amount:riskDecision.amount,
+          recipients:riskDecision.recipients,
+          projectedAmount:riskDecision.projectedAmount,
+          projectedExecutions:riskDecision.projectedExecutions,
+        },
+      });
       await d1Batch(database,[auditOperation(organizationId,authorization.actor,'PAYMENT_BLOCKED_BY_LIMIT',
         JSON.stringify(riskDecision),payment.id)]);
       return secureJson({
@@ -433,6 +465,23 @@ export async function onRequest(context) {
     if (financialAction) {
       const beneficiaryFraud = await beneficiaryFraudDecision(database, organizationId, beneficiaries, runtimeEnv);
       if (beneficiaryFraud.blocked) {
+        await recordFraudIncident(database,{
+          orgId:organizationId,
+          source:'PAYMENT_GATEWAY',
+          ruleCode:beneficiaryFraud.code || 'FRAUD_BLOCK_BENEFICIARY_ACCOUNT',
+          severity:'CRITICAL',
+          entity:'payment_instruction',
+          entityId:payment.id,
+          actorUserId:authorization.actor.id || null,
+          actorIpHash:authorization.actor.requestIpHash || authorization.actor.sessionIpHash || null,
+          actorDeviceHash:authorization.actor.requestDeviceHash || authorization.actor.sessionDeviceHash || null,
+          summary:'Payment blocked because beneficiary account matched fraud blocklist',
+          metadata:{matches:beneficiaryFraud.matches.map((item)=>({
+            employeeId:item.employeeId,
+            accountLast4:item.accountLast4,
+            blockId:item.blockId,
+          }))},
+        });
         await d1Batch(database,[auditOperation(organizationId,authorization.actor,'PAYMENT_BLOCKED_BY_BENEFICIARY_FRAUD',
           JSON.stringify({code:beneficiaryFraud.code,matches:beneficiaryFraud.matches}),payment.id)]);
         return secureJson({
