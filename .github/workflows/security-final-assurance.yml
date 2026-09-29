@@ -1,0 +1,151 @@
+name: Security Final Assurance Gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-final-assurance.yml'
+      - 'scripts/security-assurance-gate.mjs'
+      - 'scripts/collect-security-workflow-evidence.mjs'
+      - 'docs/security/INDEPENDENT_PENTEST_ATTESTATION.template.json'
+      - 'docs/security/TABLETOP_ATTESTATION.template.json'
+  schedule:
+    - cron: "23 20 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: proqpay-security-final-assurance
+  cancel-in-progress: false
+
+jobs:
+  final-assurance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GITHUB_TOKEN: ${{ github.token }}
+      INDEPENDENT_PENTEST_ATTESTATION_JSON: ${{ secrets.INDEPENDENT_PENTEST_ATTESTATION_JSON }}
+      SECURITY_TABLETOP_ATTESTATION_JSON: ${{ secrets.SECURITY_TABLETOP_ATTESTATION_JSON }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Capture production dependency audit
+        shell: bash
+        run: |
+          set +e
+          npm audit --omit=dev --json > /tmp/npm-audit.json
+          code=$?
+          set -e
+          test -s /tmp/npm-audit.json
+          if [ "$code" -ne 0 ]; then
+            echo "Dependency audit reports one or more findings; final gate will classify severity."
+          fi
+
+      - name: Capture open High/Critical production incidents
+        shell: bash
+        run: |
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
+          npx wrangler d1 execute proqpay-lite-production --remote             --command="SELECT id,severity,status,rule_code,first_seen_at FROM fraud_incidents WHERE severity IN ('CRITICAL','HIGH') AND status IN ('OPEN','ACKNOWLEDGED','INVESTIGATING','ESCALATED') ORDER BY CASE severity WHEN 'CRITICAL' THEN 1 ELSE 2 END, first_seen_at"             --json > /tmp/security-incidents.json
+
+      - name: Collect latest independent workflow evidence
+        run: node scripts/collect-security-workflow-evidence.mjs /tmp/security-workflows.json
+
+      - name: Materialize non-secret attestations
+        shell: bash
+        run: |
+          if [ -n "${INDEPENDENT_PENTEST_ATTESTATION_JSON:-}" ]; then
+            printf '%s' "${INDEPENDENT_PENTEST_ATTESTATION_JSON}" > /tmp/pentest-attestation.json
+          else
+            printf '{}' > /tmp/pentest-attestation.json
+          fi
+          if [ -n "${SECURITY_TABLETOP_ATTESTATION_JSON:-}" ]; then
+            printf '%s' "${SECURITY_TABLETOP_ATTESTATION_JSON}" > /tmp/tabletop-attestation.json
+          else
+            printf '{}' > /tmp/tabletop-attestation.json
+          fi
+
+      - name: Final P3 assurance gate
+        run: node scripts/security-assurance-gate.mjs           /tmp/security-incidents.json           /tmp/npm-audit.json           /tmp/security-workflows.json           /tmp/pentest-attestation.json           /tmp/tabletop-attestation.json           /tmp/proqpay-security-final-assurance.json
+
+      - name: Preserve final assurance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proqpay-security-final-assurance-${{ github.run_id }}
+          path: |
+            /tmp/proqpay-security-final-assurance.json
+            /tmp/security-workflows.json
+          retention-days: 365
+          if-no-files-found: warn
+
+      - name: Open or update P3 closure issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title='SECURITY P3: final assurance closure pending';
+            const {data}=await github.rest.issues.listForRepo({
+              owner:context.repo.owner,repo:context.repo.repo,state:'open',per_page:100
+            });
+            const existing=data.find((issue)=>issue.title===title);
+            const body=[
+              'The P3 final assurance gate is not yet fully satisfied.',
+              '',
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'Review the retained final-assurance JSON artifact for exact blockers.',
+              '',
+              'Full closure requires:',
+              '- current production technical security workflows;',
+              '- zero open production Critical/High fraud/security incidents;',
+              '- zero Critical/High production dependency vulnerabilities;',
+              '- independent third-party pentest attestation with zero open Critical/High findings;',
+              '- current annual human tabletop attestation.',
+              '',
+              'Do not paste pentest reports, credentials, or customer data into this issue.'
+            ].join('\n');
+            if(existing){
+              await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,body});
+            }else{
+              await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body,labels:['security']}).catch(async()=>{
+                await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body});
+              });
+            }
+
+      - name: Close P3 closure issue
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title='SECURITY P3: final assurance closure pending';
+            const {data}=await github.rest.issues.listForRepo({
+              owner:context.repo.owner,repo:context.repo.repo,state:'open',per_page:100
+            });
+            const existing=data.find((issue)=>issue.title===title);
+            if(existing){
+              await github.rest.issues.createComment({
+                owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,
+                body:`P3 final assurance gate passed at ${new Date().toISOString()}.`
+              });
+              await github.rest.issues.update({
+                owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,state:'closed'
+              });
+            }
