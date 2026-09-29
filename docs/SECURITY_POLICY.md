@@ -47,3 +47,12 @@ All suspected security incidents follow `docs/INCIDENT_RESPONSE_RUNBOOK.md`. Evi
 ## Exceptions
 
 Security exceptions must document scope, risk, compensating controls, approver and expiry date. Permanent undocumented exceptions are not allowed.
+
+
+## P2.1 privileged phishing-resistant authentication
+
+- SUPER_ADMIN and PAYROLL_CONTROLLER use WebAuthn/passkeys with user verification as the normal production sign-in factor after enrollment.
+- Password + TOTP is limited to controlled bootstrap/recovery for passkey enrollment and is not the normal privileged fallback once a passkey exists.
+- Privileged sessions carry explicit authentication strength; protected APIs fail closed unless the session is PASSKEY_UV after enrollment.
+- Canonical production identity is bound to proqpay.msg-os.com. Alternate Pages-host mutations are rejected.
+- Custom-domain, proxied DNS, and zone-level Managed WAF activation are verified by the production deployment pipeline and retained as deployment evidence.
