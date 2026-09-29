@@ -48,10 +48,17 @@ function stripOrphanSchema(source){
   const triggerSanitized=sanitized.replace(
     /CREATE\s+TRIGGER[\s\S]*?\bEND\s*;/gi,
     (statement)=>{
-      const dependencies=[
-        ...statement.matchAll(/\b(?:FROM|JOIN|UPDATE|INTO)\s+[`"]?([A-Za-z0-9_]+)[`"]?/gi),
-      ].map((match)=>String(match[1]).toLowerCase());
-      const missing=[...new Set(dependencies.filter((name)=>!declaredTables.has(name)))];
+      const dependencies=[];
+      const target=statement.match(/\bON\s+[`"]?([A-Za-z0-9_]+)[`"]?\s+(?:WHEN\b|BEGIN\b)/i);
+      if(target?.[1]) dependencies.push(target[1]);
+      for(const match of statement.matchAll(/\b(?:FROM|JOIN|INTO)\s+[`"]?([A-Za-z0-9_]+)[`"]?/gi)){
+        dependencies.push(match[1]);
+      }
+      for(const match of statement.matchAll(/\bUPDATE\s+(?!OF\b|ON\b)[`"]?([A-Za-z0-9_]+)[`"]?/gi)){
+        dependencies.push(match[1]);
+      }
+      const normalizedDependencies=dependencies.map((name)=>String(name).toLowerCase());
+      const missing=[...new Set(normalizedDependencies.filter((name)=>!declaredTables.has(name)))];
       if(!missing.length) return statement;
       skipped.push({
         type:'ORPHAN_TRIGGER',
