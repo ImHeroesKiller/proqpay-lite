@@ -1,0 +1,89 @@
+name: Production Security Uptime Monitor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-uptime.yml'
+      - 'functions/api/health.js'
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: proqpay-production-uptime
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SECURITY_ALERT_WEBHOOK_URL: ${{ secrets.SECURITY_ALERT_WEBHOOK_URL }}
+    steps:
+      - name: Probe production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 20 https://proqpay-lite.pages.dev/api/health > /tmp/health.json
+          node -e "const x=require('/tmp/health.json');if(x.ready!==true||x.database!=='d1'||x.auth_mode!=='session'){console.error(x);process.exit(1)}"
+          cat /tmp/health.json
+
+      - name: Open or update production incident issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title='SECURITY OPS: ProQPay production health check failed';
+            const {data}=await github.rest.issues.listForRepo({
+              owner:context.repo.owner,repo:context.repo.repo,state:'open',per_page:100
+            });
+            const existing=data.find((issue)=>issue.title===title);
+            const body=[
+              'Synthetic production health check failed.',
+              '',
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `Observed: ${new Date().toISOString()}`,
+              '',
+              'Follow docs/INCIDENT_RESPONSE_RUNBOOK.md. Do not paste secrets or customer data into this issue.'
+            ].join('\n');
+            if(existing){
+              await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,body});
+            }else{
+              await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body,labels:['security']}).catch(async()=>{
+                await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body});
+              });
+            }
+
+      - name: Send optional external alert
+        if: failure()
+        shell: bash
+        run: |
+          if [ -n "${SECURITY_ALERT_WEBHOOK_URL:-}" ]; then
+            payload='{"text":"ProQPay production health check failed. Review GitHub Actions and Incident Response Runbook."}'
+            curl --fail --silent --show-error --max-time 15               -H 'Content-Type: application/json'               -d "$payload" "$SECURITY_ALERT_WEBHOOK_URL"
+          fi
+
+      - name: Close recovered production incident issue
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title='SECURITY OPS: ProQPay production health check failed';
+            const {data}=await github.rest.issues.listForRepo({
+              owner:context.repo.owner,repo:context.repo.repo,state:'open',per_page:100
+            });
+            const existing=data.find((issue)=>issue.title===title);
+            if(existing){
+              await github.rest.issues.createComment({
+                owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,
+                body:`Production health probe recovered at ${new Date().toISOString()}.`
+              });
+              await github.rest.issues.update({
+                owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,state:'closed'
+              });
+            }

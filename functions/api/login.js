@@ -4,6 +4,7 @@ import {
 import { d1First, d1Run, hasD1 } from './_d1.js';
 import { enforceRateLimit, handlePreflight, secureJson } from './_security.js';
 import { actorFraudDecision } from './_fraud-controls.js';
+import { recordFraudIncident } from './_fraud-incidents.js';
 import { readUserMfa, verifyUserMfa } from './_mfa.js';
 import { isCriticalMfaRole, mfaEnforcementMode, requestSecurityContext } from './_security-context.js';
 
@@ -41,10 +42,29 @@ export async function onRequest({ request, env }) {
   }
   const valid = user ? await verifyPassword(password, user) : false;
   if (!valid || user.status !== 'ACTIVE') {
-    if (user) await d1Run(env.DB, `UPDATE app_users SET
-      failed_login_attempts=failed_login_attempts+1,
-      locked_until=CASE WHEN failed_login_attempts+1 >= 5 THEN strftime('%Y-%m-%dT%H:%M:%fZ','now','+15 minutes') ELSE NULL END,
-      updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, [user.id]);
+    if (user) {
+      const nextFailedAttempts=Number(user.failed_login_attempts || 0)+1;
+      await d1Run(env.DB, `UPDATE app_users SET
+        failed_login_attempts=failed_login_attempts+1,
+        locked_until=CASE WHEN failed_login_attempts+1 >= 5 THEN strftime('%Y-%m-%dT%H:%M:%fZ','now','+15 minutes') ELSE NULL END,
+        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, [user.id]);
+      if(nextFailedAttempts >= 5){
+        const failedContext=await requestSecurityContext(request,env).catch(()=>({ipHash:null,deviceHash:null}));
+        await recordFraudIncident(env.DB,{
+          orgId:String(user.org_id || env.DEFAULT_ORG_ID || 'ORG-OTSINDO'),
+          source:'AUTH',
+          ruleCode:'LOGIN_LOCKOUT_THRESHOLD',
+          severity:'MEDIUM',
+          entity:'app_user',
+          entityId:user.id,
+          actorUserId:user.id,
+          actorIpHash:failedContext.ipHash,
+          actorDeviceHash:failedContext.deviceHash,
+          summary:'Account reached failed-login lockout threshold',
+          metadata:{failedAttempts:nextFailedAttempts},
+        });
+      }
+    }
     return secureJson({ error: 'Email atau password tidak valid' }, 401, request, env, METHODS);
   }
 
@@ -56,6 +76,19 @@ export async function onRequest({ request, env }) {
     requestDeviceHash:context.deviceHash,
   }, env);
   if (fraud.blocked) {
+    await recordFraudIncident(env.DB,{
+      orgId:String(user.org_id || env.DEFAULT_ORG_ID || 'ORG-OTSINDO'),
+      source:'AUTH',
+      ruleCode:fraud.code || 'SECURITY_LOGIN_BLOCKED_FRAUD',
+      severity:'HIGH',
+      entity:'app_user',
+      entityId:user.id,
+      actorUserId:user.id,
+      actorIpHash:context.ipHash,
+      actorDeviceHash:context.deviceHash,
+      summary:'Valid account login blocked by fraud control',
+      metadata:{blockId:fraud.blockId,blockType:fraud.blockType},
+    });
     await d1Run(env.DB, `INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id,ip_hash,device_hash)
       VALUES(?,?,?,?,? ,?,'app_user',?,?,?)`, [
       `AUD-${crypto.randomUUID()}`,
