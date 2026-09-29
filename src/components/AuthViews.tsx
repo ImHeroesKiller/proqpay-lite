@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Image from "next/image";
+import { createPasskey, getPasskey } from "@/lib/webauthn-browser";
 
 async function postAccount(payload: Record<string, unknown>) {
   const response = await fetch("/api/accounts", {
@@ -24,52 +25,123 @@ export function LoginScreen() {
   const [mfaCode, setMfaCode] = useState('');
   const [mfaSecret, setMfaSecret] = useState('');
   const [mfaUri, setMfaUri] = useState('');
+  const [passkeyRecoveryAvailable, setPasskeyRecoveryAvailable] = useState(false);
+  const [passkeyRecovery, setPasskeyRecovery] = useState(false);
+
+  async function requestLogin(extra: Record<string, unknown> = {}) {
+    const response = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, ...extra }),
+    });
+    const data = await response.json().catch(() => ({}));
+    return { response, data };
+  }
+
+  async function enrollRequiredPasskey() {
+    const optionsResponse = await fetch("/api/security-passkey", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "REGISTER_OPTIONS" }),
+    });
+    const optionsData = await optionsResponse.json().catch(() => ({}));
+    if (!optionsResponse.ok) {
+      throw new Error(optionsData.error || "Opsi passkey gagal dibuat");
+    }
+
+    const credential = await createPasskey(optionsData.options || {});
+    const verifyResponse = await fetch("/api/security-passkey", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "REGISTER_VERIFY",
+        challengeId: optionsData.challengeId,
+        response: credential,
+        label: "Primary Passkey",
+      }),
+    });
+    const verifyData = await verifyResponse.json().catch(() => ({}));
+    if (!verifyResponse.ok) {
+      await fetch("/api/logout", { method: "POST" }).catch(() => undefined);
+      throw new Error(verifyData.error || "Registrasi passkey gagal");
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      if (mfaStage === 'ENROLL') {
-        const activate = await fetch('/api/security-mfa', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({action:'ENROLL_ACTIVATE',email,password,code:mfaCode}),
+      if (passkeyRecovery) {
+        const recovery = await fetch("/api/security-passkey-recovery", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password, mfaCode }),
+        });
+        const recovered = await recovery.json().catch(() => ({}));
+        if (!recovery.ok) throw new Error(recovered.error || "Recovery passkey gagal");
+        setPasskeyRecovery(false);
+        setPasskeyRecoveryAvailable(false);
+        setMfaStage("NONE");
+        setMfaCode("");
+        setError("Recovery selesai. Passkey lama dicabut; login kembali untuk mendaftarkan passkey baru.");
+        return;
+      }
+
+      if (mfaStage === "ENROLL") {
+        const activate = await fetch("/api/security-mfa", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "ENROLL_ACTIVATE", email, password, code: mfaCode }),
         });
         const activated = await activate.json().catch(() => ({}));
-        if (!activate.ok) throw new Error(activated.error || 'Aktivasi MFA gagal');
+        if (!activate.ok) throw new Error(activated.error || "Aktivasi MFA gagal");
       }
 
-      const response = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, mfaCode:mfaCode || undefined }),
-      });
-      const data = await response.json().catch(() => ({}));
+      let login = await requestLogin({ mfaCode: mfaCode || undefined });
 
-      if (response.status === 428 && data.code === 'MFA_REQUIRED') {
-        setMfaStage('CODE');
-        setError('Masukkan kode MFA 6 digit dari aplikasi authenticator.');
+      if (login.response.status === 428 && login.data.code === "MFA_REQUIRED") {
+        setMfaStage("CODE");
+        setError("Masukkan kode MFA 6 digit dari aplikasi authenticator.");
         return;
       }
 
-      if (response.status === 428 && data.code === 'MFA_ENROLLMENT_REQUIRED') {
-        const enrollment = await fetch('/api/security-mfa', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({action:'ENROLL_START',email,password}),
+      if (login.response.status === 428 && login.data.code === "MFA_ENROLLMENT_REQUIRED") {
+        const enrollment = await fetch("/api/security-mfa", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "ENROLL_START", email, password }),
         });
         const enrolled = await enrollment.json().catch(() => ({}));
-        if (!enrollment.ok) throw new Error(enrolled.error || 'Enrollment MFA gagal');
-        setMfaSecret(String(enrolled.secret || ''));
-        setMfaUri(String(enrolled.otpauthUri || ''));
-        setMfaCode('');
-        setMfaStage('ENROLL');
-        setError('MFA wajib diaktifkan untuk role ini. Tambahkan secret ke authenticator lalu masukkan kode 6 digit.');
+        if (!enrollment.ok) throw new Error(enrolled.error || "Enrollment MFA gagal");
+        setMfaSecret(String(enrolled.secret || ""));
+        setMfaUri(String(enrolled.otpauthUri || ""));
+        setMfaCode("");
+        setMfaStage("ENROLL");
+        setError("MFA wajib diaktifkan untuk role ini. Tambahkan secret ke authenticator lalu masukkan kode 6 digit.");
         return;
       }
 
-      if (!response.ok) throw new Error(data.error || "Login gagal");
+      if (login.response.status === 428 && login.data.code === "PASSKEY_REQUIRED") {
+        try {
+          const assertion = await getPasskey(login.data.options || {});
+          login = await requestLogin({
+            passkeyChallengeId: login.data.challengeId,
+            passkeyResponse: assertion,
+          });
+        } catch (cause) {
+          setPasskeyRecoveryAvailable(true);
+          throw cause;
+        }
+      }
+
+      if (!login.response.ok) throw new Error(login.data.error || "Login gagal");
+
+      if (login.data.security?.passkeyEnrollmentRequired) {
+        setError("Mendaftarkan passkey wajib untuk akses privileged…");
+        await enrollRequiredPasskey();
+      }
+
       window.location.reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Login gagal");
@@ -77,7 +149,6 @@ export function LoginScreen() {
       setBusy(false);
     }
   }
-
   return (
     <main className="login-page">
       <section className="login-shell" aria-label="ProQPay secure login">
@@ -212,9 +283,24 @@ export function LoginScreen() {
             ) : null}
             {error ? (
               <div className="login-error" role="alert">
-                <strong>Login belum berhasil</strong>
+                <strong>{passkeyRecovery ? "Recovery passkey" : "Login belum berhasil"}</strong>
                 <span>{error}</span>
               </div>
+            ) : null}
+            {passkeyRecoveryAvailable ? (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setPasskeyRecovery(true);
+                  setPasskeyRecoveryAvailable(false);
+                  setMfaStage("CODE");
+                  setMfaCode("");
+                  setError("Masukkan kode TOTP untuk recovery. Semua passkey aktif akan dicabut dan wajib didaftarkan ulang.");
+                }}
+              >
+                Recovery dengan TOTP
+              </button>
             ) : null}
             <button
               className="btn btn-primary login-submit"
@@ -226,6 +312,8 @@ export function LoginScreen() {
                   <i className="login-spinner" />
                   Memverifikasi…
                 </>
+              ) : passkeyRecovery ? (
+                "Pulihkan & Cabut Passkey"
               ) : mfaStage === 'ENROLL' ? (
                 "Aktifkan MFA & Masuk"
               ) : mfaStage === 'CODE' ? (
@@ -236,7 +324,7 @@ export function LoginScreen() {
             </button>
           </form>
           <p className="login-security">
-            <span>◉</span>Sesi terenkripsi · Akses berbasis role · Aktivitas
+            <span>◉</span>Sesi terenkripsi · Passkey/WebAuthn privileged · Aktivitas
             tercatat
           </p>
         </div>
