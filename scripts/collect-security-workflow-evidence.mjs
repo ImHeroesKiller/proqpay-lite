@@ -13,6 +13,7 @@ const workflowFiles=[
   'security-audit-integrity.yml',
   'security-uptime.yml',
   'security-dast.yml',
+  'security-quarterly-restore.yml',
   'cloudflare-deploy.yml',
 ];
 
