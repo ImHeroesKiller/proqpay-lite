@@ -159,3 +159,16 @@ test('P0 production config enforces MFA and verifies first backup evidence',asyn
   const checked=spawnSync(process.execPath,['--check',fileURLToPath(verifyUrl)],{encoding:'utf8'});
   assert.equal(checked.status,0,checked.stderr||checked.stdout);
 });
+
+
+test('P0 backup verifier restores out-of-order D1 export objects',()=>{
+  const verifier=fileURLToPath(new URL('../scripts/verify-d1-backup.mjs',import.meta.url));
+  const fixture=fileURLToPath(new URL('./fixtures/d1-export-out-of-order.sql',import.meta.url));
+  const checked=spawnSync(process.execPath,[verifier,fixture],{encoding:'utf8'});
+  assert.equal(checked.status,0,checked.stderr||checked.stdout);
+  const evidence=JSON.parse(String(checked.stdout||'{}').trim().split('\n').at(-1)||'{}');
+  assert.equal(evidence.ok,true);
+  assert.equal(evidence.integrity,'ok');
+  assert.equal(evidence.foreignKeyViolations,0);
+  assert.equal(evidence.restoreOrder,'tables-data-post-schema');
+});
