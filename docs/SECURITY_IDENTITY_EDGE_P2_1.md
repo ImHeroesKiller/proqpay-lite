@@ -22,20 +22,28 @@ The Pages hostname remains available only for low-risk health diagnostics. Brows
 
 ## Cloudflare edge closure
 
-The production deployment pipeline:
-1. resolves the msg-os.com Cloudflare zone;
-2. attaches proqpay.msg-os.com to the ProQPay Pages project;
-3. ensures a proxied CNAME to proqpay-lite.pages.dev without overwriting conflicting DNS;
-4. discovers the WAF managed rulesets available to the account/plan;
-5. selects the Free Managed Ruleset for a Free zone, otherwise the broader Cloudflare Managed Ruleset when available;
-6. verifies or creates an enabled zone-level execute rule scoped to the ProQPay hostname;
-7. waits until the Pages custom domain is active;
-8. preserves non-secret JSON evidence for 90 days.
+Custom-domain closure is part of the production deployment:
+1. resolve the msg-os.com Cloudflare zone;
+2. attach proqpay.msg-os.com to the ProQPay Pages project;
+3. verify the hostname is Cloudflare-proxied; use the DNS API when the deployment token has DNS access and otherwise require public Cloudflare proxy evidence;
+4. wait until the Pages custom domain is active;
+5. preserve non-secret JSON evidence for 90 days.
 
-The deployment fails closed if DNS, Pages custom domain, WAF configuration, or evidence verification cannot be completed.
+Managed WAF closure is intentionally a separate security gate because the deployment token follows least privilege and does not carry Zone WAF permissions. The `Security Edge WAF Closure` workflow requires `CLOUDFLARE_WAF_API_TOKEN` scoped to zone `msg-os.com` with:
+- Zone Read
+- Zone WAF Read
+- Zone WAF Edit
+
+The WAF gate discovers the managed rulesets available to the zone/plan, selects the compatible Cloudflare managed ruleset, verifies or creates an enabled `http_request_firewall_managed` execute rule scoped to `proqpay.msg-os.com`, and preserves evidence for 90 days.
+
+Production application deployment fails closed on custom-domain evidence. WAF compliance remains separately fail-closed and cannot be marked complete until the dedicated WAF workflow passes.
 
 ## Recovery and operational notes
 
 Passkey recovery is intentionally more visible than ordinary login because use of the recovery path weakens the phishing-resistant primary factor. Every recovery revokes active passkeys, revokes sessions, opens a HIGH security incident, and forces re-enrollment.
 
 Production security monitoring uses the canonical hostname after P2.1.
+
+## Current closure rule
+
+P2.1 Identity and canonical-domain controls may be released when their production gates pass. Full P2.1 edge closure additionally requires a successful `Security Edge WAF Closure` run; a missing or under-scoped WAF token is an explicit open security action, not an accepted exception.
