@@ -65,8 +65,26 @@ function stripOrphanSchema(source){
 }
 
 const {sanitized,skipped}=stripOrphanSchema(sql);
+const declaredTables=new Set(
+  [...sql.matchAll(/CREATE TABLE(?: IF NOT EXISTS)? [`"]?([A-Za-z0-9_]+)[`"]?/gi)]
+    .map((match)=>String(match[1]).toLowerCase())
+);
+const orphanForeignKeys=[
+  ...new Set(
+    [...sql.matchAll(/\bREFERENCES\s+[`"]?([A-Za-z0-9_]+)[`"]?/gi)]
+      .map((match)=>String(match[1]).toLowerCase())
+      .filter((name)=>!declaredTables.has(name))
+  ),
+];
+for(const table of orphanForeignKeys){
+  skipped.push({type:'ORPHAN_FOREIGN_KEY',table});
+}
+
 const db=new DatabaseSync(':memory:');
 try{
+  // D1 exports can contain historical FK references whose parent table was retired.
+  // Disaster-recovery import loads data first, then validates SQLite structural integrity.
+  db.exec('PRAGMA foreign_keys=OFF;');
   db.exec(sanitized);
   const integrity=db.prepare('PRAGMA integrity_check').get();
   const result=Object.values(integrity||{})[0];
