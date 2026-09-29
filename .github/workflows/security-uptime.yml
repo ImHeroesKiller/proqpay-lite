@@ -38,14 +38,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 20 -D /tmp/root-headers.txt -o /dev/null https://proqpay-lite.pages.dev/
-          grep -qi '^content-security-policy:' /tmp/root-headers.txt
-          grep -qi "frame-ancestors 'none'" /tmp/root-headers.txt
-          grep -qi "object-src 'none'" /tmp/root-headers.txt
-          grep -qi '^strict-transport-security:' /tmp/root-headers.txt
-          grep -qi '^cross-origin-opener-policy:[[:space:]]*same-origin' /tmp/root-headers.txt
-          grep -qi '^cross-origin-resource-policy:[[:space:]]*same-origin' /tmp/root-headers.txt
-          grep -qi '^x-permitted-cross-domain-policies:[[:space:]]*none' /tmp/root-headers.txt
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --max-time 20 -D /tmp/root-headers.txt -o /dev/null https://proqpay-lite.pages.dev/               && grep -qi '^content-security-policy:' /tmp/root-headers.txt               && grep -qi "frame-ancestors 'none'" /tmp/root-headers.txt               && grep -qi "object-src 'none'" /tmp/root-headers.txt               && grep -qi '^strict-transport-security:' /tmp/root-headers.txt               && grep -qi '^cross-origin-opener-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^cross-origin-resource-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^x-permitted-cross-domain-policies:[[:space:]]*none' /tmp/root-headers.txt; then
+              exit 0
+            fi
+            echo "Production security headers not converged yet (${attempt}/30)"
+            sleep 20
+          done
+          cat /tmp/root-headers.txt || true
+          exit 1
 
       - name: Open or update production incident issue
         if: failure()

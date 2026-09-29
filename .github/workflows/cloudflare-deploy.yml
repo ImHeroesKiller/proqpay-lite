@@ -124,6 +124,20 @@ jobs:
           echo "Production health check failed."
           exit 1
 
+      - name: Verify production browser security headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error --max-time 20 -D /tmp/root-headers.txt -o /dev/null https://proqpay-lite.pages.dev/               && grep -qi '^content-security-policy:' /tmp/root-headers.txt               && grep -qi "frame-ancestors 'none'" /tmp/root-headers.txt               && grep -qi "object-src 'none'" /tmp/root-headers.txt               && grep -qi '^strict-transport-security:' /tmp/root-headers.txt               && grep -qi '^cross-origin-opener-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^cross-origin-resource-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^x-permitted-cross-domain-policies:[[:space:]]*none' /tmp/root-headers.txt; then
+              exit 0
+            fi
+            echo "Security header verification attempt ${attempt}/12 is not ready yet."
+            sleep 5
+          done
+          cat /tmp/root-headers.txt || true
+          exit 1
+
       - name: Verify production MFA enforcement
         shell: bash
         run: |
