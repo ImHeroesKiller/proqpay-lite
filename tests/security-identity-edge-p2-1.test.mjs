@@ -152,8 +152,10 @@ test('P2.1 production contracts enforce passkey RP, custom domain and WAF eviden
   const login=await readFile(new URL('../functions/api/login.js',import.meta.url),'utf8');
   const security=await readFile(new URL('../functions/api/_security.js',import.meta.url),'utf8');
   const config=await readFile(new URL('../scripts/prepare-pages-config.mjs',import.meta.url),'utf8');
-  const edge=await readFile(new URL('../scripts/cloudflare-edge-closure.mjs',import.meta.url),'utf8');
+  const domain=await readFile(new URL('../scripts/cloudflare-domain-closure.mjs',import.meta.url),'utf8');
+  const waf=await readFile(new URL('../scripts/cloudflare-waf-closure.mjs',import.meta.url),'utf8');
   const deploy=await readFile(new URL('../.github/workflows/cloudflare-deploy.yml',import.meta.url),'utf8');
+  const wafWorkflow=await readFile(new URL('../.github/workflows/security-edge-waf.yml',import.meta.url),'utf8');
   const recovery=await readFile(new URL('../functions/api/security-passkey-recovery.js',import.meta.url),'utf8');
 
   assert.match(login,/PASSKEY_REQUIRED/);
@@ -162,10 +164,16 @@ test('P2.1 production contracts enforce passkey RP, custom domain and WAF eviden
   assert.match(security,/PASSKEY_REAUTH_REQUIRED/);
   assert.match(config,/SECURITY_PASSKEY_ENFORCEMENT:\s*'ENFORCE'/);
   assert.match(config,/WEBAUTHN_RP_ID:\s*customDomain/);
-  assert.match(edge,/pages\/projects\/\$\{project\}\/domains/);
-  assert.match(edge,/http_request_firewall_managed/);
-  assert.match(edge,/free managed ruleset/);
-  assert.match(deploy,/proqpay-edge-closure/);
+  assert.match(domain,/pages\/projects\/\$\{project\}\/domains/);
+  assert.match(domain,/public-cloudflare-proxy-evidence/);
+  assert.match(waf,/http_request_firewall_managed/);
+  assert.match(waf,/free managed ruleset/);
+  assert.match(waf,/Zone WAF Read/);
+  assert.match(deploy,/cloudflare-domain-closure\.mjs/);
+  assert.match(deploy,/proqpay-edge-domain-closure/);
+  assert.doesNotMatch(deploy,/cloudflare-waf-closure\.mjs/);
+  assert.match(wafWorkflow,/CLOUDFLARE_WAF_API_TOKEN/);
+  assert.match(wafWorkflow,/cloudflare-waf-closure\.mjs/);
   assert.match(deploy,/PROQPAY_CUSTOM_DOMAIN/);
   assert.match(recovery,/PASSKEY_RECOVERY_USED/);
 });
@@ -176,7 +184,8 @@ test('P2.1 security modules parse as valid JavaScript',()=>{
     '../functions/api/security-passkey.js',
     '../functions/api/security-passkey-recovery.js',
     '../functions/_middleware.js',
-    '../scripts/cloudflare-edge-closure.mjs',
+    '../scripts/cloudflare-domain-closure.mjs',
+    '../scripts/cloudflare-waf-closure.mjs',
   ]){
     const url=new URL(relative,import.meta.url);
     const checked=spawnSync(process.execPath,['--check',fileURLToPath(url)],{encoding:'utf8'});
