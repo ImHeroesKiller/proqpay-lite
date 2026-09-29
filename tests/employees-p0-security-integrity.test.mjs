@@ -51,7 +51,7 @@ async function postEmployee(env,token,body){
 
 test('Employees P0: reads are isolated to active organization',async()=>{
   const DB=new D1Mock(); seed(DB);
-  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO',PI_ENCRYPTION_KEY:'employees-p0-security-key-longer-than-32-bytes'};
   const processor=await createSession(DB,'USR-EMP-P',env);
   const result=await getEmployees(env,processor.token);
   assert.equal(result.response.status,200,JSON.stringify(result.payload));
@@ -61,7 +61,7 @@ test('Employees P0: reads are isolated to active organization',async()=>{
 
 test('Employees P0: CLIENT_USER is read-only and cannot exploit update scope payloads',async()=>{
   const DB=new D1Mock(); seed(DB);
-  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO',PI_ENCRYPTION_KEY:'employees-p0-security-key-longer-than-32-bytes'};
   const client=await createSession(DB,'USR-EMP-C',env);
   const result=await postEmployee(env,client.token,{
     id:'EMP-SAFE',
@@ -79,7 +79,7 @@ test('Employees P0: CLIENT_USER is read-only and cannot exploit update scope pay
 
 test('Employees P0: administrative patch cannot overwrite compensation or employee master by omission',async()=>{
   const DB=new D1Mock(); seed(DB);
-  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO',PI_ENCRYPTION_KEY:'employees-p0-security-key-longer-than-32-bytes'};
   const processor=await createSession(DB,'USR-EMP-P',env);
   const result=await postEmployee(env,processor.token,{
     id:'EMP-SAFE',
@@ -105,7 +105,7 @@ test('Employees P0: administrative patch cannot overwrite compensation or employ
 
 test('Employees P0: writes cannot target an employee from another organization',async()=>{
   const DB=new D1Mock(); seed(DB);
-  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO',PI_ENCRYPTION_KEY:'employees-p0-security-key-longer-than-32-bytes'};
   const processor=await createSession(DB,'USR-EMP-P',env);
   const result=await postEmployee(env,processor.token,{id:'EMP-OTHER',name:'Tampered'});
   assert.equal(result.response.status,403,JSON.stringify(result.payload));
@@ -115,7 +115,7 @@ test('Employees P0: writes cannot target an employee from another organization',
 
 test('Employees P0: client and project relationships must belong to active organization and each other',async()=>{
   const DB=new D1Mock(); seed(DB);
-  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO',PI_ENCRYPTION_KEY:'employees-p0-security-key-longer-than-32-bytes'};
   const processor=await createSession(DB,'USR-EMP-P',env);
 
   let result=await postEmployee(env,processor.token,{id:'EMP-SAFE',clientId:'CLI-EMP-A',projectId:'PRJ-EMP-B'});
