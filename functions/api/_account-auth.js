@@ -1,5 +1,7 @@
 import { d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { APP_ROLES } from '../../shared/authority-matrix.js';
+import { recordFraudIncident } from './_fraud-incidents.js';
+import { isCriticalMfaRole, requestSecurityContext } from './_security-context.js';
 
 export const SESSION_COOKIE = 'proqpay_session';
 export const ACCOUNT_ROLES = APP_ROLES;
@@ -98,13 +100,15 @@ export async function createSession(database, userId, env, options = {}) {
     { statement: "DELETE FROM app_sessions WHERE julianday(expires_at) <= julianday('now')" },
     {
       statement: `INSERT INTO app_sessions
-        (token_hash,user_id,expires_at,mfa_verified_at,ip_hash,device_hash)
-        VALUES (?,?,?,?,?,?)`,
+        (token_hash,user_id,expires_at,mfa_verified_at,ip_hash,device_hash,current_ip_hash,current_device_hash)
+        VALUES (?,?,?,?,?,?,?,?)`,
       bindings: [
         tokenHash,
         userId,
         expiresAt.toISOString(),
         options.mfaVerifiedAt || null,
+        options.context?.ipHash || null,
+        options.context?.deviceHash || null,
         options.context?.ipHash || null,
         options.context?.deviceHash || null,
       ],
@@ -139,6 +143,7 @@ export async function authenticateSession(request, env) {
     {
       statement: `SELECT u.id, u.org_id, u.name, u.email, u.role, u.status, u.must_change_password,
           u.payment_approver, s.expires_at, s.mfa_verified_at, s.ip_hash, s.device_hash,
+          s.current_ip_hash, s.current_device_hash, s.anomaly_count, s.last_anomaly_at,
           (SELECT json_group_array(client_id) FROM user_client_scopes WHERE user_id=u.id) AS client_ids,
           (SELECT json_group_array(project_id) FROM user_project_scopes WHERE user_id=u.id) AS project_ids
         FROM app_sessions s JOIN app_users u ON u.id=s.user_id
@@ -149,6 +154,51 @@ export async function authenticateSession(request, env) {
   ]);
   const user = results[1]?.results?.[0];
   if (!user) return null;
+
+  const context = await requestSecurityContext(request, env).catch(() => ({ ipHash:null, deviceHash:null }));
+  const previousIpHash = user.current_ip_hash || user.ip_hash || null;
+  const previousDeviceHash = user.current_device_hash || user.device_hash || null;
+  const ipChanged = Boolean(previousIpHash && context.ipHash && previousIpHash !== context.ipHash);
+  const deviceChanged = Boolean(previousDeviceHash && context.deviceHash && previousDeviceHash !== context.deviceHash);
+
+  if (ipChanged || deviceChanged) {
+    const privileged = isCriticalMfaRole(user.role);
+    const severity = deviceChanged ? (privileged ? 'HIGH' : 'MEDIUM') : (privileged ? 'MEDIUM' : 'LOW');
+    await recordFraudIncident(env.DB, {
+      orgId:String(user.org_id || env.DEFAULT_ORG_ID || 'ORG-OTSINDO'),
+      source:'SESSION',
+      ruleCode:deviceChanged ? 'SESSION_DEVICE_FINGERPRINT_CHANGED' : 'SESSION_NETWORK_CHANGED',
+      severity,
+      entity:'app_session',
+      entityId:tokenHash,
+      actorUserId:user.id,
+      actorIpHash:context.ipHash,
+      actorDeviceHash:context.deviceHash,
+      summary:deviceChanged
+        ? 'Authenticated session device fingerprint changed'
+        : 'Authenticated session network fingerprint changed',
+      metadata:{
+        role:user.role,
+        ipChanged,
+        deviceChanged,
+        anomalyCount:Number(user.anomaly_count || 0) + 1,
+      },
+    }).catch(() => null);
+
+    const deviceMode=String(env.SECURITY_SESSION_DEVICE_MODE || 'ENFORCE_CRITICAL').trim().toUpperCase();
+    if (deviceChanged && privileged && deviceMode !== 'AUDIT') {
+      await d1Run(env.DB,'DELETE FROM app_sessions WHERE token_hash=?',[tokenHash]);
+      return null;
+    }
+
+    await d1Run(env.DB,`UPDATE app_sessions SET
+      current_ip_hash=COALESCE(?,current_ip_hash,ip_hash),
+      current_device_hash=COALESCE(?,current_device_hash,device_hash),
+      anomaly_count=anomaly_count+1,
+      last_anomaly_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE token_hash=?`,[context.ipHash || null,context.deviceHash || null,tokenHash]);
+  }
+
   const parseIds = (value) => {
     try { return Array.isArray(value) ? value : JSON.parse(value || '[]'); } catch { return []; }
   };
