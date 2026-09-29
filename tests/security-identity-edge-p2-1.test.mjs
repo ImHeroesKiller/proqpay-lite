@@ -165,6 +165,8 @@ test('P2.1 production contracts enforce passkey RP, custom domain and WAF eviden
   assert.match(edge,/pages\/projects\/\$\{project\}\/domains/);
   assert.match(edge,/http_request_firewall_managed/);
   assert.match(edge,/free managed ruleset/);
+  assert.match(edge,/cloudflare-free-plan-default/);
+  assert.match(edge,/defaultOnFreePlan:true/);
   assert.match(deploy,/proqpay-edge-closure/);
   assert.match(deploy,/PROQPAY_CUSTOM_DOMAIN/);
   assert.match(recovery,/PASSKEY_RECOVERY_USED/);

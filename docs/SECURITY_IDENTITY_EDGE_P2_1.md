@@ -39,3 +39,12 @@ The deployment fails closed if DNS, Pages custom domain, WAF configuration, or e
 Passkey recovery is intentionally more visible than ordinary login because use of the recovery path weakens the phishing-resistant primary factor. Every recovery revokes active passkeys, revokes sessions, opens a HIGH security incident, and forces re-enrollment.
 
 Production security monitoring uses the canonical hostname after P2.1.
+
+
+### WAF evidence modes
+
+The edge-closure evidence records one of two verification modes:
+- `rulesets-api-verified`: direct Zone Rulesets API evidence, including the enabled execute rule.
+- `cloudflare-free-plan-default`: used only when the authenticated Zone API proves the zone is on Cloudflare Free plan and the token cannot read Rulesets. Cloudflare's published WAF policy states that the Free Managed Ruleset is deployed by default on Free plans. The evidence records the plan, provider policy references, the Rulesets API authentication limitation, and public Cloudflare proxy evidence.
+
+This distinction prevents plan-derived default protection from being misrepresented as direct Rulesets API verification.
