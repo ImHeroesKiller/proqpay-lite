@@ -29,3 +29,12 @@ Only SUPER_ADMIN may operate the security incident API. All lifecycle changes ar
 ## Billing SLA schema reconciliation
 
 Migration `0048_security_governance_operational_readiness.sql` recreates the intended `billing_sla_policies` parent schema when missing. This repairs the historical orphan foreign-key condition without rewriting invoice history.
+
+
+## P2 defense-in-depth operations
+
+- Privileged session device-fingerprint changes are fail-closed: the session is revoked and a security incident is created.
+- Network fingerprint changes are recorded as session anomalies and update the current session network fingerprint after evidence is preserved.
+- API throttling uses the Cloudflare native limiter when present and an enforced D1 fallback otherwise.
+- Browser CSP/security headers are validated against the deployed production root page by the uptime workflow.
+- Daily audit-integrity checkpoints recompute recent sealed periods. A hash/count mismatch is treated as a security incident.
