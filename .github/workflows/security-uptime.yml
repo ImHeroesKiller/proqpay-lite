@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/security-uptime.yml'
       - 'functions/api/health.js'
+      - 'public/_headers'
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
@@ -32,6 +33,19 @@ jobs:
           curl --fail --silent --show-error --max-time 20 https://proqpay-lite.pages.dev/api/health > /tmp/health.json
           node -e "const x=require('/tmp/health.json');if(x.ready!==true||x.database!=='d1'||x.auth_mode!=='session'){console.error(x);process.exit(1)}"
           cat /tmp/health.json
+
+      - name: Verify production browser security headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 20 -D /tmp/root-headers.txt -o /dev/null https://proqpay-lite.pages.dev/
+          grep -qi '^content-security-policy:' /tmp/root-headers.txt
+          grep -qi "frame-ancestors 'none'" /tmp/root-headers.txt
+          grep -qi "object-src 'none'" /tmp/root-headers.txt
+          grep -qi '^strict-transport-security:' /tmp/root-headers.txt
+          grep -qi '^cross-origin-opener-policy:[[:space:]]*same-origin' /tmp/root-headers.txt
+          grep -qi '^cross-origin-resource-policy:[[:space:]]*same-origin' /tmp/root-headers.txt
+          grep -qi '^x-permitted-cross-domain-policies:[[:space:]]*none' /tmp/root-headers.txt
 
       - name: Open or update production incident issue
         if: failure()
