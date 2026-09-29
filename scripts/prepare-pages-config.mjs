@@ -87,6 +87,8 @@ config.vars = {
   DEFAULT_ORG_ID: 'ORG-OTSINDO',
   DATA_BACKEND: 'd1',
   AUTH_MODE: 'session',
+  SECURITY_MFA_ENFORCEMENT: 'ENFORCE',
+  API_MONITOR_RETENTION_DAYS: '180',
   EMPLOYEE_SESSION_HOURS: String(config.vars?.EMPLOYEE_SESSION_HOURS || '12'),
   EMPLOYEE_PORTAL_ORIGINS: String(
     config.vars?.EMPLOYEE_PORTAL_ORIGINS || 'https://proqpay-ess.arywibowo.workers.dev',
