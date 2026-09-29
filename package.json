@@ -20,12 +20,12 @@
     "export": "next build"
   },
   "dependencies": {
+    "@simplewebauthn/server": "14.0.3",
     "jose": "^6.2.4",
     "next": "^16.3.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "read-excel-file": "^9.3.10",
-    "@simplewebauthn/server": "14.0.3"
+    "read-excel-file": "^9.3.10"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
