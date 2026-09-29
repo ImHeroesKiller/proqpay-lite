@@ -100,8 +100,8 @@ export async function createSession(database, userId, env, options = {}) {
     { statement: "DELETE FROM app_sessions WHERE julianday(expires_at) <= julianday('now')" },
     {
       statement: `INSERT INTO app_sessions
-        (token_hash,user_id,expires_at,mfa_verified_at,ip_hash,device_hash,current_ip_hash,current_device_hash)
-        VALUES (?,?,?,?,?,?,?,?)`,
+        (token_hash,user_id,expires_at,mfa_verified_at,ip_hash,device_hash,current_ip_hash,current_device_hash,auth_strength,passkey_verified_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`,
       bindings: [
         tokenHash,
         userId,
@@ -111,6 +111,8 @@ export async function createSession(database, userId, env, options = {}) {
         options.context?.deviceHash || null,
         options.context?.ipHash || null,
         options.context?.deviceHash || null,
+        options.authStrength || (options.mfaVerifiedAt ? 'PASSWORD_TOTP' : 'PASSWORD'),
+        options.passkeyVerifiedAt || null,
       ],
     },
   ]);
@@ -144,6 +146,7 @@ export async function authenticateSession(request, env) {
       statement: `SELECT u.id, u.org_id, u.name, u.email, u.role, u.status, u.must_change_password,
           u.payment_approver, s.expires_at, s.mfa_verified_at, s.ip_hash, s.device_hash,
           s.current_ip_hash, s.current_device_hash, s.anomaly_count, s.last_anomaly_at,
+          s.auth_strength, s.passkey_verified_at,
           (SELECT json_group_array(client_id) FROM user_client_scopes WHERE user_id=u.id) AS client_ids,
           (SELECT json_group_array(project_id) FROM user_project_scopes WHERE user_id=u.id) AS project_ids
         FROM app_sessions s JOIN app_users u ON u.id=s.user_id
@@ -211,12 +214,32 @@ export async function authenticateSession(request, env) {
     mustChangePassword: Boolean(user.must_change_password),
     paymentApprover: Boolean(user.payment_approver),
     mfaVerifiedAt: user.mfa_verified_at || null,
+    passkeyVerifiedAt: user.passkey_verified_at || null,
+    authStrength: user.auth_strength || 'PASSWORD',
     sessionIpHash: user.ip_hash || null,
     sessionDeviceHash: user.device_hash || null,
     clientIds: parseIds(user.client_ids),
     projectIds: parseIds(user.project_ids),
     authSource: 'd1',
   };
+}
+
+export async function markCurrentSessionAuthStrength(request, database, strength, verifiedAt = new Date().toISOString()) {
+  const allowed=new Set(['PASSWORD','PASSWORD_TOTP','PASSKEY_UV']);
+  const normalized=String(strength || '').toUpperCase();
+  if(!allowed.has(normalized)) return false;
+  const token=cookieValue(request,SESSION_COOKIE);
+  if(!token) return false;
+  const tokenHash=await sha256(token);
+  const result=await d1Run(database,`UPDATE app_sessions SET
+    auth_strength=?,
+    passkey_verified_at=CASE WHEN ?='PASSKEY_UV' THEN ? ELSE passkey_verified_at END,
+    mfa_verified_at=CASE WHEN ?='PASSKEY_UV' THEN COALESCE(mfa_verified_at,?) ELSE mfa_verified_at END,
+    last_seen_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE token_hash=? AND julianday(expires_at)>julianday('now')`,[
+      normalized,normalized,verifiedAt,normalized,verifiedAt,tokenHash,
+    ]);
+  return Number(result?.meta?.changes || 0) === 1;
 }
 
 export async function hasActiveAccounts(env) {
