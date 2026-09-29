@@ -64,7 +64,6 @@ if(!pageDomain){
 
 const expectedTarget=`${project}.pages.dev`;
 let dnsRecord=null;
-let dnsApiAvailable=true;
 try{
   const dnsList=await api(`/zones/${zone.id}/dns_records?name=${encodeURIComponent(domain)}`);
   dnsRecord=(dnsList.data.result||[]).find((row)=>String(row.name).toLowerCase()===domain);
@@ -98,7 +97,6 @@ try{
     proxied:Boolean(dnsRecord.proxied),
   };
 }catch(error){
-  dnsApiAvailable=false;
   evidence.dns.apiError=error instanceof Error ? error.message : String(error);
   const [ipv4,ipv6]=await Promise.all([
     dns.resolve4(domain).catch(()=>[]),
