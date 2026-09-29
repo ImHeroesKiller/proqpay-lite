@@ -25,12 +25,13 @@ jobs:
     timeout-minutes: 5
     env:
       SECURITY_ALERT_WEBHOOK_URL: ${{ secrets.SECURITY_ALERT_WEBHOOK_URL }}
+      PROQPAY_CUSTOM_DOMAIN: ${{ vars.PROQPAY_CUSTOM_DOMAIN || 'proqpay.msg-os.com' }}
     steps:
       - name: Probe production health
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 20 https://proqpay-lite.pages.dev/api/health > /tmp/health.json
+          curl --fail --silent --show-error --max-time 20 https://${PROQPAY_CUSTOM_DOMAIN}/api/health > /tmp/health.json
           node -e "const x=require('/tmp/health.json');if(x.ready!==true||x.database!=='d1'||x.auth_mode!=='session'){console.error(x);process.exit(1)}"
           cat /tmp/health.json
 
@@ -39,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in {1..30}; do
-            if curl --fail --silent --show-error --max-time 20 -D /tmp/root-headers.txt -o /dev/null https://proqpay-lite.pages.dev/               && grep -qi '^content-security-policy:' /tmp/root-headers.txt               && grep -qi "frame-ancestors 'none'" /tmp/root-headers.txt               && grep -qi "object-src 'none'" /tmp/root-headers.txt               && grep -qi '^strict-transport-security:' /tmp/root-headers.txt               && grep -qi '^cross-origin-opener-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^cross-origin-resource-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^x-permitted-cross-domain-policies:[[:space:]]*none' /tmp/root-headers.txt; then
+            if curl --fail --silent --show-error --max-time 20 -D /tmp/root-headers.txt -o /dev/null https://${PROQPAY_CUSTOM_DOMAIN}/               && grep -qi '^content-security-policy:' /tmp/root-headers.txt               && grep -qi "frame-ancestors 'none'" /tmp/root-headers.txt               && grep -qi "object-src 'none'" /tmp/root-headers.txt               && grep -qi '^strict-transport-security:' /tmp/root-headers.txt               && grep -qi '^cross-origin-opener-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^cross-origin-resource-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^x-permitted-cross-domain-policies:[[:space:]]*none' /tmp/root-headers.txt; then
               exit 0
             fi
             echo "Production security headers not converged yet (${attempt}/30)"

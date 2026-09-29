@@ -1,7 +1,8 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { ACCOUNT_ROLES, authenticateSession, hasActiveAccounts } from './_account-auth.js';
 import { permissionsForRole } from '../../shared/authority-matrix.js';
-import { protectedHash, requestSecurityContext, sha256Hex } from './_security-context.js';
+import { isCriticalMfaRole, protectedHash, requestSecurityContext, sha256Hex } from './_security-context.js';
+import { hasActivePasskey, passkeyEnforcementMode } from './_webauthn.js';
 
 export const ROLES = ACCOUNT_ROLES;
 
@@ -157,6 +158,7 @@ export async function authorize(
     roles = ROLES,
     mutating = false,
     methods = 'GET, OPTIONS',
+    allowPasskeyEnrollment = false,
   } = {}
 ) {
   const mode = String(env.AUTH_MODE || 'origin').toLowerCase();
@@ -240,6 +242,34 @@ export async function authorize(
     };
   }
   actor.orgId = actor.orgId || String(env.DEFAULT_ORG_ID || '') || null;
+
+  if (
+    passkeyEnforcementMode(env) === 'ENFORCE'
+    && actor.authSource === 'd1'
+    && isCriticalMfaRole(actor.role)
+    && env.DB?.prepare
+  ) {
+    const configured = await hasActivePasskey(env.DB, actor.id);
+    if (!configured && !allowPasskeyEnrollment) {
+      return {
+        response: secureJson({
+          error:'Passkey wajib didaftarkan untuk role privileged ini.',
+          code:'PASSKEY_ENROLLMENT_REQUIRED',
+          passkeyRequired:true,
+        },428,request,env,methods),
+      };
+    }
+    if (configured && actor.authStrength !== 'PASSKEY_UV' && !allowPasskeyEnrollment) {
+      return {
+        response: secureJson({
+          error:'Autentikasi ulang menggunakan passkey diperlukan.',
+          code:'PASSKEY_REAUTH_REQUIRED',
+          passkeyRequired:true,
+        },428,request,env,methods),
+      };
+    }
+  }
+
   actor.permissions = permissionsFor(actor.role, actor.email, env);
   if (actor.paymentApprover) {
     actor.permissions = [...new Set([...actor.permissions, 'PAYMENT_APPROVER', 'payment:approve'])];

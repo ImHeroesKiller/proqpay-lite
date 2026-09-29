@@ -7,6 +7,12 @@ import { actorFraudDecision } from './_fraud-controls.js';
 import { recordFraudIncident } from './_fraud-incidents.js';
 import { readUserMfa, verifyUserMfa } from './_mfa.js';
 import { isCriticalMfaRole, mfaEnforcementMode, requestSecurityContext } from './_security-context.js';
+import {
+  beginPasskeyAuthentication,
+  finishPasskeyAuthentication,
+  hasActivePasskey,
+  passkeyEnforcementMode,
+} from './_webauthn.js';
 
 const METHODS = 'POST, OPTIONS';
 
@@ -107,34 +113,76 @@ export async function onRequest({ request, env }) {
   const mfa = await readUserMfa(env.DB, user.id);
   const mfaRequired = Boolean(user.mfa_required) || isCriticalMfaRole(user.role);
   const enforceMfa = mfaEnforcementMode(env) === 'ENFORCE' && mfaRequired;
+  const passkeyRequired = passkeyEnforcementMode(env) === 'ENFORCE' && isCriticalMfaRole(user.role);
+  const passkeyConfigured = passkeyRequired ? await hasActivePasskey(env.DB,user.id) : false;
   const mfaCode = String(body.mfaCode || body.otp || '').replace(/\D/g, '').slice(0, 6);
   let mfaVerifiedAt = null;
+  let passkeyVerifiedAt = null;
+  let authStrength = 'PASSWORD';
 
-  if (enforceMfa && mfa?.status !== 'ACTIVE') {
-    return secureJson({
-      error:'MFA wajib diaktifkan untuk role ini sebelum login.',
-      code:'MFA_ENROLLMENT_REQUIRED',
-      mfaRequired:true,
-    }, 428, request, env, METHODS);
-  }
-  if (enforceMfa && !mfaCode) {
-    return secureJson({
-      error:'Masukkan kode MFA 6 digit.',
-      code:'MFA_REQUIRED',
-      mfaRequired:true,
-    }, 428, request, env, METHODS);
-  }
-  if (mfaCode && mfa?.status === 'ACTIVE') {
-    const verified = await verifyUserMfa(env.DB, env, user.id, mfaCode);
-    if (!verified.ok) {
-      return secureJson({ error:'Kode MFA tidak valid.', code:'MFA_CODE_INVALID' }, 401, request, env, METHODS);
+  if (passkeyRequired && passkeyConfigured) {
+    if (!body.passkeyResponse || !body.passkeyChallengeId) {
+      const started = await beginPasskeyAuthentication(env.DB,request,env,user);
+      if(!started.ok){
+        return secureJson({error:'Passkey tidak tersedia',code:started.reason||'PASSKEY_NOT_ENROLLED'},409,request,env,METHODS);
+      }
+      return secureJson({
+        error:'Gunakan passkey untuk melanjutkan login privileged.',
+        code:'PASSKEY_REQUIRED',
+        passkeyRequired:true,
+        challengeId:started.challengeId,
+        options:started.options,
+      },428,request,env,METHODS);
     }
-    mfaVerifiedAt = new Date().toISOString();
-  } else if (enforceMfa) {
-    return secureJson({ error:'MFA belum terverifikasi.', code:'MFA_REQUIRED' }, 428, request, env, METHODS);
+    let verified;
+    try {
+      verified = await finishPasskeyAuthentication(env.DB,request,env,user,{
+        challengeId:body.passkeyChallengeId,
+        response:body.passkeyResponse,
+      });
+    } catch (error) {
+      console.error(JSON.stringify({event:'PASSKEY_LOGIN_ERROR',message:error instanceof Error?error.message:String(error)}));
+      return secureJson({error:'Passkey tidak dapat diverifikasi',code:'PASSKEY_AUTH_FAILED'},401,request,env,METHODS);
+    }
+    if(!verified.ok){
+      return secureJson({error:'Passkey tidak valid',code:verified.reason||'PASSKEY_AUTH_FAILED'},401,request,env,METHODS);
+    }
+    passkeyVerifiedAt = new Date().toISOString();
+    mfaVerifiedAt = passkeyVerifiedAt;
+    authStrength = 'PASSKEY_UV';
+  } else {
+    if (enforceMfa && mfa?.status !== 'ACTIVE') {
+      return secureJson({
+        error:'MFA wajib diaktifkan untuk role ini sebelum login.',
+        code:'MFA_ENROLLMENT_REQUIRED',
+        mfaRequired:true,
+      }, 428, request, env, METHODS);
+    }
+    if (enforceMfa && !mfaCode) {
+      return secureJson({
+        error:'Masukkan kode MFA 6 digit.',
+        code:'MFA_REQUIRED',
+        mfaRequired:true,
+      }, 428, request, env, METHODS);
+    }
+    if (mfaCode && mfa?.status === 'ACTIVE') {
+      const verified = await verifyUserMfa(env.DB, env, user.id, mfaCode);
+      if (!verified.ok) {
+        return secureJson({ error:'Kode MFA tidak valid.', code:'MFA_CODE_INVALID' }, 401, request, env, METHODS);
+      }
+      mfaVerifiedAt = new Date().toISOString();
+      authStrength = 'PASSWORD_TOTP';
+    } else if (enforceMfa) {
+      return secureJson({ error:'MFA belum terverifikasi.', code:'MFA_REQUIRED' }, 428, request, env, METHODS);
+    }
   }
 
-  const session = await createSession(env.DB, user.id, env, { context, mfaVerifiedAt });
+  const session = await createSession(env.DB, user.id, env, {
+    context,
+    mfaVerifiedAt,
+    passkeyVerifiedAt,
+    authStrength,
+  });
   await d1Run(env.DB, `UPDATE app_users SET last_login_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
     failed_login_attempts=0, locked_until=NULL, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, [user.id]);
   return secureJson({
@@ -145,7 +193,15 @@ export async function onRequest({ request, env }) {
       mfaRequired,
       mfaActive:mfa?.status === 'ACTIVE',
       mfaVerified:Boolean(mfaVerifiedAt),
+      passkeyRequired,
+      passkeyConfigured,
+      passkeyVerified:authStrength==='PASSKEY_UV',
     },
-    security:{ mfaMode:mfaEnforcementMode(env) },
+    security:{
+      mfaMode:mfaEnforcementMode(env),
+      passkeyMode:passkeyEnforcementMode(env),
+      authStrength,
+      passkeyEnrollmentRequired:passkeyRequired && !passkeyConfigured,
+    },
   }, 200, request, env, METHODS, { 'Set-Cookie': session.cookie });
 }

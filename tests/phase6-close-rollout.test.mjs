@@ -149,7 +149,8 @@ test('production rollout pipeline enforces post-deploy smoke checks',async()=>{
   const smoke=await readFile(new URL('../scripts/production-smoke.mjs',import.meta.url),'utf8');
   const runbook=await readFile(new URL('../ROLLOUT_RUNBOOK.md',import.meta.url),'utf8');
   assert.match(workflow,/Production smoke test/);
-  assert.match(workflow,/node scripts\/production-smoke\.mjs https:\/\/proqpay-lite\.pages\.dev/);
+  assert.match(workflow,/node scripts\/production-smoke\.mjs "https:\/\/\$\{PROQPAY_CUSTOM_DOMAIN\}"/);
+  assert.match(workflow,/Close custom domain and WAF controls/);
   assert.ok(workflow.indexOf('Verify production health') < workflow.indexOf('Production smoke test'));
   assert.match(smoke,/\/api\/health/);
   assert.match(smoke,/\/api\/operating-model\?resource=submissions/);

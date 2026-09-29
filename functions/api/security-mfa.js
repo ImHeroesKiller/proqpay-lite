@@ -81,7 +81,12 @@ export async function onRequest({request,env}){
     return secureJson({ok:true,code:'MFA_ACTIVATED'},200,request,env,METHODS);
   }
 
-  const authorization=await authorize(request,env,{roles:ROLES,mutating:request.method==='POST',methods:METHODS});
+  const authorization=await authorize(request,env,{
+    roles:ROLES,
+    mutating:request.method==='POST',
+    methods:METHODS,
+    allowPasskeyEnrollment:true,
+  });
   if(authorization.response) return authorization.response;
   const actor=authorization.actor;
   const organizationId=String(actor.orgId||env.DEFAULT_ORG_ID||'ORG-OTSINDO');
