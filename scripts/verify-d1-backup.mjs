@@ -31,7 +31,7 @@ if(missingText.length){
   process.exit(1);
 }
 
-function stripOrphanIndexes(source){
+function stripOrphanSchema(source){
   const declaredTables=new Set(
     [...source.matchAll(/CREATE TABLE(?: IF NOT EXISTS)? [`"]?([A-Za-z0-9_]+)[`"]?/gi)]
       .map((match)=>String(match[1]).toLowerCase())
@@ -45,10 +45,26 @@ function stripOrphanIndexes(source){
       return `-- skipped orphan index for absent table ${table}`;
     },
   );
-  return {sanitized,skipped};
+  const triggerSanitized=sanitized.replace(
+    /CREATE\s+TRIGGER[\s\S]*?\bEND\s*;/gi,
+    (statement)=>{
+      const dependencies=[
+        ...statement.matchAll(/\b(?:FROM|JOIN|UPDATE|INTO)\s+[`"]?([A-Za-z0-9_]+)[`"]?/gi),
+      ].map((match)=>String(match[1]).toLowerCase());
+      const missing=[...new Set(dependencies.filter((name)=>!declaredTables.has(name)))];
+      if(!missing.length) return statement;
+      skipped.push({
+        type:'ORPHAN_TRIGGER',
+        tables:missing,
+        statement:statement.slice(0,240),
+      });
+      return `-- skipped orphan trigger referencing absent table(s): ${missing.join(', ')}`;
+    },
+  );
+  return {sanitized:triggerSanitized,skipped};
 }
 
-const {sanitized,skipped}=stripOrphanIndexes(sql);
+const {sanitized,skipped}=stripOrphanSchema(sql);
 const db=new DatabaseSync(':memory:');
 try{
   db.exec(sanitized);
