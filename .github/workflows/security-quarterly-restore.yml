@@ -73,4 +73,4 @@ jobs:
           path: |
             /tmp/proqpay-quarterly-restore-evidence.json
             /tmp/proqpay-backup-verification.json
-          retention-days: 365
+          retention-days: 90
