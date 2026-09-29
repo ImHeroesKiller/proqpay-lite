@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { ACCOUNT_ROLES, authenticateSession, hasActiveAccounts } from './_account-auth.js';
 import { permissionsForRole } from '../../shared/authority-matrix.js';
+import { requestSecurityContext } from './_security-context.js';
 
 export const ROLES = ACCOUNT_ROLES;
 
@@ -243,6 +244,9 @@ export async function authorize(
   if (actor.paymentApprover) {
     actor.permissions = [...new Set([...actor.permissions, 'PAYMENT_APPROVER', 'payment:approve'])];
   }
+  const securityContext = await requestSecurityContext(request, env).catch(() => ({ ipHash:null, deviceHash:null }));
+  actor.requestIpHash = securityContext.ipHash || null;
+  actor.requestDeviceHash = securityContext.deviceHash || null;
   return { actor };
 }
 

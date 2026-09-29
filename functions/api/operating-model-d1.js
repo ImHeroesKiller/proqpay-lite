@@ -4,6 +4,9 @@ import { handlePreflight, publicError, secureJson } from './_security.js';
 import { canTransition, resolveTierTransition, validateOperatingAction } from './operating-model-validation.js';
 import { canonicalBankCode, decryptAccountNumber, encryptAccountNumber, instructionContentHash, sha256Hex } from './payment-instruction-core.js';
 import { activeEmployeeSql } from './_employee-status.js';
+import { actorFraudDecision, paymentLimitDecision } from './_fraud-controls.js';
+import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
+import { revealEmployeeBankAccount } from './_employee-bank-security.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const PROCESSOR_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
@@ -578,11 +581,13 @@ async function getCloseReadiness(database, organizationId, submission) {
   };
 }
 
-async function validateCanonicalPayRunSnapshot(database, submission, actor, organizationId) {
+async function validateCanonicalPayRunSnapshot(database, submission, actor, organizationId, env) {
   const rows = await d1All(database, `SELECT l.employee_id,l.employee_name,l.gross_amount,l.deduction_amount,l.net_amount,
       l.bank_name,l.account_last4,e.status_aktif,e.client_id AS current_client_id,e.project_id AS current_project_id,
       CASE WHEN e.org_id=? AND e.client_id=? AND e.project_id=? AND ${ACTIVE_EMPLOYEE} THEN 1 ELSE 0 END AS eligible_now,
-      eba.bank_name AS primary_bank_name,eba.account_no AS primary_account_no
+      eba.bank_name AS primary_bank_name,eba.account_no AS primary_account_no,
+      eba.account_ciphertext AS primary_account_ciphertext,eba.account_iv AS primary_account_iv,
+      eba.account_last4 AS primary_account_last4
     FROM payroll_run_lines l
     JOIN employees e ON e.id=l.employee_id
     LEFT JOIN employee_bank_accounts eba ON eba.employee_id=l.employee_id AND eba.is_primary=1
@@ -614,10 +619,19 @@ async function validateCanonicalPayRunSnapshot(database, submission, actor, orga
       add(row, 'SYSTEM_PAYROLL_CONTROL_MISMATCH', 'netAmount',
         `Control payroll tidak balance untuk ${row.employee_name || row.employee_id}: Gross ${gross} - Potongan ${deduction} != THP ${net}.`);
     }
-    const account = String(row.primary_account_no || '').replace(/\s+/g, '');
+    let account = '';
+    try {
+      account = await revealEmployeeBankAccount({
+        account_no:row.primary_account_no,
+        account_ciphertext:row.primary_account_ciphertext,
+        account_iv:row.primary_account_iv,
+      }, env);
+    } catch {
+      account = '';
+    }
     if (!row.primary_bank_name || !/^\d{6,34}$/.test(account)) {
       add(row, 'SYSTEM_BANK_INVALID', 'accountNo',
-        'Rekening utama penerima tidak lengkap atau nomor rekening bukan 6-34 digit.');
+        'Rekening utama penerima tidak lengkap atau gagal diverifikasi dari encrypted master.');
     } else if (row.account_last4 && account.slice(-4) !== String(row.account_last4)) {
       add(row, 'SYSTEM_BANK_CHANGED', 'accountNo',
         'Rekening utama berubah setelah snapshot Pay Run dibuat; refresh data sebelum melanjutkan.');
@@ -765,7 +779,7 @@ async function executeAction(database, body, actor, env, organizationId) {
          gross_amount,deduction_amount,net_amount,components,source,included)
         SELECT 'PRL-'||lower(hex(randomblob(16))),?,l.employee_id,l.employee_code,l.employee_name,l.employment_status,
           COALESCE((SELECT bank_name FROM employee_bank_accounts WHERE employee_id=l.employee_id AND is_primary=1 LIMIT 1),l.bank_name),
-          COALESCE((SELECT substr(account_no,-4) FROM employee_bank_accounts WHERE employee_id=l.employee_id AND is_primary=1 LIMIT 1),l.account_last4),
+          COALESCE((SELECT COALESCE(account_last4,substr(account_no,-4)) FROM employee_bank_accounts WHERE employee_id=l.employee_id AND is_primary=1 LIMIT 1),l.account_last4),
           l.gross_amount,l.deduction_amount,l.net_amount,l.components,'COPY_PREVIOUS',l.included
         FROM payroll_run_lines l WHERE l.submission_id=?`, bindings:[id,sourceSubmission.id] });
       operations.push({ statement:`UPDATE payroll_run_lines SET included=0,updated_at=${NOW}
@@ -777,7 +791,7 @@ async function executeAction(database, body, actor, env, organizationId) {
          gross_amount,deduction_amount,net_amount,components,source,included)
         SELECT 'PRL-'||lower(hex(randomblob(16))),?,e.id,e.employee_code,e.name,e.status_aktif,
           (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
-          (SELECT substr(account_no,-4) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
+          (SELECT COALESCE(account_last4,substr(account_no,-4)) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
           CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END,
           CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.imported_deduction,0) ELSE 0 END,
           MAX(0,(CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END)
@@ -795,7 +809,7 @@ async function executeAction(database, body, actor, env, organizationId) {
          gross_amount,deduction_amount,net_amount,components,source,included)
         SELECT 'PRL-'||lower(hex(randomblob(16))),?,e.id,e.employee_code,e.name,e.status_aktif,
           (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
-          (SELECT substr(account_no,-4) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
+          (SELECT COALESCE(account_last4,substr(account_no,-4)) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
           CASE WHEN ?='MASTER_CURRENT' THEN CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0
             THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END ELSE 0 END,
           CASE WHEN ?='MASTER_CURRENT' AND ec.payroll_source_period=? AND ec.imported_gross>0
@@ -857,7 +871,7 @@ async function executeAction(database, body, actor, env, organizationId) {
          gross_amount,deduction_amount,net_amount,components,source,included)
         SELECT 'PRL-'||lower(hex(randomblob(16))),?,e.id,e.employee_code,e.name,e.status_aktif,
           (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
-          (SELECT substr(account_no,-4) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
+          (SELECT COALESCE(account_last4,substr(account_no,-4)) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1),
           CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END,
           CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN COALESCE(ec.imported_deduction,0) ELSE 0 END,
           MAX(0,(CASE WHEN ec.payroll_source_period=? AND ec.imported_gross>0 THEN ec.imported_gross ELSE COALESCE(ec.basic_salary,0) END)
@@ -879,7 +893,7 @@ async function executeAction(database, body, actor, env, organizationId) {
             ELSE json_object('Gaji Pokok',COALESCE(ec.basic_salary,0)) END,
           employment_status=(SELECT e.status_aktif FROM employees e WHERE e.id=payroll_run_lines.employee_id),
           bank_name=(SELECT eba.bank_name FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
-          account_last4=(SELECT substr(REPLACE(eba.account_no,' ',''),-4) FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
+          account_last4=(SELECT COALESCE(eba.account_last4,substr(REPLACE(eba.account_no,' ',''),-4)) FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
           source='MASTER_CURRENT',updated_at=${NOW}
         FROM employee_compensation ec WHERE payroll_run_lines.submission_id=? AND payroll_run_lines.included=1
           AND ec.employee_id=payroll_run_lines.employee_id`,
@@ -974,7 +988,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     await d1Batch(database, [{
       statement:`UPDATE payroll_run_lines SET
         bank_name=(SELECT eba.bank_name FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
-        account_last4=(SELECT substr(REPLACE(eba.account_no,' ',''),-4) FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
+        account_last4=(SELECT COALESCE(eba.account_last4,substr(REPLACE(eba.account_no,' ',''),-4)) FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1 LIMIT 1),
         updated_at=${NOW}
         WHERE submission_id=? AND included=1`,
       bindings:[submission.id],
@@ -984,8 +998,14 @@ async function executeAction(database, body, actor, env, organizationId) {
         OR gross_amount-deduction_amount<>net_amount THEN 1 ELSE 0 END) AS invalid_control,
       SUM(CASE WHEN bank_name IS NULL OR account_last4 IS NULL OR NOT EXISTS(
         SELECT 1 FROM employee_bank_accounts eba WHERE eba.employee_id=payroll_run_lines.employee_id AND eba.is_primary=1
-          AND length(REPLACE(eba.account_no,' ','')) BETWEEN 6 AND 34
-          AND REPLACE(eba.account_no,' ','') NOT GLOB '*[^0-9]*'
+          AND (
+            (eba.account_ciphertext IS NOT NULL AND eba.account_iv IS NOT NULL AND length(eba.account_last4)=4)
+            OR (
+              eba.account_ciphertext IS NULL
+              AND length(REPLACE(eba.account_no,' ','')) BETWEEN 6 AND 34
+              AND REPLACE(eba.account_no,' ','') NOT GLOB '*[^0-9]*'
+            )
+          )
       ) THEN 1 ELSE 0 END) AS invalid_bank,
       SUM(CASE WHEN NOT EXISTS(
         SELECT 1 FROM employees e WHERE e.id=payroll_run_lines.employee_id AND e.org_id=? AND e.client_id=? AND e.project_id=? AND ${ACTIVE_EMPLOYEE}
@@ -1030,7 +1050,7 @@ async function executeAction(database, body, actor, env, organizationId) {
         return { status:409, data:{ error:`Pay Run berstatus ${submission.state} tidak dapat divalidasi ulang` } };
       }
       if (submission.input_status !== 'READY') return { status:409, data:{ error:'Finalisasi input payroll sebelum menjalankan validasi' } };
-      await validateCanonicalPayRunSnapshot(database, submission, actor, organizationId);
+      await validateCanonicalPayRunSnapshot(database, submission, actor, organizationId, env);
       const refreshedBlocking = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_exceptions WHERE submission_id=?
         AND severity='CRITICAL' AND status NOT IN ('ACCEPTED','RESOLVED','AUTO_NORMALIZED')`, [submission.id]);
       blockingCount = Number(refreshedBlocking?.count || 0);
@@ -1277,7 +1297,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (existing && existing.status !== 'REVISION_REQUIRED') return { data: { ok: true, paymentInstruction: existing, idempotentReplay: true } };
     const snapshotCount = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_run_lines WHERE submission_id=?`, [submission.id]);
     const source = Number(snapshotCount?.count || 0) ? await d1All(database, `SELECT l.employee_id AS id,l.employee_name AS name,l.net_amount AS amount,
-      eba.bank_name,eba.account_no,l.account_last4,
+      eba.bank_name,eba.account_no,eba.account_ciphertext,eba.account_iv,eba.account_last4 AS master_account_last4,l.account_last4,
       pbs.bank_name AS snapshot_bank_name,pbs.account_last4 AS snapshot_account_last4,pbs.account_fingerprint
       FROM payroll_run_lines l
       LEFT JOIN employee_bank_accounts eba ON eba.employee_id=l.employee_id AND eba.is_primary=1
@@ -1286,11 +1306,21 @@ async function executeAction(database, body, actor, env, organizationId) {
       : await d1All(database, `SELECT e.id,e.name,COALESCE(ec.imported_net,0) AS amount,
         (SELECT bank_name FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS bank_name,
         (SELECT account_no FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS account_no,
-        (SELECT substr(account_no,-4) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS account_last4
+        (SELECT account_ciphertext FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS account_ciphertext,
+        (SELECT account_iv FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS account_iv,
+        (SELECT account_last4 FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS master_account_last4,
+        (SELECT COALESCE(account_last4,substr(account_no,-4)) FROM employee_bank_accounts WHERE employee_id=e.id AND is_primary=1 LIMIT 1) AS account_last4
         FROM employees e JOIN employee_compensation ec ON ec.employee_id=e.id WHERE e.client_id=?
         AND (? IS NULL OR e.project_id=?) AND ec.payroll_source_period=? ORDER BY e.name`,
         [submission.client_id, submission.project_id || null, submission.project_id || null, submission.period]);
     if (!source.length) return { status: 409, data: { error: 'Tidak ada data payroll final untuk periode submission' } };
+    for (const row of source) {
+      try {
+        row.account_no = await revealEmployeeBankAccount(row, env);
+      } catch {
+        row.account_no = '';
+      }
+    }
     const invalid = source.filter((row) => Number(row.amount || 0) <= 0 || !row.bank_name || !/^\d{6,34}$/.test(String(row.account_no || '').replace(/\s+/g,'')));
     if (invalid.length) return { status: 409, data: { error: `${invalid.length} karyawan belum memiliki THP atau rekening bank yang valid` } };
     const changedAccounts = source.filter((row) => row.account_last4 && String(row.account_no).replace(/\s+/g,'').slice(-4) !== String(row.account_last4));
@@ -1540,12 +1570,27 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (actor.role !== 'PAYROLL_CONTROLLER' || !actor.permissions?.includes('payment:approve')) {
       return { status: 403, data: { error: 'Hanya Payroll Controller dengan izin payment:approve yang dapat approve PI', code:'PAYMENT_APPROVE_PERMISSION_REQUIRED' } };
     }
+    const actorFraud = await actorFraudDecision(database, organizationId, actor, env);
+    if (actorFraud.blocked) {
+      return { status:403, data:{ error:'Approval payment diblokir oleh kontrol fraud', code:actorFraud.code || 'PAYMENT_FRAUD_BLOCKED' } };
+    }
     const payment = await d1First(database, `SELECT pi.*,s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,
       COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total,
       COALESCE((SELECT COUNT(*) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_count
       FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
       WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
     if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
+    const approvalRisk = await paymentLimitDecision(database, organizationId, payment, { isNewExecution:false });
+    if (approvalRisk.blocked) {
+      return { status:409, data:{ error:'Approval payment diblokir oleh security transaction limit', code:approvalRisk.code, risk:approvalRisk } };
+    }
+    if (mfaEnforcementMode(env) === 'ENFORCE' && !hasRecentMfa(actor, approvalRisk.limits.stepUpWindowSeconds)) {
+      return { status:428, data:{
+        error:'Verifikasi MFA terbaru diperlukan sebelum approval payment.',
+        code:'MFA_STEP_UP_REQUIRED',
+        stepUpWindowSeconds:approvalRisk.limits.stepUpWindowSeconds,
+      } };
+    }
     if (payment.status !== 'PAYMENT_APPROVAL_PENDING') return { status:409, data:{ error:'PI belum disubmit atau tidak lagi menunggu approval' } };
     if (String(payment.creator_user_id) === String(actor.id)) return { status: 409, data: { error: 'Maker cannot approve the same payment instruction' } };
     if (Number(payment.instruction_total) !== Number(payment.expected_total)) return { status: 409, data: { error: 'Payment total mismatch blocks approval', code:'PI_CONTROL_TOTAL_MISMATCH' } };
@@ -1602,8 +1647,17 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (existing) return { data: { ok: true, approval: existing, idempotentReplay: true } };
     const approvalId = `PA-${crypto.randomUUID()}`;
     await d1Batch(database, [
-      { statement: `INSERT INTO payment_approvals (id,payment_instruction_id,approver_user_id,status,action_hash)
-        VALUES (?,?,?,'APPROVED',?)`, bindings: [approvalId, payment.id, actor.id, body.actionHash] },
+      { statement: `INSERT INTO payment_approvals
+        (id,payment_instruction_id,approver_user_id,status,action_hash,ip_hash,device_hash,mfa_verified_at)
+        VALUES (?,?,?,'APPROVED',?,?,?,?)`, bindings: [
+          approvalId,
+          payment.id,
+          actor.id,
+          body.actionHash,
+          actor.requestIpHash || actor.sessionIpHash || null,
+          actor.requestDeviceHash || actor.sessionDeviceHash || null,
+          actor.mfaVerifiedAt || null,
+        ] },
       { statement: `UPDATE payment_instructions SET status='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=? AND status='PAYMENT_APPROVAL_PENDING'`, bindings: [payment.id] },
       { statement: `UPDATE payroll_submissions SET state='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=? AND state='PAYMENT_APPROVAL_PENDING'`, bindings: [payment.submission_id] },
       auditOperation(organizationId, actor, 'PAYMENT_APPROVED', `Maker-checker approval passed · ${payment.recipient_count} recipients · ${serverHash}`, 'payment_instruction', payment.id),

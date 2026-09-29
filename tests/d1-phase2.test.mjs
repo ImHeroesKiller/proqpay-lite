@@ -8,7 +8,7 @@ import { onRequest as employees } from '../functions/api/employees.js';
 import { D1Mock } from './helpers/d1-mock.mjs';
 
 const origin = 'https://proqpay.test';
-const baseEnv = (DB) => ({ DB, AUTH_MODE: 'session', DEFAULT_ORG_ID: 'ORG-OTSINDO' });
+const baseEnv = (DB) => ({ DB, AUTH_MODE: 'session', DEFAULT_ORG_ID: 'ORG-OTSINDO', PI_ENCRYPTION_KEY:'d1-phase2-security-key-longer-than-32-bytes' });
 const request = (path, options = {}) => new Request(`${origin}${path}`, {
   ...options,
   headers: { Origin: origin, 'Sec-Fetch-Site': 'same-origin', ...(options.headers || {}) },

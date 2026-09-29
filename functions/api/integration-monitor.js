@@ -24,8 +24,10 @@ function requestId(request) {
 }
 
 function retentionDays(env) {
-  const raw = Number.parseInt(String(env.API_MONITOR_RETENTION_DAYS || '30'), 10);
-  return Math.min(365, Math.max(1, Number.isFinite(raw) ? raw : 30));
+  const raw = Number.parseInt(String(env.API_MONITOR_RETENTION_DAYS || '180'), 10);
+  // Security questionnaire baseline: security/integration evidence is retained
+  // for at least six months. Configuration may extend, but never shorten it.
+  return Math.min(3650, Math.max(180, Number.isFinite(raw) ? raw : 180));
 }
 
 function intParam(params, key, fallback, min, max) {

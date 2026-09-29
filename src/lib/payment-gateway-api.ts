@@ -1,3 +1,4 @@
+import { fetchWithSecurityStepUp } from './security-step-up';
 export type PaymentGatewayReadiness = {
   configured: boolean;
   provider: string;
@@ -165,7 +166,7 @@ export async function getPaymentGatewayStatus(paymentInstructionId?: string) {
 }
 
 export async function executeSeamlessPayment(paymentInstructionId: string, paymentMethod?: string) {
-  return parseResponse(await fetch('/api/payment-gateway', {
+  return parseResponse(await fetchWithSecurityStepUp('/api/payment-gateway', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ paymentInstructionId, paymentMethod, action:'EXECUTE' }),
@@ -197,7 +198,7 @@ export async function executeSeamlessPayment(paymentInstructionId: string, payme
 
 
 export async function verifyFailedE2PayPayment(paymentInstructionId: string) {
-  return parseResponse(await fetch('/api/payment-gateway', {
+  return parseResponse(await fetchWithSecurityStepUp('/api/payment-gateway', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ paymentInstructionId, action:'VERIFY_FAILED' }),
@@ -213,7 +214,7 @@ export async function verifyFailedE2PayPayment(paymentInstructionId: string) {
 }
 
 export async function retryFailedE2PayPayment(paymentInstructionId: string) {
-  return parseResponse(await fetch('/api/payment-gateway', {
+  return parseResponse(await fetchWithSecurityStepUp('/api/payment-gateway', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ paymentInstructionId, action:'RETRY_FAILED' }),
@@ -243,7 +244,7 @@ export async function retryFailedE2PayPayment(paymentInstructionId: string) {
 }
 
 export async function reconcileE2PayPayment(paymentInstructionId: string) {
-  return parseResponse(await fetch('/api/payment-gateway', {
+  return parseResponse(await fetchWithSecurityStepUp('/api/payment-gateway', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ paymentInstructionId, action:'RECONCILE' }),
@@ -280,7 +281,7 @@ export async function getHostedPaymentStatus(paymentInstructionId?: string) {
 }
 
 export async function createHostedPaymentSession(paymentInstructionId: string, returnPath = '/?view=payments') {
-  return parseResponse(await fetch('/api/payment-gateway-hosted', {
+  return parseResponse(await fetchWithSecurityStepUp('/api/payment-gateway-hosted', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ paymentInstructionId, returnPath }),

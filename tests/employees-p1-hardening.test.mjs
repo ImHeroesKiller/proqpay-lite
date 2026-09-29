@@ -3,6 +3,7 @@ import test from 'node:test';
 import { onRequest as employeesApi } from '../functions/api/employees.js';
 import { onRequest as credentialsApi } from '../functions/api/employee-credentials.js';
 import { createSession, validatePassword } from '../functions/api/_account-auth.js';
+import { revealEmployeeBankAccount } from '../functions/api/_employee-bank-security.js';
 import { D1Mock } from './helpers/d1-mock.mjs';
 
 const origin='https://proqpay.test';
@@ -62,7 +63,7 @@ async function postCredentials(env,token,body){
 
 test('Employees P1: read-only roles receive server-masked PII, while employee writers retain operational values',async()=>{
   const DB=new D1Mock();seed(DB);
-  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO',PI_ENCRYPTION_KEY:'employees-p1-security-encryption-key-longer-than-32-bytes'};
   const processor=await createSession(DB,'USR-P1-P',env);
   const controller=await createSession(DB,'USR-P1-C',env);
   const client=await createSession(DB,'USR-P1-U',env);
@@ -100,7 +101,7 @@ test('Employees P1: canonical validation rejects malformed identity, bank, BPJS,
   ];
   for(const [payload,code] of cases){
     const DB=new D1Mock();seed(DB);
-    const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+    const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO',PI_ENCRYPTION_KEY:'employees-p1-security-encryption-key-longer-than-32-bytes'};
     const processor=await createSession(DB,'USR-P1-P',env);
     const result=await postEmployee(env,processor.token,payload);
     assert.equal(result.response.status,422,JSON.stringify(result.payload));
@@ -111,7 +112,7 @@ test('Employees P1: canonical validation rejects malformed identity, bank, BPJS,
 
 test('Employees P1: valid formatted identifiers are canonicalized before persistence',async()=>{
   const DB=new D1Mock();seed(DB);
-  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO',PI_ENCRYPTION_KEY:'employees-p1-security-encryption-key-longer-than-32-bytes'};
   const processor=await createSession(DB,'USR-P1-P',env);
   const result=await postEmployee(env,processor.token,{
     id:'EMP-P1',
@@ -125,7 +126,11 @@ test('Employees P1: valid formatted identifiers are canonicalized before persist
   const identity=DB.sqlite.prepare('SELECT ktp_no,npwp_no FROM employee_identity WHERE employee_id=?').get('EMP-P1');
   assert.equal(identity.ktp_no,'3173000000000002');
   assert.equal(identity.npwp_no,'1234567890123456');
-  assert.equal(DB.sqlite.prepare('SELECT account_no FROM employee_bank_accounts WHERE employee_id=? AND is_primary=1').get('EMP-P1').account_no,'1234567891');
+  const bank=DB.sqlite.prepare('SELECT account_no,account_ciphertext,account_iv,account_last4 FROM employee_bank_accounts WHERE employee_id=? AND is_primary=1').get('EMP-P1');
+  assert.equal(bank.account_no,'ENC:7891');
+  assert.equal(bank.account_last4,'7891');
+  assert.ok(bank.account_ciphertext);
+  assert.equal(await revealEmployeeBankAccount(bank,env),'1234567891');
   const bpjs=DB.sqlite.prepare('SELECT bpjs_kesehatan_no,jamsostek_no FROM employee_bpjs WHERE employee_id=?').get('EMP-P1');
   assert.equal(bpjs.bpjs_kesehatan_no,'0001112223335');
   assert.equal(bpjs.jamsostek_no,'12345678902');
@@ -133,7 +138,7 @@ test('Employees P1: valid formatted identifiers are canonicalized before persist
 
 test('Employees P1: employee master mutations create before/after audit without raw PII leakage',async()=>{
   const DB=new D1Mock();seed(DB);
-  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO',PI_ENCRYPTION_KEY:'employees-p1-security-encryption-key-longer-than-32-bytes'};
   const processor=await createSession(DB,'USR-P1-P',env);
   const rawNik='3173000000000099';
   const rawAccount='9988776655';
@@ -165,7 +170,7 @@ test('Employees P1: employee master mutations create before/after audit without 
 
 test('Employees P1: ESS issuance uses high-entropy random temporary password and mandatory rotation',async()=>{
   const DB=new D1Mock();seed(DB);
-  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+  const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO',PI_ENCRYPTION_KEY:'employees-p1-security-encryption-key-longer-than-32-bytes'};
   const processor=await createSession(DB,'USR-P1-P',env);
   const result=await postCredentials(env,processor.token,{action:'ISSUE',limit:1});
   assert.equal(result.response.status,200,JSON.stringify(result.payload));

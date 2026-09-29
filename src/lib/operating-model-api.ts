@@ -1,3 +1,4 @@
+import { fetchWithSecurityStepUp } from './security-step-up';
 import type { DashboardApiResponse } from './dashboard-types';
 import type { PaymentInstructionDetail } from './payment-instruction-ui';
 
@@ -156,7 +157,7 @@ export async function getPayRunDetail(submissionId: string):Promise<any> {
 }
 
 export async function executeOperatingAction(action: Record<string, unknown>):Promise<any> {
-  const result = await parseResponse<any>(await fetch('/api/operating-model', {
+  const result = await parseResponse<any>(await fetchWithSecurityStepUp('/api/operating-model', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(action),

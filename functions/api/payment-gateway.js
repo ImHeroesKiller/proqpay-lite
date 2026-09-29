@@ -18,6 +18,8 @@ import {
 import { e2payLoginReadiness } from './payment-gateway-e2pay.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { arGateMessage, evaluateClientArGate } from './ar-payment-control.js';
+import { actorFraudDecision, beneficiaryFraudDecision, paymentLimitDecision } from './_fraud-controls.js';
+import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER'];
@@ -281,6 +283,16 @@ export async function onRequest(context) {
       },403,request,env,METHODS);
     }
 
+    const actorFraud = await actorFraudDecision(database, organizationId, authorization.actor, runtimeEnv);
+    if (actorFraud.blocked) {
+      await d1Batch(database,[auditOperation(organizationId,authorization.actor,'PAYMENT_BLOCKED_BY_FRAUD',
+        JSON.stringify({code:actorFraud.code,blockId:actorFraud.blockId,blockType:actorFraud.blockType}), 'SECURITY-ACTOR')]);
+      return secureJson({
+        error:'Aksi pembayaran diblokir oleh kontrol fraud.',
+        code:actorFraud.code || 'PAYMENT_FRAUD_BLOCKED',
+      },403,request,env,METHODS);
+    }
+
     const body = await readBody(request);
     const paymentInstructionId = String(body.paymentInstructionId || '').trim();
     const paymentMethod = String(body.paymentMethod || '').trim().slice(0, 60);
@@ -301,6 +313,27 @@ export async function onRequest(context) {
 
     const idempotencyKey = gatewayIdempotencyKey(payment);
     let transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE idempotency_key=? LIMIT 1', [idempotencyKey]);
+    const financialAction = action === 'EXECUTE' || action === 'RETRY_FAILED';
+    const riskDecision = financialAction
+      ? await paymentLimitDecision(database, organizationId, payment, { isNewExecution:action === 'EXECUTE' && !transaction })
+      : null;
+    if (riskDecision?.blocked) {
+      await d1Batch(database,[auditOperation(organizationId,authorization.actor,'PAYMENT_BLOCKED_BY_LIMIT',
+        JSON.stringify(riskDecision),payment.id)]);
+      return secureJson({
+        error:'Payment diblokir karena melewati security transaction limit.',
+        code:riskDecision.code,
+        risk:riskDecision,
+      },409,request,env,METHODS);
+    }
+    if (financialAction && mfaEnforcementMode(runtimeEnv) === 'ENFORCE'
+      && !hasRecentMfa(authorization.actor, riskDecision?.limits?.stepUpWindowSeconds || 600)) {
+      return secureJson({
+        error:'Verifikasi MFA terbaru diperlukan sebelum approval/eksekusi pembayaran.',
+        code:'MFA_STEP_UP_REQUIRED',
+        stepUpWindowSeconds:riskDecision?.limits?.stepUpWindowSeconds || 600,
+      },428,request,env,METHODS);
+    }
     if (transaction && transaction.provider !== readiness.provider) {
       return secureJson({ error: 'Provider gateway berbeda dari execution ledger yang sudah ada', code: 'PAYMENT_GATEWAY_PROVIDER_MISMATCH' }, 409, request, env, METHODS);
     }
@@ -397,6 +430,18 @@ export async function onRequest(context) {
     }
 
     const beneficiaries = await beneficiarySnapshot(database, payment.id, runtimeEnv.PI_ENCRYPTION_KEY);
+    if (financialAction) {
+      const beneficiaryFraud = await beneficiaryFraudDecision(database, organizationId, beneficiaries, runtimeEnv);
+      if (beneficiaryFraud.blocked) {
+        await d1Batch(database,[auditOperation(organizationId,authorization.actor,'PAYMENT_BLOCKED_BY_BENEFICIARY_FRAUD',
+          JSON.stringify({code:beneficiaryFraud.code,matches:beneficiaryFraud.matches}),payment.id)]);
+        return secureJson({
+          error:'Payment diblokir karena rekening beneficiary berada pada fraud blocklist.',
+          code:beneficiaryFraud.code,
+          blockedBeneficiaries:beneficiaryFraud.matches.map((item)=>({employeeId:item.employeeId,accountLast4:item.accountLast4})),
+        },409,request,env,METHODS);
+      }
+    }
     const requestHash = await gatewayRequestHash(payment, beneficiaries.map((row) => row.lineHash), paymentMethod);
     if (transaction?.request_hash && transaction.request_hash !== requestHash) {
       return secureJson({
@@ -414,10 +459,16 @@ export async function onRequest(context) {
       try {
         await d1Batch(database, [{
           statement: `INSERT INTO payment_gateway_transactions
-            (id,org_id,client_id,payment_instruction_id,provider,status,amount,currency,payment_method,idempotency_key,request_hash,created_by)
-            VALUES (?,?,?,?,?,'CREATED',?,?,?,?,?,?)`,
+            (id,org_id,client_id,payment_instruction_id,provider,status,amount,currency,payment_method,idempotency_key,request_hash,created_by,
+             actor_user_id,actor_ip_hash,actor_device_hash,mfa_verified_at,risk_decision_json)
+            VALUES (?,?,?,?,?,'CREATED',?,?,?,?,?,?,?,?,?,?,?)`,
           bindings: [transactionId, organizationId, payment.client_id, payment.id, readiness.provider,
-            Number(payment.expected_total), payment.currency || 'IDR', paymentMethod || null, idempotencyKey, requestHash, authorization.actor.email],
+            Number(payment.expected_total), payment.currency || 'IDR', paymentMethod || null, idempotencyKey, requestHash, authorization.actor.email,
+            authorization.actor.id || null,
+            authorization.actor.requestIpHash || authorization.actor.sessionIpHash || null,
+            authorization.actor.requestDeviceHash || authorization.actor.sessionDeviceHash || null,
+            authorization.actor.mfaVerifiedAt || null,
+            riskDecision ? JSON.stringify(riskDecision) : null],
         }]);
       } catch (error) {
         if (!/UNIQUE constraint failed|idx_one_active_gateway_transaction/i.test(String(error?.message || error))) throw error;
