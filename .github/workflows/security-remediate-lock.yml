@@ -30,7 +30,7 @@ jobs:
         run: npm ci
 
       - name: Apply compatible security fixes to lockfile
-        run: npm audit fix --package-lock-only
+        run: npm audit fix --package-lock-only || true
 
       - name: Verify clean install and security audit
         run: |
