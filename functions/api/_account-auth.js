@@ -89,7 +89,7 @@ function cookieValue(request, name) {
   return '';
 }
 
-export async function createSession(database, userId, env) {
+export async function createSession(database, userId, env, options = {}) {
   const token = randomToken(32);
   const tokenHash = await sha256(token);
   const hours = Math.min(Math.max(Number(env.SESSION_HOURS || 8), 1), 168);
@@ -97,8 +97,17 @@ export async function createSession(database, userId, env) {
   await d1Batch(database, [
     { statement: "DELETE FROM app_sessions WHERE julianday(expires_at) <= julianday('now')" },
     {
-      statement: 'INSERT INTO app_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)',
-      bindings: [tokenHash, userId, expiresAt.toISOString()],
+      statement: `INSERT INTO app_sessions
+        (token_hash,user_id,expires_at,mfa_verified_at,ip_hash,device_hash)
+        VALUES (?,?,?,?,?,?)`,
+      bindings: [
+        tokenHash,
+        userId,
+        expiresAt.toISOString(),
+        options.mfaVerifiedAt || null,
+        options.context?.ipHash || null,
+        options.context?.deviceHash || null,
+      ],
     },
   ]);
   return {
@@ -129,7 +138,7 @@ export async function authenticateSession(request, env) {
     },
     {
       statement: `SELECT u.id, u.org_id, u.name, u.email, u.role, u.status, u.must_change_password,
-          u.payment_approver, s.expires_at,
+          u.payment_approver, s.expires_at, s.mfa_verified_at, s.ip_hash, s.device_hash,
           (SELECT json_group_array(client_id) FROM user_client_scopes WHERE user_id=u.id) AS client_ids,
           (SELECT json_group_array(project_id) FROM user_project_scopes WHERE user_id=u.id) AS project_ids
         FROM app_sessions s JOIN app_users u ON u.id=s.user_id
@@ -151,6 +160,9 @@ export async function authenticateSession(request, env) {
     role: user.role,
     mustChangePassword: Boolean(user.must_change_password),
     paymentApprover: Boolean(user.payment_approver),
+    mfaVerifiedAt: user.mfa_verified_at || null,
+    sessionIpHash: user.ip_hash || null,
+    sessionDeviceHash: user.device_hash || null,
     clientIds: parseIds(user.client_ids),
     projectIds: parseIds(user.project_ids),
     authSource: 'd1',
