@@ -138,3 +138,24 @@ test('P0 production cutover uses secret-backed credentials and valid migration s
   const checked=spawnSync(process.execPath,['--check',fileURLToPath(scriptUrl)],{encoding:'utf8'});
   assert.equal(checked.status,0,checked.stderr||checked.stdout);
 });
+
+
+test('P0 production config enforces MFA and verifies first backup evidence',async()=>{
+  const prepare=await readFile(new URL('../scripts/prepare-pages-config.mjs',import.meta.url),'utf8');
+  const deploy=await readFile(new URL('../.github/workflows/cloudflare-deploy.yml',import.meta.url),'utf8');
+  const backup=await readFile(new URL('../.github/workflows/security-backup.yml',import.meta.url),'utf8');
+  const verifyUrl=new URL('../scripts/verify-production-mfa.mjs',import.meta.url);
+  const verify=await readFile(verifyUrl,'utf8');
+
+  assert.match(prepare,/SECURITY_MFA_ENFORCEMENT:\s*'ENFORCE'/);
+  assert.match(prepare,/API_MONITOR_RETENTION_DAYS:\s*'180'/);
+  assert.match(deploy,/verify-production-mfa\.mjs/);
+  assert.match(deploy,/secrets\.PROQPAY_UAT_EMAIL/);
+  assert.match(deploy,/secrets\.PROQPAY_UAT_PASSWORD/);
+  assert.match(verify,/MFA_ENROLLMENT_REQUIRED/);
+  assert.match(verify,/MFA_REQUIRED/);
+  assert.match(backup,/push:/);
+  assert.match(backup,/schedule:/);
+  const checked=spawnSync(process.execPath,['--check',fileURLToPath(verifyUrl)],{encoding:'utf8'});
+  assert.equal(checked.status,0,checked.stderr||checked.stdout);
+});
