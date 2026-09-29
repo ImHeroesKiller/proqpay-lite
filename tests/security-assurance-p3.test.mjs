@@ -36,6 +36,7 @@ test('P3 final assurance gate passes only with current technical and independent
     {name:'Security Audit Integrity Checkpoint',conclusion:'success',updatedAt:isoOffset(-0.2)},
     {name:'Production Security Uptime Monitor',conclusion:'success',updatedAt:isoOffset(-0.01)},
     {name:'Security DAST Baseline',conclusion:'success',updatedAt:isoOffset(-1)},
+    {name:'Security Quarterly Restore Assurance',conclusion:'success',updatedAt:isoOffset(-30)},
     {name:'Cloudflare Pages Production Deploy',conclusion:'success',updatedAt:isoOffset(-1)},
   ]}));
   await writeFile(x.pentest,JSON.stringify({
@@ -72,6 +73,7 @@ test('P3 final assurance gate refuses to self-certify missing pentest and tablet
     {name:'Security Audit Integrity Checkpoint',conclusion:'success',updatedAt:isoOffset(-0.2)},
     {name:'Production Security Uptime Monitor',conclusion:'success',updatedAt:isoOffset(-0.01)},
     {name:'Security DAST Baseline',conclusion:'success',updatedAt:isoOffset(-1)},
+    {name:'Security Quarterly Restore Assurance',conclusion:'success',updatedAt:isoOffset(-30)},
     {name:'Cloudflare Pages Production Deploy',conclusion:'success',updatedAt:isoOffset(-1)},
   ]}));
   await writeFile(x.pentest,'{}');
