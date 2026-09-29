@@ -3,6 +3,9 @@ import {
 } from './_account-auth.js';
 import { d1First, d1Run, hasD1 } from './_d1.js';
 import { enforceRateLimit, handlePreflight, secureJson } from './_security.js';
+import { actorFraudDecision } from './_fraud-controls.js';
+import { readUserMfa, verifyUserMfa } from './_mfa.js';
+import { isCriticalMfaRole, mfaEnforcementMode, requestSecurityContext } from './_security-context.js';
 
 const METHODS = 'POST, OPTIONS';
 
@@ -45,7 +48,60 @@ export async function onRequest({ request, env }) {
     return secureJson({ error: 'Email atau password tidak valid' }, 401, request, env, METHODS);
   }
 
-  const session = await createSession(env.DB, user.id, env);
+  const context = await requestSecurityContext(request, env).catch(() => ({ ipHash:null, deviceHash:null }));
+  const fraud = await actorFraudDecision(env.DB, String(user.org_id || env.DEFAULT_ORG_ID || 'ORG-OTSINDO'), {
+    id:user.id,
+    email:user.email,
+    requestIpHash:context.ipHash,
+    requestDeviceHash:context.deviceHash,
+  }, env);
+  if (fraud.blocked) {
+    await d1Run(env.DB, `INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id,ip_hash,device_hash)
+      VALUES(?,?,?,?,? ,?,'app_user',?,?,?)`, [
+      `AUD-${crypto.randomUUID()}`,
+      String(user.org_id || env.DEFAULT_ORG_ID || 'ORG-OTSINDO'),
+      user.email,
+      user.role,
+      'SECURITY_LOGIN_BLOCKED_FRAUD',
+      JSON.stringify({ code:fraud.code, blockId:fraud.blockId, blockType:fraud.blockType }),
+      user.id,
+      context.ipHash || null,
+      context.deviceHash || null,
+    ]);
+    return secureJson({ error:'Akses diblokir oleh kontrol keamanan. Hubungi administrator.', code:'SECURITY_FRAUD_BLOCKED' }, 403, request, env, METHODS);
+  }
+
+  const mfa = await readUserMfa(env.DB, user.id);
+  const mfaRequired = Boolean(user.mfa_required) || isCriticalMfaRole(user.role);
+  const enforceMfa = mfaEnforcementMode(env) === 'ENFORCE' && mfaRequired;
+  const mfaCode = String(body.mfaCode || body.otp || '').replace(/\D/g, '').slice(0, 6);
+  let mfaVerifiedAt = null;
+
+  if (enforceMfa && mfa?.status !== 'ACTIVE') {
+    return secureJson({
+      error:'MFA wajib diaktifkan untuk role ini sebelum login.',
+      code:'MFA_ENROLLMENT_REQUIRED',
+      mfaRequired:true,
+    }, 428, request, env, METHODS);
+  }
+  if (enforceMfa && !mfaCode) {
+    return secureJson({
+      error:'Masukkan kode MFA 6 digit.',
+      code:'MFA_REQUIRED',
+      mfaRequired:true,
+    }, 428, request, env, METHODS);
+  }
+  if (mfaCode && mfa?.status === 'ACTIVE') {
+    const verified = await verifyUserMfa(env.DB, env, user.id, mfaCode);
+    if (!verified.ok) {
+      return secureJson({ error:'Kode MFA tidak valid.', code:'MFA_CODE_INVALID' }, 401, request, env, METHODS);
+    }
+    mfaVerifiedAt = new Date().toISOString();
+  } else if (enforceMfa) {
+    return secureJson({ error:'MFA belum terverifikasi.', code:'MFA_REQUIRED' }, 428, request, env, METHODS);
+  }
+
+  const session = await createSession(env.DB, user.id, env, { context, mfaVerifiedAt });
   await d1Run(env.DB, `UPDATE app_users SET last_login_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
     failed_login_attempts=0, locked_until=NULL, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, [user.id]);
   return secureJson({
@@ -53,6 +109,10 @@ export async function onRequest({ request, env }) {
     user: {
       id: user.id, name: user.name, email: user.email, role: user.role,
       mustChangePassword: Boolean(user.must_change_password),
+      mfaRequired,
+      mfaActive:mfa?.status === 'ACTIVE',
+      mfaVerified:Boolean(mfaVerifiedAt),
     },
+    security:{ mfaMode:mfaEnforcementMode(env) },
   }, 200, request, env, METHODS, { 'Set-Cookie': session.cookie });
 }
