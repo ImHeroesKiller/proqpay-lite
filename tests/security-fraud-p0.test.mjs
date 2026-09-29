@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { createSession } from '../functions/api/_account-auth.js';
@@ -120,4 +122,19 @@ test('P0 code contract enforces MFA step-up, 180-day retention and verified dail
   assert.match(login,/MFA_ENROLLMENT_REQUIRED/);
   assert.match(authUi,/ENROLL_ACTIVATE/);
   assert.match(authUi,/one-time-code/);
+});
+
+
+test('P0 production cutover uses secret-backed credentials and valid migration script',async()=>{
+  const workflow=await readFile(new URL('../.github/workflows/security-production-cutover.yml',import.meta.url),'utf8');
+  const scriptUrl=new URL('../scripts/security-production-cutover.mjs',import.meta.url);
+  const script=await readFile(scriptUrl,'utf8');
+  assert.match(workflow,/secrets\.PROQPAY_UAT_EMAIL/);
+  assert.match(workflow,/secrets\.PROQPAY_UAT_PASSWORD/);
+  assert.match(workflow,/security-production-cutover\.mjs/);
+  assert.match(script,/ENCRYPT LEGACY BANK ACCOUNTS/);
+  assert.match(script,/legacyPlaintext/);
+  assert.doesNotMatch(script,/console\.log\([^\n]*password/i);
+  const checked=spawnSync(process.execPath,['--check',fileURLToPath(scriptUrl)],{encoding:'utf8'});
+  assert.equal(checked.status,0,checked.stderr||checked.stdout);
 });
