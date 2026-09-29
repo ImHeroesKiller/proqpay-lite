@@ -1,0 +1,48 @@
+name: Security Operations Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vulnerability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
+  production-health:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify production availability and security headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=https://proqpay-lite.pages.dev
+          for attempt in 1 2 3; do
+            code=$(curl -sS -o /tmp/health.json -D /tmp/headers.txt -w "%{http_code}" --max-time 15 "$base/api/health" || true)
+            if [ "$code" = "200" ] && node -e "const x=require('/tmp/health.json');if(x.ready!==true||x.database!=='d1')process.exit(1)"; then
+              grep -qi '^strict-transport-security:' /tmp/headers.txt
+              grep -qi '^x-content-type-options:[[:space:]]*nosniff' /tmp/headers.txt
+              exit 0
+            fi
+            sleep 10
+          done
+          cat /tmp/health.json 2>/dev/null || true
+          exit 1
