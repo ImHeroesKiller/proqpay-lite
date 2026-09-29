@@ -1,0 +1,57 @@
+name: Security Annual Tabletop Exercise
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-tabletop.yml'
+      - 'docs/security/TABLETOP_EXERCISE.md'
+  schedule:
+    - cron: "0 2 15 1 *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  require-tabletop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open or refresh annual tabletop exercise
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const year=new Date().getUTCFullYear();
+            const title=`SECURITY P3: annual incident-response tabletop ${year}`;
+            const {data}=await github.rest.issues.listForRepo({
+              owner:context.repo.owner,repo:context.repo.repo,state:'all',per_page:100
+            });
+            const existing=data.find((issue)=>issue.title===title);
+            const body=[
+              'Human security tabletop evidence is required for P3 final assurance.',
+              '',
+              'Scenario packet: docs/security/TABLETOP_EXERCISE.md',
+              '',
+              'Minimum closure evidence:',
+              '- at least 2 participants representing technical and business/operations ownership;',
+              '- timeline of detection, containment, evidence preservation, payment decision and recovery;',
+              '- action items with owner and due date;',
+              '- SHA-256 of the approved exercise record;',
+              '- attestation loaded into the P3 final assurance secret after approval.',
+              '',
+              'Do not place customer data, credentials, or private investigation material in this issue.'
+            ].join('\n');
+            if(existing){
+              if(existing.state==='closed'){
+                await github.rest.issues.update({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,state:'open'});
+              }
+              await github.rest.issues.createComment({
+                owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,
+                body:`Annual tabletop reminder refreshed at ${new Date().toISOString()}.`
+              });
+            }else{
+              await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body,labels:['security']}).catch(async()=>{
+                await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body});
+              });
+            }
