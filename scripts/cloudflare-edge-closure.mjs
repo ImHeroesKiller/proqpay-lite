@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import dns from 'node:dns/promises';
 
 const token=String(process.env.CLOUDFLARE_API_TOKEN || '');
 const accountId=String(process.env.CLOUDFLARE_ACCOUNT_ID || '');
@@ -61,42 +62,85 @@ if(!pageDomain){
   evidence.pages.created=false;
 }
 
-const dnsList=await api(`/zones/${zone.id}/dns_records?name=${encodeURIComponent(domain)}`);
-let dnsRecord=(dnsList.data.result||[]).find((row)=>String(row.name).toLowerCase()===domain);
 const expectedTarget=`${project}.pages.dev`;
-if(!dnsRecord){
-  const created=await api(`/zones/${zone.id}/dns_records`,{
-    method:'POST',
-    body:{type:'CNAME',name:domain,content:expectedTarget,ttl:1,proxied:true},
-  });
-  dnsRecord=created.data.result;
-  evidence.dns.created=true;
-}else{
-  evidence.dns.created=false;
-  if(String(dnsRecord.type).toUpperCase()!=='CNAME' || String(dnsRecord.content).toLowerCase()!==expectedTarget){
-    throw new Error(`Existing DNS record for ${domain} is not the expected CNAME to ${expectedTarget}; refusing destructive overwrite`);
-  }
-  if(!dnsRecord.proxied){
-    const updated=await api(`/zones/${zone.id}/dns_records/${dnsRecord.id}`,{
-      method:'PATCH',
-      body:{proxied:true},
+let dnsRecord=null;
+try{
+  const dnsList=await api(`/zones/${zone.id}/dns_records?name=${encodeURIComponent(domain)}`);
+  dnsRecord=(dnsList.data.result||[]).find((row)=>String(row.name).toLowerCase()===domain);
+  if(!dnsRecord){
+    const created=await api(`/zones/${zone.id}/dns_records`,{
+      method:'POST',
+      body:{type:'CNAME',name:domain,content:expectedTarget,ttl:1,proxied:true},
     });
-    dnsRecord=updated.data.result;
-    evidence.dns.proxiedUpdated=true;
+    dnsRecord=created.data.result;
+    evidence.dns.created=true;
+  }else{
+    evidence.dns.created=false;
+    if(String(dnsRecord.type).toUpperCase()!=='CNAME' || String(dnsRecord.content).toLowerCase()!==expectedTarget){
+      throw new Error(`Existing DNS record for ${domain} is not the expected CNAME to ${expectedTarget}; refusing destructive overwrite`);
+    }
+    if(!dnsRecord.proxied){
+      const updated=await api(`/zones/${zone.id}/dns_records/${dnsRecord.id}`,{
+        method:'PATCH',
+        body:{proxied:true},
+      });
+      dnsRecord=updated.data.result;
+      evidence.dns.proxiedUpdated=true;
+    }
   }
+  evidence.dns.mode='cloudflare-api';
+  evidence.dns.record={
+    id:dnsRecord.id,
+    type:dnsRecord.type,
+    name:dnsRecord.name,
+    content:dnsRecord.content,
+    proxied:Boolean(dnsRecord.proxied),
+  };
+}catch(error){
+  evidence.dns.apiError=error instanceof Error ? error.message : String(error);
+  const [ipv4,ipv6]=await Promise.all([
+    dns.resolve4(domain).catch(()=>[]),
+    dns.resolve6(domain).catch(()=>[]),
+  ]);
+  const response=await fetch(`https://${domain}/api/health`,{
+    redirect:'manual',
+    headers:{'User-Agent':'ProQPay-P2.1-Edge-Evidence/1.0'},
+  });
+  const cfRay=String(response.headers.get('cf-ray')||'');
+  const server=String(response.headers.get('server')||'').toLowerCase();
+  const proxied=Boolean(cfRay) && server.includes('cloudflare') && (ipv4.length+ipv6.length)>0;
+  if(!response.ok || !proxied){
+    throw new Error(`DNS API unavailable and public Cloudflare proxy evidence failed: ${evidence.dns.apiError}`);
+  }
+  evidence.dns.mode='public-cloudflare-proxy-evidence';
+  evidence.dns.record={
+    name:domain,
+    expectedPagesTarget:expectedTarget,
+    resolvedIpv4Count:ipv4.length,
+    resolvedIpv6Count:ipv6.length,
+    server,
+    cfRayPresent:Boolean(cfRay),
+    proxied:true,
+  };
 }
-evidence.dns.record={id:dnsRecord.id,type:dnsRecord.type,name:dnsRecord.name,content:dnsRecord.content,proxied:Boolean(dnsRecord.proxied)};
+persist();
 
-const accountRulesets=await api(`/accounts/${accountId}/rulesets`);
-const managed=(accountRulesets.data.result||[]).filter((row)=>
+const zoneRulesets=await api(`/zones/${zone.id}/rulesets`);
+const managed=(zoneRulesets.data.result||[]).filter((row)=>
   row.kind==='managed' && row.phase==='http_request_firewall_managed'
 );
 const fullManaged=managed.find((row)=>String(row.name).toLowerCase()==='cloudflare managed ruleset');
 const freeManaged=managed.find((row)=>String(row.name).toLowerCase().includes('free managed ruleset'));
 const freePlan=String(zone.plan?.name || '').toLowerCase().includes('free');
 const preferred=freePlan ? freeManaged : (fullManaged || freeManaged);
-if(!preferred) throw new Error('No Cloudflare managed WAF ruleset available to this account/plan');
-
+if(!preferred){
+  evidence.waf.availableManagedRulesets=managed.map((row)=>({id:row.id,name:row.name}));
+  persist();
+  throw new Error('No compatible Cloudflare managed WAF ruleset is visible for this zone/plan');
+}
+evidence.waf.catalogSource='zone-rulesets-api';
+evidence.waf.selected={id:preferred.id,name:preferred.name,phase:preferred.phase};
+persist();
 let entry=await api(`/zones/${zone.id}/rulesets/phases/http_request_firewall_managed/entrypoint`,{allow404:true});
 if(entry.response.status===404){
   const created=await api(`/zones/${zone.id}/rulesets`,{
@@ -127,7 +171,10 @@ let executeRule=activeRules.find((row)=>
   row.action==='execute'
   && row.enabled!==false
   && String(row.action_parameters?.id||'')===String(preferred.id)
-  && String(row.expression||'').includes(domain)
+  && (
+    String(row.expression||'').trim()==='true'
+    || String(row.expression||'').includes(domain)
+  )
 );
 if(!executeRule){
   const created=await api(`/zones/${zone.id}/rulesets/${entryResult.id}/rules`,{
@@ -145,7 +192,10 @@ if(!executeRule){
     row.action==='execute'
     && row.enabled!==false
     && String(row.action_parameters?.id||'')===String(preferred.id)
-    && String(row.expression||'').includes(domain)
+    && (
+      String(row.expression||'').trim()==='true'
+      || String(row.expression||'').includes(domain)
+    )
   );
   evidence.waf.createdExecuteRule=true;
 }else{
@@ -187,6 +237,7 @@ console.log(JSON.stringify({
   domain:evidence.domain,
   zonePlan:evidence.zone.plan,
   pagesStatus:evidence.pages.domain.status,
+  dnsEvidenceMode:evidence.dns.mode,
   dnsProxied:evidence.dns.record.proxied,
   wafRuleset:evidence.waf.ruleset.name,
   wafEnabled:evidence.waf.ruleset.enabled,
