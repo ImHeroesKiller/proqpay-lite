@@ -1,7 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { ACCOUNT_ROLES, authenticateSession, hasActiveAccounts } from './_account-auth.js';
 import { permissionsForRole } from '../../shared/authority-matrix.js';
-import { requestSecurityContext } from './_security-context.js';
+import { protectedHash, requestSecurityContext, sha256Hex } from './_security-context.js';
 
 export const ROLES = ACCOUNT_ROLES;
 
@@ -250,17 +250,63 @@ export async function authorize(
   return { actor };
 }
 
+function rateLimitPerMinute(resource, env = {}) {
+  const configured = Number(env.API_RATE_LIMIT_PER_MINUTE || 0);
+  if (Number.isFinite(configured) && configured > 0) return Math.min(Math.max(Math.trunc(configured), 5), 5000);
+  if (resource === 'account-login') return 10;
+  if (String(resource || '').startsWith('security-')) return 60;
+  if (resource === 'audit-logs') return 120;
+  return 180;
+}
+
 export async function enforceRateLimit(request, env, actor, resource, methods) {
-  if (!env.API_RATE_LIMITER?.limit) return null;
   const stableActor =
     actor?.id ||
     actor?.email ||
     request.headers.get('Cf-Connecting-Ip') ||
     'anonymous';
-  const { success } = await env.API_RATE_LIMITER.limit({
-    key: `${stableActor}:${resource}`,
-  });
-  if (success) return null;
+
+  if (env.API_RATE_LIMITER?.limit) {
+    const { success } = await env.API_RATE_LIMITER.limit({
+      key: `${stableActor}:${resource}`,
+    });
+    if (success) return null;
+    return secureJson(
+      { error: 'Too many requests' },
+      429,
+      request,
+      env,
+      methods,
+      { 'Retry-After': '60' }
+    );
+  }
+
+  if (!env.DB?.prepare || String(env.SECURITY_D1_RATE_LIMIT_FALLBACK || 'ENFORCE').toUpperCase() === 'OFF') {
+    return null;
+  }
+
+  const rawKey = `${stableActor}:${resource}`;
+  const rateKey = await protectedHash(rawKey, env, 'RATE_LIMIT') || await sha256Hex(rawKey);
+  const windowEpoch = Math.floor(Date.now() / 60_000);
+  const limit = rateLimitPerMinute(resource, env);
+
+  await env.DB.prepare(`INSERT INTO security_rate_limits(rate_key,window_epoch,request_count,updated_at)
+    VALUES(?,?,1,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ON CONFLICT(rate_key,window_epoch) DO UPDATE SET
+      request_count=request_count+1,
+      updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`)
+    .bind(rateKey,windowEpoch).run();
+
+  const row = await env.DB.prepare(
+    'SELECT request_count FROM security_rate_limits WHERE rate_key=? AND window_epoch=?'
+  ).bind(rateKey,windowEpoch).first();
+
+  if (Number(row?.request_count || 0) === 1) {
+    await env.DB.prepare('DELETE FROM security_rate_limits WHERE window_epoch<?')
+      .bind(windowEpoch - 1440).run().catch(() => null);
+  }
+
+  if (Number(row?.request_count || 0) <= limit) return null;
   return secureJson(
     { error: 'Too many requests' },
     429,

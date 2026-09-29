@@ -1,0 +1,117 @@
+name: Security Audit Integrity Checkpoint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-audit-integrity.yml'
+      - 'scripts/security-audit-checkpoint.mjs'
+      - 'migrations/0049_security_defense_in_depth.sql'
+  schedule:
+    - cron: "41 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: proqpay-security-audit-integrity
+  cancel-in-progress: false
+
+jobs:
+  checkpoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      SECURITY_ALERT_WEBHOOK_URL: ${{ secrets.SECURITY_ALERT_WEBHOOK_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Verify Cloudflare credentials
+        shell: bash
+        run: |
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is missing"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
+          npx wrangler whoami
+
+      - name: Wait for P2 checkpoint schema
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if npx wrangler d1 execute proqpay-lite-production --remote               --command="SELECT checkpoint_date FROM security_audit_checkpoints LIMIT 1"               --json >/tmp/schema-check.json 2>/tmp/schema-check.err; then
+              exit 0
+            fi
+            echo "Checkpoint schema not ready yet (${attempt}/30)"
+            sleep 20
+          done
+          cat /tmp/schema-check.err || true
+          exit 1
+
+      - name: Read sealed audit window
+        shell: bash
+        run: |
+          npx wrangler d1 execute proqpay-lite-production --remote --command="SELECT id,timestamp,username,role,action,detail,entity,entity_id,correlation_id,ip_hash,device_hash,security_context_json FROM audit_logs WHERE timestamp>=datetime('now','-8 days') AND timestamp<date('now') ORDER BY timestamp,id" --json > /tmp/audit-rows.json
+          npx wrangler d1 execute proqpay-lite-production --remote --command="SELECT checkpoint_date,row_count,content_sha256 FROM security_audit_checkpoints WHERE checkpoint_date>=date('now','-8 days') AND checkpoint_date<date('now') ORDER BY checkpoint_date" --json > /tmp/audit-checkpoints.json
+
+      - name: Verify history and build checkpoint
+        run: node scripts/security-audit-checkpoint.mjs /tmp/audit-rows.json /tmp/audit-checkpoints.json /tmp/proqpay-audit-integrity.json /tmp/proqpay-audit-checkpoint.sql
+
+      - name: Seal or verify previous UTC day
+        run: npx wrangler d1 execute proqpay-lite-production --remote --file=/tmp/proqpay-audit-checkpoint.sql
+
+      - name: Preserve independent integrity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proqpay-audit-integrity-${{ github.run_id }}
+          path: /tmp/proqpay-audit-integrity.json
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Open or update audit-integrity incident
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title='SECURITY: audit integrity verification failed';
+            const {data}=await github.rest.issues.listForRepo({
+              owner:context.repo.owner,repo:context.repo.repo,state:'open',per_page:100
+            });
+            const existing=data.find((issue)=>issue.title===title);
+            const body=[
+              'Automated ProQPay audit-integrity verification failed.',
+              '',
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'Treat as a security incident until database integrity and authorized change history are verified.'
+            ].join('\n');
+            if(existing){
+              await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,body});
+            }else{
+              await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body,labels:['security']}).catch(async()=>{
+                await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body});
+              });
+            }
+
+      - name: Send optional external integrity alert
+        if: failure()
+        shell: bash
+        run: |
+          if [ -n "${SECURITY_ALERT_WEBHOOK_URL:-}" ]; then
+            payload='{"text":"ProQPay audit integrity verification failed. Treat as a security incident and review GitHub Actions evidence."}'
+            curl --fail --silent --show-error --max-time 15 -H 'Content-Type: application/json' -d "$payload" "$SECURITY_ALERT_WEBHOOK_URL"
+          fi
