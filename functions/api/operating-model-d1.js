@@ -4,6 +4,8 @@ import { handlePreflight, publicError, secureJson } from './_security.js';
 import { canTransition, resolveTierTransition, validateOperatingAction } from './operating-model-validation.js';
 import { canonicalBankCode, decryptAccountNumber, encryptAccountNumber, instructionContentHash, sha256Hex } from './payment-instruction-core.js';
 import { activeEmployeeSql } from './_employee-status.js';
+import { actorFraudDecision, paymentLimitDecision } from './_fraud-controls.js';
+import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const PROCESSOR_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
@@ -1540,12 +1542,27 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (actor.role !== 'PAYROLL_CONTROLLER' || !actor.permissions?.includes('payment:approve')) {
       return { status: 403, data: { error: 'Hanya Payroll Controller dengan izin payment:approve yang dapat approve PI', code:'PAYMENT_APPROVE_PERMISSION_REQUIRED' } };
     }
+    const actorFraud = await actorFraudDecision(database, organizationId, actor, env);
+    if (actorFraud.blocked) {
+      return { status:403, data:{ error:'Approval payment diblokir oleh kontrol fraud', code:actorFraud.code || 'PAYMENT_FRAUD_BLOCKED' } };
+    }
     const payment = await d1First(database, `SELECT pi.*,s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,
       COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total,
       COALESCE((SELECT COUNT(*) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_count
       FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
       WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
     if (!payment) return { status: 404, data: { error: 'Payment instruction not found' } };
+    const approvalRisk = await paymentLimitDecision(database, organizationId, payment, { isNewExecution:false });
+    if (approvalRisk.blocked) {
+      return { status:409, data:{ error:'Approval payment diblokir oleh security transaction limit', code:approvalRisk.code, risk:approvalRisk } };
+    }
+    if (mfaEnforcementMode(env) === 'ENFORCE' && !hasRecentMfa(actor, approvalRisk.limits.stepUpWindowSeconds)) {
+      return { status:428, data:{
+        error:'Verifikasi MFA terbaru diperlukan sebelum approval payment.',
+        code:'MFA_STEP_UP_REQUIRED',
+        stepUpWindowSeconds:approvalRisk.limits.stepUpWindowSeconds,
+      } };
+    }
     if (payment.status !== 'PAYMENT_APPROVAL_PENDING') return { status:409, data:{ error:'PI belum disubmit atau tidak lagi menunggu approval' } };
     if (String(payment.creator_user_id) === String(actor.id)) return { status: 409, data: { error: 'Maker cannot approve the same payment instruction' } };
     if (Number(payment.instruction_total) !== Number(payment.expected_total)) return { status: 409, data: { error: 'Payment total mismatch blocks approval', code:'PI_CONTROL_TOTAL_MISMATCH' } };
@@ -1602,8 +1619,17 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (existing) return { data: { ok: true, approval: existing, idempotentReplay: true } };
     const approvalId = `PA-${crypto.randomUUID()}`;
     await d1Batch(database, [
-      { statement: `INSERT INTO payment_approvals (id,payment_instruction_id,approver_user_id,status,action_hash)
-        VALUES (?,?,?,'APPROVED',?)`, bindings: [approvalId, payment.id, actor.id, body.actionHash] },
+      { statement: `INSERT INTO payment_approvals
+        (id,payment_instruction_id,approver_user_id,status,action_hash,ip_hash,device_hash,mfa_verified_at)
+        VALUES (?,?,?,'APPROVED',?,?,?,?)`, bindings: [
+          approvalId,
+          payment.id,
+          actor.id,
+          body.actionHash,
+          actor.requestIpHash || actor.sessionIpHash || null,
+          actor.requestDeviceHash || actor.sessionDeviceHash || null,
+          actor.mfaVerifiedAt || null,
+        ] },
       { statement: `UPDATE payment_instructions SET status='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=? AND status='PAYMENT_APPROVAL_PENDING'`, bindings: [payment.id] },
       { statement: `UPDATE payroll_submissions SET state='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=? AND state='PAYMENT_APPROVAL_PENDING'`, bindings: [payment.submission_id] },
       auditOperation(organizationId, actor, 'PAYMENT_APPROVED', `Maker-checker approval passed · ${payment.recipient_count} recipients · ${serverHash}`, 'payment_instruction', payment.id),
