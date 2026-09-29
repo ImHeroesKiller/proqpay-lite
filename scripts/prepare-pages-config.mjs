@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 
 const databaseId = String(process.argv[2] || '').trim();
+const customDomain = String(process.env.PROQPAY_CUSTOM_DOMAIN || 'proqpay.msg-os.com').trim().toLowerCase();
+const canonicalOrigin = `https://${customDomain}`;
 if (!/^[0-9a-f-]{36}$/i.test(databaseId)) throw new Error('D1 database ID tidak valid');
 
 const candidates = ['wrangler.jsonc', 'wrangler.json'];
@@ -88,8 +90,14 @@ config.vars = {
   DATA_BACKEND: 'd1',
   AUTH_MODE: 'session',
   SECURITY_MFA_ENFORCEMENT: 'ENFORCE',
+  SECURITY_PASSKEY_ENFORCEMENT: 'ENFORCE',
   SECURITY_SESSION_DEVICE_MODE: 'ENFORCE_CRITICAL',
   SECURITY_D1_RATE_LIMIT_FALLBACK: 'ENFORCE',
+  WEBAUTHN_RP_ID: customDomain,
+  WEBAUTHN_RP_NAME: 'ProQPay',
+  WEBAUTHN_ORIGINS: canonicalOrigin,
+  CANONICAL_ORIGIN: canonicalOrigin,
+  APP_ORIGINS: `${canonicalOrigin},https://proqpay-lite.pages.dev`,
   API_MONITOR_RETENTION_DAYS: '180',
   EMPLOYEE_SESSION_HOURS: String(config.vars?.EMPLOYEE_SESSION_HOURS || '12'),
   EMPLOYEE_PORTAL_ORIGINS: String(
