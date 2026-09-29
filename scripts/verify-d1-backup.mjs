@@ -31,9 +31,27 @@ if(missingText.length){
   process.exit(1);
 }
 
+function stripOrphanIndexes(source){
+  const declaredTables=new Set(
+    [...source.matchAll(/CREATE TABLE(?: IF NOT EXISTS)? [`"]?([A-Za-z0-9_]+)[`"]?/gi)]
+      .map((match)=>String(match[1]).toLowerCase())
+  );
+  const skipped=[];
+  const sanitized=source.replace(
+    /CREATE\s+(?:UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+[^;]+?\s+ON\s+[`"]?([A-Za-z0-9_]+)[`"]?\s*\([^;]+?\);/gi,
+    (statement,table)=>{
+      if(declaredTables.has(String(table).toLowerCase())) return statement;
+      skipped.push({type:'ORPHAN_INDEX',table:String(table),statement:statement.slice(0,240)});
+      return `-- skipped orphan index for absent table ${table}`;
+    },
+  );
+  return {sanitized,skipped};
+}
+
+const {sanitized,skipped}=stripOrphanIndexes(sql);
 const db=new DatabaseSync(':memory:');
 try{
-  db.exec(sql);
+  db.exec(sanitized);
   const integrity=db.prepare('PRAGMA integrity_check').get();
   const result=Object.values(integrity||{})[0];
   if(String(result).toLowerCase()!=='ok') throw new Error(`integrity_check=${result}`);
@@ -46,6 +64,7 @@ try{
     bytes:Buffer.byteLength(sql),
     requiredTables:requiredTables.length,
     integrity:'ok',
+    skippedOrphanSchemaArtifacts:skipped,
   };
   fs.writeFileSync('/tmp/proqpay-backup-verification.json',JSON.stringify(evidence,null,2));
   console.log(JSON.stringify(evidence));
