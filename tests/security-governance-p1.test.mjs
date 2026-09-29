@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -75,5 +77,40 @@ test('P1 security incident modules parse as valid JavaScript',()=>{
     const url=new URL(relative,import.meta.url);
     const checked=spawnSync(process.execPath,['--check',fileURLToPath(url)],{encoding:'utf8'});
     assert.equal(checked.status,0,checked.stderr||checked.stdout);
+  }
+});
+
+
+test('P1 backup verifier does not misclassify UPDATE OF/UPDATE ON trigger syntax as orphan tables',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'proqpay-backup-test-'));
+  const file=join(directory,'export.sql');
+  const required=[
+    'app_users','app_sessions','clients','projects','employees',
+    'employee_bank_accounts','payroll_submissions','payment_instructions',
+    'payment_gateway_transactions','audit_logs',
+  ];
+  const schema=required.map((name)=>`CREATE TABLE ${name}(id TEXT PRIMARY KEY);`).join('\n');
+  const triggers=`
+CREATE TRIGGER audit_update_of
+BEFORE UPDATE OF id ON audit_logs
+BEGIN
+  SELECT RAISE(ABORT, 'immutable');
+END;
+CREATE TRIGGER sessions_update_on
+BEFORE UPDATE ON app_sessions
+BEGIN
+  SELECT RAISE(ABORT, 'immutable');
+END;
+`;
+  await writeFile(file,`${schema}\n${triggers}`,'utf8');
+  try{
+    const script=fileURLToPath(new URL('../scripts/verify-d1-backup.mjs',import.meta.url));
+    const result=spawnSync(process.execPath,[script,file],{encoding:'utf8'});
+    assert.equal(result.status,0,result.stderr||result.stdout);
+    const evidence=JSON.parse(result.stdout.trim());
+    assert.equal(evidence.ok,true);
+    assert.deepEqual(evidence.skippedOrphanSchemaArtifacts,[]);
+  }finally{
+    await rm(directory,{recursive:true,force:true});
   }
 });
