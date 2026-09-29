@@ -1,6 +1,11 @@
 name: Security D1 Backup & Restore Drill
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-backup.yml'
+      - 'scripts/verify-d1-backup.mjs'
   schedule:
     - cron: "17 18 * * *"
   workflow_dispatch:
