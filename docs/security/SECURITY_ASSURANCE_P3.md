@@ -57,6 +57,6 @@ A `PENDING` result is evidence that closure requirements are being enforced. It 
 ## Evidence retention
 
 DAST evidence: 90 days.  
-Quarterly restore assurance: 365 days.  
-Final assurance pack: 365 days.  
+Quarterly restore assurance: 90 days (current repository artifact-retention maximum).  
+Final assurance pack: 90 days (current repository artifact-retention maximum).  
 Full pentest/tabletop records: retained outside Git according to organizational security/legal retention; only approved hashes and minimum metadata enter the CI attestation.

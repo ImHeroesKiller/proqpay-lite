@@ -93,7 +93,7 @@ jobs:
           path: |
             /tmp/proqpay-security-final-assurance.json
             /tmp/security-workflows.json
-          retention-days: 365
+          retention-days: 90
           if-no-files-found: warn
 
       - name: Open or update P3 closure issue
