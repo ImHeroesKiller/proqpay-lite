@@ -1,0 +1,7 @@
+{
+  "exerciseDate": "YYYY-MM-DD",
+  "scenario": "Privileged identity anomaly plus uncertain payroll payment execution",
+  "participantCount": 2,
+  "actionsRecorded": true,
+  "evidenceSha256": "64-lowercase-hex-characters"
+}
