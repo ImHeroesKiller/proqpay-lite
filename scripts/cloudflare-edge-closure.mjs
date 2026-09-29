@@ -93,7 +93,8 @@ const managed=(accountRulesets.data.result||[]).filter((row)=>
 );
 const fullManaged=managed.find((row)=>String(row.name).toLowerCase()==='cloudflare managed ruleset');
 const freeManaged=managed.find((row)=>String(row.name).toLowerCase().includes('free managed ruleset'));
-const preferred=fullManaged || freeManaged;
+const freePlan=String(zone.plan?.name || '').toLowerCase().includes('free');
+const preferred=freePlan ? freeManaged : (fullManaged || freeManaged);
 if(!preferred) throw new Error('No Cloudflare managed WAF ruleset available to this account/plan');
 
 let entry=await api(`/zones/${zone.id}/rulesets/phases/http_request_firewall_managed/entrypoint`,{allow404:true});
