@@ -22,6 +22,8 @@ jobs:
       PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'proqpay-lite' }}
       PROQPAY_UAT_EMAIL: ${{ secrets.PROQPAY_UAT_EMAIL }}
       PROQPAY_UAT_PASSWORD: ${{ secrets.PROQPAY_UAT_PASSWORD }}
+      PROQPAY_CUSTOM_DOMAIN: ${{ vars.PROQPAY_CUSTOM_DOMAIN || 'proqpay.msg-os.com' }}
+      CLOUDFLARE_ZONE_NAME: ${{ vars.CLOUDFLARE_ZONE_NAME || 'msg-os.com' }}
 
     steps:
       - name: Checkout main
@@ -50,6 +52,20 @@ jobs:
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
           npx wrangler whoami
 
+      - name: Close custom domain and WAF controls
+        shell: bash
+        run: node scripts/cloudflare-edge-closure.mjs
+
+      - name: Preserve edge closure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proqpay-edge-closure-${{ github.run_id }}
+          path: /tmp/proqpay-edge-closure.json
+          retention-days: 90
+          if-no-files-found: warn
+
+
       - name: Prepare production Pages and D1 configuration
         shell: bash
         run: |
@@ -66,6 +82,9 @@ jobs:
           grep -q '"binding": "FILES"' wrangler.jsonc
           grep -q '"binding": "AI"' wrangler.jsonc
           grep -q '"SECURITY_MFA_ENFORCEMENT": "ENFORCE"' wrangler.jsonc
+          grep -q '"SECURITY_PASSKEY_ENFORCEMENT": "ENFORCE"' wrangler.jsonc
+          grep -q "\"WEBAUTHN_RP_ID\": \"${PROQPAY_CUSTOM_DOMAIN}\"" wrangler.jsonc
+          grep -q "\"CANONICAL_ORIGIN\": \"https://${PROQPAY_CUSTOM_DOMAIN}\"" wrangler.jsonc
           grep -q '"API_MONITOR_RETENTION_DAYS": "180"' wrangler.jsonc
 
       - name: Validate resumable D1 state
@@ -111,7 +130,7 @@ jobs:
         shell: bash
         run: |
           for attempt in {1..12}; do
-            if curl --fail --silent --show-error https://proqpay-lite.pages.dev/api/health > /tmp/proqpay-health.json; then
+            if curl --fail --silent --show-error https://${PROQPAY_CUSTOM_DOMAIN}/api/health > /tmp/proqpay-health.json; then
               if node -e "const x=require('/tmp/proqpay-health.json'); if(x.ready!==true||x.database!=='d1'||x.auth_mode!=='session') process.exit(1)"; then
                 cat /tmp/proqpay-health.json
                 exit 0
@@ -129,7 +148,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in {1..12}; do
-            if curl --fail --silent --show-error --max-time 20 -D /tmp/root-headers.txt -o /dev/null https://proqpay-lite.pages.dev/               && grep -qi '^content-security-policy:' /tmp/root-headers.txt               && grep -qi "frame-ancestors 'none'" /tmp/root-headers.txt               && grep -qi "object-src 'none'" /tmp/root-headers.txt               && grep -qi '^strict-transport-security:' /tmp/root-headers.txt               && grep -qi '^cross-origin-opener-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^cross-origin-resource-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^x-permitted-cross-domain-policies:[[:space:]]*none' /tmp/root-headers.txt; then
+            if curl --fail --silent --show-error --max-time 20 -D /tmp/root-headers.txt -o /dev/null https://${PROQPAY_CUSTOM_DOMAIN}/               && grep -qi '^content-security-policy:' /tmp/root-headers.txt               && grep -qi "frame-ancestors 'none'" /tmp/root-headers.txt               && grep -qi "object-src 'none'" /tmp/root-headers.txt               && grep -qi '^strict-transport-security:' /tmp/root-headers.txt               && grep -qi '^cross-origin-opener-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^cross-origin-resource-policy:[[:space:]]*same-origin' /tmp/root-headers.txt               && grep -qi '^x-permitted-cross-domain-policies:[[:space:]]*none' /tmp/root-headers.txt; then
               exit 0
             fi
             echo "Security header verification attempt ${attempt}/12 is not ready yet."
@@ -143,11 +162,11 @@ jobs:
         run: |
           test -n "${PROQPAY_UAT_EMAIL:-}" || { echo "PROQPAY_UAT_EMAIL is missing"; exit 1; }
           test -n "${PROQPAY_UAT_PASSWORD:-}" || { echo "PROQPAY_UAT_PASSWORD is missing"; exit 1; }
-          BASE_URL=https://proqpay-lite.pages.dev node scripts/verify-production-mfa.mjs
+          BASE_URL="https://${PROQPAY_CUSTOM_DOMAIN}" node scripts/verify-production-mfa.mjs
 
       - name: Production smoke test
         shell: bash
-        run: node scripts/production-smoke.mjs https://proqpay-lite.pages.dev
+        run: node scripts/production-smoke.mjs "https://${PROQPAY_CUSTOM_DOMAIN}"
 
       - name: Assert Access split (ops ≠ employee portal)
         shell: bash
