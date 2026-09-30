@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -271,17 +271,48 @@ export function ModalShell({
   onClose: () => void;
   className?: string;
 }) {
+  const dialogRef = useRef<HTMLElement>(null);
+
   useEffect(() => {
     if (typeof document === "undefined") return;
     const previousOverflow = document.body.style.overflow;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusFirst = () => {
+      const focusable = dialog?.querySelectorAll<HTMLElement>(focusableSelector);
+      (focusable?.[0] || dialog)?.focus();
+    };
+    requestAnimationFrame(focusFirst);
     document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus();
     };
   }, [onClose]);
 
@@ -290,8 +321,10 @@ export function ModalShell({
     <div className="ui-modal-backdrop" onMouseDown={onClose}>
       <section
         className={`card ui-modal ${className}`.trim()}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         aria-label={typeof title === "string" ? title : undefined}
         onMouseDown={(event) => event.stopPropagation()}
       >
