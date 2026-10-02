@@ -111,12 +111,12 @@ test('Hosted gateway E2E expires stale sessions, retries safely, resumes webhook
   const { pi,makerSession,controllerSession } = await prepareApprovedPi(DB,env);
 
   const makerDenied = await hostedPayment({ request:authed('/api/payment-gateway-hosted',makerSession.token,{
-    method:'POST',body:JSON.stringify({ paymentInstructionId:pi.id,returnPath:'/?view=payments' }),
+    method:'POST',body:JSON.stringify({ paymentInstructionId:pi.id,returnPath:'/?view=payments',payrollPeriod:'2026-09' }),
   }),env });
   assert.equal(makerDenied.status,403,await makerDenied.clone().text());
 
   const firstCreate = await hostedPayment({ request:authed('/api/payment-gateway-hosted',controllerSession.token,{
-    method:'POST',body:JSON.stringify({ paymentInstructionId:pi.id,returnPath:'/?view=payments' }),
+    method:'POST',body:JSON.stringify({ paymentInstructionId:pi.id,returnPath:'/?view=payments',payrollPeriod:'2026-09' }),
   }),env });
   assert.equal(firstCreate.status,201,await firstCreate.clone().text());
   const firstSession = (await firstCreate.json()).session;
@@ -142,7 +142,7 @@ test('Hosted gateway E2E expires stale sessions, retries safely, resumes webhook
   assert.equal(DB.sqlite.prepare('SELECT status FROM payment_gateway_transactions WHERE id=?').get(firstSession.payment_gateway_transaction_id).status,'EXPIRED');
 
   const retryCreate = await hostedPayment({ request:authed('/api/payment-gateway-hosted',controllerSession.token,{
-    method:'POST',body:JSON.stringify({ paymentInstructionId:pi.id,returnPath:'/?view=payments' }),
+    method:'POST',body:JSON.stringify({ paymentInstructionId:pi.id,returnPath:'/?view=payments',payrollPeriod:'2026-09' }),
   }),env });
   assert.equal(retryCreate.status,201,await retryCreate.clone().text());
   const retrySession = (await retryCreate.json()).session;
