@@ -122,7 +122,6 @@ export type E2PaySubAccount = {
   environment:string;
   accountScope:'MASTER'|'SUB_ACCOUNT';
   providerAccountIdMasked?:string|null;
-  providerSubAccountId?:string|null;
   providerSubAccountIdMasked?:string|null;
   accountName?:string|null;
   currency:string;
