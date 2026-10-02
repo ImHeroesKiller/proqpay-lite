@@ -136,3 +136,43 @@ VALUES (
   'Fresh isolated E2Pay UAT dataset created: 5 synthetic employees, total payroll Rp175.000. No PI, payment approval, gateway transaction, or provider payment was pre-created.',
   'payroll_submission','SUB-E2PAY-UAT-FRESH-001'
 );
+
+
+-- P5.4 single-beneficiary canary lane. This deliberately creates payroll evidence only.
+-- PI generation, approval, Process Payment and reconciliation must still run through the normal application authority path.
+INSERT OR IGNORE INTO payroll_submissions (
+  id,org_id,client_id,project_id,service_plan_id,service_tier,period,payment_period,state,created_by,
+  run_type,source_mode,payment_date,input_status,period_status,
+  controller_reviewed_at,controller_reviewed_by,controller_review_note,
+  client_reviewed_at,client_reviewed_by,client_review_note,client_review_decision
+) VALUES (
+  'SUB-E2PAY-UAT-CANARY-001','ORG-OTSINDO','CLI-E2PAY-UAT-FRESH','PRJ-E2PAY-UAT-FRESH',
+  'SP-E2PAY-UAT-FRESH','TIER_1_PAYMENT_PROCESSING','2026-10','2026-10','CLIENT_APPROVED','system:uat-seed',
+  'REGULAR','MASTER_CURRENT','2026-10-31','READY','OPEN',
+  datetime('now'),'uat.controller.seed@proqpay.test','Synthetic payroll review evidence for single-recipient canary; not payment approval.',
+  datetime('now'),'uat.client.seed@proqpay.test','Synthetic client payroll approval for single-recipient E2Pay UAT canary.','APPROVED'
+);
+
+INSERT OR IGNORE INTO payroll_run_lines (
+  id,submission_id,employee_id,employee_code,employee_name,employment_status,bank_name,account_last4,
+  gross_amount,deduction_amount,net_amount,components,source,included,snapshot_hash
+) VALUES (
+  'PRL-E2PAY-UAT-CANARY-001','SUB-E2PAY-UAT-CANARY-001','EMP-E2PAY-UAT-001','E2UAT-001',
+  'Dummy Employee 01','ACTIVE','BCA','0001',15000,0,15000,
+  '{"uat":true,"component":"E2Pay Single Recipient Canary"}','MASTER_CURRENT',1,'UAT-CANARY-SNAPSHOT-001'
+);
+
+INSERT OR IGNORE INTO payroll_bank_snapshots (
+  submission_id,employee_id,bank_name,account_last4,account_fingerprint,captured_at
+) VALUES (
+  'SUB-E2PAY-UAT-CANARY-001','EMP-E2PAY-UAT-001','BCA','0001',
+  'ad80d5580ceae56e56a1bb6980fddc39d4b188969fe1368a2b7141687f8734b0',datetime('now')
+);
+
+INSERT OR IGNORE INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
+VALUES (
+  'AUD-E2PAY-UAT-CANARY-SEED','ORG-OTSINDO','system:uat-seed','SYSTEM',
+  'E2PAY_UAT_CANARY_DATASET_SEEDED',
+  'P5.4 single-beneficiary canary seeded: 1 synthetic recipient, Rp15.000. No PI, approval, gateway transaction, or provider payment pre-created.',
+  'payroll_submission','SUB-E2PAY-UAT-CANARY-001'
+);
