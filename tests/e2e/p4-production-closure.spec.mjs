@@ -145,7 +145,7 @@ async function secureUatLogin(page){
     return {status:response.status,body:await response.json().catch(()=>({}))};
   });
   expect(identity.status).toBe(200);
-  expect(String(identity.body?.role||'')).not.toBe('');
+  expect(String(identity.body?.user?.role||'')).not.toBe('');
   return {identity,secret};
 }
 
@@ -193,7 +193,7 @@ test.describe.serial('P4 production closure regression',()=>{
     });
 
     const {identity}=await secureUatLogin(page);
-    expect(['SUPER_ADMIN','PAYROLL_CONTROLLER']).toContain(String(identity.body?.role||''));
+    expect(['SUPER_ADMIN','PAYROLL_CONTROLLER']).toContain(String(identity.body?.user?.role||''));
 
     const routes=[
       '/?view=dashboard',
