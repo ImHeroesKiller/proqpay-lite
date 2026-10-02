@@ -63,6 +63,27 @@ async function beneficiarySnapshot(database, paymentInstructionId, secret) {
   })));
 }
 
+function paymentPeriodContextError(payment, expectedPeriod) {
+  const expected = String(expectedPeriod || '').trim();
+  const actual = String(payment?.payroll_period || '').trim();
+  if (!expected) {
+    return { status:422, error:'Payroll period context wajib untuk aksi payment gateway', code:'PAYMENT_PERIOD_CONTEXT_REQUIRED' };
+  }
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(expected)) {
+    return { status:422, error:'Payroll period context tidak valid', code:'PAYMENT_PERIOD_CONTEXT_INVALID' };
+  }
+  if (!actual || actual !== expected) {
+    return {
+      status:409,
+      error:`Payment Instruction periode ${actual || 'UNKNOWN'} tidak sesuai workspace periode ${expected}`,
+      code:'PAYMENT_PERIOD_CONTEXT_MISMATCH',
+      expectedPeriod:expected,
+      paymentPeriod:actual || null,
+    };
+  }
+  return null;
+}
+
 function validateInstruction(payment) {
   if (!payment) return { status: 404, error: 'Payment Instruction tidak ditemukan' };
   if (!['APPROVED_FOR_PAYMENT', 'DISBURSEMENT_PROCESSING'].includes(String(payment.status || ''))) {
@@ -256,10 +277,16 @@ export async function onRequest(context) {
 
   try {
     if (request.method === 'GET') {
-      const paymentInstructionId = new URL(request.url).searchParams.get('paymentInstructionId');
+      const url = new URL(request.url);
+      const paymentInstructionId = url.searchParams.get('paymentInstructionId');
+      const expectedPeriod = String(url.searchParams.get('payrollPeriod') || '').trim();
       if (!paymentInstructionId) return secureJson({ ok: true, gateway: readiness }, 200, request, env, METHODS);
       const payment = await approvedInstruction(database, organizationId, paymentInstructionId);
       if (!payment) return secureJson({ error: 'Payment Instruction tidak ditemukan' }, 404, request, env, METHODS);
+      if (expectedPeriod) {
+        const periodError = paymentPeriodContextError(payment, expectedPeriod);
+        if (periodError) return secureJson(periodError, periodError.status, request, env, METHODS);
+      }
       const transaction = await findTransaction(database, organizationId, paymentInstructionId);
       const items = transaction?.provider === 'E2PAY'
         ? await d1All(database, `SELECT id,payment_instruction_line_id,employee_id,provider,client_ref,bank_id,beneficiary_name,provider_beneficiary_name,account_last4,amount,fee_amount,journal_id,correlation_id,response_code,response_message,status,attempt_count,last_checked_at,error_code,error_message,provider_http_status,failure_stage,request_diagnostics_json,last_attempt_at,created_at,updated_at
@@ -311,6 +338,7 @@ export async function onRequest(context) {
     const body = await readBody(request);
     const paymentInstructionId = String(body.paymentInstructionId || '').trim();
     const paymentMethod = String(body.paymentMethod || '').trim().slice(0, 60);
+    const expectedPeriod = String(body.payrollPeriod || '').trim();
     const action = String(body.action || 'EXECUTE').trim().toUpperCase();
     if (!paymentInstructionId) return secureJson({ error: 'paymentInstructionId wajib diisi' }, 422, request, env, METHODS);
     if (!['EXECUTE','RECONCILE','VERIFY_FAILED','RETRY_FAILED'].includes(action)) return secureJson({ error: 'action gateway tidak valid' }, 422, request, env, METHODS);
@@ -325,6 +353,8 @@ export async function onRequest(context) {
     const payment = await approvedInstruction(database, organizationId, paymentInstructionId);
     const validation = validateInstruction(payment);
     if (validation) return secureJson(validation, validation.status, request, env, METHODS);
+    const periodError = paymentPeriodContextError(payment, expectedPeriod);
+    if (periodError) return secureJson(periodError, periodError.status, request, env, METHODS);
 
     const idempotencyKey = gatewayIdempotencyKey(payment);
     let transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE idempotency_key=? LIMIT 1', [idempotencyKey]);
