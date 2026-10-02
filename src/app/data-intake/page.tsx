@@ -373,7 +373,7 @@ export default function DataIntakePage() {
                 <IconMenu aria-hidden="true" />
               </button>
               <span className="page-eyebrow">Payroll operations</span>
-              <h1>Data Intake Payroll</h1>
+              <h1>Upload Payroll Data</h1>
               <p>
                 Validasi file, bandingkan dengan master aktif, lalu konfirmasi
                 snapshot Pay Run dalam satu alur yang terkontrol.
@@ -879,7 +879,7 @@ export default function DataIntakePage() {
                     className="btn btn-primary"
                     href={`/?view=operations&period=${encodeURIComponent(form.period)}`}
                   >
-                    Buka Pay Run →
+                    Buka Payroll Workspace →
                   </Link>
                 </div>
               )}
