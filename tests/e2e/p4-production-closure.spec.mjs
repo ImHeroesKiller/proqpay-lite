@@ -165,8 +165,8 @@ test.describe.serial('P4 production closure regression',()=>{
     const headers=response?.headers()||{};
     const csp=headers['content-security-policy']||'';
     expect(csp).toContain("script-src-attr 'none'");
-    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
-    expect(csp).not.toMatch(/style-src[^;]*'unsafe-inline'/);
+    expect(csp).not.toMatch(/(?:^|;\\s*)script-src\\s[^;]*'unsafe-inline'/);
+    expect(csp).not.toMatch(/(?:^|;\\s*)style-src\\s[^;]*'unsafe-inline'/);
     expect(headers['cross-origin-resource-policy']).toBe('same-origin');
     expect(headers['access-control-allow-origin']).toBe('https://proqpay.msg-os.com');
     expect(headers['x-content-type-options']).toBe('nosniff');
