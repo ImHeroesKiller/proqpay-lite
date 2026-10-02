@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { executeOperatingAction, getExceptionHistory, getPayRunDetail, getPaymentInstructionDetail, listAllOperatingExceptions, listAllPaginatedOperatingResource, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
+import PaymentGatewayExecutionActions from '@/components/PaymentGatewayExecutionActions';
 import { PaymentEvidenceRegister, PaymentReconciliationControl } from '@/components/PaymentEvidenceReconciliation';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
@@ -21,13 +22,15 @@ import {
   type ReconciliationRecord,
 } from '@/lib/payment-instruction-ui';
 
-type WorkspaceMode = 'payruns' | 'actions' | 'payments' | 'billing';
+type WorkspaceMode = 'payruns' | 'actions' | 'payments' | 'reconcile' | 'billing';
+export type WorkspaceFilterState = { clientId:string; projectId:string; query:string };
 type Actor = { email: string; role: string; permissions?: string[]; clientIds?: string[]; projectIds?: string[] };
 
 const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; description:string; search:string }> = {
   payruns: { title:'Pay Runs', eyebrow:'PAYROLL EXECUTION', description:'Kelola setiap periode payroll dari intake sampai siap dibayarkan.', search:'Klien, project, pay run…' },
   actions: { title:'Action Center', eyebrow:'EXCEPTION WORK QUEUE', description:'Selesaikan blocker dan temuan payroll berdasarkan prioritas dan status.', search:'Karyawan, temuan, klien…' },
-  payments: { title:'Payment Control', eyebrow:'PAYMENT INTEGRITY', description:'Kontrol Payment Instruction, approval, proof, dan rekonsiliasi.', search:'Dokumen PI, klien, project…' },
+  payments: { title:'Approval & Payment', eyebrow:'PAYMENT CONTROL', description:'Review Payment Instruction, approval, liquidity, dan execution.', search:'Dokumen PI, klien, project…' },
+  reconcile: { title:'Payment Reconciliation', eyebrow:'RECONCILE', description:'Catat proof, reconcile provider result, dan pastikan payment matched.', search:'Dokumen PI, klien, project…' },
   billing: { title:'Billing & AR', eyebrow:'FINANCE OPERATIONS', description:'Kelola invoice layanan, jatuh tempo, dan pelunasan piutang.', search:'Invoice, klien, periode…' },
 };
 
@@ -60,7 +63,19 @@ function payRunTypeLabel(type:string) {
   return String(type||'REGULAR')==='ADJUSTMENT'?'Adjustment':'Regular payroll';
 }
 
-export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?: WorkspaceMode; period?: string }) {
+export default function OperatingWorkspace({
+  mode = 'payruns',
+  period,
+  filters,
+  embedded = false,
+  gatewayCanView = false,
+}: {
+  mode?: WorkspaceMode;
+  period?: string;
+  filters?: WorkspaceFilterState;
+  embedded?: boolean;
+  gatewayCanView?: boolean;
+}) {
   const [actor, setActor] = useState<Actor | null>(null);
   const [data, setData] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
@@ -68,9 +83,13 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
   const [periodFilter, setPeriodFilter] = useState(()=>period && period !== 'ALL'
     ? period
     : typeof window==='undefined'?'ALL':new URLSearchParams(window.location.search).get('payrollPeriod')||'ALL');
-  const [clientFilter, setClientFilter] = useState('ALL');
+  const [localClientFilter, setLocalClientFilter] = useState('ALL');
+  const [localProjectFilter, setLocalProjectFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [query, setQuery] = useState('');
+  const [localQuery, setLocalQuery] = useState('');
+  const clientFilter = filters?.clientId || localClientFilter;
+  const projectFilter = filters?.projectId || localProjectFilter;
+  const query = filters?.query ?? localQuery;
   const [focusSubmissionId, setFocusSubmissionId] = useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('submissionId')||'');
   const [dashboardStage, setDashboardStage] = useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('dashboardStage')||'');
   const [createOpen, setCreateOpen] = useState(false);
@@ -81,7 +100,7 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
     try {
       const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup','payment-instructions','exceptions']
         : mode === 'actions' ? ['submissions','exceptions']
-        : mode === 'payments' ? ['submissions','payment-instructions','payment-proofs','reconciliations'] : [];
+        : mode === 'payments' || mode === 'reconcile' ? ['submissions','payment-instructions','payment-proofs','reconciliations'] : [];
       const meResponse = await fetch('/api/me');
       const me = await meResponse.json();
       if (!meResponse.ok) throw new Error(me.error || `HTTP ${meResponse.status}`);
@@ -171,20 +190,22 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
       : (statusFilter === 'ALL' || row.state === statusFilter);
     return (periodFilter === 'ALL' || row.period === periodFilter || row.payment_period === periodFilter)
       && (clientFilter === 'ALL' || row.client_id === clientFilter)
+      && (projectFilter === 'ALL' || row.project_id === projectFilter)
       && workflowMatches
       && (!focusSubmissionId || String(row.id)===focusSubmissionId)
       && (!dashboardStage || business.stage===dashboardStage)
       && (mode==='actions' || !query.trim() || haystack.includes(query.trim().toLowerCase()));
-  }), [submissions, instructionBySubmission, periodFilter, clientFilter, statusFilter, query, simplifiedWorkspace, role, actor?.permissions, focusSubmissionId, dashboardStage]);
+  }), [submissions, instructionBySubmission, periodFilter, clientFilter, projectFilter, statusFilter, query, simplifiedWorkspace, role, actor?.permissions, focusSubmissionId, dashboardStage]);
   const visibleSubmissionIds = useMemo(() => new Set(visibleSubmissions.map((row) => row.id)), [visibleSubmissions]);
   const visibleInstructions = useMemo(() => (data.paymentInstructions || []).filter((row) => {
     const periodMatches = periodFilter === 'ALL' || row.payroll_period === periodFilter || row.payment_period === periodFilter;
     const clientMatches = clientFilter === 'ALL' || row.client_id === clientFilter;
+    const projectMatches = projectFilter === 'ALL' || row.project_id === projectFilter;
     const statusMatches = statusFilter === 'ALL' || row.status === statusFilter;
     const queryMatches = !query.trim() || [row.document_no,row.client_name,row.project_name,row.status].join(' ').toLowerCase().includes(query.trim().toLowerCase());
     const focusMatches=!focusSubmissionId || String(row.submission_id)===focusSubmissionId;
-    return periodMatches && clientMatches && statusMatches && queryMatches && focusMatches;
-  }), [data.paymentInstructions, periodFilter, clientFilter, statusFilter, query, focusSubmissionId]);
+    return periodMatches && clientMatches && projectMatches && statusMatches && queryMatches && focusMatches;
+  }), [data.paymentInstructions, periodFilter, clientFilter, projectFilter, statusFilter, query, focusSubmissionId]);
   const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
 
   const visibleExceptions = useMemo(() => (data.exceptions || []).filter((row) => visibleSubmissionIds.has(row.submission_id)), [data.exceptions, visibleSubmissionIds]);
@@ -244,7 +265,8 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
     : simplifiedInternal ? ({
     payruns:{...baseProfile,title:'Payroll',eyebrow:'MY PAYROLL WORK',description:'Lihat payroll berdasarkan stage dan kerjakan satu next action yang tersedia.'},
     actions:{...baseProfile,title:'Issues',eyebrow:'ACTION REQUIRED',description:'Tindak lanjuti hanya issue yang membutuhkan koreksi atau keputusan.'},
-    payments:{...baseProfile,title:'Payments',eyebrow:'PAYMENT WORK',description:'Review approval, execution, dan reconciliation tanpa melihat state teknis yang tidak perlu.'},
+    payments:{...baseProfile,title:'Approval & Payment',eyebrow:'PAYMENT WORK',description:'Review PI, approval, dan execution dalam satu surface.'},
+    reconcile:{...baseProfile,title:'Reconcile',eyebrow:'RECONCILE',description:'Proof dan reconciliation dipisahkan dari payment execution.'},
     billing:{...baseProfile,title:'Close & Billing',eyebrow:'CLOSE',description:'Selesaikan billing, AR, dan penutupan payroll setelah payment matched.'},
   } as Record<WorkspaceMode, typeof baseProfile>)[mode] : baseProfile;
   function clearDashboardFocus(){
@@ -256,7 +278,7 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
     window.history.replaceState({},'',url);
   }
 
-  const statusOptions = mode === 'payments'
+  const statusOptions = mode === 'payments' || mode === 'reconcile'
     ? [...new Set((data.paymentInstructions || []).map((row) => row.status))].sort()
     : simplifiedWorkspace && mode === 'payruns'
       ? [...PAYROLL_BUSINESS_STAGE_ORDER]
@@ -264,22 +286,22 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
 
   return (
     <section>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      {!embedded ? <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div>
           <span className="workspace-eyebrow">{profile.eyebrow}</span>
           <h2 style={{ fontSize: 22, fontWeight: 720, margin: '4px 0 0' }}>{profile.title}</h2>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>{profile.description}</p>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&clientExperience?<a className="btn btn-primary" href="/data-intake">Kirim data payroll</a>:mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}{!clientExperience?<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div>:null}</div>
-      </div>
+      </div> : null}
 
       {(focusSubmissionId||dashboardStage) && mode!=='billing' ? <div className="dashboard-focus-banner" role="status"><span>Dashboard focus · {focusSubmissionId || dashboardStage}</span><button type="button" onClick={clearDashboardFocus}>Tampilkan semua</button></div> : null}
 
-      {mode !== 'billing' ? <div className="operations-control-bar">
+      {!embedded && mode !== 'billing' ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} disabled={Boolean(period && period !== 'ALL')} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{period && period !== 'ALL' && !periods.includes(period) ? <option value={period}>{period}</option> : null}{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-        <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+        <label><span>Klien</span><select value={clientFilter} onChange={(event) => setLocalClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
         {mode!=='actions'?<label><span>{mode === 'payments' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:mode==='payments'?paymentBusinessLabel(String(state)):String(state).replaceAll('_', ' ')}</option>)}</select></label>:null}
-        {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>:null}
+        {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setLocalQuery(event.target.value)} placeholder={profile.search} /></label>:null}
       </div> : null}
 
       {mode !== 'billing' ? <div className="operations-summary-grid">
