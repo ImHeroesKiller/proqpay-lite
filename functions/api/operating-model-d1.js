@@ -1448,7 +1448,7 @@ async function executeAction(database, body, actor, env, organizationId) {
            document_no,content_hash,currency,execution_date,recipient_count,billing_snapshot,
            provider_account_registry_id,provider,provider_environment,provider_sub_account_id,
            provider_account_snapshot,provider_balance_snapshot,provider_available_balance_snapshot,provider_balance_checked_at)
-          VALUES (?,?,?,?,'PAYMENT_INSTRUCTION_READY',?,?,?,?,?,'IDR',?,?,?,?,?,?,?,?,?,?,?,?)`,
+          VALUES (?,?,?,?,'PAYMENT_INSTRUCTION_READY',?,?,?,?,?,'IDR',?,?,?,?,?,?,?,?,?,?,?)`,
           bindings: [id, organizationId, submission.client_id, submission.id, expectedTotal, actor.id, idempotencyKey,
             documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length, billingSnapshot,
             providerAccount?.id||null,providerAccount?.provider||null,providerAccount?.environment||null,
