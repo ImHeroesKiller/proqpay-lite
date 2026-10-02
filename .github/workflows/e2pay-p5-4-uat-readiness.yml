@@ -1,0 +1,124 @@
+name: E2Pay P5.4 UAT Readiness
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'functions/api/e2pay-uat-validation.js'
+      - 'ops/e2pay-uat-fresh-seed.sql'
+      - 'functions/api/payment-gateway*.js'
+      - 'functions/api/e2pay-subaccounts.js'
+      - '.github/workflows/e2pay-p5-4-uat-readiness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verify Cloudflare access
+        run: |
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          npx wrangler whoami >/dev/null
+      - name: Collect P5.4 UAT evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute proqpay-lite-production --remote --json --command="
+            SELECT
+              s.id AS submission_id,
+              s.state AS submission_state,
+              s.client_id,
+              COALESCE((SELECT COUNT(*) FROM payroll_run_lines l WHERE l.submission_id=s.id AND l.included=1),0) AS recipients,
+              COALESCE((SELECT SUM(net_amount) FROM payroll_run_lines l WHERE l.submission_id=s.id AND l.included=1),0) AS total_amount,
+              ppa.id AS provider_account_id,
+              ppa.status AS provider_account_status,
+              CASE WHEN ppa.provider_sub_account_id IS NULL THEN NULL ELSE substr(ppa.provider_sub_account_id,-4) END AS provider_subaccount_last4,
+              ppa.available_balance,
+              ppa.last_balance_sync_at,
+              pi.id AS payment_instruction_id,
+              pi.status AS payment_instruction_status,
+              pgt.id AS gateway_transaction_id,
+              pgt.status AS gateway_transaction_status,
+              pgt.provider_status AS gateway_provider_status
+            FROM payroll_submissions s
+            LEFT JOIN payment_provider_accounts ppa
+              ON ppa.org_id=s.org_id AND ppa.client_id=s.client_id AND ppa.provider='E2PAY' AND ppa.environment='UAT' AND ppa.account_scope='SUB_ACCOUNT'
+            LEFT JOIN payment_instructions pi
+              ON pi.submission_id=s.id AND pi.org_id=s.org_id AND pi.status<>'REJECTED'
+            LEFT JOIN payment_gateway_transactions pgt
+              ON pgt.payment_instruction_id=pi.id
+            WHERE s.id IN ('SUB-E2PAY-UAT-CANARY-001','SUB-E2PAY-UAT-FRESH-001')
+            ORDER BY s.id, pi.updated_at DESC, pgt.created_at DESC;
+          " > /tmp/p5-4-raw.json
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const raw=JSON.parse(readFileSync('/tmp/p5-4-raw.json','utf8'));
+          const rows=(Array.isArray(raw)?raw:[]).flatMap(x=>x.results||[]);
+          const latest=new Map();
+          for(const row of rows){ if(!latest.has(row.submission_id)) latest.set(row.submission_id,row); }
+          const lane=(id)=>{
+            const r=latest.get(id);
+            if(!r) return {submissionId:id,state:'DATASET_MISSING',ready:false};
+            const required=Number(r.total_amount||0);
+            const balance=r.available_balance===null?null:Number(r.available_balance);
+            const age=r.last_balance_sync_at?Date.now()-new Date(r.last_balance_sync_at).getTime():null;
+            const funded=balance!==null && balance>=required;
+            const fresh=age!==null && age>=0 && age<=5*60*1000;
+            let state='READY_FOR_PI';
+            if(!r.provider_account_id||r.provider_account_status!=='ACTIVE'||!r.provider_subaccount_last4) state='WAITING_SUBACCOUNT';
+            else if(!funded||!fresh) state='WAITING_BALANCE';
+            else if(r.gateway_transaction_status==='SUCCEEDED'&&r.payment_instruction_status==='COMPLETED') state='PASSED';
+            else if(r.gateway_transaction_status==='SUCCEEDED'||['PROCESSING','PENDING','CREATED'].includes(String(r.gateway_transaction_status||''))) state='RECONCILE_OR_REVIEW';
+            else if(r.payment_instruction_status==='APPROVED_FOR_PAYMENT') state='READY_FOR_EXECUTION';
+            else if(r.payment_instruction_status==='PAYMENT_APPROVAL_PENDING') state='WAITING_CONTROLLER_APPROVAL';
+            else if(r.payment_instruction_status==='PAYMENT_INSTRUCTION_READY') state='READY_FOR_PI_SUBMIT';
+            return {
+              submissionId:id,recipients:Number(r.recipients||0),requiredAmount:required,state,
+              subAccount:r.provider_subaccount_last4?'••••'+r.provider_subaccount_last4:null,
+              availableBalance:balance,lastBalanceSyncAt:r.last_balance_sync_at||null,
+              paymentInstructionStatus:r.payment_instruction_status||null,
+              gatewayTransactionStatus:r.gateway_transaction_status||null,
+              gatewayProviderStatus:r.gateway_provider_status||null,
+              ready:['READY_FOR_PI','READY_FOR_PI_SUBMIT','WAITING_CONTROLLER_APPROVAL','READY_FOR_EXECUTION','RECONCILE_OR_REVIEW','PASSED'].includes(state)
+            };
+          };
+          const evidence={
+            generatedAt:new Date().toISOString(),
+            environment:'UAT',
+            financialExecutionPath:'PAYMENT_CONTROL_ONLY',
+            rawDisbursementAllowed:false,
+            canary:lane('SUB-E2PAY-UAT-CANARY-001'),
+            batch:lane('SUB-E2PAY-UAT-FRESH-001')
+          };
+          writeFileSync('/tmp/proqpay-p5-4-uat-readiness.json',JSON.stringify(evidence,null,2));
+          console.log(JSON.stringify(evidence,null,2));
+          NODE
+      - name: Publish readiness summary
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const x=JSON.parse(readFileSync('/tmp/proqpay-p5-4-uat-readiness.json','utf8'));
+          const lines=['## E2Pay P5.4 UAT Readiness','',`- Canary: ${x.canary.state}`,`- Batch: ${x.batch.state}`,'- Financial execution: Payment Control / Payroll Controller only','- Raw Integration Console disbursement: disabled'];
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY,lines.join('\n')+'\n');
+          NODE
+      - name: Upload P5.4 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: proqpay-p5-4-uat-readiness-${{ github.run_id }}
+          path: /tmp/proqpay-p5-4-uat-readiness.json
+          retention-days: 90
