@@ -97,7 +97,7 @@ export default function UnifiedPayrollWorkspace({
               </div>
             </div>
           )}
-          <OperatingWorkspace mode="payruns" />
+          <OperatingWorkspace mode="payruns" period={period} />
         </div>
       ) : null}
 
@@ -110,8 +110,8 @@ export default function UnifiedPayrollWorkspace({
               <small>Payment Instruction tetap immutable; final execution hanya Payroll Controller.</small>
             </div>
           </div>
-          <OperatingWorkspace mode="payments" />
-          {gatewayCanView ? <PaymentGatewayPaymentPanel role={role} /> : null}
+          <OperatingWorkspace mode="payments" period={period} />
+          {gatewayCanView ? <PaymentGatewayPaymentPanel role={role} period={period} /> : null}
         </div>
       ) : null}
 
@@ -124,7 +124,7 @@ export default function UnifiedPayrollWorkspace({
               <small>Detail teknis tetap tercatat di audit trail tanpa menambah langkah navigasi pengguna.</small>
             </div>
           </div>
-          <OperatingWorkspace mode="billing" />
+          <OperatingWorkspace mode="billing" period={period} />
         </div>
       ) : null}
     </section>

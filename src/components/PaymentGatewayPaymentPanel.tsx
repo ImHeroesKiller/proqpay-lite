@@ -7,9 +7,10 @@ import PaymentGatewayExecutionActions from '@/components/PaymentGatewayExecution
 
 type Props = {
   role: string;
+  period?: string;
 };
 
-export default function PaymentGatewayPaymentPanel({ role }: Props) {
+export default function PaymentGatewayPaymentPanel({ role, period = 'ALL' }: Props) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -34,7 +35,9 @@ export default function PaymentGatewayPaymentPanel({ role }: Props) {
 
   const active = useMemo(() => rows
     .filter((row) => ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(String(row.status || '')))
-    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [rows]);
+    .filter((row) => period === 'ALL'
+      || String(row.payroll_period || row.payment_period || '') === period)
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), [rows, period]);
 
   if (!canView) return null;
 
@@ -42,7 +45,7 @@ export default function PaymentGatewayPaymentPanel({ role }: Props) {
     <div style={{ display:'flex', justifyContent:'space-between', gap:12, flexWrap:'wrap', alignItems:'flex-start' }}>
       <div>
         <span style={{ color:'var(--text3)', fontSize:10.5, fontWeight:700, letterSpacing:'.08em' }}>GATEWAY EXECUTION</span>
-        <h3 style={{ margin:'4px 0 0', fontSize:17 }}>Payment Gateway Queue</h3>
+        <h3 style={{ margin:'4px 0 0', fontSize:17 }}>Payment Gateway Queue{period !== 'ALL' ? ` · ${period}` : ''}</h3>
         <p style={{ color:'var(--text3)', fontSize:12, margin:'5px 0 0' }}>PI yang sudah approved dan siap dieksekusi, dipantau, atau direcovery oleh Payroll Controller. Approval PI tetap valid meski attempt gateway gagal.</p>
       </div>
       <button className="btn" type="button" disabled={loading} onClick={() => void load()}>{loading ? 'Refreshing…' : 'Refresh queue'}</button>
@@ -62,7 +65,12 @@ export default function PaymentGatewayPaymentPanel({ role }: Props) {
             <span style={{ color:'var(--text3)', fontSize:10.5 }}>{Number(row.recipient_count || 0).toLocaleString('id-ID')} penerima</span>
           </div>
         </div>
-        <PaymentGatewayExecutionActions paymentInstructionId={row.id} canExecuteGateway={canExecuteGateway} onChanged={load} />
+        <PaymentGatewayExecutionActions
+          paymentInstructionId={row.id}
+          expectedPeriod={String(row.payroll_period || row.payment_period || period || '')}
+          canExecuteGateway={canExecuteGateway}
+          onChanged={load}
+        />
       </div>)}
     </div> : null}
 

@@ -147,9 +147,10 @@ async function parseResponse(response: Response) {
   return data;
 }
 
-export async function getPaymentGatewayStatus(paymentInstructionId?: string) {
+export async function getPaymentGatewayStatus(paymentInstructionId?: string, payrollPeriod?: string) {
   const params = new URLSearchParams();
   if (paymentInstructionId) params.set('paymentInstructionId', paymentInstructionId);
+  if (payrollPeriod) params.set('payrollPeriod', payrollPeriod);
   const suffix = params.size ? `?${params}` : '';
   return parseResponse(await fetch(`/api/payment-gateway${suffix}`, {
     headers: { Accept: 'application/json' },
@@ -165,11 +166,11 @@ export async function getPaymentGatewayStatus(paymentInstructionId?: string) {
   }>;
 }
 
-export async function executeSeamlessPayment(paymentInstructionId: string, paymentMethod?: string) {
+export async function executeSeamlessPayment(paymentInstructionId: string, paymentMethod?: string, payrollPeriod?: string) {
   return parseResponse(await fetchWithSecurityStepUp('/api/payment-gateway', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paymentInstructionId, paymentMethod, action:'EXECUTE' }),
+    body: JSON.stringify({ paymentInstructionId, paymentMethod, payrollPeriod, action:'EXECUTE' }),
   })) as Promise<{
     ok: true;
     gateway: PaymentGatewayReadiness;
@@ -197,11 +198,11 @@ export async function executeSeamlessPayment(paymentInstructionId: string, payme
 }
 
 
-export async function verifyFailedE2PayPayment(paymentInstructionId: string) {
+export async function verifyFailedE2PayPayment(paymentInstructionId: string, payrollPeriod?: string) {
   return parseResponse(await fetchWithSecurityStepUp('/api/payment-gateway', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paymentInstructionId, action:'VERIFY_FAILED' }),
+    body: JSON.stringify({ paymentInstructionId, payrollPeriod, action:'VERIFY_FAILED' }),
   })) as Promise<{
     ok: boolean;
     verifiedSafe: number;
@@ -213,11 +214,11 @@ export async function verifyFailedE2PayPayment(paymentInstructionId: string) {
   }>;
 }
 
-export async function retryFailedE2PayPayment(paymentInstructionId: string) {
+export async function retryFailedE2PayPayment(paymentInstructionId: string, payrollPeriod?: string) {
   return parseResponse(await fetchWithSecurityStepUp('/api/payment-gateway', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paymentInstructionId, action:'RETRY_FAILED' }),
+    body: JSON.stringify({ paymentInstructionId, payrollPeriod, action:'RETRY_FAILED' }),
   })) as Promise<{
     ok: boolean;
     gateway: PaymentGatewayReadiness;
@@ -243,11 +244,11 @@ export async function retryFailedE2PayPayment(paymentInstructionId: string) {
   }>;
 }
 
-export async function reconcileE2PayPayment(paymentInstructionId: string) {
+export async function reconcileE2PayPayment(paymentInstructionId: string, payrollPeriod?: string) {
   return parseResponse(await fetchWithSecurityStepUp('/api/payment-gateway', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paymentInstructionId, action:'RECONCILE' }),
+    body: JSON.stringify({ paymentInstructionId, payrollPeriod, action:'RECONCILE' }),
   })) as Promise<{
     ok: boolean;
     gateway: PaymentGatewayReadiness;
@@ -266,9 +267,10 @@ export async function reconcileE2PayPayment(paymentInstructionId: string) {
   }>;
 }
 
-export async function getHostedPaymentStatus(paymentInstructionId?: string) {
+export async function getHostedPaymentStatus(paymentInstructionId?: string, payrollPeriod?: string) {
   const params = new URLSearchParams();
   if (paymentInstructionId) params.set('paymentInstructionId', paymentInstructionId);
+  if (payrollPeriod) params.set('payrollPeriod', payrollPeriod);
   const suffix = params.size ? `?${params}` : '';
   return parseResponse(await fetch(`/api/payment-gateway-hosted${suffix}`, {
     headers: { Accept: 'application/json' },
@@ -280,11 +282,11 @@ export async function getHostedPaymentStatus(paymentInstructionId?: string) {
   }>;
 }
 
-export async function createHostedPaymentSession(paymentInstructionId: string, returnPath = '/?view=payments') {
+export async function createHostedPaymentSession(paymentInstructionId: string, returnPath = '/?view=payments', payrollPeriod?: string) {
   return parseResponse(await fetchWithSecurityStepUp('/api/payment-gateway-hosted', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paymentInstructionId, returnPath }),
+    body: JSON.stringify({ paymentInstructionId, returnPath, payrollPeriod }),
   })) as Promise<{
     ok: true;
     hosted: PaymentGatewayReadiness;
@@ -293,8 +295,8 @@ export async function createHostedPaymentSession(paymentInstructionId: string, r
   }>;
 }
 
-export async function openHostedPayment(paymentInstructionId: string, returnPath = '/?view=payments') {
-  const result = await createHostedPaymentSession(paymentInstructionId, returnPath);
+export async function openHostedPayment(paymentInstructionId: string, returnPath = '/?view=payments', payrollPeriod?: string) {
+  const result = await createHostedPaymentSession(paymentInstructionId, returnPath, payrollPeriod);
   if (!result.session.checkout_url) throw new Error('Hosted checkout URL tidak tersedia');
   window.location.assign(result.session.checkout_url);
   return result;

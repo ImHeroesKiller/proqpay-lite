@@ -8,10 +8,10 @@ test('Data Intake P1 allows Client User only through explicit scoped intake role
   const api=await read('functions/api/payroll-intake.js');
   const setup=await read('functions/api/payroll-intake-setup.js');
   assert.match(api,/const ROLES = \["SUPER_ADMIN", "PAYROLL_PROCESSOR", "CLIENT_USER"\]/);
-  assert.match(api,/permissions\?\.includes\("import:write"\)/);
+  assert.match(api,/roleHasCapability\(authorization\.actor\.role, "data-intake"\)/);
   assert.match(setup,/const ROLES=\['SUPER_ADMIN','PAYROLL_PROCESSOR','CLIENT_USER'\]/);
-  assert.match(api,/Client scope denied/);
-  assert.match(api,/Project scope denied/);
+  assert.match(api,/Client\/project scope denied/);
+  assert.match(api,/clientIntakeScopeAllowed/);
   assert.match(api,/Scope denied/);
 });
 

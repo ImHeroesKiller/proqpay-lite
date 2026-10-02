@@ -14,6 +14,7 @@ import {
   publicError,
   secureJson,
 } from "./_security.js";
+import { roleHasCapability } from "../../shared/authority-matrix.js";
 
 const METHODS = "POST, OPTIONS";
 const ROLES = ["SUPER_ADMIN", "PAYROLL_PROCESSOR", "CLIENT_USER"];
@@ -94,6 +95,14 @@ async function sha256Hex(value) {
 function monthEnd(period) {
   const [year, month] = String(period).split("-").map(Number);
   return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+}
+function clientIntakeScopeAllowed(actor, env, clientId, projectId) {
+  if (actor?.role !== "CLIENT_USER") return true;
+  const clients = clientIdsFor(actor, env) || [];
+  const projects = projectIdsFor(actor) || [];
+  if (!clients.includes(String(clientId || ""))) return false;
+  if (projects.length && !projects.includes(String(projectId || ""))) return false;
+  return true;
 }
 function employeeCode(row) {
   return String(row.nrk || "").trim();
@@ -286,14 +295,8 @@ async function previewUpload(request, env, actor) {
     };
   }
   const orgId = String(env.DEFAULT_ORG_ID || "ORG-OTSINDO");
-  if (actor.role === "CLIENT_USER") {
-    const clients = clientIdsFor(actor, env) || [];
-    const projects = projectIdsFor(actor) || [];
-    if (!clients.includes(String(context.clientId)))
-      return { status: 403, data: { error: "Client scope denied" } };
-    if (projects.length && !projects.includes(String(context.projectId)))
-      return { status: 403, data: { error: "Project scope denied" } };
-  }
+  if (!clientIntakeScopeAllowed(actor, env, context.clientId, context.projectId))
+    return { status: 403, data: { error: "Client/project scope denied" } };
   const verified = await validateIntakeContext(env.DB, orgId, context);
   if (verified.error) return { status: 422, data: { error: verified.error } };
   context = verified.context;
@@ -770,16 +773,8 @@ async function confirmIntake(body, env, actor) {
       status: 404,
       data: { error: "Pay Run untuk intake tidak ditemukan" },
     };
-  if (actor.role === "CLIENT_USER") {
-    const clients = clientIdsFor(actor, env) || [];
-    const projects = projectIdsFor(actor) || [];
-    if (
-      !clients.includes(String(submission.client_id)) ||
-      (projects.length &&
-        !projects.includes(String(submission.project_id || "")))
-    )
-      return { status: 403, data: { error: "Scope denied" } };
-  }
+  if (!clientIntakeScopeAllowed(actor, env, submission.client_id, submission.project_id))
+    return { status: 403, data: { error: "Scope denied" } };
   if (batch.status === "IMPORTED")
     return {
       status: 200,
@@ -872,7 +867,8 @@ async function confirmIntake(body, env, actor) {
       "SELECT id FROM projects WHERE id=? AND client_id=? AND org_id=? AND status='ACTIVE' LIMIT 1",
       [targetProjectId, submission.client_id, batch.org_id],
     );
-    if (!target) invalidTransferTargets.push(item);
+    if (!target || !clientIntakeScopeAllowed(actor, env, submission.client_id, targetProjectId))
+      invalidTransferTargets.push(item);
   }
   if (invalidTransferTargets.length)
     return {
@@ -1056,6 +1052,10 @@ async function resetIntake(body, env, actor) {
   if (!batchId) return { status: 422, data: { error: "batchId wajib diisi" } };
   const batch = await d1First(env.DB, "SELECT * FROM payroll_upload_batches WHERE id=? LIMIT 1", [batchId]);
   if (!batch) return { status: 404, data: { error: "Payroll intake tidak ditemukan" } };
+  const submission = await d1First(env.DB, "SELECT client_id,project_id FROM payroll_submissions WHERE id=? LIMIT 1", [batch.submission_id]);
+  if (!submission) return { status: 404, data: { error: "Pay Run untuk intake tidak ditemukan" } };
+  if (!clientIntakeScopeAllowed(actor, env, submission.client_id, submission.project_id))
+    return { status: 403, data: { error: "Scope denied" } };
   if (batch.status === "IMPORTED")
     return { status: 409, data: { error: "Payroll intake yang sudah dikonfirmasi tidak dapat di-reset", code: "PAYROLL_INTAKE_ALREADY_CONFIRMED" } };
   if (!["REVIEW_REQUIRED","READY_TO_CONFIRM","ERROR","CANCELLED"].includes(batch.status))
@@ -1095,8 +1095,8 @@ export async function onRequest({ request, env }) {
     methods: METHODS,
   });
   if (authorization.response) return authorization.response;
-  if (!authorization.actor.permissions?.includes("import:write"))
-    return secureJson({ error: "Insufficient permission" }, 403, request, env, METHODS);
+  if (!roleHasCapability(authorization.actor.role, "data-intake"))
+    return secureJson({ error: "Insufficient data-intake capability" }, 403, request, env, METHODS);
   const limited = await enforceRateLimit(
     request,
     env,

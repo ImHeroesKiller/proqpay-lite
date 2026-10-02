@@ -16,8 +16,8 @@ test('payroll intake endpoints allow client user but retain scope guards',async(
   ]);
   assert.match(setup,/CLIENT_USER/);
   assert.match(intake,/CLIENT_USER/);
-  assert.match(intake,/Client scope denied/);
-  assert.match(intake,/Project scope denied/);
+  assert.match(intake,/Client\/project scope denied/);
+  assert.match(intake,/clientIntakeScopeAllowed/);
   assert.match(intake,/Scope denied/);
 });
 

@@ -84,13 +84,13 @@ export default function AppWorkspaceRouter(props:Props) {
           initialStage={view === 'payments' ? 'PAYMENT' : view === 'billing' ? 'CLOSE' : 'PAYROLL'}
         />
       ) : null}
-      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'operations' && <OperatingWorkspace mode="payruns" />}
-      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'exceptions' && <OperatingWorkspace mode="actions" />}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'operations' && <OperatingWorkspace mode="payruns" period={period} />}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'exceptions' && <OperatingWorkspace mode="actions" period={period} />}
       {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'payments' && <>
-        <OperatingWorkspace mode="payments" />
-        {gatewayCanView ? <PaymentGatewayPaymentPanel role={actor.role} /> : null}
+        <OperatingWorkspace mode="payments" period={period} />
+        {gatewayCanView ? <PaymentGatewayPaymentPanel role={actor.role} period={period} /> : null}
       </>}
-      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'billing' && <OperatingWorkspace mode="billing" />}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'billing' && <OperatingWorkspace mode="billing" period={period} />}
       {view === 'integrations' && <IntegrationsWorkspace
         canManage={integrationsCanManage}
         canView={gatewayCanView}

@@ -23,8 +23,24 @@ async function paymentSnapshot(database, organizationId, paymentInstructionId) {
   return d1First(database, `SELECT pi.*,
       COALESCE((SELECT SUM(pil.amount) FROM payment_instruction_lines pil WHERE pil.payment_instruction_id=pi.id),0) AS instruction_total,
       (SELECT pa.action_hash FROM payment_approvals pa WHERE pa.payment_instruction_id=pi.id AND pa.status='APPROVED'
-        ORDER BY pa.created_at DESC LIMIT 1) AS approved_hash
+        ORDER BY pa.created_at DESC LIMIT 1) AS approved_hash,
+      COALESCE((SELECT ps.period FROM payroll_submissions ps WHERE ps.id=pi.submission_id),'') AS context_payroll_period
     FROM payment_instructions pi WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [paymentInstructionId, organizationId]);
+}
+
+function paymentPeriodContextError(payment, expectedPeriod) {
+  const expected=String(expectedPeriod || '').trim();
+  const actual=String(payment?.context_payroll_period || '').trim();
+  if (!expected) return { status:422,error:'Payroll period context wajib untuk Hosted Payment',code:'PAYMENT_PERIOD_CONTEXT_REQUIRED' };
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(expected)) return { status:422,error:'Payroll period context tidak valid',code:'PAYMENT_PERIOD_CONTEXT_INVALID' };
+  if (!actual || actual !== expected) return {
+    status:409,
+    error:`Payment Instruction periode ${actual || 'UNKNOWN'} tidak sesuai workspace periode ${expected}`,
+    code:'PAYMENT_PERIOD_CONTEXT_MISMATCH',
+    expectedPeriod:expected,
+    paymentPeriod:actual || null,
+  };
+  return null;
 }
 
 function validatePayment(payment) {
@@ -89,8 +105,16 @@ export async function onRequest(context) {
 
   try {
     if (request.method === 'GET') {
-      const paymentInstructionId = new URL(request.url).searchParams.get('paymentInstructionId');
+      const url = new URL(request.url);
+      const paymentInstructionId = url.searchParams.get('paymentInstructionId');
+      const expectedPeriod = String(url.searchParams.get('payrollPeriod') || '').trim();
       if (!paymentInstructionId) return secureJson({ ok:true,hosted:readiness },200,request,env,METHODS);
+      if (expectedPeriod) {
+        const payment = await paymentSnapshot(database,organizationId,paymentInstructionId);
+        if (!payment) return secureJson({ error:'Payment Instruction tidak ditemukan' },404,request,env,METHODS);
+        const periodError = paymentPeriodContextError(payment, expectedPeriod);
+        if (periodError) return secureJson(periodError,periodError.status,request,env,METHODS);
+      }
       let session = await d1First(database, `SELECT id,payment_instruction_id,payment_gateway_transaction_id,provider,provider_session_id,
         status,checkout_url,return_path,expires_at,returned_at,completed_at,created_at,updated_at
         FROM hosted_payment_sessions WHERE org_id=? AND payment_instruction_id=? ORDER BY created_at DESC LIMIT 1`,
@@ -109,11 +133,14 @@ export async function onRequest(context) {
 
     const body = await readBody(request);
     const paymentInstructionId = String(body.paymentInstructionId || '').trim();
+    const expectedPeriod = String(body.payrollPeriod || '').trim();
     if (!paymentInstructionId) return secureJson({ error:'paymentInstructionId wajib diisi' },422,request,env,METHODS);
     const returnPath = allowedReturnPath(env, body.returnPath || '/?view=payments');
     const payment = await paymentSnapshot(database,organizationId,paymentInstructionId);
     const validation = validatePayment(payment);
     if (validation) return secureJson(validation,validation.status,request,env,METHODS);
+    const periodError = paymentPeriodContextError(payment, expectedPeriod);
+    if (periodError) return secureJson(periodError,periodError.status,request,env,METHODS);
 
     let existing = await d1First(database, `SELECT * FROM hosted_payment_sessions WHERE payment_instruction_id=?
       AND status IN ('CREATED','READY','OPENED','RETURNED') ORDER BY created_at DESC LIMIT 1`, [payment.id]);
