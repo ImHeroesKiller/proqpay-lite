@@ -57,6 +57,10 @@ export async function instructionContentHash(metadata, lines) {
     organizationId: clean(metadata.organizationId, 120), clientId: clean(metadata.clientId, 120),
     submissionId: clean(metadata.submissionId, 120), payrollPeriod: clean(metadata.payrollPeriod, 7),
     paymentPeriod: clean(metadata.paymentPeriod, 7), currency: 'IDR',
+    provider: clean(metadata.provider, 40),
+    providerEnvironment: clean(metadata.providerEnvironment, 40),
+    providerAccountRegistryId: clean(metadata.providerAccountRegistryId, 140),
+    providerSubAccountId: clean(metadata.providerSubAccountId, 200),
     lines: canonicalInstructionLines(lines),
   };
   return sha256Hex(JSON.stringify(canonical));
