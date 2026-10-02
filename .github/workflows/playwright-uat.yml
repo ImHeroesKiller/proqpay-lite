@@ -57,9 +57,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      BASE_URL: ${{ github.event_name == 'push' && 'https://proqpay-lite.pages.dev' || inputs.target_url }}
+      BASE_URL: ${{ github.event_name == 'push' && 'https://proqpay.msg-os.com' || inputs.target_url }}
       SPEC_PATH: ${{ github.event_name == 'push' && 'tests/e2e' || inputs.spec_path }}
-      UAT_CREDENTIALS_ENABLED: ${{ github.event_name == 'push' && 'auto' || inputs.use_uat_credentials }}
+      UAT_CREDENTIALS_ENABLED: ${{ github.event_name == 'push' && 'true' || inputs.use_uat_credentials }}
       PROQPAY_UAT_EMAIL: ${{ github.event_name == 'push' && secrets.PROQPAY_UAT_EMAIL || (inputs.use_uat_credentials && secrets.PROQPAY_UAT_EMAIL || '') }}
       PROQPAY_UAT_PASSWORD: ${{ github.event_name == 'push' && secrets.PROQPAY_UAT_PASSWORD || (inputs.use_uat_credentials && secrets.PROQPAY_UAT_PASSWORD || '') }}
 
