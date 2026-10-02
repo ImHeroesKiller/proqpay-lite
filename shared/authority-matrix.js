@@ -48,7 +48,7 @@ export const ROLE_CAPABILITIES = Object.freeze({
   PAYROLL_CONTROLLER: Object.freeze([
     'gateway:view','gateway:execute',
   ]),
-  CLIENT_USER: Object.freeze([]),
+  CLIENT_USER: Object.freeze(['data-intake']),
 });
 
 export function viewsForRole(role = '') {
