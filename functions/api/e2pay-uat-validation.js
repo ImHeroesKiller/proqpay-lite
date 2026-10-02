@@ -9,7 +9,7 @@ const BATCH_SUBMISSION='SUB-E2PAY-UAT-FRESH-001';
 
 function orgId(env,actor){ return String(actor?.orgId || env.DEFAULT_ORG_ID || 'ORG-OTSINDO'); }
 
-function phaseFor({account,liquidity,pi,transaction,items}){
+export function phaseFor({account,liquidity,pi,transaction,items}){
   if(!account) return 'WAITING_SUBACCOUNT';
   if(!liquidity?.ready) return 'WAITING_BALANCE';
   if(!pi) return 'READY_FOR_PI';
