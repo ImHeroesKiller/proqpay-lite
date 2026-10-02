@@ -91,7 +91,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
     }catch(cause){
       setError(cause instanceof Error?cause.message:'Sub-account registry gagal dimuat');
     }
-  },[account?.environment]);
+  },[account]);
 
   useEffect(()=>{void loadOverview(false);},[loadOverview]);
   useEffect(()=>{void loadSubAccounts();},[loadSubAccounts]);
