@@ -875,7 +875,7 @@ function Exceptions({ rows, payRuns, role, canResolve, act }: { rows: any[]; pay
     </div></div> : null}
   </div>;
 }
-function Payments({ instructions, proofs, reconciliations, role, simplified, canRecordProof, canReconcile, canApprove, act }: { instructions:any[]; proofs:PaymentProofRecord[]; reconciliations:ReconciliationRecord[]; role:string; simplified:boolean; canRecordProof:boolean; canReconcile:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
+function Payments({ phase, instructions, proofs, reconciliations, role, simplified, canRecordProof, canReconcile, canApprove, gatewayCanView, period, act }: { phase:'payment'|'reconcile'; instructions:any[]; proofs:PaymentProofRecord[]; reconciliations:ReconciliationRecord[]; role:string; simplified:boolean; canRecordProof:boolean; canReconcile:boolean; canApprove:boolean; gatewayCanView:boolean; period:string; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
   const [proofFor, setProofFor] = useState<string | null>(null);
   const [proof, setProof] = useState({ bank:'BCA', reference:'', transactionDate:new Date().toISOString().slice(0,10), amount:'' });
   const [file, setFile] = useState<File | null>(null);
@@ -908,9 +908,15 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
     catch (error) { setDetailError(error instanceof Error ? error.message : 'Detail PI gagal dimuat'); }
     finally { setDetailLoading(false); }
   }
-  if (!instructions.length) return <Empty title="Belum ada payment instruction" detail="Payment instruction akan tersedia setelah payroll selesai divalidasi dan disetujui." />;
+  const phaseInstructions = instructions.filter((row)=>{
+    const status=String(row.status || '');
+    return phase==='payment'
+      ? !['PROOF_UPLOADED','RECONCILIATION','COMPLETED'].includes(status)
+      : ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED'].includes(status);
+  });
+  if (!phaseInstructions.length) return <Empty title={phase==='payment'?'Belum ada payment yang perlu diproses':'Belum ada payment untuk direkonsiliasi'} detail={phase==='payment'?'PI akan muncul setelah payroll siap untuk approval/payment.':'Payment akan muncul setelah PI approved atau execution dimulai.'} />;
   return <div style={{ display:'grid', gap:16 }}>
-    <CardTable headers={['Instruction / Periode','Nilai','Status','Dibuat','Aksi']} rows={instructions.map((r) => {
+    <CardTable headers={['Instruction / Periode','Nilai','Status','Dibuat','Aksi']} rows={phaseInstructions.map((r) => {
       let action: React.ReactNode = <span style={small}>Menunggu tahap berikutnya</span>;
       if (r.status === 'PAYMENT_INSTRUCTION_READY') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
         ? <span style={{display:'inline-flex',gap:8,flexWrap:'wrap'}}><button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button><button style={actionButton} onClick={() => void act({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:r.id,confirmation:'SUBMIT PI'},'PI dikirim ke Controller untuk approval')}>Submit PI</button></span>
@@ -918,8 +924,9 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
       else if (r.status === 'PAYMENT_APPROVAL_PENDING') action = canApprove
         ? <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview & Approve</button>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button>;
-      else if (canRecordProof && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
-      else if (canReconcile && ['PROOF_UPLOADED','RECONCILIATION'].includes(r.status)) action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
+      else if (phase==='payment' && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => void openDetail(r.id)}>{role==='PAYROLL_CONTROLLER'?'Open Payment':'Monitor Payment'}</button>;
+      else if (phase==='reconcile' && canRecordProof && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
+      else if (phase==='reconcile' && canReconcile && ['PROOF_UPLOADED','RECONCILIATION'].includes(r.status)) action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
       else if (r.status === 'REVISION_REQUIRED') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
         ? <a className="btn btn-primary" href={`?view=operations&submissionId=${encodeURIComponent(r.submission_id)}`}>Perbaiki Pay Run</a>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
@@ -951,6 +958,15 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
           <div><strong>Balance checked</strong><span>{detail.paymentInstruction.providerLiquidity?.checkedAt?dateTime(detail.paymentInstruction.providerLiquidity.checkedAt):'Belum ada provider balance evidence'}</span></div>
         </section>:<section className="app-notice-bubble app-notice-error" role="alert"><strong>Provider routing snapshot belum tersedia</strong><span>PI legacy harus diregenerasi sebelum approval/payment execution.</span></section>}
         {detail.paymentInstruction.rejection_reason ? <section className={`app-notice-bubble ${detail.paymentInstruction.status==='REVISION_REQUIRED'?'app-notice-error':'app-notice-info'}`} role="status"><strong>{detail.paymentInstruction.status==='REVISION_REQUIRED'?'PI dikembalikan untuk revisi':'Riwayat reject sebelumnya'}</strong><span>{detail.paymentInstruction.rejection_reason} · {detail.paymentInstruction.rejected_by || 'Payroll Controller'}</span></section> : null}
+        {phase==='payment' && gatewayCanView && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(detail.paymentInstruction.status) ? <section className="pi-gateway-section" aria-label="Payment execution">
+          <div className="pi-section-heading"><div><span>PAYMENT EXECUTION</span><h4>Gateway & provider status</h4></div><small>Terikat ke PI dan periode {period}</small></div>
+          <PaymentGatewayExecutionActions
+            paymentInstructionId={detail.paymentInstruction.id}
+            expectedPeriod={String(detail.paymentInstruction.payroll_period || period)}
+            canExecuteGateway={role==='PAYROLL_CONTROLLER'}
+            onChanged={async()=>{await act({},'Status payment diperbarui');}}
+          />
+        </section> : null}
         <section className="pi-bank-section" aria-label="Breakdown bank">
           <div className="pi-section-heading"><div><span>DISTRIBUSI PEMBAYARAN</span><h4>Ringkasan per bank</h4></div><small>{bankSummaries.length} bank · {detailLines.length.toLocaleString('id-ID')} transaksi</small></div>
           <div className="pi-bank-grid">{bankSummaries.map(([bank,summary])=><button type="button" key={bank} className={detailBank===bank?'active':''} onClick={()=>setDetailBank(detailBank===bank?'ALL':bank)}><span>{bank}</span><strong>{formatIDR(summary.total)}</strong><small>{summary.count.toLocaleString('id-ID')} penerima</small></button>)}</div>
@@ -964,7 +980,7 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
           <div className="pi-recipient-table-wrap"><table className="pi-recipient-table"><thead><tr><th>Penerima</th><th>Bank</th><th>Rekening</th><th>Nominal</th></tr></thead><tbody>{visibleDetailLines.map((line:PaymentInstructionLine,index:number)=><tr key={`${line.employee_id || line.beneficiary_name}-${index}`}><td data-label="Penerima"><strong>{line.beneficiary_name || '-'}</strong><small>{line.employee_id || 'ID tidak tersedia'}</small></td><td data-label="Bank">{line.bank_code || line.bank_name || '-'}</td><td data-label="Rekening"><span className="pi-account-mask">•••• {line.account_last4 || '----'}</span></td><td data-label="Nominal"><strong>{formatIDR(Number(line.amount || 0))}</strong></td></tr>)}</tbody></table>{!visibleDetailLines.length?<div className="directory-empty">Penerima tidak ditemukan.</div>:null}</div>
           <div className="pi-pagination"><span>Halaman {Math.min(detailPage,detailPageCount)} dari {detailPageCount}</span><div><button className="btn" disabled={detailPage<=1} onClick={()=>setDetailPage((page)=>page-1)}>← Sebelumnya</button><button className="btn" disabled={detailPage>=detailPageCount} onClick={()=>setDetailPage((page)=>page+1)}>Berikutnya →</button></div></div>
         </section>
-        <PaymentReconciliationControl detail={detail} current={reconciliations.find((row)=>row.payment_instruction_id===detail.paymentInstruction.id) || null} />
+        {phase==='reconcile' ? <PaymentReconciliationControl detail={detail} current={reconciliations.find((row)=>row.payment_instruction_id===detail.paymentInstruction.id) || null} /> : null}
         <section className="pi-approval-section"><div className="pi-section-heading"><div><span>GOVERNANCE</span><h4>Approval trail</h4></div><small>{detail.approvals?.length || 0} aktivitas</small></div>{detail.approvals?.length ? <div className="pi-approval-list">{detail.approvals.map((approval)=><div key={approval.id}><i>✓</i><div><strong>{String(approval.status || '').replaceAll('_',' ')}</strong><span>{approval.approver_email || approval.approver_user_id || 'System'} · {dateTime(approval.created_at)}</span></div></div>)}</div> : <p className="directory-hint">Belum ada approval yang tercatat.</p>}</section>
         <section className="pi-approval-section"><div className="pi-section-heading"><div><span>OPERATIONAL AUDIT</span><h4>Activity trail</h4></div><small>{detail.activity?.length || 0} event terakhir</small></div>{detail.activity?.length ? <div className="pi-approval-list">{detail.activity.slice(0,20).map((item)=><div key={item.id}><i>•</i><div><strong>{paymentActivityLabel(item.action)}</strong><span>{item.username || 'System'} · {dateTime(item.timestamp)}</span>{item.detail?<small>{item.detail}</small>:null}</div></div>)}</div> : <p className="directory-hint">Belum ada aktivitas operasional yang tercatat.</p>}</section>
       </div>
@@ -973,6 +989,7 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
         {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Saya sudah memeriksa jumlah penerima, rekening, nominal, control total, dan content hash.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject PI</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>setDetail(null))}>Approve PI</button></div> : null}
       </footer>
     </div></div>, document.body) : null}
+    {phase==='reconcile' ? <>
     {proofFor && canRecordProof && <div className="card" style={{ padding:18 }}>
       <div style={{ display:'flex', justifyContent:'space-between', gap:12 }}><strong>Bukti Pembayaran · {proofFor}</strong><button type="button" onClick={() => setProofFor(null)} style={{ border:0, background:'transparent', cursor:'pointer' }}>✕</button></div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:10, marginTop:14 }}>
@@ -991,6 +1008,7 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
       <Summary title="Rekonsiliasi" value={reconciliations.length} note={reconciliations.length ? `${paymentBusinessLabel(reconciliations[0].status)} · Selisih ${formatIDR(Number(reconciliations[0].difference || 0))}` : 'Belum direkonsiliasi'} />
     </div>
     <PaymentEvidenceRegister proofs={proofs} />
+    </> : null}
   </div>;
 }
 
