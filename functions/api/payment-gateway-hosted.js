@@ -23,7 +23,7 @@ async function paymentSnapshot(database, organizationId, paymentInstructionId) {
   return d1First(database, `SELECT pi.*,
       COALESCE((SELECT SUM(pil.amount) FROM payment_instruction_lines pil WHERE pil.payment_instruction_id=pi.id),0) AS instruction_total,
       (SELECT pa.action_hash FROM payment_approvals pa WHERE pa.payment_instruction_id=pi.id AND pa.status='APPROVED'
-        ORDER BY pa.created_at DESC LIMIT 1) AS approved_hash
+        ORDER BY pa.created_at DESC LIMIT 1) AS approved_hash,
       COALESCE(pi.payroll_period,(SELECT ps.period FROM payroll_submissions ps WHERE ps.id=pi.submission_id),pi.payment_period) AS context_payroll_period
     FROM payment_instructions pi WHERE pi.id=? AND pi.org_id=? LIMIT 1`, [paymentInstructionId, organizationId]);
 }
