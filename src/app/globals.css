@@ -140,6 +140,11 @@
 @media(max-width:820px){.login-page{padding:0;background:#fff}.login-shell{min-height:100vh;grid-template-columns:1fr;border:0;border-radius:0;box-shadow:none}.login-story{display:none}.login-panel{min-height:100vh;padding:clamp(28px,8vw,48px)}.login-mobile-brand{display:grid;margin-bottom:42px}.login-heading{margin:0 0 24px}}
 .login-form .btn { min-height: 42px; }
 .login-error { padding: 9px 10px; border: 1px solid #fecaca; border-radius: 8px; color: #b91c1c; background: #fef2f2; font-size: 10.5px; }
+.mfa-enrollment-card{gap:9px}
+.mfa-qr-wrap{display:grid;place-items:center;padding:12px;border:1px solid var(--border);border-radius:12px;background:#fff}
+.mfa-qr-image{display:block;width:min(100%,220px);height:auto;image-rendering:pixelated}
+.mfa-setup-key{display:block;overflow-wrap:anywhere;word-break:break-all}
+.mfa-setup-key code{font-size:10px;letter-spacing:.05em}
 .login-security { margin: 22px 0 0; color: var(--text3); font-size: 9.5px; text-align: center; }
 .auth-modal-backdrop { position: fixed; inset: 0; z-index: 500; display: grid; place-items: center; padding: 20px; background: rgba(15,23,42,.58); backdrop-filter: blur(6px); }
 .auth-modal { width: min(100%, 430px); padding: 25px; border-radius: 18px; background: var(--bg-surface); box-shadow: var(--shadow-lg); }
