@@ -6,7 +6,7 @@ import { enforceRateLimit, handlePreflight, secureJson } from './_security.js';
 import { actorFraudDecision } from './_fraud-controls.js';
 import { recordFraudIncident } from './_fraud-incidents.js';
 import { readUserMfa, verifyUserMfa } from './_mfa.js';
-import { isCriticalMfaRole, mfaEnforcementMode, requestSecurityContext } from './_security-context.js';
+import { isCriticalMfaRole, isRequiredMfaRole, mfaEnforcementMode, requestSecurityContext } from './_security-context.js';
 import {
   beginPasskeyAuthentication,
   finishPasskeyAuthentication,
@@ -111,7 +111,7 @@ export async function onRequest({ request, env }) {
   }
 
   const mfa = await readUserMfa(env.DB, user.id);
-  const mfaRequired = Boolean(user.mfa_required) || isCriticalMfaRole(user.role);
+  const mfaRequired = Boolean(user.mfa_required) || isRequiredMfaRole(user.role);
   const enforceMfa = mfaEnforcementMode(env) === 'ENFORCE' && mfaRequired;
   const passkeyRequired = passkeyEnforcementMode(env) === 'ENFORCE' && isCriticalMfaRole(user.role);
   const passkeyConfigured = passkeyRequired ? await hasActivePasskey(env.DB,user.id) : false;
