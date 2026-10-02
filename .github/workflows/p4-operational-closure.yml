@@ -13,6 +13,7 @@ on:
       - 'tests/post-rollout-audit-uat.test.mjs'
       - 'tests/e2pay-p3-operational-readiness.test.mjs'
       - 'tests/payment-proof-reconciliation-p2-hardening.test.mjs'
+      - 'tests/p4-operational-closure.test.mjs'
   schedule:
     - cron: "7 20 * * *"
   workflow_dispatch:
@@ -54,6 +55,7 @@ jobs:
           tests/post-rollout-audit-uat.test.mjs
           tests/e2pay-p3-operational-readiness.test.mjs
           tests/payment-proof-reconciliation-p2-hardening.test.mjs
+          tests/p4-operational-closure.test.mjs
 
       - name: Wait for reviewed release convergence
         if: github.event_name == 'push'
