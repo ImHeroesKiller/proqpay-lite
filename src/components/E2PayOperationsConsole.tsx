@@ -8,12 +8,14 @@ import {
   getE2PayOverview,
   getE2PayTransactions,
   getE2PaySubAccounts,
+  getE2PayUatValidation,
   runE2PayAction,
   setE2PaySubAccountStatus,
   syncE2PaySubAccountBalance,
   upsertE2PaySubAccount,
   type E2PayAccountSnapshot,
   type E2PaySubAccount,
+  type E2PayUatLane,
   type E2PayCatalogItem,
   type E2PayTransactionRow,
 } from '@/lib/e2pay-api';
@@ -69,6 +71,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
   const [subAccountClients,setSubAccountClients]=useState<Array<{id:string;code:string;name:string;status:string}>>([]);
   const [subAccountSummary,setSubAccountSummary]=useState({total:0,active:0,draft:0,inactive:0,unmappedClients:0});
   const [subAccountForm,setSubAccountForm]=useState({clientId:'',providerAccountId:'',providerSubAccountId:'',accountName:'',status:'DRAFT' as 'DRAFT'|'ACTIVE'|'INACTIVE'});
+  const [uatValidation,setUatValidation]=useState<{canary:E2PayUatLane|null;batch:E2PayUatLane|null;protocol:string[]} | null>(null);
 
   const loadOverview=useCallback(async(force=false)=>{
     setLoading(true);setError('');
@@ -94,8 +97,18 @@ export default function E2PayOperationsConsole({canManage}:Props){
     }
   },[account]);
 
+  const loadUatValidation=useCallback(async()=>{
+    try{
+      const result=await getE2PayUatValidation();
+      setUatValidation({canary:result.canary,batch:result.batch,protocol:result.protocol});
+    }catch{
+      setUatValidation(null);
+    }
+  },[]);
+
   useEffect(()=>{void loadOverview(false);},[loadOverview]);
   useEffect(()=>{void loadSubAccounts();},[loadSubAccounts]);
+  useEffect(()=>{void loadUatValidation();},[loadUatValidation]);
 
   useEffect(()=>{
     if(String(account?.environment||'').toUpperCase()!=='UAT') return;
@@ -395,6 +408,30 @@ export default function E2PayOperationsConsole({canManage}:Props){
       </div>
     </section>
 
+    {String(account?.environment||'').toUpperCase()==='UAT' && uatValidation?<section className="integration-panel" aria-label="P5.4 UAT Disbursement Validation">
+      <div className="integration-panel-head">
+        <div><strong>P5.4 Transactional UAT</strong><small>Single-recipient canary lebih dulu, lalu recovery/reconciliation, baru batch 5 beneficiary.</small></div>
+        <button type="button" className="btn btn-compact" onClick={()=>void loadUatValidation()}>Refresh UAT status</button>
+      </div>
+      {([['Canary',uatValidation.canary],['Batch',uatValidation.batch]] as Array<[string,E2PayUatLane|null]>).map(([label,row])=><article key={label} className="e2pay-uat-lane">
+        <div><strong>{label}</strong><span>{row?.phase||'NOT_READY'}</span></div>
+        <small>{row?(row.submission.recipientCount+' recipient · '+formatIDR(row.submission.expectedTotal)+' · '+row.submission.id):'Dataset belum tersedia'}</small>
+        <b>{row?.subAccount?('Sub-account '+row.subAccount.masked):'Sub-account belum mapped'}</b>
+        <em>{row?('Liquidity '+row.liquidity.state+' · PI '+(row.paymentInstruction?.status||'belum dibuat')+' · Gateway '+(row.transaction?.status||'belum ada')):'Menunggu deployment seed'}</em>
+      </article>)}
+      <div className="app-notice-bubble app-notice-info" role="note">
+        <strong>Authority tetap Payment Control</strong>
+        <span>Card ini hanya observability. Generate/submit PI dilakukan Processor, approval dan Process Payment hanya Payroll Controller. Raw disbursement dari Integration Console tetap dinonaktifkan.</span>
+      </div>
+      <ol className="e2pay-topup-steps">
+        <li>Pastikan canary menunjukkan <b>FUNDED</b> dan <b>READY_FOR_PI</b>.</li>
+        <li>Processor membuat + submit PI canary Rp15.000.</li>
+        <li>Controller review immutable routing lalu approve dan Process Payment.</li>
+        <li>Uji idempotent replay; jangan membuat financial attempt kedua.</li>
+        <li>Bila UNKNOWN/timeout, jalankan reconciliation sebelum retry.</li>
+        <li>Setelah canary selesai dan reconciliation MATCHED, lanjut batch 5 beneficiary Rp175.000.</li>
+      </ol>
+    </section>:null}
     <div className="integrations-two-col e2pay-operational-grid">
       <section className="integration-panel">
         <div className="integration-panel-head"><div><strong>Transaction history</strong><small>Riwayat transaksi provider</small></div><span>{transactionCount}</span></div>
