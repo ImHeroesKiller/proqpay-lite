@@ -9,7 +9,7 @@ const origin='https://proqpay.test';
 async function seed(){
   const DB=new D1Mock();
   DB.sqlite.exec(`
-    INSERT INTO organizations(id,name,slug,status) VALUES('ORG-P5','MSG','msg','ACTIVE');
+    INSERT INTO organizations(id,name,code) VALUES('ORG-P5','MSG','MSG');
     INSERT INTO clients(id,org_id,code,name,status) VALUES
       ('CLI-A','ORG-P5','A','Client A','ACTIVE'),
       ('CLI-B','ORG-P5','B','Client B','ACTIVE');
