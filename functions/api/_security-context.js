@@ -49,6 +49,10 @@ export function isCriticalMfaRole(role) {
   return ['SUPER_ADMIN', 'PAYROLL_CONTROLLER'].includes(String(role || '').toUpperCase());
 }
 
+export function isRequiredMfaRole(role) {
+  return ['SUPER_ADMIN', 'PAYROLL_CONTROLLER', 'PAYROLL_PROCESSOR'].includes(String(role || '').toUpperCase());
+}
+
 export function mfaEnforcementMode(env = {}) {
   const mode = String(env.SECURITY_MFA_ENFORCEMENT || 'AUDIT').trim().toUpperCase();
   return mode === 'ENFORCE' ? 'ENFORCE' : 'AUDIT';
