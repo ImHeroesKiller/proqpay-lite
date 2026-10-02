@@ -38,6 +38,11 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Stamp reviewed release
+        shell: bash
+        run: |
+          printf '{"commit":"%s","builtAt":"%s"}\n' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > public/release.json
+
       - name: Quality gates
         run: |
           npm test
