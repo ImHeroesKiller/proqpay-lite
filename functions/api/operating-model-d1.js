@@ -1306,7 +1306,11 @@ async function executeAction(database, body, actor, env, organizationId) {
       error:'Critical exceptions still open',
       code:'CRITICAL_EXCEPTION_BLOCKS_PI',
     } };
-    if (existing && existing.status !== 'REVISION_REQUIRED' && !existing.provider_account_registry_id) {
+    const activeE2PayMappingForReplay=existing && !existing.provider_account_registry_id
+      ? await d1First(database,`SELECT id FROM payment_provider_accounts
+          WHERE org_id=? AND client_id=? AND provider='E2PAY' AND status='ACTIVE' LIMIT 1`,[organizationId,submission.client_id])
+      : null;
+    if (existing && existing.status !== 'REVISION_REQUIRED' && !existing.provider_account_registry_id && activeE2PayMappingForReplay) {
       await d1Batch(database,[
         {statement:`UPDATE payment_instructions SET status='REJECTED',updated_at=${NOW} WHERE id=?`,bindings:[existing.id]},
         auditOperation(organizationId,actor,'PAYMENT_INSTRUCTION_PROVIDER_ROUTING_RECOVERY',
