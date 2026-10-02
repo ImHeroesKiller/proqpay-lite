@@ -91,6 +91,9 @@ type BillingWorkspaceProps = {
   focusSubmissionId?: string;
   focusSection?: BillingSection;
   onClearFocus?: () => void;
+  period?: string;
+  filters?: { clientId:string; projectId:string; query:string };
+  embedded?: boolean;
 };
 
 export default function BillingWorkspace({
@@ -98,6 +101,9 @@ export default function BillingWorkspace({
   focusSubmissionId = "",
   focusSection,
   onClearFocus,
+  period = "ALL",
+  filters,
+  embedded = false,
 }: BillingWorkspaceProps) {
   const [section, setSection] = useState<BillingSection>(focusSection || "invoice");
   const [data, setData] = useState<BillingData>(initialData);
@@ -178,6 +184,27 @@ export default function BillingWorkspace({
     const clients = data.clients.filter((row) => clientIds.has(String(row.id)));
     return { ...data, submissions, billablePayments, invoices, arItems, clients };
   }, [data, focusSubmissionId]);
+
+  const scopedData = useMemo(() => {
+    const clientId=filters?.clientId || "ALL";
+    const projectId=filters?.projectId || "ALL";
+    const query=(filters?.query || "").trim().toLowerCase();
+    const submissions=scopedData.submissions.filter((row:any)=>{
+      const periodMatch=period==="ALL" || row.period===period || row.payment_period===period;
+      const clientMatch=clientId==="ALL" || String(row.client_id)===clientId;
+      const projectMatch=projectId==="ALL" || String(row.project_id || "")===projectId;
+      const queryMatch=!query || [row.client_name,row.project_name,row.id,row.period,row.state].join(" ").toLowerCase().includes(query);
+      return periodMatch && clientMatch && projectMatch && queryMatch;
+    });
+    const submissionIds=new Set(submissions.map((row:any)=>String(row.id)));
+    const billablePayments=scopedData.billablePayments.filter((row:any)=>submissionIds.has(String(row.submission_id || "")));
+    const invoices=scopedData.invoices.filter((row:any)=>submissionIds.has(String(row.submission_id || "")));
+    const invoiceIds=new Set(invoices.map((row:any)=>String(row.id)));
+    const arItems=scopedData.arItems.filter((row:any)=>invoiceIds.has(String(row.invoice_id || "")));
+    const clientIds=new Set(submissions.map((row:any)=>String(row.client_id || "")));
+    const clients=scopedData.clients.filter((row:any)=>clientIds.has(String(row.id)));
+    return {...focusedData,submissions,billablePayments,invoices,arItems,clients};
+  }, [focusedData,filters?.clientId,filters?.projectId,filters?.query,period]);
 
   async function act(
     action: string,
@@ -300,8 +327,8 @@ export default function BillingWorkspace({
   }
 
   const totals = useMemo(() => {
-    const open = focusedData.arItems.filter((r) => Number(r.balance) > 0);
-    const closeReady = focusedData.submissions.filter((r) =>
+    const open = scopedData.arItems.filter((r) => Number(r.balance) > 0);
+    const closeReady = scopedData.submissions.filter((r) =>
       r.period_status !== "CLOSED" &&
       r.state === "COMPLETED" &&
       r.payment_status === "COMPLETED" &&
@@ -309,8 +336,8 @@ export default function BillingWorkspace({
       ["ISSUED", "PARTIALLY_PAID", "PAID"].includes(String(r.invoice_status || "")),
     ).length;
     return {
-      billable: focusedData.billablePayments.length,
-      review: focusedData.invoices.filter((r) =>
+      billable: scopedData.billablePayments.length,
+      review: scopedData.invoices.filter((r) =>
         ["DRAFT", "UNDER_REVIEW"].includes(String(r.status || "")),
       ).length,
       closeReady,
@@ -319,7 +346,7 @@ export default function BillingWorkspace({
         .filter((r) => Number(r.aging_days) > 0)
         .reduce((n, r) => n + Number(r.balance || 0), 0),
     };
-  }, [focusedData]);
+  }, [scopedData]);
 
   function openGenerate(row: any) {
     setForm({ reimbursement: 0, discount: 0 });
@@ -409,7 +436,7 @@ export default function BillingWorkspace({
   }
 
   function exportCoretax() {
-    const rows = data.invoices.filter((r) => r.tax_status === "PKP");
+    const rows = scopedData.invoices.filter((r) => r.tax_status === "PKP");
     const csv = [
       [
         "Nomor Invoice",
@@ -454,7 +481,7 @@ export default function BillingWorkspace({
 
   return (
     <div className="billing-workspace ui-workspace-stack">
-      {(focusSubmissionId || focusSection) && (
+      {!embedded && (focusSubmissionId || focusSection) && (
         <div className="dashboard-focus-banner" role="status">
           <span>
             Dashboard focus · {focusSubmissionId || sections[focusSection || "close"]}
@@ -529,7 +556,7 @@ export default function BillingWorkspace({
       )}
       {section === "tax" && (
         <TaxSection
-          rows={focusedData.invoices}
+          rows={scopedData.invoices}
           canControl={canControl}
           openTax={openTax}
           exportCoretax={exportCoretax}
@@ -537,7 +564,7 @@ export default function BillingWorkspace({
       )}
       {section === "ar" && (
         <ARSection
-          rows={focusedData.arItems}
+          rows={scopedData.arItems}
           canControl={canWriteAr}
           canFollow={canWriteAr}
           payment={openPayment}
@@ -547,14 +574,14 @@ export default function BillingWorkspace({
       )}
       {section === "close" && (
         <CloseSection
-          rows={focusedData.submissions}
+          rows={scopedData.submissions}
           canControl={canControl}
           close={openClose}
         />
       )}
       {section === "setup" && (
         <SetupSection
-          clients={focusedData.clients}
+          clients={scopedData.clients}
           issuerProfile={data.issuerProfile}
           canEdit={canPrepare}
           canManageIssuer={canManageIssuer}
