@@ -1,5 +1,8 @@
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
+import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
+import { e2payAuthorize, e2payMerchantAccount } from './payment-gateway-e2pay.js';
+import { liquidityState } from './payment-provider-routing.js';
 
 const METHODS='GET, POST, OPTIONS';
 const READ_ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -14,7 +17,7 @@ function masked(value){
   const text=clean(value,300);
   return text ? '••••'+text.slice(-4) : null;
 }
-function publicRow(row){
+function publicRow(row,requiredAmount=0){
   return {
     id:row.id,
     clientId:row.client_id,
@@ -33,6 +36,7 @@ function publicRow(row){
     lastBalanceSyncAt:row.last_balance_sync_at,
     createdAt:row.created_at,
     updatedAt:row.updated_at,
+    liquidity:liquidityState(row,requiredAmount),
   };
 }
 function audit(org,actor,action,entityId,detail,requestId){
@@ -65,6 +69,7 @@ export async function onRequest({request,env}){
     if(request.method==='GET'){
       const url=new URL(request.url);
       const environment=clean(url.searchParams.get('environment')||'UAT',40).toUpperCase();
+      const requiredAmount=Math.max(0,Number(url.searchParams.get('requiredAmount')||0)||0);
       if(!ENVIRONMENTS.includes(environment)) return secureJson({error:'Environment tidak valid'},422,request,env,METHODS);
 
       const [rows,clients]=await Promise.all([
@@ -80,7 +85,7 @@ export async function onRequest({request,env}){
         ok:true,
         provider:'E2PAY',
         environment,
-        accounts:rows.map(publicRow),
+        accounts:rows.map((row)=>publicRow(row,requiredAmount)),
         clients,
         summary:{
           total:rows.length,
@@ -99,6 +104,41 @@ export async function onRequest({request,env}){
 
     const body=await request.json().catch(()=>({}));
     const action=clean(body.action||'UPSERT_SUBACCOUNT',80).toUpperCase();
+
+    if(action==='SYNC_BALANCE'){
+      const id=clean(body.id,140);
+      if(!id) return secureJson({error:'id mapping wajib diisi'},422,request,env,METHODS);
+      const current=await d1First(env.DB,`SELECT * FROM payment_provider_accounts
+        WHERE id=? AND org_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' LIMIT 1`,[id,organizationId]);
+      if(!current) return secureJson({error:'Mapping sub-account tidak ditemukan'},404,request,env,METHODS);
+      if(current.status!=='ACTIVE'||!current.provider_sub_account_id){
+        return secureJson({error:'Sub-account harus ACTIVE dan sudah diprovisioning sebelum balance sync',code:'E2PAY_SUBACCOUNT_NOT_READY'},409,request,env,METHODS);
+      }
+      const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,current.environment);
+      const auth=await e2payAuthorize(runtimeEnv);
+      const account=await e2payMerchantAccount(runtimeEnv,auth.accessToken);
+      const providerAccountId=clean(account?.accountId,200);
+      if(!providerAccountId||providerAccountId!==clean(current.provider_sub_account_id,200)){
+        return secureJson({
+          error:'Credential E2Pay aktif tidak merepresentasikan sub-account yang dipilih. Balance tidak diubah.',
+          code:'E2PAY_SUBACCOUNT_BALANCE_SOURCE_MISMATCH',
+          providerAccountIdMasked:masked(providerAccountId),
+          mappedSubAccountIdMasked:masked(current.provider_sub_account_id),
+        },409,request,env,METHODS);
+      }
+      const balance=Number(account?.balance||0);
+      await d1Batch(env.DB,[
+        {statement:`UPDATE payment_provider_accounts SET provider_account_id=?,account_name=COALESCE(?,account_name),
+          balance=?,available_balance=?,last_balance_sync_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+          updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,
+          bindings:[providerAccountId,clean(account?.accountName,200)||null,balance,balance,actor.email,id,organizationId]},
+        audit(organizationId,actor,'E2PAY_SUBACCOUNT_BALANCE_SYNCED',id,
+          `balance=${balance} · accountLast4=${providerAccountId.slice(-4)} · environment=${current.environment}`,requestId),
+      ]);
+      const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name
+        FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id WHERE ppa.id=? LIMIT 1`,[id]);
+      return secureJson({ok:true,account:publicRow(row,Number(body.requiredAmount||0)),correlationId:requestId},200,request,env,METHODS);
+    }
 
     if(action==='UPSERT_SUBACCOUNT'){
       const clientId=clean(body.clientId,120);

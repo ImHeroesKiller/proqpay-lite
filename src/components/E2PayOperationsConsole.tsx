@@ -10,6 +10,7 @@ import {
   getE2PaySubAccounts,
   runE2PayAction,
   setE2PaySubAccountStatus,
+  syncE2PaySubAccountBalance,
   upsertE2PaySubAccount,
   type E2PayAccountSnapshot,
   type E2PaySubAccount,
@@ -135,6 +136,17 @@ export default function E2PayOperationsConsole({canManage}:Props){
       await loadSubAccounts();
     }catch(cause){
       setError(cause instanceof Error?cause.message:'Mapping sub-account gagal disimpan');
+    }finally{setActionLoading('');}
+  }
+
+  async function syncSubAccountBalance(id:string){
+    setActionLoading('SUBACCOUNT_BALANCE');setError('');setNotice('');
+    try{
+      await syncE2PaySubAccountBalance(id);
+      setNotice('Balance sub-account E2Pay tersinkron dari provider.');
+      await loadSubAccounts();
+    }catch(cause){
+      setError(cause instanceof Error?cause.message:'Balance sub-account gagal disinkron');
     }finally{setActionLoading('');}
   }
 
@@ -368,8 +380,9 @@ export default function E2PayOperationsConsole({canManage}:Props){
           <div><strong>{row.clientName||row.clientCode||'Client'}</strong><span>{row.status}</span></div>
           <small>{row.environment} · Sub-account {row.providerSubAccountIdMasked||'belum diprovisioning'} · {row.accountName||'nama belum tersedia'}</small>
           <b>{row.availableBalance===null?'Balance belum sync':formatIDR(Number(row.availableBalance))}</b>
-          <em>{row.lastBalanceSyncAt?'Sync '+dateTime(row.lastBalanceSyncAt):'Belum ada balance sync'}</em>
+          <em>{row.lastBalanceSyncAt?'Sync '+dateTime(row.lastBalanceSyncAt):'Belum ada balance sync'} · {row.liquidity?.state||'NOT_SYNCED'}</em>
           {canManage?<div className="e2pay-subaccount-row-actions">
+            {row.status==='ACTIVE'?<button type="button" className="btn btn-compact" disabled={actionLoading==='SUBACCOUNT_BALANCE'} onClick={()=>void syncSubAccountBalance(row.id)}>{actionLoading==='SUBACCOUNT_BALANCE'?'Syncing…':'Sync balance'}</button>:null}
             {row.status!=='ACTIVE'?<button type="button" className="btn btn-compact" disabled={actionLoading==='SUBACCOUNT_STATUS'} onClick={()=>void changeSubAccountStatus(row.id,'ACTIVE')}>Activate</button>:null}
             {row.status==='ACTIVE'?<button type="button" className="btn btn-compact" disabled={actionLoading==='SUBACCOUNT_STATUS'} onClick={()=>void changeSubAccountStatus(row.id,'INACTIVE')}>Deactivate</button>:null}
           </div>:null}

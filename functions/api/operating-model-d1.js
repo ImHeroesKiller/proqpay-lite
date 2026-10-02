@@ -7,6 +7,8 @@ import { activeEmployeeSql } from './_employee-status.js';
 import { actorFraudDecision, paymentLimitDecision } from './_fraud-controls.js';
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import { revealEmployeeBankAccount } from './_employee-bank-security.js';
+import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
+import { activeProviderAccount, liquidityState, providerSnapshot, validatePaymentProviderSnapshot } from './payment-provider-routing.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const PROCESSOR_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
@@ -344,7 +346,17 @@ async function readResource(database, params, actor, env, organizationId) {
     const total = lines.reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const expectedRecipients = Number(instruction.recipient_count || 0);
     const recipientBalanced = expectedRecipients === lines.length;
-    return { data: { ok: true, paymentInstruction: instruction, lines, approvals, activity, proofSummary, reconciliationHistory,
+    const publicInstruction={...instruction,
+      provider_sub_account_id:undefined,
+      provider_account_snapshot:undefined,
+      providerSubAccountIdMasked:instruction.provider_sub_account_id?'••••'+String(instruction.provider_sub_account_id).slice(-4):null,
+      providerLiquidity:instruction.provider_account_registry_id?{
+        balanceSnapshot:instruction.provider_balance_snapshot===null?null:Number(instruction.provider_balance_snapshot),
+        availableBalanceSnapshot:instruction.provider_available_balance_snapshot===null?null:Number(instruction.provider_available_balance_snapshot),
+        checkedAt:instruction.provider_balance_checked_at||null,
+      }:null,
+    };
+    return { data: { ok: true, paymentInstruction: publicInstruction, lines, approvals, activity, proofSummary, reconciliationHistory,
       control: {
         recipientCount: lines.length,
         expectedRecipientCount: expectedRecipients,
@@ -1246,7 +1258,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     }
     const submission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
     if (!submission) return { status: 404, data: { error: 'Submission not found' } };
-    const existing = await d1First(database, `SELECT * FROM payment_instructions
+    let existing = await d1First(database, `SELECT * FROM payment_instructions
       WHERE submission_id=? AND org_id=? AND status<>'REJECTED' ORDER BY created_at DESC LIMIT 1`, [submission.id, organizationId]);
     if (['DATA_APPROVED','PAYROLL_FINALIZED'].includes(String(submission.state || ''))) {
       await d1Batch(database, [
@@ -1294,6 +1306,18 @@ async function executeAction(database, body, actor, env, organizationId) {
       error:'Critical exceptions still open',
       code:'CRITICAL_EXCEPTION_BLOCKS_PI',
     } };
+    const activeE2PayMappingForReplay=existing && !existing.provider_account_registry_id
+      ? await d1First(database,`SELECT id FROM payment_provider_accounts
+          WHERE org_id=? AND client_id=? AND provider='E2PAY' AND status='ACTIVE' LIMIT 1`,[organizationId,submission.client_id])
+      : null;
+    if (existing && existing.status !== 'REVISION_REQUIRED' && !existing.provider_account_registry_id && activeE2PayMappingForReplay) {
+      await d1Batch(database,[
+        {statement:`UPDATE payment_instructions SET status='REJECTED',updated_at=${NOW} WHERE id=?`,bindings:[existing.id]},
+        auditOperation(organizationId,actor,'PAYMENT_INSTRUCTION_PROVIDER_ROUTING_RECOVERY',
+          'Legacy PI tanpa provider routing snapshot dipensiunkan dan harus diregenerasi','payment_instruction',existing.id),
+      ]);
+      existing=null;
+    }
     if (existing && existing.status !== 'REVISION_REQUIRED') return { data: { ok: true, paymentInstruction: existing, idempotentReplay: true } };
     const snapshotCount = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_run_lines WHERE submission_id=?`, [submission.id]);
     const source = Number(snapshotCount?.count || 0) ? await d1All(database, `SELECT l.employee_id AS id,l.employee_name AS name,l.net_amount AS amount,
@@ -1361,6 +1385,25 @@ async function executeAction(database, body, actor, env, organizationId) {
       tax_status,payment_terms_days,purchase_order FROM clients WHERE id=? AND org_id=? LIMIT 1`,
       [submission.client_id, organizationId]);
     if (!billingProfile) return { status:404, data:{ error:'Client billing profile tidak ditemukan' } };
+    const gatewayEnv=await gatewayRuntimeEnv(database,env,organizationId);
+    const provider=String(gatewayEnv.PAYMENT_GATEWAY_PROVIDER||'').toUpperCase();
+    const providerEnvironment=String(gatewayEnv.E2PAY_ENV||'UAT').toUpperCase();
+    let providerAccount=null;
+    if(provider==='E2PAY'){
+      providerAccount=await activeProviderAccount(database,organizationId,submission.client_id,'E2PAY',providerEnvironment);
+      if(!providerAccount){
+        return {status:409,data:{
+          error:'Client belum memiliki ACTIVE E2Pay sub-account untuk environment '+providerEnvironment,
+          code:'E2PAY_SUBACCOUNT_MAPPING_REQUIRED',
+        }};
+      }
+      if(!providerAccount.provider_sub_account_id){
+        return {status:409,data:{
+          error:'E2Pay sub-account client belum selesai diprovisioning',
+          code:'E2PAY_SUBACCOUNT_NOT_PROVISIONED',
+        }};
+      }
+    }
     const billingSnapshot = JSON.stringify({
       method:String(billingProfile.billing_method || 'PER_EMPLOYEE'),
       rate:Number(billingProfile.billing_rate || 0),
@@ -1380,8 +1423,11 @@ async function executeAction(database, body, actor, env, organizationId) {
         bankCode, accountNumber: String(row.account_no), amount: Number(row.amount) }));
       return { ...row, bankCode, encrypted, lineHash };
     }));
+    const routingSnapshot=providerAccount?providerSnapshot(providerAccount):null;
     const contentHash = await instructionContentHash({ organizationId, clientId: submission.client_id,
-      submissionId: submission.id, payrollPeriod: submission.period, paymentPeriod }, source.map((row) => ({
+      submissionId: submission.id, payrollPeriod: submission.period, paymentPeriod,
+      provider:routingSnapshot?.provider||'',providerEnvironment:routingSnapshot?.environment||'',
+      providerAccountRegistryId:routingSnapshot?.registryId||'',providerSubAccountId:providerAccount?.provider_sub_account_id||'' }, source.map((row) => ({
       employeeId: row.id, beneficiaryName: row.name, bankName: row.bank_name,
       accountNumber: row.account_no, amount: Number(row.amount),
     })));
@@ -1403,10 +1449,15 @@ async function executeAction(database, body, actor, env, organizationId) {
         ...(existing ? [{ statement:`UPDATE payment_instructions SET status='REJECTED',updated_at=${NOW} WHERE id=? AND status='REVISION_REQUIRED'`, bindings:[existing.id] }] : []),
         { statement: `INSERT INTO payment_instructions
           (id,org_id,client_id,submission_id,status,expected_total,creator_user_id,idempotency_key,
-           document_no,content_hash,currency,execution_date,recipient_count,billing_snapshot)
-          VALUES (?,?,?,?,'PAYMENT_INSTRUCTION_READY',?,?,?,?,?,'IDR',?,?,?)`,
+           document_no,content_hash,currency,execution_date,recipient_count,billing_snapshot,
+           provider_account_registry_id,provider,provider_environment,provider_sub_account_id,
+           provider_account_snapshot,provider_balance_snapshot,provider_available_balance_snapshot,provider_balance_checked_at)
+          VALUES (?,?,?,?,'PAYMENT_INSTRUCTION_READY',?,?,?,?,?,'IDR',?,?,?,?,?,?,?,?,?,?,?)`,
           bindings: [id, organizationId, submission.client_id, submission.id, expectedTotal, actor.id, idempotencyKey,
-            documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length, billingSnapshot] },
+            documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length, billingSnapshot,
+            providerAccount?.id||null,providerAccount?.provider||null,providerAccount?.environment||null,
+            providerAccount?.provider_sub_account_id||null,routingSnapshot?JSON.stringify(routingSnapshot):null,
+            providerAccount?.balance??null,providerAccount?.available_balance??null,providerAccount?.last_balance_sync_at||null] },
         ...lineInsertOperations(id, snapshotLines),
         { statement:`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`,
           bindings:[submission.id] },
@@ -1626,12 +1677,29 @@ async function executeAction(database, body, actor, env, organizationId) {
         return { status:409, data:{ error:'Integritas salah satu baris PI berubah; approval diblokir', code:'PI_LINE_HASH_MISMATCH' } };
       }
     }
+    const approvalProviderAccount=payment.provider==='E2PAY'
+      ? await activeProviderAccount(database,organizationId,payment.client_id,'E2PAY',payment.provider_environment)
+      : null;
+    if(payment.provider==='E2PAY'){
+      const routingValidation=validatePaymentProviderSnapshot(payment,approvalProviderAccount);
+      if(!routingValidation.ok) return {status:409,data:{error:routingValidation.error,code:routingValidation.code}};
+      const liquidity=liquidityState(approvalProviderAccount,Number(payment.expected_total));
+      if(!liquidity.ready) return {status:409,data:{
+        error:liquidity.state==='INSUFFICIENT'
+          ? 'Saldo E2Pay sub-account client tidak mencukupi untuk approval PI'
+          : 'Saldo E2Pay sub-account belum fresh/siap untuk approval PI',
+        code:'E2PAY_LIQUIDITY_'+liquidity.state,
+        liquidity,
+      }};
+    }
     const serverHash = await instructionContentHash({
       organizationId,
       clientId:payment.client_id,
       submissionId:payment.submission_id,
       payrollPeriod:payment.payroll_period,
       paymentPeriod:payment.payment_period,
+      provider:payment.provider||'',providerEnvironment:payment.provider_environment||'',
+      providerAccountRegistryId:payment.provider_account_registry_id||'',providerSubAccountId:payment.provider_sub_account_id||'',
     }, decrypted.map((line) => ({
       employeeId:line.employee_id,
       beneficiaryName:line.beneficiary_name,

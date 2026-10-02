@@ -51,6 +51,10 @@ export type PaymentInstructionRecord = {
   content_hash?: string | null;
   rejection_reason?: string | null;
   rejected_by?: string | null;
+  provider?: string | null;
+  provider_environment?: string | null;
+  providerSubAccountIdMasked?: string | null;
+  providerLiquidity?: { balanceSnapshot:number|null; availableBalanceSnapshot:number|null; checkedAt?:string|null } | null;
 };
 
 export type PaymentProofRecord = {

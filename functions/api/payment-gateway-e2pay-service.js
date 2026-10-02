@@ -273,7 +273,7 @@ export function selectE2PayExecutionChunk(items = [], limit = 25, retryFailed = 
   return eligible.slice(0, bounded);
 }
 
-export async function executeE2PayBatch({ database, env, transactionId, payment, beneficiaries, retryFailed = false }) {
+export async function executeE2PayBatch({ database, env, transactionId, payment, beneficiaries, retryFailed = false, liquidityBalance = null }) {
   const limit = e2paySyncBeneficiaryLimit(env);
   let allItems = await ensureItems(database, transactionId, payment, beneficiaries);
 
@@ -307,7 +307,7 @@ export async function executeE2PayBatch({ database, env, transactionId, payment,
     e2payMerchantAccount(env, auth.accessToken),
     e2payBankList(env, auth.accessToken),
   ]);
-  const merchantBalance = number(merchant?.balance);
+  const merchantBalance = liquidityBalance===null||liquidityBalance===undefined ? number(merchant?.balance) : number(liquidityBalance);
   const executionContract=e2payExecutionContract(env,merchant);
   if(!executionContract.valid){
     const issue=executionContract.issues[0] || 'E2PAY_EXECUTION_CONTRACT_INVALID';

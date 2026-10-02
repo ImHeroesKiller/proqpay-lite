@@ -131,6 +131,7 @@ export type E2PaySubAccount = {
   lastBalanceSyncAt?:string|null;
   createdAt?:string|null;
   updatedAt?:string|null;
+  liquidity?:{state:string;ready:boolean;requiredAmount:number;availableBalance:number|null;gap:number;ageMs?:number};
 };
 
 export type E2PaySubAccountRegistry = {
@@ -168,5 +169,14 @@ export async function setE2PaySubAccountStatus(id:string,status:'DRAFT'|'ACTIVE'
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'SET_SUBACCOUNT_STATUS',id,status}),
+  })) as Promise<{ok:true;account:E2PaySubAccount;correlationId?:string}>;
+}
+
+
+export async function syncE2PaySubAccountBalance(id:string,requiredAmount=0){
+  return parse(await fetch('/api/e2pay-subaccounts',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'SYNC_BALANCE',id,requiredAmount}),
   })) as Promise<{ok:true;account:E2PaySubAccount;correlationId?:string}>;
 }
