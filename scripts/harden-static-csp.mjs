@@ -53,7 +53,7 @@ export async function hardenStaticCsp(outDir){
     .replace(styleDirective,["style-src 'self'",...styleHashes].join(' '));
 
   const cspLine=headers.split('\n').find((line)=>line.includes('Content-Security-Policy:'))||'';
-  if(/script-src[^;]*'unsafe-inline'/.test(cspLine) || /style-src[^;]*'unsafe-inline'/.test(cspLine)){
+  if(/(?:^|;\s*)script-src\s[^;]*'unsafe-inline'/.test(cspLine) || /(?:^|;\s*)style-src\s[^;]*'unsafe-inline'/.test(cspLine)){
     throw new Error('Unsafe inline remains in script-src/style-src after CSP hardening');
   }
   if(Buffer.byteLength(cspLine,'utf8')>24000){
