@@ -18,6 +18,7 @@ const EwaInbox = dynamic(() => import('@/components/EwaInbox'), { loading:() => 
 const PortalSettings = dynamic(() => import('@/components/PortalSettings'), { loading:() => <ViewLoading /> });
 const IntegrationsWorkspace = dynamic(() => import('@/components/IntegrationsWorkspace'), { loading:() => <ViewLoading /> });
 const PaymentGatewayPaymentPanel = dynamic(() => import('@/components/PaymentGatewayPaymentPanel'), { loading:() => <ViewLoading /> });
+const UnifiedPayrollWorkspace = dynamic(() => import('@/components/UnifiedPayrollWorkspace'), { loading:() => <ViewLoading /> });
 
 type Actor = {
   id:string;
@@ -75,13 +76,21 @@ export default function AppWorkspaceRouter(props:Props) {
         existingProjects={db.projects || []}
       />}
       {view === 'logs' && <SystemLogs />}
-      {view === 'operations' && <OperatingWorkspace mode="payruns" />}
-      {view === 'exceptions' && <OperatingWorkspace mode="actions" />}
-      {view === 'payments' && <>
+      {['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && ['operations','exceptions','payments','billing'].includes(view) ? (
+        <UnifiedPayrollWorkspace
+          role={actor.role}
+          period={period}
+          gatewayCanView={gatewayCanView}
+          initialStage={view === 'payments' ? 'PAYMENT' : view === 'billing' ? 'CLOSE' : 'PAYROLL'}
+        />
+      ) : null}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'operations' && <OperatingWorkspace mode="payruns" />}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'exceptions' && <OperatingWorkspace mode="actions" />}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'payments' && <>
         <OperatingWorkspace mode="payments" />
         {gatewayCanView ? <PaymentGatewayPaymentPanel role={actor.role} /> : null}
       </>}
-      {view === 'billing' && <OperatingWorkspace mode="billing" />}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'billing' && <OperatingWorkspace mode="billing" />}
       {view === 'integrations' && <IntegrationsWorkspace
         canManage={integrationsCanManage}
         canView={gatewayCanView}
