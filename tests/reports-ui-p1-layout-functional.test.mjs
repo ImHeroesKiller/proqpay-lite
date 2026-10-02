@@ -8,7 +8,7 @@ test('Reports UI P1: Reports stays read-only while Data Intake owns payroll file
   const reports=await read('src/components/ReportsWorkspace.tsx');
   const intake=await read('src/app/data-intake/page.tsx');
   assert.doesNotMatch(reports,/type="file"/);
-  assert.match(intake,/Data Intake Payroll/);
+  assert.match(intake,/Upload Payroll Data/);
   assert.match(intake,/Unggah & validasi/);
 });
 
