@@ -2,7 +2,7 @@ import { verifyPassword } from './_account-auth.js';
 import { d1First, d1Run, hasD1 } from './_d1.js';
 import { activateUserMfa, beginMfaEnrollment, markCurrentSessionMfa, readUserMfa, verifyUserMfa } from './_mfa.js';
 import { ROLES, authorize, enforceRateLimit, handlePreflight, secureJson } from './_security.js';
-import { isCriticalMfaRole, mfaEnforcementMode } from './_security-context.js';
+import { isRequiredMfaRole, mfaEnforcementMode } from './_security-context.js';
 
 const METHODS='GET, POST, OPTIONS';
 
@@ -52,7 +52,7 @@ export async function onRequest({request,env}){
     if(limited) return limited;
     const user=await credentialsUser(env.DB,body);
     if(!user) return secureJson({error:'Email atau password tidak valid'},401,request,env,METHODS);
-    if(!isCriticalMfaRole(user.role) && !Boolean(user.mfa_required)){
+    if(!isRequiredMfaRole(user.role) && !Boolean(user.mfa_required)){
       return secureJson({error:'MFA enrollment tidak diperlukan untuk role ini',code:'MFA_NOT_REQUIRED'},409,request,env,METHODS);
     }
     if(action==='ENROLL_START'){
@@ -98,7 +98,7 @@ export async function onRequest({request,env}){
     return secureJson({
       ok:true,
       mfa:{
-        required:Boolean(isCriticalMfaRole(actor.role)),
+        required:Boolean(isRequiredMfaRole(actor.role)),
         configured:Boolean(row),
         active:row?.status==='ACTIVE',
         status:row?.status||'NOT_ENROLLED',
