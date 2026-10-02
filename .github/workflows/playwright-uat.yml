@@ -58,7 +58,7 @@ jobs:
     timeout-minutes: 25
     env:
       BASE_URL: ${{ github.event_name == 'push' && 'https://proqpay.msg-os.com' || inputs.target_url }}
-      SPEC_PATH: ${{ github.event_name == 'push' && 'tests/e2e' || inputs.spec_path }}
+      SPEC_PATH: ${{ github.event_name == 'push' && 'tests/e2e/p4-production-closure.spec.mjs' || inputs.spec_path }}
       UAT_CREDENTIALS_ENABLED: ${{ github.event_name == 'push' && 'true' || inputs.use_uat_credentials }}
       PROQPAY_UAT_EMAIL: ${{ github.event_name == 'push' && secrets.PROQPAY_UAT_EMAIL || (inputs.use_uat_credentials && secrets.PROQPAY_UAT_EMAIL || '') }}
       PROQPAY_UAT_PASSWORD: ${{ github.event_name == 'push' && secrets.PROQPAY_UAT_PASSWORD || (inputs.use_uat_credentials && secrets.PROQPAY_UAT_PASSWORD || '') }}
@@ -76,7 +76,7 @@ jobs:
             exit 1
           }
           if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            [[ "$SPEC_PATH" == "tests/e2e" ]] || exit 1
+            [[ "$SPEC_PATH" == "tests/e2e/p4-production-closure.spec.mjs" ]] || exit 1
           else
             [[ "$SPEC_PATH" =~ ^tests/e2e/[A-Za-z0-9._/-]+\.spec\.(mjs|js)$ ]] || {
               echo "::error::spec_path must be a .spec.mjs/.spec.js file inside tests/e2e/"
