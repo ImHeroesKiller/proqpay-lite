@@ -20,6 +20,7 @@ import {
 
 type Props = {
   paymentInstructionId: string;
+  expectedPeriod: string;
   canExecuteGateway: boolean;
   onManualProof?: () => void;
   onChanged?: () => void | Promise<void>;
@@ -41,7 +42,7 @@ const activeHosted = (value: HostedPaymentSession | null) => Boolean(value
   && ['CREATED','READY','OPENED','RETURNED'].includes(value.status)
   && new Date(value.expires_at).getTime() > Date.now());
 
-export default function PaymentGatewayExecutionActions({ paymentInstructionId, canExecuteGateway, onManualProof, onChanged }: Props) {
+export default function PaymentGatewayExecutionActions({ paymentInstructionId, expectedPeriod, canExecuteGateway, onManualProof, onChanged }: Props) {
   const [runtime, setRuntime] = useState<Runtime>({ seamless:null, hosted:null, transaction:null, items:[], session:null, operational:null, timeline:[], arGate:null });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
@@ -54,8 +55,8 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     try {
       // Hosted status is loaded first because that endpoint also closes locally expired
       // Hosted sessions and their active transaction before the generic gateway status is read.
-      const hosted = await getHostedPaymentStatus(paymentInstructionId);
-      const seamless = await getPaymentGatewayStatus(paymentInstructionId);
+      const hosted = await getHostedPaymentStatus(paymentInstructionId, expectedPeriod);
+      const seamless = await getPaymentGatewayStatus(paymentInstructionId, expectedPeriod);
       setRuntime({
         seamless: seamless.gateway,
         hosted: hosted.hosted,
@@ -71,7 +72,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     } finally {
       setLoading(false);
     }
-  }, [paymentInstructionId]);
+  }, [paymentInstructionId, expectedPeriod]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -84,7 +85,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     if (!window.confirm('Konfirmasi final Payroll Controller: Payment Instruction yang sudah approved akan dieksekusi melalui payment gateway. Lanjutkan pembayaran?')) return;
     setBusy('seamless'); setError('');
     try {
-      let result = await executeSeamlessPayment(paymentInstructionId, 'BANK_TRANSFER');
+      let result = await executeSeamlessPayment(paymentInstructionId, 'BANK_TRANSFER', expectedPeriod);
       // E2Pay is deliberately processed in bounded Worker requests. Continue a
       // large PI automatically while every completed beneficiary stays durable
       // in the gateway ledger, so a browser/network interruption can resume safely.
@@ -116,7 +117,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
   async function reconcileE2Pay() {
     setBusy('reconcile'); setError('');
     try {
-      await reconcileE2PayPayment(paymentInstructionId);
+      await reconcileE2PayPayment(paymentInstructionId, expectedPeriod);
       await changed();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sinkronisasi status E2Pay gagal');
@@ -129,7 +130,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     if (!window.confirm('Verifikasi ke E2Pay Transaction History bahwa beneficiary gagal tidak pernah tercatat di provider. Tidak ada pembayaran yang dikirim pada langkah ini. Lanjutkan?')) return;
     setBusy('verify-failed'); setError(''); setNotice('');
     try {
-      const result=await verifyFailedE2PayPayment(paymentInstructionId);
+      const result=await verifyFailedE2PayPayment(paymentInstructionId, expectedPeriod);
       await changed();
       if(result.verifiedSafe > 0){
         setNotice(`${result.verifiedSafe} beneficiary dipastikan tidak tercatat di E2Pay. Retry terkontrol sekarang tersedia untuk Payroll Controller.`);
@@ -149,7 +150,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     if (!window.confirm(`Retry hanya akan dilakukan untuk ${e2payRetryable} beneficiary yang dinilai aman untuk diulang. Lanjutkan?`)) return;
     setBusy('retry-failed'); setError(''); setNotice('');
     try {
-      let result = await retryFailedE2PayPayment(paymentInstructionId);
+      let result = await retryFailedE2PayPayment(paymentInstructionId, expectedPeriod);
       let continuationCalls = 0;
       let previousProgress = '';
       while (result.hasMore && continuationCalls < 100) {
@@ -159,7 +160,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
           break;
         }
         previousProgress = progress;
-        result = await retryFailedE2PayPayment(paymentInstructionId);
+        result = await retryFailedE2PayPayment(paymentInstructionId, expectedPeriod);
         continuationCalls += 1;
       }
       if (result.hasMore && continuationCalls >= 100) {
@@ -177,7 +178,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, c
     if (!window.confirm('Konfirmasi final Payroll Controller: lanjutkan ke Hosted Payment untuk Payment Instruction yang sudah approved?')) return;
     setBusy('hosted'); setError('');
     try {
-      const result = await createHostedPaymentSession(paymentInstructionId, '/?view=payments');
+      const result = await createHostedPaymentSession(paymentInstructionId, `/?view=payments&period=${encodeURIComponent(expectedPeriod)}`, expectedPeriod);
       if (!result.session.checkout_url) throw new Error('Hosted checkout URL tidak tersedia');
       window.location.assign(result.session.checkout_url);
     } catch (cause) {
