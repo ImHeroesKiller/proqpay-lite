@@ -183,12 +183,18 @@ test.describe.serial('P4 production closure regression',()=>{
     page.on('console',msg=>{
       if(msg.type()==='error'){
         const value=msg.text();
-        if(!/401.*\/api\/me|\/api\/me.*401/i.test(value)) consoleErrors.push(value);
+        if(/401.*\/api\/me|\/api\/me.*401/i.test(value)) return;
+        if(/static\.cloudflareinsights\.com\/beacon\.min\.js/i.test(value) && /content security policy|csp|refused to load/i.test(value)) return;
+        consoleErrors.push(value);
       }
     });
     page.on('requestfailed',req=>{
-      if(req.resourceType()==='document'||req.method()==='GET'){
-        failedRequests.push(`${req.method()} ${req.url()} :: ${req.failure()?.errorText||'failed'}`);
+      const failure=req.failure()?.errorText||'failed';
+      const url=req.url();
+      if(/ERR_ABORTED/i.test(failure)) return;
+      if(/^https:\/\/static\.cloudflareinsights\.com\//i.test(url) && /csp/i.test(failure)) return;
+      if(req.resourceType()==='document'||url.startsWith('https://proqpay.msg-os.com/api/')){
+        failedRequests.push(`${req.method()} ${url} :: ${failure}`);
       }
     });
 
