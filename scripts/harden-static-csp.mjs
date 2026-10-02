@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 async function walk(dir){
   const out=[];
@@ -62,6 +63,6 @@ export async function hardenStaticCsp(outDir){
   console.log(JSON.stringify({ok:true,htmlFiles:files.length,scriptHashes:scriptHashes.size,styleHashes:styleHashes.size,cspBytes:Buffer.byteLength(cspLine,'utf8')}));
 }
 
-if(process.argv[1] && import.meta.url===new URL('file://'+process.argv[1]).href){
+if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
   await hardenStaticCsp(process.argv[2]||'out');
 }
