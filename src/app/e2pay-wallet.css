@@ -157,3 +157,32 @@
     width:100%;
   }
 }
+
+
+.e2pay-subaccount-registry{
+  display:grid;
+  gap:14px;
+}
+
+.e2pay-subaccount-registry .e2pay-filter-grid{
+  align-items:end;
+}
+
+.e2pay-subaccount-action{
+  display:flex;
+  align-items:flex-end;
+  min-height:100%;
+}
+
+.e2pay-subaccount-row-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:8px;
+}
+
+@media (max-width:700px){
+  .e2pay-subaccount-action .btn{
+    width:100%;
+  }
+}

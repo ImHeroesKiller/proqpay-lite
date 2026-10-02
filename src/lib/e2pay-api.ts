@@ -111,3 +111,62 @@ export async function runE2PayAction(action:string,payload:Record<string,unknown
     body:JSON.stringify({action,...payload}),
   })) as Promise<Record<string,unknown>&{ok:true;action:string;correlationId?:string}>;
 }
+
+
+export type E2PaySubAccount = {
+  id:string;
+  clientId:string|null;
+  clientCode?:string|null;
+  clientName?:string|null;
+  provider:string;
+  environment:string;
+  accountScope:'MASTER'|'SUB_ACCOUNT';
+  providerAccountIdMasked?:string|null;
+  providerSubAccountIdMasked?:string|null;
+  accountName?:string|null;
+  currency:string;
+  status:'DRAFT'|'ACTIVE'|'INACTIVE';
+  balance:number|null;
+  availableBalance:number|null;
+  lastBalanceSyncAt?:string|null;
+  createdAt?:string|null;
+  updatedAt?:string|null;
+};
+
+export type E2PaySubAccountRegistry = {
+  ok:true;
+  provider:'E2PAY';
+  environment:string;
+  accounts:E2PaySubAccount[];
+  clients:Array<{id:string;code:string;name:string;status:string}>;
+  summary:{total:number;active:number;draft:number;inactive:number;unmappedClients:number};
+  correlationId?:string;
+};
+
+export async function getE2PaySubAccounts(environment='UAT'){
+  const params=new URLSearchParams({environment});
+  return parse(await fetch(`/api/e2pay-subaccounts?${params}`,{headers:{Accept:'application/json'},cache:'no-store'})) as Promise<E2PaySubAccountRegistry>;
+}
+
+export async function upsertE2PaySubAccount(input:{
+  clientId:string;
+  environment:string;
+  providerAccountId?:string;
+  providerSubAccountId?:string;
+  accountName?:string;
+  status:'DRAFT'|'ACTIVE'|'INACTIVE';
+}){
+  return parse(await fetch('/api/e2pay-subaccounts',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'UPSERT_SUBACCOUNT',...input}),
+  })) as Promise<{ok:true;account:E2PaySubAccount;correlationId?:string}>;
+}
+
+export async function setE2PaySubAccountStatus(id:string,status:'DRAFT'|'ACTIVE'|'INACTIVE'){
+  return parse(await fetch('/api/e2pay-subaccounts',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'SET_SUBACCOUNT_STATUS',id,status}),
+  })) as Promise<{ok:true;account:E2PaySubAccount;correlationId?:string}>;
+}
