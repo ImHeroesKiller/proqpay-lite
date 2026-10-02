@@ -42,7 +42,7 @@ test('Payroll redundancy audit: Data Intake is the canonical payroll file ingest
   const reports=await read('src/components/ReportsWorkspace.tsx');
   const validation=await read('functions/api/payroll-intake-validation.js');
   assert.match(intake,/fetch\("\/api\/payroll-intake"/);
-  assert.match(intake,/Data Intake Payroll/);
+  assert.match(intake,/Upload Payroll Data/);
   assert.doesNotMatch(reports,/type="file"/);
   assert.match(validation,/validatePayrollControlRows/);
 });

@@ -158,6 +158,19 @@ export default function Sidebar({
         {clientExperience ? (
           <NavGroup label="Workspace">
             <NavBtn active={view === "dashboard"} icon={<IconDashboard />} title={getViewLabel("dashboard", role)} onClick={() => go("dashboard")} />
+            {canIntake ? (
+              <Link
+                className={`sidebar-nav-button${activePath === "data-intake" ? " sidebar-nav-active" : ""}`}
+                href={period ? `/data-intake?period=${encodeURIComponent(period)}` : "/data-intake"}
+                title="Upload Payroll"
+                aria-label="Upload Payroll"
+                aria-current={activePath === "data-intake" ? "page" : undefined}
+                onClick={onMobileClose}
+              >
+                <IconFile />
+                <span>Upload Payroll</span>
+              </Link>
+            ) : null}
             <NavBtn active={view === "operations"} icon={<IconWallet />} title={getViewLabel("operations", role)} onClick={() => go("operations")} />
             <NavBtn active={view === "reports"} icon={<IconFile />} title={getViewLabel("reports", role)} onClick={() => go("reports")} />
           </NavGroup>
@@ -167,55 +180,69 @@ export default function Sidebar({
               <NavBtn active={view === "dashboard"} icon={<IconDashboard />} title={getViewLabel("dashboard", role)} onClick={() => go("dashboard")} />
             </NavGroup>
 
-            <NavGroup label={simplifiedInternal ? "Work" : "Payroll Operations"}>
+            <NavGroup label={simplifiedInternal ? "Payroll" : "Payroll Operations"}>
               {allowed.has("clients") && !simplifiedInternal ? (
                 <NavBtn active={view === "clients"} icon={<IconBuilding />} title={getViewLabel("clients", role)} onClick={() => go("clients")} />
               ) : null}
-              {canIntake ? (
-                <Link
-                  className={`sidebar-nav-button${activePath === "data-intake" ? " sidebar-nav-active" : ""}`}
-                  href={period ? `/data-intake?period=${encodeURIComponent(period)}` : "/data-intake"}
-                  title="Data Intake"
-                  aria-label="Data Intake"
-                  aria-current={activePath === "data-intake" ? "page" : undefined}
-                  onClick={onMobileClose}
-                >
-                  <IconFile />
-                  <span>Data Intake</span>
-                </Link>
-              ) : null}
-              {allowed.has("exceptions") ? (
-                <NavBtn
-                  active={view === "exceptions"}
-                  icon={<IconAlertTriangle />}
-                  title={getViewLabel("exceptions", role)}
-                  onClick={() => go("exceptions")}
-                />
-              ) : null}
-              {allowed.has("operations") ? (
-                <NavBtn
-                  active={view === "operations" && activePath !== "data-intake"}
-                  icon={<IconClock />}
-                  title={getViewLabel("operations", role)}
-                  onClick={() => go("operations")}
-                />
-              ) : null}
-              {allowed.has("payments") ? (
-                <NavBtn
-                  active={view === "payments"}
-                  icon={<IconArrowUpRight />}
-                  title={getViewLabel("payments", role)}
-                  onClick={() => go("payments")}
-                />
-              ) : null}
-              {allowed.has("billing") ? (
-                <NavBtn
-                  active={view === "billing"}
-                  icon={<IconWallet />}
-                  title={getViewLabel("billing", role)}
-                  onClick={() => go("billing")}
-                />
-              ) : null}
+              {simplifiedInternal ? (
+                allowed.has("operations") ? (
+                  <NavBtn
+                    active={["operations","exceptions","payments","billing"].includes(view)}
+                    icon={<IconClock />}
+                    title="Payroll Workspace"
+                    onClick={() => go("operations")}
+                  />
+                ) : null
+              ) : (
+                <>
+                                {canIntake ? (
+                    <Link
+                      className={`sidebar-nav-button${activePath === "data-intake" ? " sidebar-nav-active" : ""}`}
+                      href={period ? `/data-intake?period=${encodeURIComponent(period)}` : "/data-intake"}
+                      title="Data Intake"
+                      aria-label="Data Intake"
+                      aria-current={activePath === "data-intake" ? "page" : undefined}
+                      onClick={onMobileClose}
+                    >
+                      <IconFile />
+                      <span>Data Intake</span>
+                    </Link>
+                  ) : null}
+                  {allowed.has("exceptions") ? (
+                    <NavBtn
+                      active={view === "exceptions"}
+                      icon={<IconAlertTriangle />}
+                      title={getViewLabel("exceptions", role)}
+                      onClick={() => go("exceptions")}
+                    />
+                  ) : null}
+                  {allowed.has("operations") ? (
+                    <NavBtn
+                      active={view === "operations" && activePath !== "data-intake"}
+                      icon={<IconClock />}
+                      title={getViewLabel("operations", role)}
+                      onClick={() => go("operations")}
+                    />
+                  ) : null}
+                  {allowed.has("payments") ? (
+                    <NavBtn
+                      active={view === "payments"}
+                      icon={<IconArrowUpRight />}
+                      title={getViewLabel("payments", role)}
+                      onClick={() => go("payments")}
+                    />
+                  ) : null}
+                  {allowed.has("billing") ? (
+                    <NavBtn
+                      active={view === "billing"}
+                      icon={<IconWallet />}
+                      title={getViewLabel("billing", role)}
+                      onClick={() => go("billing")}
+                    />
+                  ) : null}
+
+                </>
+              )}
             </NavGroup>
 
             <NavGroup label={simplifiedInternal ? "Reference & Reports" : "People & Reporting"}>

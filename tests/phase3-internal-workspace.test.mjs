@@ -15,15 +15,12 @@ test('Phase 3 dashboard uses the operational control tower without a redundant s
 test('internal navigation uses simple business language and hides secondary employee-portal admin menus', async()=>{
   const sidebar=await read('src/components/Sidebar.tsx');
   const navigation=await read('src/lib/navigation-config.ts');
-  assert.match(sidebar,/simplifiedInternal \? "Work" : "Payroll Operations"/);
-  assert.match(sidebar,/getViewLabel\("exceptions", role\)/);
-  assert.match(navigation,/exceptions: "Issues"/);
-  assert.match(sidebar,/getViewLabel\("operations", role\)/);
-  assert.match(navigation,/operations: "Payroll"/);
-  assert.match(sidebar,/getViewLabel\("payments", role\)/);
-  assert.match(navigation,/payments: "Payments"/);
-  assert.match(sidebar,/getViewLabel\("billing", role\)/);
-  assert.match(navigation,/billing: "Close & Billing"/);
+  assert.match(sidebar,/simplifiedInternal \? "Payroll" : "Payroll Operations"/);
+  assert.match(sidebar,/title="Payroll Workspace"/);
+  assert.match(navigation,/operations: "Payroll Workspace"/);
+  assert.match(navigation,/exceptions: "Payroll Workspace"/);
+  assert.match(navigation,/payments: "Payroll Workspace"/);
+  assert.match(navigation,/billing: "Payroll Workspace"/);
   assert.match(sidebar,/simplifiedInternal \? "Reference & Reports" : "People & Reporting"/);
   assert.match(sidebar,/canManageEmployeeServices && allowed\.has\("ewa"\)/);
   assert.doesNotMatch(sidebar,/getViewLabel\("portalSettings", role\)/);
@@ -69,10 +66,10 @@ test('header labels and work alerts are role-owned for Processor and Controller'
   const source=await read('src/components/AppHeader.tsx');
   const navigation=await read('src/lib/navigation-config.ts');
   assert.match(source,/getViewLabel\(/);
-  assert.match(navigation,/operations: "Payroll"/);
-  assert.match(navigation,/exceptions: "Issues"/);
-  assert.match(navigation,/payments: "Payments"/);
-  assert.match(navigation,/billing: "Close & Billing"/);
+  assert.match(navigation,/operations: "Payroll Workspace"/);
+  assert.match(navigation,/exceptions: "Payroll Workspace"/);
+  assert.match(navigation,/payments: "Payroll Workspace"/);
+  assert.match(navigation,/billing: "Payroll Workspace"/);
   assert.match(source,/actor\.role === "PAYROLL_PROCESSOR"/);
   assert.match(source,/actor\.role === "PAYROLL_CONTROLLER"/);
   assert.match(source,/row\.status\s*===\s*"PAYMENT_APPROVAL_PENDING"/);

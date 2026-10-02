@@ -36,10 +36,10 @@ export function getViewLabel(view: AppView, role = "") {
 
   if (["PAYROLL_PROCESSOR", "PAYROLL_CONTROLLER"].includes(role)) {
     const simplified: Partial<Record<AppView, string>> = {
-      operations: "Payroll",
-      exceptions: "Issues",
-      payments: "Payments",
-      billing: "Close & Billing",
+      operations: "Payroll Workspace",
+      exceptions: "Payroll Workspace",
+      payments: "Payroll Workspace",
+      billing: "Payroll Workspace",
     };
     return simplified[view] || DEFAULT_VIEW_LABELS[view];
   }

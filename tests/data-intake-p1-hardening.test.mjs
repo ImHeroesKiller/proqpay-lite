@@ -4,12 +4,15 @@ import test from 'node:test';
 
 const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
-test('Data Intake P1 restricts mutation and setup to operational import roles',async()=>{
+test('Data Intake P1 allows Client User only through explicit scoped intake role and preserves import hardening',async()=>{
   const api=await read('functions/api/payroll-intake.js');
   const setup=await read('functions/api/payroll-intake-setup.js');
-  assert.match(api,/const ROLES = \["SUPER_ADMIN", "PAYROLL_PROCESSOR"\]/);
+  assert.match(api,/const ROLES = \["SUPER_ADMIN", "PAYROLL_PROCESSOR", "CLIENT_USER"\]/);
   assert.match(api,/permissions\?\.includes\("import:write"\)/);
-  assert.match(setup,/const ROLES=\['SUPER_ADMIN','PAYROLL_PROCESSOR'\]/);
+  assert.match(setup,/const ROLES=\['SUPER_ADMIN','PAYROLL_PROCESSOR','CLIENT_USER'\]/);
+  assert.match(api,/Client scope denied/);
+  assert.match(api,/Project scope denied/);
+  assert.match(api,/Scope denied/);
 });
 
 test('Data Intake P1 parses canonical rows from hashed file bytes on the server',async()=>{

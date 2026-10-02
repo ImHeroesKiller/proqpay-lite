@@ -57,7 +57,7 @@ test("Data Intake is visible from Payroll navigation for operational roles", () 
   assert.match(sidebar, /roleHasCapability/);
   assert.match(authority, /SUPER_ADMIN:[\s\S]*?'data-intake'/);
   assert.match(authority, /PAYROLL_PROCESSOR:[\s\S]*?'data-intake'/);
-  assert.match(authority, /CLIENT_USER: Object\.freeze\(\[\]\)/);
+  assert.match(authority, /CLIENT_USER: Object\.freeze\(\['data-intake'\]\)/);
   assert.match(sidebar, /activePath === "data-intake"/);
 });
 

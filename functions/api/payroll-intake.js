@@ -16,7 +16,7 @@ import {
 } from "./_security.js";
 
 const METHODS = "POST, OPTIONS";
-const ROLES = ["SUPER_ADMIN", "PAYROLL_PROCESSOR"];
+const ROLES = ["SUPER_ADMIN", "PAYROLL_PROCESSOR", "CLIENT_USER"];
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const ACTIVE_EXITS = new Set([
   "INACTIVE",
