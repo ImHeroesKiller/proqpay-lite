@@ -158,6 +158,13 @@ export default function OperatingWorkspace({
     submissions.forEach((row) => map.set(String(row.client_id), String(row.client_name || row.client_id)));
     return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [submissions]);
+  const projects = useMemo(() => {
+    const map = new Map<string,string>();
+    submissions
+      .filter((row)=>clientFilter==='ALL' || String(row.client_id)===clientFilter)
+      .forEach((row)=>{ if(row.project_id) map.set(String(row.project_id),String(row.project_name || row.project_id)); });
+    return [...map.entries()].sort((a,b)=>a[1].localeCompare(b[1]));
+  }, [submissions,clientFilter]);
   const visibleSubmissions = useMemo(() => submissions.filter((row) => {
     const instruction=instructionBySubmission.get(row.id);
     const business=derivePayrollBusinessStage({
@@ -299,8 +306,9 @@ export default function OperatingWorkspace({
 
       {!embedded && mode !== 'billing' ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} disabled={Boolean(period && period !== 'ALL')} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{period && period !== 'ALL' && !periods.includes(period) ? <option value={period}>{period}</option> : null}{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-        <label><span>Klien</span><select value={clientFilter} onChange={(event) => setLocalClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        {mode!=='actions'?<label><span>{mode === 'payments' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:mode==='payments'?paymentBusinessLabel(String(state)):String(state).replaceAll('_', ' ')}</option>)}</select></label>:null}
+        <label><span>Klien</span><select value={clientFilter} onChange={(event) => { setLocalClientFilter(event.target.value); setLocalProjectFilter('ALL'); }}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+        <label><span>Project</span><select value={projectFilter} onChange={(event)=>setLocalProjectFilter(event.target.value)}><option value="ALL">Semua project</option>{projects.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
+        {mode!=='actions'?<label><span>{mode === 'payments' || mode === 'reconcile' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:mode==='payments'||mode==='reconcile'?paymentBusinessLabel(String(state)):String(state).replaceAll('_', ' ')}</option>)}</select></label>:null}
         {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setLocalQuery(event.target.value)} placeholder={profile.search} /></label>:null}
       </div> : null}
 
@@ -325,6 +333,11 @@ export default function OperatingWorkspace({
           <div><span>Warning</span><strong>{warningExceptions.length}</strong><small>Perlu review sebelum finalisasi</small></div>
           <div><span>Client action</span><strong>{clientActionExceptions.length}</strong><small>Menunggu koreksi klien</small></div>
           <div><span>Ready / clean</span><strong>{cleanRuns}</strong><small>{resolvedExceptions.length} exception selesai</small></div>
+        </> : mode === 'reconcile' ? <>
+          <div><span>To reconcile</span><strong>{visibleInstructions.filter((row)=>['PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION'].includes(row.status)).length}</strong><small>Perlu review Controller</small></div>
+          <div><span>Payment proof</span><strong>{visibleProofs.length}</strong><small>Bukti tercatat</small></div>
+          <div><span>Matched</span><strong>{matchedPayments}</strong><small>Reconciliation selesai</small></div>
+          <div><span>Completed</span><strong>{visibleInstructions.filter((row)=>row.status==='COMPLETED').length}</strong><small>Siap billing / close</small></div>
         </> : simplifiedInternal ? <>
           <div><span>Payments</span><strong>{visibleInstructions.length}</strong><small>{visibleInstructions.reduce((sum,row)=>sum+Number(row.recipient_count||0),0).toLocaleString('id-ID')} penerima</small></div>
           <div><span>{role==='PAYROLL_CONTROLLER'?'For approval':'Ready to pay'}</span><strong>{role==='PAYROLL_CONTROLLER'?awaitingApproval:visibleInstructions.filter((row)=>row.status==='APPROVED_FOR_PAYMENT').length}</strong><small>{role==='PAYROLL_CONTROLLER'?'Menunggu keputusan Anda':'Siap dieksekusi'}</small></div>
