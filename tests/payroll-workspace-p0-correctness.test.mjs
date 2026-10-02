@@ -16,18 +16,17 @@ test('P0 client payroll upload uses scoped capability without global import perm
 });
 
 test('P0 global period is propagated into payrun, PI and gateway execution surfaces',async()=>{
-  const [workspace,operating,panel,actions,api]=await Promise.all([
+  const [workspace,operating,actions,api]=await Promise.all([
     read('src/components/UnifiedPayrollWorkspace.tsx'),
     read('src/components/OperatingWorkspace.tsx'),
-    read('src/components/PaymentGatewayPaymentPanel.tsx'),
     read('src/components/PaymentGatewayExecutionActions.tsx'),
     read('src/lib/payment-gateway-api.ts'),
   ]);
   assert.match(workspace,/<OperatingWorkspace mode="payruns" period=\{period\}/);
   assert.match(workspace,/<OperatingWorkspace mode="payments" period=\{period\}/);
-  assert.match(workspace,/<PaymentGatewayPaymentPanel role=\{role\} period=\{period\}/);
   assert.match(operating,/disabled=\{Boolean\(period && period !== 'ALL'\)\}/);
-  assert.match(panel,/row\.payroll_period \|\| row\.payment_period/);
+  assert.match(operating,/PaymentGatewayExecutionActions/);
+  assert.match(operating,/expectedPeriod=\{String\(detail\.paymentInstruction\.payroll_period \|\| period\)\}/);
   assert.match(actions,/expectedPeriod/);
   assert.match(api,/payrollPeriod/);
 });
