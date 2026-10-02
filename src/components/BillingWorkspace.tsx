@@ -542,7 +542,7 @@ export default function BillingWorkspace({
 
       {section === "invoice" && (
         <InvoiceSection
-          data={focusedData}
+          data={scopedData}
           canPrepare={canPrepare}
           canControl={canControl}
           act={act}
