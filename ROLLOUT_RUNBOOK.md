@@ -1,6 +1,6 @@
 # ProQPay Production Rollout Runbook
 
-Last updated: 22 September 2026
+Last updated: 2 October 2026
 
 This document is the operational handoff for the completed ProQPay Phase 1–6 rollout.
 
@@ -124,6 +124,18 @@ Never rotate `PI_ENCRYPTION_KEY` as a rollback mechanism.
 - Verify settings/master-data administration.
 - Confirm normal Processor/Controller segregation still applies to financial approvals.
 
+## P4 final production closure
+
+Final production closure extends the normal release gate with explicit assurance stages:
+
+- **P4.1 Dependency Closure:** no High/Critical dependency vulnerability may remain open.
+- **P4.2 Security Residual Hardening:** production DAST residuals are remediated, including hash-based CSP and same-origin static resource controls.
+- **P4.3 Production Regression UAT:** canonical production, privileged MFA/WebAuthn, authenticated workspace regression, mobile overflow, API auth continuity, and anonymous fail-closed checks must pass.
+- **P4.4 Operational Closure:** `.github/workflows/p4-operational-closure.yml` must produce a PASS artifact proving current uptime, recovery, audit integrity, D1/payment invariants and operational regression.
+- **P4.5 Independent Assurance:** independent pentest and annual human incident-response tabletop remain the final non-code assurance gates.
+
+P4.4 must not replace P4.5. A technically healthy production system can be operationally closed while independent assurance is still pending.
+
 ## Release acceptance
 
 A release is ready when:
@@ -136,3 +148,4 @@ A release is ready when:
 - No P0/P1 regression is open.
 - Close readiness cannot be bypassed.
 - Client scope and maker-checker controls remain enforced.
+- P4.4 Operational Closure evidence is PASS and current.
