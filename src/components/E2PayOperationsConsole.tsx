@@ -7,8 +7,12 @@ import {
   getE2PayCatalog,
   getE2PayOverview,
   getE2PayTransactions,
+  getE2PaySubAccounts,
   runE2PayAction,
+  setE2PaySubAccountStatus,
+  upsertE2PaySubAccount,
   type E2PayAccountSnapshot,
+  type E2PaySubAccount,
   type E2PayCatalogItem,
   type E2PayTransactionRow,
 } from '@/lib/e2pay-api';
@@ -60,6 +64,10 @@ export default function E2PayOperationsConsole({canManage}:Props){
   const [lastResult,setLastResult]=useState('');
   const [topUpOpen,setTopUpOpen]=useState(false);
   const [copied,setCopied]=useState('');
+  const [subAccounts,setSubAccounts]=useState<E2PaySubAccount[]>([]);
+  const [subAccountClients,setSubAccountClients]=useState<Array<{id:string;code:string;name:string;status:string}>>([]);
+  const [subAccountSummary,setSubAccountSummary]=useState({total:0,active:0,draft:0,inactive:0,unmappedClients:0});
+  const [subAccountForm,setSubAccountForm]=useState({clientId:'',providerAccountId:'',providerSubAccountId:'',accountName:'',status:'DRAFT' as 'DRAFT'|'ACTIVE'|'INACTIVE'});
 
   const loadOverview=useCallback(async(force=false)=>{
     setLoading(true);setError('');
@@ -73,7 +81,20 @@ export default function E2PayOperationsConsole({canManage}:Props){
     setLoading(false);
   },[]);
 
+  const loadSubAccounts=useCallback(async()=>{
+    try{
+      const result=await getE2PaySubAccounts(String(account?.environment||'UAT').toUpperCase());
+      setSubAccounts(result.accounts);
+      setSubAccountClients(result.clients);
+      setSubAccountSummary(result.summary);
+      setSubAccountForm((current)=>current.clientId?current:{...current,clientId:result.clients[0]?.id||''});
+    }catch(cause){
+      setError(cause instanceof Error?cause.message:'Sub-account registry gagal dimuat');
+    }
+  },[account?.environment]);
+
   useEffect(()=>{void loadOverview(false);},[loadOverview]);
+  useEffect(()=>{void loadSubAccounts();},[loadSubAccounts]);
 
   useEffect(()=>{
     if(String(account?.environment||'').toUpperCase()!=='UAT') return;
@@ -96,6 +117,37 @@ export default function E2PayOperationsConsole({canManage}:Props){
       return null;
     }finally{setActionLoading('');}
   },[loadOverview]);
+
+  async function saveSubAccount(){
+    if(!subAccountForm.clientId) return;
+    setActionLoading('SAVE_SUBACCOUNT');setError('');setNotice('');
+    try{
+      await upsertE2PaySubAccount({
+        clientId:subAccountForm.clientId,
+        environment:String(account?.environment||'UAT').toUpperCase(),
+        providerAccountId:subAccountForm.providerAccountId||undefined,
+        providerSubAccountId:subAccountForm.providerSubAccountId||undefined,
+        accountName:subAccountForm.accountName||undefined,
+        status:subAccountForm.status,
+      });
+      setNotice('Mapping sub-account E2Pay tersimpan.');
+      setSubAccountForm((current)=>({...current,providerAccountId:'',providerSubAccountId:'',accountName:'',status:'DRAFT'}));
+      await loadSubAccounts();
+    }catch(cause){
+      setError(cause instanceof Error?cause.message:'Mapping sub-account gagal disimpan');
+    }finally{setActionLoading('');}
+  }
+
+  async function changeSubAccountStatus(id:string,status:'DRAFT'|'ACTIVE'|'INACTIVE'){
+    setActionLoading('SUBACCOUNT_STATUS');setError('');setNotice('');
+    try{
+      await setE2PaySubAccountStatus(id,status);
+      setNotice('Status sub-account diubah ke '+status+'.');
+      await loadSubAccounts();
+    }catch(cause){
+      setError(cause instanceof Error?cause.message:'Status sub-account gagal diubah');
+    }finally{setActionLoading('');}
+  }
 
   async function loadBanks(){
     setActionLoading('BANKS');setError('');
@@ -281,6 +333,54 @@ export default function E2PayOperationsConsole({canManage}:Props){
       </div>
       <small className="e2pay-topup-note">Tombol utama menyalin Bank, VA, nama akun, environment, provider, dan waktu pengecekan dalam plain text. Tombol kecil “Salin VA” tetap tersedia jika hanya nomor VA yang dibutuhkan.</small>
     </section>:null}
+
+    <section className="integration-panel e2pay-subaccount-registry" aria-label="E2Pay Sub-account Registry">
+      <div className="integration-panel-head">
+        <div>
+          <strong>Client Sub-account Registry</strong>
+          <small>Isolasi sumber dana E2Pay per klien B2B di bawah akun utama MSG.</small>
+        </div>
+        <span>{subAccountSummary.active}/{subAccountSummary.total} active</span>
+      </div>
+      <div className="e2pay-endpoint-summary">
+        <span>{subAccountSummary.active} active</span>
+        <span>{subAccountSummary.draft} draft</span>
+        <span>{subAccountSummary.inactive} inactive</span>
+        <span>{subAccountSummary.unmappedClients} client belum mapping</span>
+      </div>
+      {canManage?<div className="e2pay-filter-grid">
+        <label><span>Client</span><select value={subAccountForm.clientId} onChange={(e)=>setSubAccountForm((v)=>({...v,clientId:e.target.value}))}>
+          <option value="">Pilih client</option>
+          {subAccountClients.map((client)=><option key={client.id} value={client.id}>{client.name} · {client.code}</option>)}
+        </select></label>
+        <Field label="Master / provider account ID" value={subAccountForm.providerAccountId} onChange={(value)=>setSubAccountForm((v)=>({...v,providerAccountId:value}))} placeholder="Opsional; dari itUP" />
+        <Field label="Provider sub-account ID" value={subAccountForm.providerSubAccountId} onChange={(value)=>setSubAccountForm((v)=>({...v,providerSubAccountId:value}))} placeholder="Isi setelah provisioning itUP" />
+        <Field label="Account name" value={subAccountForm.accountName} onChange={(value)=>setSubAccountForm((v)=>({...v,accountName:value}))} placeholder="Nama sub-account" />
+        <label><span>Status</span><select value={subAccountForm.status} onChange={(e)=>setSubAccountForm((v)=>({...v,status:e.target.value as 'DRAFT'|'ACTIVE'|'INACTIVE'}))}>
+          <option value="DRAFT">DRAFT</option><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option>
+        </select></label>
+        <div className="e2pay-subaccount-action"><button type="button" className="btn btn-primary" disabled={!subAccountForm.clientId||actionLoading==='SAVE_SUBACCOUNT'} onClick={()=>void saveSubAccount()}>
+          {actionLoading==='SAVE_SUBACCOUNT'?'Menyimpan…':'Simpan mapping'}
+        </button></div>
+      </div>:null}
+      <div className="e2pay-resource-list">
+        {subAccounts.map((row)=><article key={row.id}>
+          <div><strong>{row.clientName||row.clientCode||'Client'}</strong><span>{row.status}</span></div>
+          <small>{row.environment} · Sub-account {row.providerSubAccountIdMasked||'belum diprovisioning'} · {row.accountName||'nama belum tersedia'}</small>
+          <b>{row.availableBalance===null?'Balance belum sync':formatIDR(Number(row.availableBalance))}</b>
+          <em>{row.lastBalanceSyncAt?'Sync '+dateTime(row.lastBalanceSyncAt):'Belum ada balance sync'}</em>
+          {canManage?<div className="e2pay-subaccount-row-actions">
+            {row.status!=='ACTIVE'?<button type="button" className="btn btn-compact" disabled={actionLoading==='SUBACCOUNT_STATUS'} onClick={()=>void changeSubAccountStatus(row.id,'ACTIVE')}>Activate</button>:null}
+            {row.status==='ACTIVE'?<button type="button" className="btn btn-compact" disabled={actionLoading==='SUBACCOUNT_STATUS'} onClick={()=>void changeSubAccountStatus(row.id,'INACTIVE')}>Deactivate</button>:null}
+          </div>:null}
+        </article>)}
+        {!subAccounts.length?<div className="integration-empty">Belum ada sub-account yang dipetakan. Simpan sebagai DRAFT sampai itUP memberikan provider sub-account ID.</div>:null}
+      </div>
+      <div className="app-notice-bubble app-notice-info" role="note">
+        <strong>Isolation control</strong>
+        <span>Satu provider sub-account hanya dapat dimiliki satu client pada environment yang sama. Mapping ACTIVE wajib memiliki provider sub-account ID; credential/token tetap berada di secure gateway settings dan tidak disimpan pada registry ini.</span>
+      </div>
+    </section>
 
     <div className="integrations-two-col e2pay-operational-grid">
       <section className="integration-panel">
