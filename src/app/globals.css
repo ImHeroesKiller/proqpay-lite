@@ -2941,3 +2941,25 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   .directory-entity-card{transition:none}
   .directory-entity-card:hover{transform:none}
 }
+
+
+/* Unified payroll workspace */
+.unified-payroll-workspace{display:grid;gap:16px}
+.unified-payroll-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}
+.unified-payroll-head h1{margin:4px 0 5px;font-size:clamp(27px,3vw,34px);letter-spacing:-.045em}
+.unified-payroll-head p{max-width:720px;margin:0;color:var(--text2);font-size:12.5px;line-height:1.55}
+.payroll-stage-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:7px;border:1px solid var(--border);border-radius:15px;background:var(--bg-surface);box-shadow:var(--shadow-xs)}
+.payroll-stage-nav button{display:flex;min-width:0;align-items:flex-start;gap:10px;padding:11px 12px;border:0;border-radius:11px;color:var(--text2);background:transparent;text-align:left;cursor:pointer}
+.payroll-stage-nav button:hover{background:var(--bg-subtle)}
+.payroll-stage-nav button.active{color:var(--text);background:var(--accent-soft);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 22%,transparent)}
+.payroll-stage-nav button>b{display:grid;min-width:31px;height:31px;place-items:center;border-radius:9px;color:var(--accent);background:var(--bg-surface);font-size:10px}
+.payroll-stage-nav button>span{display:grid;min-width:0;gap:2px}
+.payroll-stage-nav strong{font-size:11px}
+.payroll-stage-nav small{color:var(--text3);font-size:8.5px;line-height:1.4}
+.unified-payroll-stage{display:grid;gap:14px}
+.workflow-shortcut{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px}
+.workflow-shortcut>div{display:grid;gap:3px}
+.workflow-shortcut span{color:var(--accent);font-size:8.5px;font-weight:800;letter-spacing:.08em}
+.workflow-shortcut strong{font-size:12px}
+.workflow-shortcut small{color:var(--text3);font-size:9.5px;line-height:1.45}
+@media(max-width:760px){.unified-payroll-head{align-items:stretch;flex-direction:column}.payroll-stage-nav{grid-template-columns:1fr}.workflow-shortcut{align-items:stretch;flex-direction:column}.workflow-shortcut .btn{justify-content:center;width:100%}}
