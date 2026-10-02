@@ -1258,7 +1258,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     }
     const submission = await d1First(database, 'SELECT * FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1', [body.submissionId, organizationId]);
     if (!submission) return { status: 404, data: { error: 'Submission not found' } };
-    const existing = await d1First(database, `SELECT * FROM payment_instructions
+    let existing = await d1First(database, `SELECT * FROM payment_instructions
       WHERE submission_id=? AND org_id=? AND status<>'REJECTED' ORDER BY created_at DESC LIMIT 1`, [submission.id, organizationId]);
     if (['DATA_APPROVED','PAYROLL_FINALIZED'].includes(String(submission.state || ''))) {
       await d1Batch(database, [
@@ -1306,6 +1306,14 @@ async function executeAction(database, body, actor, env, organizationId) {
       error:'Critical exceptions still open',
       code:'CRITICAL_EXCEPTION_BLOCKS_PI',
     } };
+    if (existing && existing.status !== 'REVISION_REQUIRED' && !existing.provider_account_registry_id) {
+      await d1Batch(database,[
+        {statement:`UPDATE payment_instructions SET status='REJECTED',updated_at=${NOW} WHERE id=?`,bindings:[existing.id]},
+        auditOperation(organizationId,actor,'PAYMENT_INSTRUCTION_PROVIDER_ROUTING_RECOVERY',
+          'Legacy PI tanpa provider routing snapshot dipensiunkan dan harus diregenerasi','payment_instruction',existing.id),
+      ]);
+      existing=null;
+    }
     if (existing && existing.status !== 'REVISION_REQUIRED') return { data: { ok: true, paymentInstruction: existing, idempotentReplay: true } };
     const snapshotCount = await d1First(database, `SELECT COUNT(*) AS count FROM payroll_run_lines WHERE submission_id=?`, [submission.id]);
     const source = Number(snapshotCount?.count || 0) ? await d1All(database, `SELECT l.employee_id AS id,l.employee_name AS name,l.net_amount AS amount,
