@@ -461,15 +461,17 @@ export function e2payExecutionContract(env = {}, merchant = {}) {
   const merchantAccountId=String(merchant?.accountId || '').trim();
   const sourceId=required(env,'E2PAY_SOURCE_ID');
   const password=required(env,'E2PAY_PASSWORD_MD5');
+  const sourceMode=String(env.E2PAY_SOURCE_MODE||'MERCHANT_ACCOUNT').trim().toUpperCase();
   const accountSrcMatchesMerchant=merchantAccountId ? accountSrc === merchantAccountId : null;
   const issues=[];
   if(!accountSrc) issues.push('E2PAY_ACCOUNT_SRC_MISSING');
-  if(merchantAccountId && !accountSrcMatchesMerchant) issues.push('E2PAY_ACCOUNT_SRC_MISMATCH');
+  if(sourceMode!=='SUB_ACCOUNT_SNAPSHOT' && merchantAccountId && !accountSrcMatchesMerchant) issues.push('E2PAY_ACCOUNT_SRC_MISMATCH');
   if(!sourceId) issues.push('E2PAY_SOURCE_ID_MISSING');
   if(!/^[A-F0-9]{32}$/.test(password)) issues.push('E2PAY_PASSWORD_MD5_INVALID');
   return {
     valid:issues.length===0,
     environment,
+    sourceMode,
     accountSrcMatchesMerchant,
     sourceIdConfigured:Boolean(sourceId),
     sourceIdVerification:'PROVIDER_ISSUED_CONFIG_ONLY',
