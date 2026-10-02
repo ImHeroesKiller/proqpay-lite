@@ -26,6 +26,7 @@ export function LoginScreen() {
   const [mfaSecret, setMfaSecret] = useState('');
   const [mfaUri, setMfaUri] = useState('');
   const [passkeyRecoveryAvailable, setPasskeyRecoveryAvailable] = useState(false);
+  const [mfaSecretCopied, setMfaSecretCopied] = useState(false);
   const [passkeyRecovery, setPasskeyRecovery] = useState(false);
 
   async function requestLogin(extra: Record<string, unknown> = {}) {
@@ -102,7 +103,7 @@ export function LoginScreen() {
 
       if (login.response.status === 428 && login.data.code === "MFA_REQUIRED") {
         setMfaStage("CODE");
-        setError("Masukkan kode MFA 6 digit dari aplikasi authenticator.");
+        setError("Masukkan kode MFA 6 digit dari Google Authenticator.");
         return;
       }
 
@@ -118,7 +119,7 @@ export function LoginScreen() {
         setMfaUri(String(enrolled.otpauthUri || ""));
         setMfaCode("");
         setMfaStage("ENROLL");
-        setError("MFA wajib diaktifkan untuk role ini. Tambahkan secret ke authenticator lalu masukkan kode 6 digit.");
+        setError("MFA wajib diaktifkan untuk role ini. Tambahkan akun ProQPay ke Google Authenticator lalu masukkan kode 6 digit.");
         return;
       }
 
@@ -276,9 +277,32 @@ export function LoginScreen() {
             ) : null}
             {mfaStage === 'ENROLL' && mfaSecret ? (
               <div className="login-error" role="note">
-                <strong>Aktifkan MFA di authenticator</strong>
-                <span>Secret: <code>{mfaSecret}</code></span>
-                {mfaUri ? <small>Gunakan URI TOTP bila aplikasi authenticator mendukung input URI.</small> : null}
+                <strong>Aktifkan Google Authenticator</strong>
+                <span>Di ponsel, buka Google Authenticator → tambah akun → masukkan setup key berikut.</span>
+                <span>Setup key: <code>{mfaSecret}</code></span>
+                <div className="auth-modal-actions">
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(mfaSecret);
+                        setMfaSecretCopied(true);
+                        window.setTimeout(() => setMfaSecretCopied(false), 1800);
+                      } catch {
+                        setMfaSecretCopied(false);
+                      }
+                    }}
+                  >
+                    {mfaSecretCopied ? "Setup key tersalin" : "Salin setup key"}
+                  </button>
+                  {mfaUri ? (
+                    <a className="btn" href={mfaUri}>
+                      Buka di Authenticator
+                    </a>
+                  ) : null}
+                </div>
+                <small>Type: Time based (TOTP) · 6 digit · refresh setiap 30 detik. Setelah ditambahkan, masukkan kode 6 digit di atas untuk aktivasi.</small>
               </div>
             ) : null}
             {error ? (
@@ -324,7 +348,7 @@ export function LoginScreen() {
             </button>
           </form>
           <p className="login-security">
-            <span>◉</span>Sesi terenkripsi · Passkey/WebAuthn privileged · Aktivitas
+            <span>◉</span>Sesi terenkripsi · Google Authenticator TOTP · Passkey/WebAuthn privileged · Aktivitas
             tercatat
           </p>
         </div>
