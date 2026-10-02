@@ -266,6 +266,44 @@ export default function OperatingWorkspace({
   const myApprovals=myWork.filter((action)=>action.category==='APPROVAL');
   const clientCorrections=openExceptions.filter((row)=>row.status==='CLIENT_ACTION_REQUIRED');
   const clientPaymentProcessing=visibleInstructions.filter((row)=>!['COMPLETED','REJECTED'].includes(row.status)).length;
+  const readyForExecution=visibleInstructions.filter((row)=>['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(row.status)).length;
+  const toReconcile=visibleInstructions.filter((row)=>['PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION'].includes(row.status)).length;
+  const primaryWork=visibleNextActions.find((action)=>action.actionable);
+  const operationalFocus = mode==='payruns'
+    ? {
+        eyebrow:'NEXT ACTION',
+        title:role==='PAYROLL_CONTROLLER'
+          ? (myApprovals.length?myApprovals.length+' payroll menunggu keputusan Anda':'Tidak ada approval payroll yang tertunda')
+          : (myWork.length?myWork.length+' pekerjaan payroll perlu ditindaklanjuti':'Payroll pada scope ini tidak membutuhkan tindakan'),
+        detail:primaryWork?.label || (role==='PAYROLL_CONTROLLER'?'Pantau payroll sampai masuk tahap approval atau payment.':'Tidak ada blocker atau action wajib pada scope ini.'),
+        count:role==='PAYROLL_CONTROLLER'?myApprovals.length:myWork.length,
+        tone:(role==='PAYROLL_CONTROLLER'?myApprovals.length:myWork.length)>0?'attention':'ready',
+      }
+    : mode==='payments'
+      ? {
+          eyebrow:'NEXT ACTION',
+          title:role==='PAYROLL_CONTROLLER'
+            ? (awaitingApproval?awaitingApproval+' PI menunggu approval':readyForExecution?readyForExecution+' PI siap diproses':'Tidak ada payment yang membutuhkan tindakan')
+            : (visibleInstructions.filter((row)=>row.status==='PAYMENT_INSTRUCTION_READY').length
+                ? visibleInstructions.filter((row)=>row.status==='PAYMENT_INSTRUCTION_READY').length+' PI siap dikirim ke Controller'
+                : 'Pantau approval dan payment execution'),
+          detail:role==='PAYROLL_CONTROLLER'
+            ? (awaitingApproval?'Buka PI teratas, review kontrol utama, approve, lalu lanjut Process Payment tanpa keluar dari modal.':readyForExecution?'Buka payment teratas untuk melanjutkan atau memantau execution.':'Semua PI pada scope ini sudah bergerak ke tahap berikutnya.')
+            : 'Queue diurutkan berdasarkan tindakan yang paling mendesak.',
+          count:role==='PAYROLL_CONTROLLER'?awaitingApproval+readyForExecution:visibleInstructions.length,
+          tone:awaitingApproval||readyForExecution?'attention':'ready',
+        }
+      : mode==='reconcile'
+        ? {
+            eyebrow:'NEXT ACTION',
+            title:toReconcile?toReconcile+' payment perlu direkonsiliasi':'Reconciliation pada scope ini sudah bersih',
+            detail:toReconcile?'Selesaikan evidence dan settlement mismatch sebelum menutup payroll.':'Lanjutkan ke Billing & AR untuk invoice, collection, dan close period.',
+            count:toReconcile,
+            tone:toReconcile?'attention':'ready',
+            href:toReconcile?undefined:'#billing-close',
+            actionLabel:toReconcile?undefined:'Lanjut Billing & AR',
+          }
+        : null;
   const baseProfile = profiles[mode];
   const profile = clientExperience && mode === 'payruns'
     ? {...baseProfile,title:'Payroll',eyebrow:'YOUR PAYROLL',description:'Kirim data payroll, tindak lanjuti koreksi, dan pantau status proses dalam satu halaman.'}
@@ -350,6 +388,8 @@ export default function OperatingWorkspace({
           <div><span>Reconciliation</span><strong>{matchedPayments}</strong><small>{visibleReconciliations.length-matchedPayments} belum match</small></div>
         </>}
       </div> : null}
+
+      {simplifiedInternal && operationalFocus ? <OperationalFocus {...operationalFocus} /> : null}
 
       {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
       {loading ? <Empty title="Memuat data operasional…" /> : (
@@ -921,15 +961,19 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
     catch (error) { setDetailError(error instanceof Error ? error.message : 'Detail PI gagal dimuat'); }
     finally { setDetailLoading(false); }
   }
+  const priority:Record<string,number>=phase==='payment'
+    ? {PAYMENT_APPROVAL_PENDING:0,APPROVED_FOR_PAYMENT:1,DISBURSEMENT_PROCESSING:2,PAYMENT_INSTRUCTION_READY:3,REVISION_REQUIRED:4}
+    : {PAYMENT_EXCEPTION:0,PROOF_UPLOADED:1,RECONCILIATION:2,APPROVED_FOR_PAYMENT:3,DISBURSEMENT_PROCESSING:4,COMPLETED:9};
   const phaseInstructions = instructions.filter((row)=>{
     const status=String(row.status || '');
     return phase==='payment'
       ? !['PROOF_UPLOADED','RECONCILIATION','COMPLETED'].includes(status)
       : ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED'].includes(status);
-  });
+  }).sort((a,b)=>(priority[String(a.status||'')]??8)-(priority[String(b.status||'')]??8)
+    || String(b.created_at||'').localeCompare(String(a.created_at||'')));
   if (!phaseInstructions.length) return <Empty title={phase==='payment'?'Belum ada payment yang perlu diproses':'Belum ada payment untuk direkonsiliasi'} detail={phase==='payment'?'PI akan muncul setelah payroll siap untuk approval/payment.':'Payment akan muncul setelah PI approved atau execution dimulai.'} />;
   return <div style={{ display:'grid', gap:16 }}>
-    <CardTable headers={['Instruction / Periode','Nilai','Status','Dibuat','Aksi']} rows={phaseInstructions.map((r) => {
+    <CardTable headers={['Instruction / Periode','Nilai','Status','Next action']} rows={phaseInstructions.map((r) => {
       let action: React.ReactNode = <span style={small}>Menunggu tahap berikutnya</span>;
       if (r.status === 'PAYMENT_INSTRUCTION_READY') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
         ? <span style={{display:'inline-flex',gap:8,flexWrap:'wrap'}}><button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button><button style={actionButton} onClick={() => void act({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:r.id,confirmation:'SUBMIT PI'},'PI dikirim ke Controller untuk approval')}>Submit PI</button></span>
@@ -944,7 +988,7 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
         ? <a className="btn btn-primary" href={`?view=operations&submissionId=${encodeURIComponent(r.submission_id)}`}>Perbaiki Pay Run</a>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
       else action = <button style={actionButton} onClick={() => void openDetail(r.id)}>Detail PI</button>;
-      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.status === 'REVISION_REQUIRED' && r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={simplified?paymentBusinessLabel(r.status):r.status} />, date(r.created_at), <span key="action">{action}</span>];
+      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.status === 'REVISION_REQUIRED' && r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={simplified?paymentBusinessLabel(r.status):r.status} />, <span key="action">{action}</span>];
     })} />
     {detailLoading ? <div className="card" style={{padding:18}}>Memuat snapshot Payment Instruction…</div> : null}
     {detailError ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Detail PI gagal</strong><span>{detailError}</span></div> : null}
@@ -977,9 +1021,12 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
             paymentInstructionId={detail.paymentInstruction.id}
             expectedPeriod={String(detail.paymentInstruction.payroll_period || period)}
             canExecuteGateway={role==='PAYROLL_CONTROLLER'}
-            onChanged={async()=>{await act({},'Status payment diperbarui');}}
+            onChanged={async()=>{await act({},'Status payment diperbarui');await openDetail(detail.paymentInstruction.id);}}
           />
         </section> : null}
+        <details className="pi-progressive-detail">
+          <summary><span>Rincian penerima & distribusi bank</span><small>{detailLines.length.toLocaleString('id-ID')} penerima · buka bila perlu verifikasi detail</small></summary>
+          <div className="pi-progressive-detail-body">
         <section className="pi-bank-section" aria-label="Breakdown bank">
           <div className="pi-section-heading"><div><span>DISTRIBUSI PEMBAYARAN</span><h4>Ringkasan per bank</h4></div><small>{bankSummaries.length} bank · {detailLines.length.toLocaleString('id-ID')} transaksi</small></div>
           <div className="pi-bank-grid">{bankSummaries.map(([bank,summary])=><button type="button" key={bank} className={detailBank===bank?'active':''} onClick={()=>setDetailBank(detailBank===bank?'ALL':bank)}><span>{bank}</span><strong>{formatIDR(summary.total)}</strong><small>{summary.count.toLocaleString('id-ID')} penerima</small></button>)}</div>
@@ -993,13 +1040,20 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
           <div className="pi-recipient-table-wrap"><table className="pi-recipient-table"><thead><tr><th>Penerima</th><th>Bank</th><th>Rekening</th><th>Nominal</th></tr></thead><tbody>{visibleDetailLines.map((line:PaymentInstructionLine,index:number)=><tr key={`${line.employee_id || line.beneficiary_name}-${index}`}><td data-label="Penerima"><strong>{line.beneficiary_name || '-'}</strong><small>{line.employee_id || 'ID tidak tersedia'}</small></td><td data-label="Bank">{line.bank_code || line.bank_name || '-'}</td><td data-label="Rekening"><span className="pi-account-mask">•••• {line.account_last4 || '----'}</span></td><td data-label="Nominal"><strong>{formatIDR(Number(line.amount || 0))}</strong></td></tr>)}</tbody></table>{!visibleDetailLines.length?<div className="directory-empty">Penerima tidak ditemukan.</div>:null}</div>
           <div className="pi-pagination"><span>Halaman {Math.min(detailPage,detailPageCount)} dari {detailPageCount}</span><div><button className="btn" disabled={detailPage<=1} onClick={()=>setDetailPage((page)=>page-1)}>← Sebelumnya</button><button className="btn" disabled={detailPage>=detailPageCount} onClick={()=>setDetailPage((page)=>page+1)}>Berikutnya →</button></div></div>
         </section>
+          </div>
+        </details>
         {phase==='reconcile' ? <PaymentReconciliationControl detail={detail} current={reconciliations.find((row)=>row.payment_instruction_id===detail.paymentInstruction.id) || null} /> : null}
+        <details className="pi-progressive-detail pi-progressive-audit">
+          <summary><span>Governance & audit trail</span><small>Approval dan event operasional</small></summary>
+          <div className="pi-progressive-detail-body">
         <section className="pi-approval-section"><div className="pi-section-heading"><div><span>GOVERNANCE</span><h4>Approval trail</h4></div><small>{detail.approvals?.length || 0} aktivitas</small></div>{detail.approvals?.length ? <div className="pi-approval-list">{detail.approvals.map((approval)=><div key={approval.id}><i>✓</i><div><strong>{String(approval.status || '').replaceAll('_',' ')}</strong><span>{approval.approver_email || approval.approver_user_id || 'System'} · {dateTime(approval.created_at)}</span></div></div>)}</div> : <p className="directory-hint">Belum ada approval yang tercatat.</p>}</section>
         <section className="pi-approval-section"><div className="pi-section-heading"><div><span>OPERATIONAL AUDIT</span><h4>Activity trail</h4></div><small>{detail.activity?.length || 0} event terakhir</small></div>{detail.activity?.length ? <div className="pi-approval-list">{detail.activity.slice(0,20).map((item)=><div key={item.id}><i>•</i><div><strong>{paymentActivityLabel(item.action)}</strong><span>{item.username || 'System'} · {dateTime(item.timestamp)}</span>{item.detail?<small>{item.detail}</small>:null}</div></div>)}</div> : <p className="directory-hint">Belum ada aktivitas operasional yang tercatat.</p>}</section>
+          </div>
+        </details>
       </div>
       <footer className="pi-detail-footer">
         <div className="pi-export-actions"><a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">Unduh PDF resmi</a>{role==='PAYROLL_CONTROLLER' && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? ['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>) : null}</div>
-        {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Saya sudah memeriksa jumlah penerima, rekening, nominal, control total, dan content hash.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject PI</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>setDetail(null))}>Approve PI</button></div> : null}
+        {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Saya sudah memeriksa jumlah penerima, rekening, nominal, control total, dan content hash.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject PI</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>void openDetail(detail.paymentInstruction.id))}>Approve & Continue</button></div> : null}
       </footer>
     </div></div>, document.body) : null}
     {phase==='reconcile' ? <>
@@ -1043,6 +1097,20 @@ async function uploadProof(paymentInstructionId:string, proof:{bank:string;refer
   } finally {
     setUploading(false);
   }
+}
+
+function OperationalFocus({eyebrow,title,detail,count,tone,href,actionLabel}:{eyebrow:string;title:string;detail:string;count:number;tone:string;href?:string;actionLabel?:string}) {
+  return <section className={`operational-focus-card ${tone==='attention'?'attention':'ready'}`} aria-label="Prioritas operasional">
+    <div className="operational-focus-copy">
+      <span>{eyebrow}</span>
+      <strong>{title}</strong>
+      <small>{detail}</small>
+    </div>
+    <div className="operational-focus-side">
+      <b>{count}</b>
+      {href&&actionLabel?<a className="btn btn-primary" href={href}>{actionLabel}</a>:null}
+    </div>
+  </section>;
 }
 
 function CardTable({ headers, rows }: { headers:string[]; rows:React.ReactNode[][] }) { return <div className="card" style={{ overflowX:'auto' }}><table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}><thead><tr>{headers.map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i) => <tr key={i} style={{ borderBottom:'1px solid var(--border-soft)' }}>{row.map((cell,j) => <td key={j} style={td}>{cell}</td>)}</tr>)}</tbody></table></div>; }

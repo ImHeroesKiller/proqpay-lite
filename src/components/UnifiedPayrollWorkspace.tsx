@@ -225,8 +225,8 @@ export default function UnifiedPayrollWorkspace({
               <small>Reconciliation tidak lagi bercampur dengan approval/payment execution.</small>
             </div>
           </div>
-          <OperatingWorkspace mode="reconcile" period={period} filters={filters} embedded />
-          <OperatingWorkspace mode="billing" period={period} filters={filters} embedded />
+          <div id="reconcile-work"><OperatingWorkspace mode="reconcile" period={period} filters={filters} embedded /></div>
+          <div id="billing-close" className="payroll-close-section"><OperatingWorkspace mode="billing" period={period} filters={filters} embedded /></div>
         </div>
       ) : null}
     </section>
