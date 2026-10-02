@@ -180,3 +180,26 @@ export async function syncE2PaySubAccountBalance(id:string,requiredAmount=0){
     body:JSON.stringify({action:'SYNC_BALANCE',id,requiredAmount}),
   })) as Promise<{ok:true;account:E2PaySubAccount;correlationId?:string}>;
 }
+
+
+export type E2PayUatLane = {
+  submission:{id:string;clientId:string;clientName:string;period:string;paymentPeriod:string;state:string;expectedTotal:number;recipientCount:number};
+  subAccount:{id:string;masked:string;status:string;availableBalance:number|null;lastBalanceSyncAt?:string|null}|null;
+  liquidity:{state:string;ready:boolean;requiredAmount:number;availableBalance:number|null;gap:number;ageMs?:number};
+  paymentInstruction:{id:string;documentNo?:string|null;status:string;expectedTotal:number;recipientCount:number;contentHash?:string|null;providerAccountRegistryId?:string|null;providerEnvironment?:string|null;providerSubAccountMasked?:string|null;createdAt?:string|null;updatedAt?:string|null}|null;
+  transaction:{id:string;status:string;providerStatus?:string|null;amount:number;errorCode?:string|null;errorMessage?:string|null;providerAccountRegistryId?:string|null;providerSubAccountMasked?:string|null;createdAt?:string|null;updatedAt?:string|null;paidAt?:string|null}|null;
+  itemSummary:{total:number;succeeded:number;unresolved:number;failed:number;retryReady:number};
+  phase:string;
+};
+
+export async function getE2PayUatValidation(){
+  return parse(await fetch('/api/e2pay-uat-validation',{headers:{Accept:'application/json'},cache:'no-store'})) as Promise<{
+    ok:true;
+    provider:'E2PAY';
+    environment:'UAT';
+    authority:{financialExecutionRole:'PAYROLL_CONTROLLER';rawDisbursementDisabled:boolean;paymentControlOnly:boolean};
+    canary:E2PayUatLane|null;
+    batch:E2PayUatLane|null;
+    protocol:string[];
+  }>;
+}
