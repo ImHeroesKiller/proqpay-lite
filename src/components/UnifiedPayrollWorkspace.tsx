@@ -209,7 +209,7 @@ export default function UnifiedPayrollWorkspace({
             <div>
               <span>2 · APPROVAL & PAYMENT</span>
               <strong>{isController?'Review PI, approve, lalu Process Payment':'Prepare PI dan submit ke Payroll Controller'}</strong>
-              <small>PI dan gateway sekarang berada dalam satu payment surface. Final execution tetap Payroll Controller-only.</small>
+              <small>PI dan gateway sekarang berada dalam satu payment surface; final execution hanya Payroll Controller.</small>
             </div>
           </div>
           <OperatingWorkspace mode="payments" period={period} filters={filters} embedded gatewayCanView={gatewayCanView} />
