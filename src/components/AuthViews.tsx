@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import Image from "next/image";
 import { createPasskey, getPasskey } from "@/lib/webauthn-browser";
+import { createTotpQrDataUrl } from "@/lib/totp-qr";
 
 async function postAccount(payload: Record<string, unknown>) {
   const response = await fetch("/api/accounts", {
@@ -28,6 +29,7 @@ export function LoginScreen() {
   const [passkeyRecoveryAvailable, setPasskeyRecoveryAvailable] = useState(false);
   const [mfaSecretCopied, setMfaSecretCopied] = useState(false);
   const [passkeyRecovery, setPasskeyRecovery] = useState(false);
+  const mfaQrDataUrl = useMemo(() => createTotpQrDataUrl(mfaUri), [mfaUri]);
 
   async function requestLogin(extra: Record<string, unknown> = {}) {
     const response = await fetch("/api/login", {
@@ -276,10 +278,23 @@ export function LoginScreen() {
               </label>
             ) : null}
             {mfaStage === 'ENROLL' && mfaSecret ? (
-              <div className="login-error" role="note">
+              <div className="login-error mfa-enrollment-card" role="note">
                 <strong>Aktifkan Google Authenticator</strong>
-                <span>Di ponsel, buka Google Authenticator → tambah akun → masukkan setup key berikut.</span>
-                <span>Setup key: <code>{mfaSecret}</code></span>
+                <span>Scan QR Code ini dari Google Authenticator → Tambahkan kode → Scan QR code.</span>
+                {mfaQrDataUrl ? (
+                  <div className="mfa-qr-wrap">
+                    <Image
+                      className="mfa-qr-image"
+                      src={mfaQrDataUrl}
+                      width={220}
+                      height={220}
+                      alt="QR Code setup Google Authenticator untuk ProQPay"
+                      unoptimized
+                    />
+                  </div>
+                ) : null}
+                <span>Jika scan tidak tersedia, gunakan setup key manual:</span>
+                <span className="mfa-setup-key"><code>{mfaSecret}</code></span>
                 <div className="auth-modal-actions">
                   <button
                     type="button"
@@ -302,7 +317,7 @@ export function LoginScreen() {
                     </a>
                   ) : null}
                 </div>
-                <small>Type: Time based (TOTP) · 6 digit · refresh setiap 30 detik. Setelah ditambahkan, masukkan kode 6 digit di atas untuk aktivasi.</small>
+                <small>QR dibuat lokal di browser. Secret MFA tidak dikirim ke layanan QR eksternal. TOTP: 6 digit · 30 detik.</small>
               </div>
             ) : null}
             {error ? (
