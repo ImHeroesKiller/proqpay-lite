@@ -201,6 +201,12 @@ test.describe.serial('P4 production closure regression',()=>{
     const {identity}=await secureUatLogin(page);
     expect(['SUPER_ADMIN','PAYROLL_CONTROLLER']).toContain(String(identity.body?.user?.role||''));
 
+    // Ignore expected pre-auth noise (for example initial /api/me -> 401).
+    // From this point onward, every collected error belongs to the authenticated regression.
+    pageErrors.length=0;
+    consoleErrors.length=0;
+    failedRequests.length=0;
+
     const routes=[
       '/?view=dashboard',
       '/?view=clients',
