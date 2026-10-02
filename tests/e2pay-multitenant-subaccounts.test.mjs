@@ -60,7 +60,8 @@ test('P5.1 Super Admin can create DRAFT mapping without fabricated provider id, 
   let payload=await response.json();
   assert.equal(payload.account.clientId,'CLI-A');
   assert.equal(payload.account.status,'DRAFT');
-  assert.equal(payload.account.providerSubAccountId,null);
+  assert.equal(payload.account.providerSubAccountId,undefined);
+  assert.equal(payload.account.providerSubAccountIdMasked,null);
 
   response=await subaccounts({request:request('POST','/api/e2pay-subaccounts',superSession.token,{
     action:'SET_SUBACCOUNT_STATUS',id:payload.account.id,status:'ACTIVE',
