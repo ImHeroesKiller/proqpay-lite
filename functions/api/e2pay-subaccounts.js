@@ -24,7 +24,6 @@ function publicRow(row){
     environment:row.environment,
     accountScope:row.account_scope,
     providerAccountIdMasked:masked(row.provider_account_id),
-    providerSubAccountId:row.provider_sub_account_id,
     providerSubAccountIdMasked:masked(row.provider_sub_account_id),
     accountName:row.account_name,
     currency:row.currency,
