@@ -189,7 +189,7 @@ export default function BillingWorkspace({
     const clientId=filters?.clientId || "ALL";
     const projectId=filters?.projectId || "ALL";
     const query=(filters?.query || "").trim().toLowerCase();
-    const submissions=scopedData.submissions.filter((row:any)=>{
+    const submissions=focusedData.submissions.filter((row:any)=>{
       const periodMatch=period==="ALL" || row.period===period || row.payment_period===period;
       const clientMatch=clientId==="ALL" || String(row.client_id)===clientId;
       const projectMatch=projectId==="ALL" || String(row.project_id || "")===projectId;
@@ -197,12 +197,12 @@ export default function BillingWorkspace({
       return periodMatch && clientMatch && projectMatch && queryMatch;
     });
     const submissionIds=new Set(submissions.map((row:any)=>String(row.id)));
-    const billablePayments=scopedData.billablePayments.filter((row:any)=>submissionIds.has(String(row.submission_id || "")));
-    const invoices=scopedData.invoices.filter((row:any)=>submissionIds.has(String(row.submission_id || "")));
+    const billablePayments=focusedData.billablePayments.filter((row:any)=>submissionIds.has(String(row.submission_id || "")));
+    const invoices=focusedData.invoices.filter((row:any)=>submissionIds.has(String(row.submission_id || "")));
     const invoiceIds=new Set(invoices.map((row:any)=>String(row.id)));
-    const arItems=scopedData.arItems.filter((row:any)=>invoiceIds.has(String(row.invoice_id || "")));
+    const arItems=focusedData.arItems.filter((row:any)=>invoiceIds.has(String(row.invoice_id || "")));
     const clientIds=new Set(submissions.map((row:any)=>String(row.client_id || "")));
-    const clients=scopedData.clients.filter((row:any)=>clientIds.has(String(row.id)));
+    const clients=focusedData.clients.filter((row:any)=>clientIds.has(String(row.id)));
     return {...focusedData,submissions,billablePayments,invoices,arItems,clients};
   }, [focusedData,filters?.clientId,filters?.projectId,filters?.query,period]);
 
