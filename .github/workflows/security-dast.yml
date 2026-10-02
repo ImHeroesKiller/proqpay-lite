@@ -42,7 +42,8 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in $(seq 1 120); do
-            commit="$(curl -fsS "$TARGET_URL/release.json" 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(String(JSON.parse(s).commit||''))}catch{}})")"
+            body="$(curl -sS "$TARGET_URL/release.json" 2>/dev/null || true)"
+            commit="$(printf '%s' "$body" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(String(JSON.parse(s).commit||''))}catch{}})")"
             if [[ "$commit" == "$GITHUB_SHA" ]]; then
               echo "Production release converged to $GITHUB_SHA."
               exit 0
