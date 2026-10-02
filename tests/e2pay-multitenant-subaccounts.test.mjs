@@ -57,7 +57,7 @@ test('P5.1 Super Admin can create DRAFT mapping without fabricated provider id, 
     action:'UPSERT_SUBACCOUNT',clientId:'CLI-A',environment:'UAT',accountName:'Client A UAT',status:'DRAFT',
   }),env});
   assert.equal(response.status,201,await response.clone().text());
-  let payload=await response.json();
+  const payload=await response.json();
   assert.equal(payload.account.clientId,'CLI-A');
   assert.equal(payload.account.status,'DRAFT');
   assert.equal(payload.account.providerSubAccountId,undefined);
