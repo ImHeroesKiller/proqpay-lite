@@ -17,7 +17,7 @@ test('Controller role and permission keep approve action visible', () => {
 });
 
 test('Payment Control filters PI status and hides stale rejection reasons', () => {
-  assert.match(ui, /mode === 'payments' \? 'Status PI'/);
+  assert.match(ui, /mode === 'payments' \|\| mode === 'reconcile' \? 'Status PI'/);
   assert.match(ui, /statusMatches = statusFilter === 'ALL' \|\| row\.status === statusFilter/);
   assert.match(ui, /r\.status === 'REVISION_REQUIRED' && r\.rejection_reason/);
 });
