@@ -160,7 +160,7 @@ test('dashboard UI contracts implement audited P1 and P2 fixes',async()=>{
   assert.match(billingWorkspace,/params\.set\("submissionId", focusSubmissionId\)/);
   assert.match(billingWorkspace,/focusedData/);
   assert.match(billingWorkspace,/submission\.period_status === "CLOSED" \|\| closingInvoice \? "close" : "invoice"/);
-  assert.match(billingWorkspace,/rows=\{focusedData\.submissions\}/);
+  assert.match(billingWorkspace,/rows=\{scopedData\.submissions\}/);
   assert.match(billingApi,/s\.id AS submission_id/);
   assert.match(billingApi,/submissionFilter=focusSubmissionId/);
   assert.match(billingApi,/\$\{submissionFilter\.sql\}/);

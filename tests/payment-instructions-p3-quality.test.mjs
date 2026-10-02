@@ -34,7 +34,7 @@ test('Payment Instructions P3 keeps one canonical payment business label map',as
   assert.match(helper,/APPROVED_FOR_PAYMENT:'Ready to Pay'/);
   assert.match(helper,/RECONCILIATION:'Reconcile'/);
   assert.doesNotMatch(workspace,/function paymentBusinessLabel\(/);
-  assert.match(workspace,/mode==='payments'\?paymentBusinessLabel/);
+  assert.match(workspace,/mode==='payments'\|\|mode==='reconcile'\?paymentBusinessLabel/);
 });
 
 test('Payment Instructions P3 improves governance and audit readability',async()=>{

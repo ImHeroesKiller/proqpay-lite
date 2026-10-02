@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { executeOperatingAction, getExceptionHistory, getPayRunDetail, getPaymentInstructionDetail, listAllOperatingExceptions, listAllPaginatedOperatingResource, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
+import PaymentGatewayExecutionActions from '@/components/PaymentGatewayExecutionActions';
 import { PaymentEvidenceRegister, PaymentReconciliationControl } from '@/components/PaymentEvidenceReconciliation';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
@@ -21,13 +22,15 @@ import {
   type ReconciliationRecord,
 } from '@/lib/payment-instruction-ui';
 
-type WorkspaceMode = 'payruns' | 'actions' | 'payments' | 'billing';
+type WorkspaceMode = 'payruns' | 'actions' | 'payments' | 'reconcile' | 'billing';
+export type WorkspaceFilterState = { clientId:string; projectId:string; query:string };
 type Actor = { email: string; role: string; permissions?: string[]; clientIds?: string[]; projectIds?: string[] };
 
 const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; description:string; search:string }> = {
   payruns: { title:'Pay Runs', eyebrow:'PAYROLL EXECUTION', description:'Kelola setiap periode payroll dari intake sampai siap dibayarkan.', search:'Klien, project, pay run…' },
   actions: { title:'Action Center', eyebrow:'EXCEPTION WORK QUEUE', description:'Selesaikan blocker dan temuan payroll berdasarkan prioritas dan status.', search:'Karyawan, temuan, klien…' },
-  payments: { title:'Payment Control', eyebrow:'PAYMENT INTEGRITY', description:'Kontrol Payment Instruction, approval, proof, dan rekonsiliasi.', search:'Dokumen PI, klien, project…' },
+  payments: { title:'Approval & Payment', eyebrow:'PAYMENT CONTROL', description:'Review Payment Instruction, approval, liquidity, dan execution.', search:'Dokumen PI, klien, project…' },
+  reconcile: { title:'Payment Reconciliation', eyebrow:'RECONCILE', description:'Catat proof, reconcile provider result, dan pastikan payment matched.', search:'Dokumen PI, klien, project…' },
   billing: { title:'Billing & AR', eyebrow:'FINANCE OPERATIONS', description:'Kelola invoice layanan, jatuh tempo, dan pelunasan piutang.', search:'Invoice, klien, periode…' },
 };
 
@@ -60,7 +63,19 @@ function payRunTypeLabel(type:string) {
   return String(type||'REGULAR')==='ADJUSTMENT'?'Adjustment':'Regular payroll';
 }
 
-export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?: WorkspaceMode; period?: string }) {
+export default function OperatingWorkspace({
+  mode = 'payruns',
+  period,
+  filters,
+  embedded = false,
+  gatewayCanView = false,
+}: {
+  mode?: WorkspaceMode;
+  period?: string;
+  filters?: WorkspaceFilterState;
+  embedded?: boolean;
+  gatewayCanView?: boolean;
+}) {
   const [actor, setActor] = useState<Actor | null>(null);
   const [data, setData] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
@@ -68,9 +83,13 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
   const [periodFilter, setPeriodFilter] = useState(()=>period && period !== 'ALL'
     ? period
     : typeof window==='undefined'?'ALL':new URLSearchParams(window.location.search).get('payrollPeriod')||'ALL');
-  const [clientFilter, setClientFilter] = useState('ALL');
+  const [localClientFilter, setLocalClientFilter] = useState('ALL');
+  const [localProjectFilter, setLocalProjectFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [query, setQuery] = useState('');
+  const [localQuery, setLocalQuery] = useState('');
+  const clientFilter = filters?.clientId || localClientFilter;
+  const projectFilter = filters?.projectId || localProjectFilter;
+  const query = filters?.query ?? localQuery;
   const [focusSubmissionId, setFocusSubmissionId] = useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('submissionId')||'');
   const [dashboardStage, setDashboardStage] = useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('dashboardStage')||'');
   const [createOpen, setCreateOpen] = useState(false);
@@ -81,7 +100,7 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
     try {
       const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup','payment-instructions','exceptions']
         : mode === 'actions' ? ['submissions','exceptions']
-        : mode === 'payments' ? ['submissions','payment-instructions','payment-proofs','reconciliations'] : [];
+        : mode === 'payments' || mode === 'reconcile' ? ['submissions','payment-instructions','payment-proofs','reconciliations'] : [];
       const meResponse = await fetch('/api/me');
       const me = await meResponse.json();
       if (!meResponse.ok) throw new Error(me.error || `HTTP ${meResponse.status}`);
@@ -139,6 +158,13 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
     submissions.forEach((row) => map.set(String(row.client_id), String(row.client_name || row.client_id)));
     return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [submissions]);
+  const projects = useMemo(() => {
+    const map = new Map<string,string>();
+    submissions
+      .filter((row)=>clientFilter==='ALL' || String(row.client_id)===clientFilter)
+      .forEach((row)=>{ if(row.project_id) map.set(String(row.project_id),String(row.project_name || row.project_id)); });
+    return [...map.entries()].sort((a,b)=>a[1].localeCompare(b[1]));
+  }, [submissions,clientFilter]);
   const visibleSubmissions = useMemo(() => submissions.filter((row) => {
     const instruction=instructionBySubmission.get(row.id);
     const business=derivePayrollBusinessStage({
@@ -171,20 +197,22 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
       : (statusFilter === 'ALL' || row.state === statusFilter);
     return (periodFilter === 'ALL' || row.period === periodFilter || row.payment_period === periodFilter)
       && (clientFilter === 'ALL' || row.client_id === clientFilter)
+      && (projectFilter === 'ALL' || row.project_id === projectFilter)
       && workflowMatches
       && (!focusSubmissionId || String(row.id)===focusSubmissionId)
       && (!dashboardStage || business.stage===dashboardStage)
       && (mode==='actions' || !query.trim() || haystack.includes(query.trim().toLowerCase()));
-  }), [submissions, instructionBySubmission, periodFilter, clientFilter, statusFilter, query, simplifiedWorkspace, role, actor?.permissions, focusSubmissionId, dashboardStage]);
+  }), [submissions, instructionBySubmission, periodFilter, clientFilter, projectFilter, statusFilter, query, simplifiedWorkspace, role, actor?.permissions, focusSubmissionId, dashboardStage]);
   const visibleSubmissionIds = useMemo(() => new Set(visibleSubmissions.map((row) => row.id)), [visibleSubmissions]);
   const visibleInstructions = useMemo(() => (data.paymentInstructions || []).filter((row) => {
     const periodMatches = periodFilter === 'ALL' || row.payroll_period === periodFilter || row.payment_period === periodFilter;
     const clientMatches = clientFilter === 'ALL' || row.client_id === clientFilter;
+    const projectMatches = projectFilter === 'ALL' || row.project_id === projectFilter;
     const statusMatches = statusFilter === 'ALL' || row.status === statusFilter;
     const queryMatches = !query.trim() || [row.document_no,row.client_name,row.project_name,row.status].join(' ').toLowerCase().includes(query.trim().toLowerCase());
     const focusMatches=!focusSubmissionId || String(row.submission_id)===focusSubmissionId;
-    return periodMatches && clientMatches && statusMatches && queryMatches && focusMatches;
-  }), [data.paymentInstructions, periodFilter, clientFilter, statusFilter, query, focusSubmissionId]);
+    return periodMatches && clientMatches && projectMatches && statusMatches && queryMatches && focusMatches;
+  }), [data.paymentInstructions, periodFilter, clientFilter, projectFilter, statusFilter, query, focusSubmissionId]);
   const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
 
   const visibleExceptions = useMemo(() => (data.exceptions || []).filter((row) => visibleSubmissionIds.has(row.submission_id)), [data.exceptions, visibleSubmissionIds]);
@@ -244,7 +272,8 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
     : simplifiedInternal ? ({
     payruns:{...baseProfile,title:'Payroll',eyebrow:'MY PAYROLL WORK',description:'Lihat payroll berdasarkan stage dan kerjakan satu next action yang tersedia.'},
     actions:{...baseProfile,title:'Issues',eyebrow:'ACTION REQUIRED',description:'Tindak lanjuti hanya issue yang membutuhkan koreksi atau keputusan.'},
-    payments:{...baseProfile,title:'Payments',eyebrow:'PAYMENT WORK',description:'Review approval, execution, dan reconciliation tanpa melihat state teknis yang tidak perlu.'},
+    payments:{...baseProfile,title:'Approval & Payment',eyebrow:'PAYMENT WORK',description:'Review PI, approval, dan execution dalam satu surface.'},
+    reconcile:{...baseProfile,title:'Reconcile',eyebrow:'RECONCILE',description:'Proof dan reconciliation dipisahkan dari payment execution.'},
     billing:{...baseProfile,title:'Close & Billing',eyebrow:'CLOSE',description:'Selesaikan billing, AR, dan penutupan payroll setelah payment matched.'},
   } as Record<WorkspaceMode, typeof baseProfile>)[mode] : baseProfile;
   function clearDashboardFocus(){
@@ -256,7 +285,7 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
     window.history.replaceState({},'',url);
   }
 
-  const statusOptions = mode === 'payments'
+  const statusOptions = mode === 'payments' || mode === 'reconcile'
     ? [...new Set((data.paymentInstructions || []).map((row) => row.status))].sort()
     : simplifiedWorkspace && mode === 'payruns'
       ? [...PAYROLL_BUSINESS_STAGE_ORDER]
@@ -264,22 +293,23 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
 
   return (
     <section>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      {!embedded ? <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div>
           <span className="workspace-eyebrow">{profile.eyebrow}</span>
           <h2 style={{ fontSize: 22, fontWeight: 720, margin: '4px 0 0' }}>{profile.title}</h2>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>{profile.description}</p>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&clientExperience?<a className="btn btn-primary" href="/data-intake">Kirim data payroll</a>:mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}{!clientExperience?<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div>:null}</div>
-      </div>
+      </div> : null}
 
       {(focusSubmissionId||dashboardStage) && mode!=='billing' ? <div className="dashboard-focus-banner" role="status"><span>Dashboard focus · {focusSubmissionId || dashboardStage}</span><button type="button" onClick={clearDashboardFocus}>Tampilkan semua</button></div> : null}
 
-      {mode !== 'billing' ? <div className="operations-control-bar">
+      {!embedded && mode !== 'billing' ? <div className="operations-control-bar">
         <label><span>Periode</span><select value={periodFilter} disabled={Boolean(period && period !== 'ALL')} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{period && period !== 'ALL' && !periods.includes(period) ? <option value={period}>{period}</option> : null}{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-        <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        {mode!=='actions'?<label><span>{mode === 'payments' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:mode==='payments'?paymentBusinessLabel(String(state)):String(state).replaceAll('_', ' ')}</option>)}</select></label>:null}
-        {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>:null}
+        <label><span>Klien</span><select value={clientFilter} onChange={(event) => { setLocalClientFilter(event.target.value); setLocalProjectFilter('ALL'); }}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+        <label><span>Project</span><select value={projectFilter} onChange={(event)=>setLocalProjectFilter(event.target.value)}><option value="ALL">Semua project</option>{projects.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
+        {mode!=='actions'?<label><span>{mode === 'payments' || mode === 'reconcile' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:mode==='payments'||mode==='reconcile'?paymentBusinessLabel(String(state)):String(state).replaceAll('_', ' ')}</option>)}</select></label>:null}
+        {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setLocalQuery(event.target.value)} placeholder={profile.search} /></label>:null}
       </div> : null}
 
       {mode !== 'billing' ? <div className="operations-summary-grid">
@@ -303,6 +333,11 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
           <div><span>Warning</span><strong>{warningExceptions.length}</strong><small>Perlu review sebelum finalisasi</small></div>
           <div><span>Client action</span><strong>{clientActionExceptions.length}</strong><small>Menunggu koreksi klien</small></div>
           <div><span>Ready / clean</span><strong>{cleanRuns}</strong><small>{resolvedExceptions.length} exception selesai</small></div>
+        </> : mode === 'reconcile' ? <>
+          <div><span>To reconcile</span><strong>{visibleInstructions.filter((row)=>['PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION'].includes(row.status)).length}</strong><small>Perlu review Controller</small></div>
+          <div><span>Payment proof</span><strong>{visibleProofs.length}</strong><small>Bukti tercatat</small></div>
+          <div><span>Matched</span><strong>{matchedPayments}</strong><small>Reconciliation selesai</small></div>
+          <div><span>Completed</span><strong>{visibleInstructions.filter((row)=>row.status==='COMPLETED').length}</strong><small>Siap billing / close</small></div>
         </> : simplifiedInternal ? <>
           <div><span>Payments</span><strong>{visibleInstructions.length}</strong><small>{visibleInstructions.reduce((sum,row)=>sum+Number(row.recipient_count||0),0).toLocaleString('id-ID')} penerima</small></div>
           <div><span>{role==='PAYROLL_CONTROLLER'?'For approval':'Ready to pay'}</span><strong>{role==='PAYROLL_CONTROLLER'?awaitingApproval:visibleInstructions.filter((row)=>row.status==='APPROVED_FOR_PAYMENT').length}</strong><small>{role==='PAYROLL_CONTROLLER'?'Menunggu keputusan Anda':'Siap dieksekusi'}</small></div>
@@ -322,12 +357,16 @@ export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} payRuns={visibleSubmissions} role={role} canResolve={isProcessor || isClient} act={act} />}
-          {mode === 'payments' && <Payments instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isPaymentController} canReconcile={isPaymentController && Boolean(actor?.permissions?.includes('reconciliation:write'))} canApprove={canApprovePayment} act={act} />}
+          {mode === 'payments' && <Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} />}
+          {mode === 'reconcile' && <Payments phase="reconcile" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isPaymentController} canReconcile={isPaymentController && Boolean(actor?.permissions?.includes('reconciliation:write'))} canApprove={false} gatewayCanView={false} period={periodFilter} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace
             actor={actor}
             focusSubmissionId={focusSubmissionId}
             focusSection={dashboardStage === 'CLOSE' ? 'close' : undefined}
             onClearFocus={clearDashboardFocus}
+            period={periodFilter}
+            filters={filters}
+            embedded={embedded}
           />}
         </>
       )}
@@ -849,7 +888,7 @@ function Exceptions({ rows, payRuns, role, canResolve, act }: { rows: any[]; pay
     </div></div> : null}
   </div>;
 }
-function Payments({ instructions, proofs, reconciliations, role, simplified, canRecordProof, canReconcile, canApprove, act }: { instructions:any[]; proofs:PaymentProofRecord[]; reconciliations:ReconciliationRecord[]; role:string; simplified:boolean; canRecordProof:boolean; canReconcile:boolean; canApprove:boolean; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
+function Payments({ phase, instructions, proofs, reconciliations, role, simplified, canRecordProof, canReconcile, canApprove, gatewayCanView, period, act }: { phase:'payment'|'reconcile'; instructions:any[]; proofs:PaymentProofRecord[]; reconciliations:ReconciliationRecord[]; role:string; simplified:boolean; canRecordProof:boolean; canReconcile:boolean; canApprove:boolean; gatewayCanView:boolean; period:string; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
   const [proofFor, setProofFor] = useState<string | null>(null);
   const [proof, setProof] = useState({ bank:'BCA', reference:'', transactionDate:new Date().toISOString().slice(0,10), amount:'' });
   const [file, setFile] = useState<File | null>(null);
@@ -882,9 +921,15 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
     catch (error) { setDetailError(error instanceof Error ? error.message : 'Detail PI gagal dimuat'); }
     finally { setDetailLoading(false); }
   }
-  if (!instructions.length) return <Empty title="Belum ada payment instruction" detail="Payment instruction akan tersedia setelah payroll selesai divalidasi dan disetujui." />;
+  const phaseInstructions = instructions.filter((row)=>{
+    const status=String(row.status || '');
+    return phase==='payment'
+      ? !['PROOF_UPLOADED','RECONCILIATION','COMPLETED'].includes(status)
+      : ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED'].includes(status);
+  });
+  if (!phaseInstructions.length) return <Empty title={phase==='payment'?'Belum ada payment yang perlu diproses':'Belum ada payment untuk direkonsiliasi'} detail={phase==='payment'?'PI akan muncul setelah payroll siap untuk approval/payment.':'Payment akan muncul setelah PI approved atau execution dimulai.'} />;
   return <div style={{ display:'grid', gap:16 }}>
-    <CardTable headers={['Instruction / Periode','Nilai','Status','Dibuat','Aksi']} rows={instructions.map((r) => {
+    <CardTable headers={['Instruction / Periode','Nilai','Status','Dibuat','Aksi']} rows={phaseInstructions.map((r) => {
       let action: React.ReactNode = <span style={small}>Menunggu tahap berikutnya</span>;
       if (r.status === 'PAYMENT_INSTRUCTION_READY') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
         ? <span style={{display:'inline-flex',gap:8,flexWrap:'wrap'}}><button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button><button style={actionButton} onClick={() => void act({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:r.id,confirmation:'SUBMIT PI'},'PI dikirim ke Controller untuk approval')}>Submit PI</button></span>
@@ -892,8 +937,9 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
       else if (r.status === 'PAYMENT_APPROVAL_PENDING') action = canApprove
         ? <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview & Approve</button>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button>;
-      else if (canRecordProof && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
-      else if (canReconcile && ['PROOF_UPLOADED','RECONCILIATION'].includes(r.status)) action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
+      else if (phase==='payment' && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => void openDetail(r.id)}>{role==='PAYROLL_CONTROLLER'?'Open Payment':'Monitor Payment'}</button>;
+      else if (phase==='reconcile' && canRecordProof && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(r.status)) action = <button style={actionButton} onClick={() => { setProofFor(r.id); setProof((p) => ({ ...p, amount:String(r.expected_total || '') })); }}>Catat Bukti</button>;
+      else if (phase==='reconcile' && canReconcile && ['PROOF_UPLOADED','RECONCILIATION'].includes(r.status)) action = <button style={actionButton} onClick={() => void act({ action:'RECONCILE_PAYMENT', paymentInstructionId:r.id }, 'Rekonsiliasi selesai')}>Rekonsiliasi</button>;
       else if (r.status === 'REVISION_REQUIRED') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
         ? <a className="btn btn-primary" href={`?view=operations&submissionId=${encodeURIComponent(r.submission_id)}`}>Perbaiki Pay Run</a>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
@@ -925,6 +971,15 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
           <div><strong>Balance checked</strong><span>{detail.paymentInstruction.providerLiquidity?.checkedAt?dateTime(detail.paymentInstruction.providerLiquidity.checkedAt):'Belum ada provider balance evidence'}</span></div>
         </section>:<section className="app-notice-bubble app-notice-error" role="alert"><strong>Provider routing snapshot belum tersedia</strong><span>PI legacy harus diregenerasi sebelum approval/payment execution.</span></section>}
         {detail.paymentInstruction.rejection_reason ? <section className={`app-notice-bubble ${detail.paymentInstruction.status==='REVISION_REQUIRED'?'app-notice-error':'app-notice-info'}`} role="status"><strong>{detail.paymentInstruction.status==='REVISION_REQUIRED'?'PI dikembalikan untuk revisi':'Riwayat reject sebelumnya'}</strong><span>{detail.paymentInstruction.rejection_reason} · {detail.paymentInstruction.rejected_by || 'Payroll Controller'}</span></section> : null}
+        {phase==='payment' && gatewayCanView && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(detail.paymentInstruction.status) ? <section className="pi-gateway-section" aria-label="Payment execution">
+          <div className="pi-section-heading"><div><span>PAYMENT EXECUTION</span><h4>Gateway & provider status</h4></div><small>Terikat ke PI dan periode {period}</small></div>
+          <PaymentGatewayExecutionActions
+            paymentInstructionId={detail.paymentInstruction.id}
+            expectedPeriod={String(detail.paymentInstruction.payroll_period || period)}
+            canExecuteGateway={role==='PAYROLL_CONTROLLER'}
+            onChanged={async()=>{await act({},'Status payment diperbarui');}}
+          />
+        </section> : null}
         <section className="pi-bank-section" aria-label="Breakdown bank">
           <div className="pi-section-heading"><div><span>DISTRIBUSI PEMBAYARAN</span><h4>Ringkasan per bank</h4></div><small>{bankSummaries.length} bank · {detailLines.length.toLocaleString('id-ID')} transaksi</small></div>
           <div className="pi-bank-grid">{bankSummaries.map(([bank,summary])=><button type="button" key={bank} className={detailBank===bank?'active':''} onClick={()=>setDetailBank(detailBank===bank?'ALL':bank)}><span>{bank}</span><strong>{formatIDR(summary.total)}</strong><small>{summary.count.toLocaleString('id-ID')} penerima</small></button>)}</div>
@@ -938,7 +993,7 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
           <div className="pi-recipient-table-wrap"><table className="pi-recipient-table"><thead><tr><th>Penerima</th><th>Bank</th><th>Rekening</th><th>Nominal</th></tr></thead><tbody>{visibleDetailLines.map((line:PaymentInstructionLine,index:number)=><tr key={`${line.employee_id || line.beneficiary_name}-${index}`}><td data-label="Penerima"><strong>{line.beneficiary_name || '-'}</strong><small>{line.employee_id || 'ID tidak tersedia'}</small></td><td data-label="Bank">{line.bank_code || line.bank_name || '-'}</td><td data-label="Rekening"><span className="pi-account-mask">•••• {line.account_last4 || '----'}</span></td><td data-label="Nominal"><strong>{formatIDR(Number(line.amount || 0))}</strong></td></tr>)}</tbody></table>{!visibleDetailLines.length?<div className="directory-empty">Penerima tidak ditemukan.</div>:null}</div>
           <div className="pi-pagination"><span>Halaman {Math.min(detailPage,detailPageCount)} dari {detailPageCount}</span><div><button className="btn" disabled={detailPage<=1} onClick={()=>setDetailPage((page)=>page-1)}>← Sebelumnya</button><button className="btn" disabled={detailPage>=detailPageCount} onClick={()=>setDetailPage((page)=>page+1)}>Berikutnya →</button></div></div>
         </section>
-        <PaymentReconciliationControl detail={detail} current={reconciliations.find((row)=>row.payment_instruction_id===detail.paymentInstruction.id) || null} />
+        {phase==='reconcile' ? <PaymentReconciliationControl detail={detail} current={reconciliations.find((row)=>row.payment_instruction_id===detail.paymentInstruction.id) || null} /> : null}
         <section className="pi-approval-section"><div className="pi-section-heading"><div><span>GOVERNANCE</span><h4>Approval trail</h4></div><small>{detail.approvals?.length || 0} aktivitas</small></div>{detail.approvals?.length ? <div className="pi-approval-list">{detail.approvals.map((approval)=><div key={approval.id}><i>✓</i><div><strong>{String(approval.status || '').replaceAll('_',' ')}</strong><span>{approval.approver_email || approval.approver_user_id || 'System'} · {dateTime(approval.created_at)}</span></div></div>)}</div> : <p className="directory-hint">Belum ada approval yang tercatat.</p>}</section>
         <section className="pi-approval-section"><div className="pi-section-heading"><div><span>OPERATIONAL AUDIT</span><h4>Activity trail</h4></div><small>{detail.activity?.length || 0} event terakhir</small></div>{detail.activity?.length ? <div className="pi-approval-list">{detail.activity.slice(0,20).map((item)=><div key={item.id}><i>•</i><div><strong>{paymentActivityLabel(item.action)}</strong><span>{item.username || 'System'} · {dateTime(item.timestamp)}</span>{item.detail?<small>{item.detail}</small>:null}</div></div>)}</div> : <p className="directory-hint">Belum ada aktivitas operasional yang tercatat.</p>}</section>
       </div>
@@ -947,6 +1002,7 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
         {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Saya sudah memeriksa jumlah penerima, rekening, nominal, control total, dan content hash.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject PI</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>setDetail(null))}>Approve PI</button></div> : null}
       </footer>
     </div></div>, document.body) : null}
+    {phase==='reconcile' ? <>
     {proofFor && canRecordProof && <div className="card" style={{ padding:18 }}>
       <div style={{ display:'flex', justifyContent:'space-between', gap:12 }}><strong>Bukti Pembayaran · {proofFor}</strong><button type="button" onClick={() => setProofFor(null)} style={{ border:0, background:'transparent', cursor:'pointer' }}>✕</button></div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:10, marginTop:14 }}>
@@ -965,6 +1021,7 @@ function Payments({ instructions, proofs, reconciliations, role, simplified, can
       <Summary title="Rekonsiliasi" value={reconciliations.length} note={reconciliations.length ? `${paymentBusinessLabel(reconciliations[0].status)} · Selisih ${formatIDR(Number(reconciliations[0].difference || 0))}` : 'Belum direkonsiliasi'} />
     </div>
     <PaymentEvidenceRegister proofs={proofs} />
+    </> : null}
   </div>;
 }
 

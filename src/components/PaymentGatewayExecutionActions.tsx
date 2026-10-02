@@ -99,7 +99,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, e
             break;
           }
           previousProgress = progress;
-          result = await executeSeamlessPayment(paymentInstructionId, 'BANK_TRANSFER');
+          result = await executeSeamlessPayment(paymentInstructionId, 'BANK_TRANSFER', expectedPeriod);
           continuationCalls += 1;
         }
         if (result.hasMore && continuationCalls >= 100) {
@@ -178,7 +178,7 @@ export default function PaymentGatewayExecutionActions({ paymentInstructionId, e
     if (!window.confirm('Konfirmasi final Payroll Controller: lanjutkan ke Hosted Payment untuk Payment Instruction yang sudah approved?')) return;
     setBusy('hosted'); setError('');
     try {
-      const result = await createHostedPaymentSession(paymentInstructionId, `/?view=payments&period=${encodeURIComponent(expectedPeriod)}`, expectedPeriod);
+      const result = await createHostedPaymentSession(paymentInstructionId, `/?view=operations&period=${encodeURIComponent(expectedPeriod)}&stage=payment`, expectedPeriod);
       if (!result.session.checkout_url) throw new Error('Hosted checkout URL tidak tersedia');
       window.location.assign(result.session.checkout_url);
     } catch (cause) {
