@@ -21,6 +21,7 @@ import { arGateMessage, evaluateClientArGate } from './ar-payment-control.js';
 import { actorFraudDecision, beneficiaryFraudDecision, paymentLimitDecision } from './_fraud-controls.js';
 import { recordFraudIncident } from './_fraud-incidents.js';
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
+import { activeProviderAccount, liquidityState, validatePaymentProviderSnapshot } from './payment-provider-routing.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER'];
@@ -328,6 +329,34 @@ export async function onRequest(context) {
     const idempotencyKey = gatewayIdempotencyKey(payment);
     let transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE idempotency_key=? LIMIT 1', [idempotencyKey]);
     const financialAction = action === 'EXECUTE' || action === 'RETRY_FAILED';
+    let providerAccount=null;
+    let providerLiquidity=null;
+    let routedRuntimeEnv=runtimeEnv;
+    if(readiness.provider==='E2PAY'){
+      providerAccount=await activeProviderAccount(
+        database,organizationId,payment.client_id,'E2PAY',payment.provider_environment||runtimeEnv.E2PAY_ENV
+      );
+      const routingValidation=validatePaymentProviderSnapshot(payment,providerAccount);
+      if(!routingValidation.ok && financialAction){
+        return secureJson({error:routingValidation.error,code:routingValidation.code},409,request,env,METHODS);
+      }
+      if(financialAction){
+        providerLiquidity=liquidityState(providerAccount,Number(payment.expected_total));
+        if(!providerLiquidity.ready){
+          return secureJson({
+            error:providerLiquidity.state==='INSUFFICIENT'
+              ? 'Saldo E2Pay sub-account client tidak mencukupi untuk eksekusi payment.'
+              : 'Saldo E2Pay sub-account belum fresh/siap. Sync balance sebelum process payment.',
+            code:'E2PAY_LIQUIDITY_'+providerLiquidity.state,
+            liquidity:providerLiquidity,
+          },409,request,env,METHODS);
+        }
+        routedRuntimeEnv=Object.assign(Object.create(runtimeEnv),{
+          E2PAY_ACCOUNT_SRC:payment.provider_sub_account_id,
+          E2PAY_SOURCE_MODE:'SUB_ACCOUNT_SNAPSHOT',
+        });
+      }
+    }
     const riskDecision = financialAction
       ? await paymentLimitDecision(database, organizationId, payment, { isNewExecution:action === 'EXECUTE' && !transaction })
       : null;
@@ -509,15 +538,18 @@ export async function onRequest(context) {
         await d1Batch(database, [{
           statement: `INSERT INTO payment_gateway_transactions
             (id,org_id,client_id,payment_instruction_id,provider,status,amount,currency,payment_method,idempotency_key,request_hash,created_by,
-             actor_user_id,actor_ip_hash,actor_device_hash,mfa_verified_at,risk_decision_json)
-            VALUES (?,?,?,?,?,'CREATED',?,?,?,?,?,?,?,?,?,?,?)`,
+             actor_user_id,actor_ip_hash,actor_device_hash,mfa_verified_at,risk_decision_json,
+             provider_account_registry_id,provider_sub_account_last4)
+            VALUES (?,?,?,?,?,'CREATED',?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           bindings: [transactionId, organizationId, payment.client_id, payment.id, readiness.provider,
             Number(payment.expected_total), payment.currency || 'IDR', paymentMethod || null, idempotencyKey, requestHash, authorization.actor.email,
             authorization.actor.id || null,
             authorization.actor.requestIpHash || authorization.actor.sessionIpHash || null,
             authorization.actor.requestDeviceHash || authorization.actor.sessionDeviceHash || null,
             authorization.actor.mfaVerifiedAt || null,
-            riskDecision ? JSON.stringify(riskDecision) : null],
+            riskDecision ? JSON.stringify(riskDecision) : null,
+            payment.provider_account_registry_id||null,
+            payment.provider_sub_account_id?String(payment.provider_sub_account_id).slice(-4):null],
         }]);
       } catch (error) {
         if (!/UNIQUE constraint failed|idx_one_active_gateway_transaction/i.test(String(error?.message || error))) throw error;
@@ -543,7 +575,7 @@ export async function onRequest(context) {
         }, 409, request, env, METHODS);
       }
       try {
-        const result = await executeE2PayBatch({ database, env:runtimeEnv, transactionId, payment, beneficiaries, retryFailed:action === 'RETRY_FAILED' });
+        const result = await executeE2PayBatch({ database, env:routedRuntimeEnv, transactionId, payment, beneficiaries, retryFailed:action === 'RETRY_FAILED', liquidityBalance:providerAccount?.available_balance });
         transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transactionId]);
         await d1Batch(database, [auditOperation(organizationId, authorization.actor, action === 'RETRY_FAILED' ? 'E2PAY_FAILED_ITEMS_RETRIED' : 'E2PAY_EXECUTION',
           `${result.parentStatus || result.code || 'UNKNOWN'} · ${result.summary?.succeeded || 0}/${result.summary?.total || beneficiaries.length}`, payment.id)]);
