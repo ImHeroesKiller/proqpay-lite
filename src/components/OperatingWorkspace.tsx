@@ -60,12 +60,14 @@ function payRunTypeLabel(type:string) {
   return String(type||'REGULAR')==='ADJUSTMENT'?'Adjustment':'Regular payroll';
 }
 
-export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: WorkspaceMode }) {
+export default function OperatingWorkspace({ mode = 'payruns', period }: { mode?: WorkspaceMode; period?: string }) {
   const [actor, setActor] = useState<Actor | null>(null);
   const [data, setData] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
-  const [periodFilter, setPeriodFilter] = useState(()=>typeof window==='undefined'?'ALL':new URLSearchParams(window.location.search).get('payrollPeriod')||'ALL');
+  const [periodFilter, setPeriodFilter] = useState(()=>period && period !== 'ALL'
+    ? period
+    : typeof window==='undefined'?'ALL':new URLSearchParams(window.location.search).get('payrollPeriod')||'ALL');
   const [clientFilter, setClientFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [query, setQuery] = useState('');
@@ -103,6 +105,9 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
   }, [mode]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (period) setPeriodFilter(period);
+  }, [period]);
 
   async function act(payload: Record<string, unknown>, success: string) {
     setMessage('Memproses…');
@@ -271,7 +276,7 @@ export default function OperatingWorkspace({ mode = 'payruns' }: { mode?: Worksp
       {(focusSubmissionId||dashboardStage) && mode!=='billing' ? <div className="dashboard-focus-banner" role="status"><span>Dashboard focus · {focusSubmissionId || dashboardStage}</span><button type="button" onClick={clearDashboardFocus}>Tampilkan semua</button></div> : null}
 
       {mode !== 'billing' ? <div className="operations-control-bar">
-        <label><span>Periode</span><select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{periods.map((period) => <option key={period} value={period}>{period}</option>)}</select></label>
+        <label><span>Periode</span><select value={periodFilter} disabled={Boolean(period && period !== 'ALL')} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{period && period !== 'ALL' && !periods.includes(period) ? <option value={period}>{period}</option> : null}{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label><span>Klien</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
         {mode!=='actions'?<label><span>{mode === 'payments' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:mode==='payments'?paymentBusinessLabel(String(state)):String(state).replaceAll('_', ' ')}</option>)}</select></label>:null}
         {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={profile.search} /></label>:null}
