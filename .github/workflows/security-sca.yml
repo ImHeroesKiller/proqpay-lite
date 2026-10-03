@@ -39,9 +39,9 @@ jobs:
         run: |
           set +e
           npm audit --audit-level=high --json > /tmp/npm-audit.json
-          code=$?
+          set -e
           cat /tmp/npm-audit.json
-          exit "$code"
+          node scripts/security-audit-gate.mjs /tmp/npm-audit.json package-lock.json
 
       - name: Preserve audit evidence
         if: always()
