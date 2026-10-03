@@ -145,7 +145,7 @@ export default function UnifiedPayrollWorkspace({
         <div>
           <span className="page-eyebrow">END-TO-END PAYROLL</span>
           <h1>Payroll Workspace</h1>
-          <p>Satu workspace, tiga tahap bisnis. Detail teknis tetap tercatat di backend tanpa memperpanjang perjalanan pengguna.</p>
+          <p>{isController?'Selesaikan keputusan payroll, payment, reconciliation, dan close dari satu workspace.':'Siapkan payroll, selesaikan exception, dan kirim Payment Instruction tanpa berpindah-pindah halaman.'}</p>
         </div>
         {canUpload ? (
           <Link className="btn btn-primary" href={`/data-intake?period=${encodeURIComponent(period)}`}>
