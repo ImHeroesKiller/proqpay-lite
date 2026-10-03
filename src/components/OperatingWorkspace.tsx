@@ -350,16 +350,15 @@ export default function OperatingWorkspace({
         {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setLocalQuery(event.target.value)} placeholder={profile.search} /></label>:null}
       </div> : null}
 
-      {mode !== 'billing' ? <div className="operations-summary-grid">
+      {mode !== 'billing' ? <div className={`operations-summary-grid${simplifiedInternal?' operations-summary-decision':''}`}>
         {mode === 'payruns' ? clientExperience ? <>
           <div><span>Payroll</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
           <div><span>Needs attention</span><strong>{clientCorrections.length}</strong><small>Perlu koreksi atau konfirmasi</small></div>
           <div><span>For approval</span><strong>{myApprovals.length}</strong><small>Payroll siap direview</small></div>
           <div><span>Payment status</span><strong>{clientPaymentProcessing}</strong><small>{visibleInstructions.filter((row)=>row.status==='COMPLETED').length} selesai</small></div>
         </> : simplifiedInternal ? <>
-          <div><span>Payroll</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
-          <div><span>My work</span><strong>{myWork.length}</strong><small>Tindakan untuk role Anda</small></div>
-          <div><span>{role==='PAYROLL_CONTROLLER'?'For approval':'Need attention'}</span><strong>{role==='PAYROLL_CONTROLLER'?myApprovals.length:myAttention.length}</strong><small>{role==='PAYROLL_CONTROLLER'?'Menunggu keputusan Anda':`${blockers} blocker aktif`}</small></div>
+          <div><span>{role==='PAYROLL_CONTROLLER'?'Needs decision':'My work'}</span><strong>{role==='PAYROLL_CONTROLLER'?myApprovals.length:myWork.length}</strong><small>{role==='PAYROLL_CONTROLLER'?'Payroll menunggu keputusan Anda':'Tindakan aktif untuk role Anda'}</small></div>
+          <div><span>Blocker</span><strong>{blockers}</strong><small>{blockers?'Harus diselesaikan sebelum lanjut':'Tidak ada blocker aktif'}</small></div>
           <div><span>Net payroll</span><strong>{formatIDR(totalNet)}</strong><small>{visibleSubmissions.reduce((sum,row)=>sum+Number(row.employee_count||0),0).toLocaleString('id-ID')} penerima</small></div>
         </> : <>
           <div><span>Pay runs</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
@@ -371,16 +370,19 @@ export default function OperatingWorkspace({
           <div><span>Warning</span><strong>{warningExceptions.length}</strong><small>Perlu review sebelum finalisasi</small></div>
           <div><span>Client action</span><strong>{clientActionExceptions.length}</strong><small>Menunggu koreksi klien</small></div>
           <div><span>Ready / clean</span><strong>{cleanRuns}</strong><small>{resolvedExceptions.length} exception selesai</small></div>
-        </> : mode === 'reconcile' ? <>
+        </> : mode === 'reconcile' ? simplifiedInternal ? <>
+          <div><span>Needs reconcile</span><strong>{toReconcile}</strong><small>{toReconcile?'Perlu tindakan Controller':'Tidak ada mismatch aktif'}</small></div>
+          <div><span>Matched</span><strong>{matchedPayments}</strong><small>Settlement sudah cocok</small></div>
+          <div><span>Ready to close</span><strong>{visibleInstructions.filter((row)=>row.status==='COMPLETED').length}</strong><small>Lanjut Billing & AR</small></div>
+        </> : <>
           <div><span>To reconcile</span><strong>{visibleInstructions.filter((row)=>['PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION'].includes(row.status)).length}</strong><small>Perlu review Controller</small></div>
           <div><span>Payment proof</span><strong>{visibleProofs.length}</strong><small>Bukti tercatat</small></div>
           <div><span>Matched</span><strong>{matchedPayments}</strong><small>Reconciliation selesai</small></div>
           <div><span>Completed</span><strong>{visibleInstructions.filter((row)=>row.status==='COMPLETED').length}</strong><small>Siap billing / close</small></div>
         </> : simplifiedInternal ? <>
-          <div><span>Payments</span><strong>{visibleInstructions.length}</strong><small>{visibleInstructions.reduce((sum,row)=>sum+Number(row.recipient_count||0),0).toLocaleString('id-ID')} penerima</small></div>
-          <div><span>{role==='PAYROLL_CONTROLLER'?'For approval':'Ready to pay'}</span><strong>{role==='PAYROLL_CONTROLLER'?awaitingApproval:visibleInstructions.filter((row)=>row.status==='APPROVED_FOR_PAYMENT').length}</strong><small>{role==='PAYROLL_CONTROLLER'?'Menunggu keputusan Anda':'Siap dieksekusi'}</small></div>
-          <div><span>Processing</span><strong>{visibleInstructions.filter((row)=>['DISBURSEMENT_PROCESSING','PAYMENT_CONFIRMED'].includes(row.status)).length}</strong><small>{formatIDR(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</small></div>
-          <div><span>Reconciled</span><strong>{matchedPayments}</strong><small>{visibleReconciliations.length-matchedPayments} belum match</small></div>
+          <div><span>{role==='PAYROLL_CONTROLLER'?'Needs decision':'Ready to submit'}</span><strong>{role==='PAYROLL_CONTROLLER'?awaitingApproval:visibleInstructions.filter((row)=>row.status==='PAYMENT_INSTRUCTION_READY').length}</strong><small>{role==='PAYROLL_CONTROLLER'?'PI menunggu approval':'PI siap dikirim ke Controller'}</small></div>
+          <div><span>Ready to pay</span><strong>{readyForExecution}</strong><small>Approved / processing</small></div>
+          <div><span>Payment value</span><strong>{formatIDR(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</strong><small>{visibleInstructions.reduce((sum,row)=>sum+Number(row.recipient_count||0),0).toLocaleString('id-ID')} penerima</small></div>
         </> : <>
           <div><span>Payment Instructions</span><strong>{visibleInstructions.length}</strong><small>{visibleInstructions.reduce((sum,row)=>sum+Number(row.recipient_count||0),0).toLocaleString('id-ID')} penerima</small></div>
           <div><span>PI value</span><strong>{formatIDR(visibleInstructions.reduce((sum,row)=>sum+Number(row.expected_total||0),0))}</strong><small>Control total</small></div>
@@ -391,8 +393,8 @@ export default function OperatingWorkspace({
 
       {simplifiedInternal && operationalFocus ? <OperationalFocus {...operationalFocus} /> : null}
 
-      {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span><button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
-      {loading ? <Empty title="Memuat data operasional…" /> : (
+      {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message)?<button type="button" className="btn btn-quiet" onClick={()=>void load()}>Coba lagi</button>:null}<button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
+      {loading ? <WorkspaceLoading /> : (
         <>
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
@@ -1004,6 +1006,19 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
           <div><span>Total penerima</span><strong>{Number(detail.control.recipientCount || 0).toLocaleString('id-ID')}</strong></div>
           <div className="pi-detail-total"><span>Control total</span><strong>{formatIDR(detail.control.totalAmount)}</strong></div>
         </section>
+        <section className={`pi-decision-summary ${integrity.valid?'ready':'attention'}`} aria-label="Ringkasan keputusan Controller">
+          <div className="pi-decision-copy">
+            <span>DECISION CONTROL</span>
+            <strong>{detail.paymentInstruction.status==='PAYMENT_APPROVAL_PENDING'?'Review lalu putuskan Payment Instruction':['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(detail.paymentInstruction.status)?'Payment Instruction siap dieksekusi':'Kontrol utama Payment Instruction'}</strong>
+            <small>Fokus pada empat kontrol utama. Detail penerima, bank, dan audit tersedia di bagian lanjutan.</small>
+          </div>
+          <div className="pi-decision-checks">
+            <span className={integrity.valid?'ok':'warn'}><b>{integrity.valid?'✓':'!'}</b> Snapshot integrity</span>
+            <span className={detail.control.recipientBalanced?'ok':'warn'}><b>{detail.control.recipientBalanced?'✓':'!'}</b> Recipient count</span>
+            <span className={detail.paymentInstruction.provider?'ok':'warn'}><b>{detail.paymentInstruction.provider?'✓':'!'}</b> Provider routing</span>
+            <span className={detail.paymentInstruction.providerLiquidity?.availableBalanceSnapshot!=null&&Number(detail.paymentInstruction.providerLiquidity.availableBalanceSnapshot)>=Number(detail.control.expectedTotal||0)?'ok':'warn'}><b>{detail.paymentInstruction.providerLiquidity?.availableBalanceSnapshot!=null&&Number(detail.paymentInstruction.providerLiquidity.availableBalanceSnapshot)>=Number(detail.control.expectedTotal||0)?'✓':'!'}</b> Liquidity</span>
+          </div>
+        </section>
         <section className={`pi-integrity-panel ${integrity.valid ? 'pi-integrity-valid' : 'pi-integrity-warning'}`} aria-label={integrity.valid?'Integrity Payment Instruction valid':'Integrity Payment Instruction perlu perhatian'}>
           <div><strong>{detail.control.balanced ? '✓ Control total seimbang' : '⛔ Control total tidak seimbang'}</strong><span>Expected {formatIDR(detail.control.expectedTotal)} · Snapshot {formatIDR(detail.control.totalAmount)} · Selisih {formatIDR(detail.control.totalAmount - detail.control.expectedTotal)}</span></div>
           <div><strong>{detail.control.recipientBalanced === true ? '✓ Recipient count terkunci' : '⛔ Recipient count tidak sesuai'}</strong><span>Expected {Number(detail.control.expectedRecipientCount || 0).toLocaleString('id-ID')} · Snapshot {Number(detail.control.recipientCount || 0).toLocaleString('id-ID')} penerima</span></div>
@@ -1051,9 +1066,12 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
           </div>
         </details>
       </div>
-      <footer className="pi-detail-footer">
-        <div className="pi-export-actions"><a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">Unduh PDF resmi</a>{role==='PAYROLL_CONTROLLER' && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? ['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>) : null}</div>
-        {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Saya sudah memeriksa jumlah penerima, rekening, nominal, control total, dan content hash.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject PI</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>void openDetail(detail.paymentInstruction.id))}>Approve & Continue</button></div> : null}
+      <footer className={`pi-detail-footer${role==='PAYROLL_CONTROLLER'?' controller-decision':''}`}>
+        <div className="pi-export-actions">
+          <a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">PDF resmi</a>
+          {role==='PAYROLL_CONTROLLER' && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? <details className="pi-export-more"><summary>Bank file</summary><div>{['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>)}</div></details> : null}
+        </div>
+        {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Kontrol utama PI sudah saya review.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>void openDetail(detail.paymentInstruction.id))}>Approve & Continue</button></div> : null}
       </footer>
     </div></div>, document.body) : null}
     {phase==='reconcile' ? <>
@@ -1111,6 +1129,14 @@ function OperationalFocus({eyebrow,title,detail,count,tone,href,actionLabel}:{ey
       {href&&actionLabel?<a className="btn btn-primary" href={href}>{actionLabel}</a>:null}
     </div>
   </section>;
+}
+
+function WorkspaceLoading() {
+  return <div className="workspace-loading-skeleton" role="status" aria-label="Memuat workspace">
+    <div className="workspace-skeleton-line wide" />
+    <div className="workspace-skeleton-grid"><i/><i/><i/></div>
+    <div className="workspace-skeleton-table"><b/><b/><b/><b/></div>
+  </div>;
 }
 
 function CardTable({ headers, rows }: { headers:string[]; rows:React.ReactNode[][] }) { return <div className="card" style={{ overflowX:'auto' }}><table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}><thead><tr>{headers.map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i) => <tr key={i} style={{ borderBottom:'1px solid var(--border-soft)' }}>{row.map((cell,j) => <td key={j} style={td}>{cell}</td>)}</tr>)}</tbody></table></div>; }
