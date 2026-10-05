@@ -26,3 +26,16 @@ test('P0 preserves controller-only payment execution boundary',()=>{
   assert.doesNotMatch(api,/const MANAGE_ROLES=.*PAYROLL_CONTROLLER/);
   assert.doesNotMatch(ui,/canManageE2Pay\s*=.*PAYROLL_CONTROLLER/);
 });
+
+
+test('P0 E2Pay confirmation and balance sync expose actionable provider stages without persisting secrets',()=>{
+  assert.match(api,/stage:'CONFIRM_HOST_AUTH'/);
+  assert.match(api,/stage:'REGISTER_CONFIRM'/);
+  assert.match(api,/stage:'MERCHANT_AUTH'/);
+  assert.match(api,/stage:'ACCOUNT_LOOKUP'/);
+  assert.match(api,/E2PAY_SUBACCOUNT_CONFIRMATION_FAILED/);
+  assert.match(api,/E2PAY_SUBACCOUNT_BALANCE_SYNC_FAILED/);
+  assert.match(api,/Password dan token tidak disimpan/);
+  assert.doesNotMatch(api,/detail=.*password/i);
+  assert.doesNotMatch(api,/detail=.*token/i);
+});
