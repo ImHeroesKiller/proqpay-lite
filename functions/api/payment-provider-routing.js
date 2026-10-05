@@ -2,10 +2,18 @@ import { d1First } from './_d1.js';
 
 export const PROVIDER_BALANCE_MAX_AGE_MS=5*60*1000;
 
-export async function activeProviderAccount(database,organizationId,clientId,provider,environment){
+export async function activeProviderAccount(database,organizationId,clientId,provider,environment,projectId=null){
+  const normalizedProvider=String(provider||'E2PAY').toUpperCase();
+  const normalizedEnvironment=String(environment||'UAT').toUpperCase();
+  if(projectId){
+    const override=await d1First(database,`SELECT * FROM payment_provider_accounts
+      WHERE org_id=? AND client_id=? AND project_id=? AND provider=? AND environment=? AND account_scope='SUB_ACCOUNT' AND status='ACTIVE'
+      LIMIT 1`,[organizationId,clientId,projectId,normalizedProvider,normalizedEnvironment]);
+    if(override) return override;
+  }
   return d1First(database,`SELECT * FROM payment_provider_accounts
-    WHERE org_id=? AND client_id=? AND provider=? AND environment=? AND account_scope='SUB_ACCOUNT' AND status='ACTIVE'
-    LIMIT 1`,[organizationId,clientId,String(provider||'E2PAY').toUpperCase(),String(environment||'UAT').toUpperCase()]);
+    WHERE org_id=? AND client_id=? AND project_id IS NULL AND provider=? AND environment=? AND account_scope='SUB_ACCOUNT' AND status='ACTIVE'
+    LIMIT 1`,[organizationId,clientId,normalizedProvider,normalizedEnvironment]);
 }
 
 export function liquidityState(account,requiredAmount,nowMs=Date.now(),maxAgeMs=PROVIDER_BALANCE_MAX_AGE_MS){
@@ -34,6 +42,7 @@ export function providerSnapshot(account){
     provider:account.provider,
     environment:account.environment,
     clientId:account.client_id,
+    projectId:account.project_id||null,
     subAccountLast4:String(account.provider_sub_account_id||'').slice(-4)||null,
     accountName:account.account_name||null,
     currency:account.currency||'IDR',
