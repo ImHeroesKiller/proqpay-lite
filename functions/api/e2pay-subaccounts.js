@@ -145,7 +145,15 @@ export async function onRequest({request,env}){
         }else{
           await d1Batch(env.DB,[{statement:`INSERT INTO payment_provider_accounts (id,org_id,client_id,project_id,provider,environment,account_scope,account_name,currency,status,provisioning_state,provisioning_attempt_count,last_provisioning_attempt_at,last_provisioning_error_code,last_provisioning_error_message,created_by,updated_by) VALUES(?,?,?,?,'E2PAY',?,'SUB_ACCOUNT',?,'IDR','DRAFT','FAILED',1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?,?,?,?)`,bindings:[id,organizationId,clientId,projectId,environment,client.name,errorCode,errorMessage,actor.email,actor.email]},audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_FAILED',id,`clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · code=${errorCode}`,requestId)]);
         }
-        return secureJson({error:'Registrasi E2Pay gagal. Data aman untuk dicoba ulang.',code:errorCode,retryable:true,correlationId:requestId},502,request,env,METHODS);
+        return secureJson({
+          error:'Registrasi E2Pay gagal. Data aman untuk dicoba ulang.',
+          code:errorCode,
+          providerStatus:Number(error?.httpStatus||0)||null,
+          providerMessage:errorMessage,
+          stage:error?.httpStatus===401||error?.httpStatus===403?'HOST_AUTH':'REGISTER_REQUEST',
+          retryable:true,
+          correlationId:requestId,
+        },502,request,env,METHODS);
       }
       const providerSubAccountId=clean(registration?.accountId||registration?.merchantId||registration?.id,200)||null;
       const id=existing?.id||'PPA-'+crypto.randomUUID();
