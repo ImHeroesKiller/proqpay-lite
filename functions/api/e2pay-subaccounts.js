@@ -156,7 +156,7 @@ export async function onRequest({request,env}){
       const password=String(body.password||'');
       const token=clean(body.token,500);
       if(!id||!username||!password||!token) return secureJson({error:'id, username, password, dan token wajib untuk konfirmasi'},422,request,env,METHODS);
-      const current=await d1First(env.DB,\`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' LIMIT 1\`,[id,organizationId]);
+      const current=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' LIMIT 1`,[id,organizationId]);
       if(!current) return secureJson({error:'Mapping sub-account tidak ditemukan'},404,request,env,METHODS);
       if(current.status==='ACTIVE'&&current.provider_sub_account_id) return secureJson({error:'Sub-account sudah aktif',code:'E2PAY_SUBACCOUNT_ALREADY_PROVISIONED'},409,request,env,METHODS);
       const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,current.environment);
@@ -166,10 +166,10 @@ export async function onRequest({request,env}){
       if(!providerSubAccountId) return secureJson({error:'E2Pay belum mengembalikan account identity setelah konfirmasi',code:'E2PAY_CONFIRM_ACCOUNT_ID_MISSING'},502,request,env,METHODS);
       const metadata=JSON.stringify({registrationConfirmedAt:new Date().toISOString(),registrationState:'PROVISIONED'});
       await d1Batch(env.DB,[
-        {statement:\`UPDATE payment_provider_accounts SET provider_sub_account_id=?,status='ACTIVE',metadata_json=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?\`,bindings:[providerSubAccountId,metadata,actor.email,id,organizationId]},
-        audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_CONFIRMED',id,\`environment=\${current.environment} · accountLast4=\${providerSubAccountId.slice(-4)}\`,requestId),
+        {statement:`UPDATE payment_provider_accounts SET provider_sub_account_id=?,status='ACTIVE',metadata_json=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,metadata,actor.email,id,organizationId]},
+        audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_CONFIRMED',id,`environment=${current.environment} · accountLast4=${providerSubAccountId.slice(-4)}`,requestId),
       ]);
-      const row=await d1First(env.DB,\`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id LEFT JOIN projects p ON p.id=ppa.project_id WHERE ppa.id=? LIMIT 1\`,[id]);
+      const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id LEFT JOIN projects p ON p.id=ppa.project_id WHERE ppa.id=? LIMIT 1`,[id]);
       return secureJson({ok:true,account:publicRow(row),registration:{state:'PROVISIONED'},correlationId:requestId},200,request,env,METHODS);
     }
 
