@@ -173,12 +173,24 @@ export async function upsertE2PaySubAccount(input:{
   })) as Promise<{ok:true;account:E2PaySubAccount;correlationId?:string}>;
 }
 
+export type E2PayRegistrationChallenge = {
+  state:'PROVISIONED'|'PENDING_CONFIRMATION';
+  username?:string|null;
+  tokenPrefix?:string|null;
+  merchantRegistrationId?:string|null;
+  accountGroupId?:string|null;
+};
+
+export function composeE2PayRegistrationToken(tokenPrefix:string,otp:string){
+  return `${String(tokenPrefix||'').trim()}${String(otp||'').trim()}`;
+}
+
 export async function registerE2PaySubAccount(input:{clientId:string;projectId?:string;environment?:string;phone:string;email?:string}){
   return parse(await fetch('/api/e2pay-subaccounts',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'REGISTER_SUBACCOUNT',environment:'UAT',...input}),
-  })) as Promise<{ok:true;account:E2PaySubAccount;registration:{state:'PROVISIONED'|'PENDING_CONFIRMATION'};correlationId?:string}>;
+  })) as Promise<{ok:true;account:E2PaySubAccount;registration:E2PayRegistrationChallenge;correlationId?:string}>;
 }
 
 export async function confirmE2PaySubAccount(input:{id:string;username:string;password:string;token:string}){
