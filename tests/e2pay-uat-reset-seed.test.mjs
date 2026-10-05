@@ -49,7 +49,7 @@ test('fresh E2Pay UAT seed contains complete isolated master and payroll data',a
   assert.match(sql,/No PI, payment approval, gateway transaction, or provider payment was pre-created/);
 });
 
-test('fresh UAT seed is remote-only and does not bypass final payment authority',async()=>{
+test('fresh UAT seed is explicit-only and never runs as a side effect of production deploy',async()=>{
   const sql=await read('ops/e2pay-uat-fresh-seed.sql');
   const workflow=await read('.github/workflows/cloudflare-deploy.yml');
   assert.doesNotMatch(sql,/INSERT INTO payment_instructions/i);
@@ -57,8 +57,9 @@ test('fresh UAT seed is remote-only and does not bypass final payment authority'
   assert.doesNotMatch(sql,/INSERT INTO payment_gateway_transactions/i);
   assert.doesNotMatch(sql,/APPROVED_FOR_PAYMENT/);
   assert.doesNotMatch(sql,/UAT-CONTROLLER-/);
-  assert.match(workflow,/Seed fresh isolated E2Pay UAT dataset/);
-  assert.match(workflow,/--file=ops\/e2pay-uat-fresh-seed\.sql/);
+  assert.doesNotMatch(workflow,/Seed fresh isolated E2Pay UAT dataset/);
+  assert.doesNotMatch(workflow,/--file=ops\/e2pay-uat-fresh-seed\.sql/);
+  assert.match(workflow,/Routine production deploy does not mutate D1/);
 });
 
 test('UAT provider destination safety remains enforced independently of dummy master bank data',async()=>{
