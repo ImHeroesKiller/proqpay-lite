@@ -1,6 +1,6 @@
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { d1All, d1First, hasD1 } from './_d1.js';
-import { liquidityState } from './payment-provider-routing.js';
+import { activeProviderAccount, liquidityState, validatePaymentProviderSnapshot } from './payment-provider-routing.js';
 
 const METHODS='GET, OPTIONS';
 const ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -37,9 +37,7 @@ async function readLane(database,organizationId,submissionId){
     WHERE s.id=? AND s.org_id=? LIMIT 1`,[submissionId,organizationId]);
   if(!submission) return null;
 
-  const account=await d1First(database,`SELECT * FROM payment_provider_accounts
-    WHERE org_id=? AND client_id=? AND provider='E2PAY' AND environment='UAT'
-      AND account_scope='SUB_ACCOUNT' AND status='ACTIVE' LIMIT 1`,[organizationId,submission.client_id]);
+  const account=await activeProviderAccount(database,organizationId,submission.client_id,'E2PAY','UAT',submission.project_id);
   const liquidity=liquidityState(account,Number(submission.expected_total||0));
 
   const pi=await d1First(database,`SELECT id,document_no,status,expected_total,recipient_count,content_hash,
@@ -56,7 +54,15 @@ async function readLane(database,organizationId,submissionId){
   const items=transaction ? await d1All(database,`SELECT status,attempt_count,response_code,error_code,last_checked_at
     FROM payment_gateway_items WHERE payment_gateway_transaction_id=? ORDER BY created_at,id`,[transaction.id]) : [];
 
-  const phase=phaseFor({account,liquidity,pi,transaction,items});
+  const provisioningReady=Boolean(account && account.status==='ACTIVE' && account.provider_sub_account_id && String(account.provisioning_state||'PROVISIONED')==='PROVISIONED');
+  const snapshotValidation=pi ? validatePaymentProviderSnapshot({...pi,client_id:submission.client_id,provider:'E2PAY'},account) : {ok:true};
+  const blockers=[];
+  if(!account) blockers.push({code:'E2PAY_ACCOUNT_NOT_MAPPED',message:'Belum ada E2Pay account aktif untuk Client/Project.'});
+  else if(!provisioningReady) blockers.push({code:'E2PAY_PROVISIONING_INCOMPLETE',message:'Provisioning E2Pay belum selesai.'});
+  if(account&&!liquidity.ready) blockers.push({code:`E2PAY_LIQUIDITY_${liquidity.state}`,message:`Liquidity belum siap: ${liquidity.state}.`});
+  if(pi&&!snapshotValidation.ok) blockers.push({code:snapshotValidation.code,message:snapshotValidation.error});
+  const readiness={ready:blockers.length===0,blockers,nextAction:blockers[0]?.code||null};
+  const phase=readiness.ready ? phaseFor({account,liquidity,pi,transaction,items}) : (account?'READINESS_BLOCKED':'WAITING_SUBACCOUNT');
   return {
     submission:{
       id:submission.id,
@@ -76,6 +82,7 @@ async function readLane(database,organizationId,submissionId){
       lastBalanceSyncAt:account.last_balance_sync_at,
     } : null,
     liquidity,
+    readiness,
     paymentInstruction:pi ? {
       id:pi.id,
       documentNo:pi.document_no,
