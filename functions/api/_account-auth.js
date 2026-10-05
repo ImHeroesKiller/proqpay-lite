@@ -188,11 +188,12 @@ export async function authenticateSession(request, env) {
       },
     }).catch(() => null);
 
-    const deviceMode=String(env.SECURITY_SESSION_DEVICE_MODE || 'AUDIT').trim().toUpperCase();
-    // Browser hints are anomaly signals, not durable device identities. Do not
-    // destroy a valid cookie-backed session on refresh unless strict enforcement
-    // was explicitly selected by the operator.
-    if (deviceChanged && privileged && deviceMode === 'ENFORCE_STRICT') {
+    const deviceMode=String(env.SECURITY_SESSION_DEVICE_MODE || 'ENFORCE_CRITICAL').trim().toUpperCase();
+    // The device fingerprint only uses durable browser hints, so ordinary refresh
+    // drift does not rotate it. Critical roles still fail closed on a real device
+    // fingerprint change; ENFORCE_STRICT remains an explicit superset alias.
+    const enforceCriticalDevice = deviceMode === 'ENFORCE_CRITICAL' || deviceMode === 'ENFORCE_STRICT';
+    if (deviceChanged && privileged && enforceCriticalDevice) {
       await d1Run(env.DB,'DELETE FROM app_sessions WHERE token_hash=?',[tokenHash]);
       return null;
     }

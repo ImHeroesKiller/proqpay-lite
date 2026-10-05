@@ -1,21 +1,8 @@
-name: P4 Operational Closure
+name: Production Operational Assurance
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/p4-operational-closure.yml'
-      - 'scripts/p4-operational-closure.mjs'
-      - 'docs/P4_4_OPERATIONAL_CLOSURE.md'
-      - 'ROLLOUT_RUNBOOK.md'
-      - 'ops/d1-cutover-assert.sql'
-      - 'ops/d1-reconcile.sql'
-      - 'tests/post-rollout-audit-uat.test.mjs'
-      - 'tests/e2pay-p3-operational-readiness.test.mjs'
-      - 'tests/payment-proof-reconciliation-p2-hardening.test.mjs'
-      - 'tests/p4-operational-closure.test.mjs'
   schedule:
-    - cron: "7 20 * * *"
+    - cron: "7 20 * * 0"
   workflow_dispatch:
 
 permissions:
@@ -24,7 +11,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: proqpay-p4-operational-closure
+  group: proqpay-production-operational-assurance
   cancel-in-progress: false
 
 jobs:
@@ -143,7 +130,7 @@ jobs:
             });
             fs.writeFileSync('/tmp/proqpay-open-issues.json',JSON.stringify(issues.filter(x=>!x.pull_request),null,2));
 
-      - name: Build P4.4 operational closure evidence
+      - name: Build production operational assurance evidence
         run: >
           node scripts/p4-operational-closure.mjs
           /tmp/proqpay-health.json
@@ -154,11 +141,11 @@ jobs:
           /tmp/proqpay-backup-verification.json
           /tmp/proqpay-p4-operational-closure.json
 
-      - name: Preserve P4.4 evidence
+      - name: Preserve production operational assurance evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: proqpay-p4-operational-closure-${{ github.run_id }}
+          name: proqpay-production-operational-assurance-${{ github.run_id }}
           path: |
             /tmp/proqpay-p4-operational-closure.json
             /tmp/proqpay-health.json
@@ -169,16 +156,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-      - name: Open or update P4.4 operational incident
+      - name: Open or update production operational assurance incident
         if: failure()
         uses: actions/github-script@v7
         with:
           script: |
-            const title='P4.4 OPS: operational closure gate failed';
+            const title='OPS: production operational assurance failed';
             const {data}=await github.rest.issues.listForRepo({owner:context.repo.owner,repo:context.repo.repo,state:'open',per_page:100});
             const existing=data.find(x=>x.title===title);
             const body=[
-              'Automated P4.4 Operational Closure failed.',
+              'Automated production operational assurance failed.',
               '',
               `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               `Commit: ${context.sha}`,
@@ -188,15 +175,15 @@ jobs:
             if(existing) await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,body});
             else await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body,labels:['security']}).catch(()=>github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body}));
 
-      - name: Close recovered P4.4 operational incident
+      - name: Close recovered production operational assurance incident
         if: success()
         uses: actions/github-script@v7
         with:
           script: |
-            const title='P4.4 OPS: operational closure gate failed';
+            const title='OPS: production operational assurance failed';
             const {data}=await github.rest.issues.listForRepo({owner:context.repo.owner,repo:context.repo.repo,state:'open',per_page:100});
             const existing=data.find(x=>x.title===title);
             if(existing){
-              await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,body:`P4.4 operational closure recovered at ${new Date().toISOString()}.`});
+              await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,body:`Production operational assurance recovered at ${new Date().toISOString()}.`});
               await github.rest.issues.update({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,state:'closed'});
             }
