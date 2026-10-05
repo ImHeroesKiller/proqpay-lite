@@ -34,6 +34,12 @@ function publicRow(row,requiredAmount=0){
     accountName:row.account_name,
     currency:row.currency,
     status:row.status,
+    provisioningState:row.provisioning_state||((row.status==='ACTIVE'&&row.provider_sub_account_id)?'PROVISIONED':'NOT_STARTED'),
+    provisioningAttemptCount:Number(row.provisioning_attempt_count||0),
+    lastProvisioningAttemptAt:row.last_provisioning_attempt_at||null,
+    lastProvisioningErrorCode:row.last_provisioning_error_code||null,
+    lastProvisioningErrorMessage:row.last_provisioning_error_message||null,
+    readiness:{ready:row.status==='ACTIVE'&&Boolean(row.provider_sub_account_id)&&String(row.provisioning_state||'PROVISIONED')==='PROVISIONED',reason:row.status!=='ACTIVE'?'ACCOUNT_NOT_ACTIVE':!row.provider_sub_account_id?'PROVIDER_ID_MISSING':String(row.provisioning_state||'PROVISIONED')!=='PROVISIONED'?'PROVISIONING_INCOMPLETE':'READY'},
     balance:row.balance===null?null:Number(row.balance),
     availableBalance:row.available_balance===null?null:Number(row.available_balance),
     lastBalanceSyncAt:row.last_balance_sync_at,
@@ -126,21 +132,35 @@ export async function onRequest({request,env}){
       if(existing?.provider_sub_account_id) return secureJson({error:'Client sudah memiliki sub-account E2Pay',code:'E2PAY_SUBACCOUNT_ALREADY_REGISTERED'},409,request,env,METHODS);
 
       const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,environment);
-      const host=await e2payHostAuthorize(runtimeEnv);
-      const registration=await e2payRegisterRequest(runtimeEnv,host.accessToken,{phone,name:client.name,email});
+      let registration;
+      try{
+        const host=await e2payHostAuthorize(runtimeEnv);
+        registration=await e2payRegisterRequest(runtimeEnv,host.accessToken,{phone,name:client.name,email});
+      }catch(error){
+        const id=existing?.id||'PPA-'+crypto.randomUUID();
+        const errorCode=clean(error?.code||'E2PAY_REGISTER_REQUEST_FAILED',120);
+        const errorMessage=clean(error?.message||'Registrasi E2Pay gagal',300);
+        if(existing){
+          await d1Batch(env.DB,[{statement:`UPDATE payment_provider_accounts SET provisioning_state='FAILED',provisioning_attempt_count=COALESCE(provisioning_attempt_count,0)+1,last_provisioning_attempt_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=?,last_provisioning_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[errorCode,errorMessage,actor.email,id,organizationId]},audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_FAILED',id,`clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · code=${errorCode}`,requestId)]);
+        }else{
+          await d1Batch(env.DB,[{statement:`INSERT INTO payment_provider_accounts (id,org_id,client_id,project_id,provider,environment,account_scope,account_name,currency,status,provisioning_state,provisioning_attempt_count,last_provisioning_attempt_at,last_provisioning_error_code,last_provisioning_error_message,created_by,updated_by) VALUES(?,?,?,?,'E2PAY',?,'SUB_ACCOUNT',?,'IDR','DRAFT','FAILED',1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?,?,?,?)`,bindings:[id,organizationId,clientId,projectId,environment,client.name,errorCode,errorMessage,actor.email,actor.email]},audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_FAILED',id,`clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · code=${errorCode}`,requestId)]);
+        }
+        return secureJson({error:'Registrasi E2Pay gagal. Data aman untuk dicoba ulang.',code:errorCode,retryable:true,correlationId:requestId},502,request,env,METHODS);
+      }
       const providerSubAccountId=clean(registration?.accountId||registration?.merchantId||registration?.id,200)||null;
       const id=existing?.id||'PPA-'+crypto.randomUUID();
       const status=providerSubAccountId?'ACTIVE':'DRAFT';
-      const metadata=JSON.stringify({registrationRequestedAt:new Date().toISOString(),phoneLast4:phone.slice(-4),registrationState:providerSubAccountId?'PROVISIONED':'PENDING_CONFIRMATION'});
+      const metadata=JSON.stringify({registrationRequestedAt:new Date().toISOString(),phoneLast4:phone.slice(-4)});
+      const provisioningState=providerSubAccountId?'PROVISIONED':'PENDING_CONFIRMATION';
       const operations=[];
       if(existing){
-        operations.push({statement:`UPDATE payment_provider_accounts SET provider_sub_account_id=COALESCE(?,provider_sub_account_id),account_name=?,status=?,metadata_json=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,
-          bindings:[providerSubAccountId,client.name,status,metadata,actor.email,id,organizationId]});
+        operations.push({statement:`UPDATE payment_provider_accounts SET provider_sub_account_id=COALESCE(?,provider_sub_account_id),account_name=?,status=?,metadata_json=?,provisioning_state=?,provisioning_attempt_count=COALESCE(provisioning_attempt_count,0)+1,last_provisioning_attempt_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=NULL,last_provisioning_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,
+          bindings:[providerSubAccountId,client.name,status,metadata,provisioningState,actor.email,id,organizationId]});
       }else{
         operations.push({statement:`INSERT INTO payment_provider_accounts
-          (id,org_id,client_id,project_id,provider,environment,account_scope,provider_sub_account_id,account_name,currency,status,metadata_json,created_by,updated_by)
-          VALUES(?,?,?,?,'E2PAY',?,'SUB_ACCOUNT',?,?,'IDR',?,?,?,?)`,
-          bindings:[id,organizationId,clientId,projectId,environment,providerSubAccountId,client.name,status,metadata,actor.email,actor.email]});
+          (id,org_id,client_id,project_id,provider,environment,account_scope,provider_sub_account_id,account_name,currency,status,metadata_json,provisioning_state,provisioning_attempt_count,last_provisioning_attempt_at,created_by,updated_by)
+          VALUES(?,?,?,?,'E2PAY',?,'SUB_ACCOUNT',?,?,'IDR',?,?,?,1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?,?)`,
+          bindings:[id,organizationId,clientId,projectId,environment,providerSubAccountId,client.name,status,metadata,provisioningState,actor.email,actor.email]});
       }
       operations.push(audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_REQUESTED',id,
         `clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · environment=${environment} · phoneLast4=${phone.slice(-4)} · status=${status}`,requestId));
@@ -166,7 +186,7 @@ export async function onRequest({request,env}){
       if(!providerSubAccountId) return secureJson({error:'E2Pay belum mengembalikan account identity setelah konfirmasi',code:'E2PAY_CONFIRM_ACCOUNT_ID_MISSING'},502,request,env,METHODS);
       const metadata=JSON.stringify({registrationConfirmedAt:new Date().toISOString(),registrationState:'PROVISIONED'});
       await d1Batch(env.DB,[
-        {statement:`UPDATE payment_provider_accounts SET provider_sub_account_id=?,status='ACTIVE',metadata_json=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,metadata,actor.email,id,organizationId]},
+        {statement:`UPDATE payment_provider_accounts SET provider_sub_account_id=?,status='ACTIVE',metadata_json=?,provisioning_state='PROVISIONED',last_provisioning_error_code=NULL,last_provisioning_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,metadata,actor.email,id,organizationId]},
         audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_CONFIRMED',id,`environment=${current.environment} · accountLast4=${providerSubAccountId.slice(-4)}`,requestId),
       ]);
       const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id LEFT JOIN projects p ON p.id=ppa.project_id WHERE ppa.id=? LIMIT 1`,[id]);
