@@ -94,7 +94,7 @@ jobs:
           const fs=require('fs');
           const projects=JSON.parse(fs.readFileSync('/tmp/proqpay-pages.json','utf8'));
           const expected=String(process.env.PAGES_PROJECT_NAME||'').trim();
-          if(!Array.isArray(projects) || !projects.some((project)=>project?.name===expected)){
+          if(!Array.isArray(projects) || !projects.some((project)=>String(project?.['Project Name'] ?? project?.name ?? '').trim()===expected)){
             console.error(`Pages project not found or inaccessible: ${expected}`);
             process.exit(1);
           }

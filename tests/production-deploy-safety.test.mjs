@@ -8,6 +8,7 @@ test('production deploy is application-only and never mutates D1 or privileged a
   assert.match(workflow,/workflow_run:/);
   assert.match(workflow,/workflows: \["Quality Gate"\]/);
   assert.match(workflow,/pages deploy out/);
+  assert.match(workflow,/project\?\.\['Project Name'\]/);
   assert.match(workflow,/Verify reviewed release convergence/);
   assert.doesNotMatch(workflow,/wrangler d1 (?:list|execute|export|migrations|create)/);
   assert.doesNotMatch(workflow,/DELETE FROM app_user_mfa/);
