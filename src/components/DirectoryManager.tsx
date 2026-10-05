@@ -193,6 +193,30 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
     }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Konfirmasi E2Pay gagal');}
     finally{setE2PayBusy(false);}
   }
+  function renderE2PayRegistrationForm(client:Client,project?:Project,label?:string){
+    if(!canManageE2Pay) return null;
+    return <><div className="directory-form-grid">
+      <label>Nomor HP {project?'override':'sub-client'}<input type="tel" value={e2payPhone} maxLength={40} placeholder="+62..." onChange={(event)=>setE2PayPhone(event.target.value)}/></label>
+      <label>Email {project?'override':'sub-client'}<input type="email" value={e2payEmail} maxLength={254} placeholder={client.contact_email||'ops@client.com'} onChange={(event)=>setE2PayEmail(event.target.value)}/></label>
+    </div><button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payPhone.trim()} onClick={()=>void registerClientE2Pay(client,project)}>{e2payBusy?'Mendaftarkan…':label||(project?'Register Project Override':'Register E2Pay Sub-Client')}</button></>;
+  }
+
+  function renderE2PayPendingConfirmation(account:E2PaySubAccount,client:Client,project?:Project){
+    if(!canManageE2Pay) return <UiNotice tone="warning" title="Menunggu konfirmasi E2Pay">Registration request sudah diterima. Hubungi Super Admin atau Payroll Processor untuk menyelesaikan aktivasi.</UiNotice>;
+    const challenge=e2payChallenge?.id===account.id?e2payChallenge:null;
+    if(!challenge) return <><UiNotice tone="warning" title="Challenge konfirmasi tidak tersedia">Registration request sebelumnya masih pending, tetapi challenge hanya tersedia pada sesi registrasi aktif. Masukkan kembali nomor HP untuk meminta challenge baru.</UiNotice>{renderE2PayRegistrationForm(client,project,'Kirim ulang registration request')}</>;
+    return <><UiNotice tone="warning" title="Selesaikan konfirmasi E2Pay">OTP dikirim ke username <strong>{challenge.username}</strong>. Token konfirmasi menggunakan prefix <strong>{challenge.tokenPrefix}</strong> + OTP.</UiNotice>
+      <div className="directory-form-grid">
+        <label>Username E2Pay<input value={challenge.username} readOnly /></label>
+        <label>Token prefix<input value={challenge.tokenPrefix} readOnly /></label>
+        <label>Password baru<input type="password" autoComplete="new-password" value={e2payConfirmPassword} minLength={6} maxLength={12} placeholder="6-12 karakter" onChange={(event)=>setE2PayConfirmPassword(event.target.value)}/></label>
+        <label>OTP<input inputMode="numeric" autoComplete="one-time-code" value={e2payOtp} maxLength={20} placeholder="OTP dari E2Pay" onChange={(event)=>setE2PayOtp(event.target.value)}/></label>
+      </div>
+      <p className="directory-hint">Password wajib memiliki huruf besar, huruf kecil, angka, dan karakter khusus. Password dikirim langsung ke E2Pay dan tidak disimpan ProQPay.</p>
+      <button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payConfirmPassword||!e2payOtp.trim()} onClick={()=>void confirmClientE2Pay(account)}>{e2payBusy?'Mengonfirmasi…':'Konfirmasi & Aktifkan E2Pay'}</button>
+    </>;
+  }
+
   const canCreateProject = actor?.permissions.includes('project:write') || false;
   function editClient(client: Client) {
     setEditingId(client.id); setMode('client');
