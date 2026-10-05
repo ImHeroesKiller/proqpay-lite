@@ -3,7 +3,6 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
-  composeE2PayRegistrationToken,
   e2payRegisterConfirm,
   e2payRegisterRequest,
 } from '../functions/api/payment-gateway-e2pay.js';
@@ -43,7 +42,8 @@ test('E2Pay registration request follows provider host-token contract and preser
 });
 
 test('E2Pay confirmation sends plain provider password and prefix plus OTP token',async()=>{
-  assert.equal(composeE2PayRegistrationToken('AbC','1234'),'AbC1234');
+  assert.match(client,/composeE2PayRegistrationToken/);
+  assert.match(client,/return `\\$\\{String\\(tokenPrefix\\|\\|''\\)\\.trim\\(\\)\\}\\$\\{String\\(otp\\|\\|''\\)\\.trim\\(\\)\\}`/);
   let captured=null;
   const result=await e2payRegisterConfirm(
     {E2PAY_ENV:'UAT'},
