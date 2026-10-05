@@ -4,7 +4,14 @@ export async function onRequest({ request, env, next }) {
 
   const url = new URL(request.url);
   const canonicalUrl = new URL(canonical);
-  if (url.host === canonicalUrl.host) return next();
+  if (url.host === canonicalUrl.host) {
+    const response = await next();
+    if (!url.pathname.startsWith('/api/')) {
+      response.headers.set('Access-Control-Allow-Origin', canonicalUrl.origin);
+      response.headers.set('Vary', 'Origin');
+    }
+    return response;
+  }
 
   // Keep the low-risk health probe available on the Pages hostname for
   // deployment convergence checks and disaster diagnostics.
