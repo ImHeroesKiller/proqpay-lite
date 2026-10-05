@@ -1,7 +1,9 @@
 name: Cloudflare Pages Production Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Quality Gate"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -10,13 +12,15 @@ permissions:
 
 concurrency:
   group: cloudflare-pages-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'proqpay-lite' }}
@@ -26,8 +30,10 @@ jobs:
       CLOUDFLARE_ZONE_NAME: ${{ vars.CLOUDFLARE_ZONE_NAME || 'msg-os.com' }}
 
     steps:
-      - name: Checkout main
+      - name: Checkout reviewed commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -38,17 +44,25 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Stamp reviewed release
-        shell: bash
-        run: |
-          printf '{"commit":"%s","builtAt":"%s"}\n' "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > public/release.json
-
-      - name: Quality gates
+      - name: Manual-dispatch quality gates
+        if: github.event_name == 'workflow_dispatch'
         run: |
           npm test
           npm run typecheck
           npm run lint
-          npm run build
+
+      - name: Cloudflare native preflight
+        run: npm run cloudflare:preflight
+
+      - name: Stamp reviewed release
+        shell: bash
+        run: |
+          printf '{"commit":"%s","builtAt":"%s"}\n' "$RELEASE_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > public/release.json
+
+      - name: Production build
+        run: npm run build
+        env:
+          NODE_ENV: production
 
       - name: Verify Cloudflare credentials
         shell: bash
@@ -167,7 +181,24 @@ jobs:
           node -e "const x=require('/tmp/proqpay-assert.json');const rows=(Array.isArray(x)?x:[]).flatMap(v=>v.results||[]);if(rows.length){console.error(rows);process.exit(1)}"
 
       - name: Deploy reviewed commit to production
-        run: npx wrangler pages deploy out --project-name="$PAGES_PROJECT_NAME" --branch=main --commit-hash="${{ github.sha }}"
+        run: npx wrangler pages deploy out --project-name="$PAGES_PROJECT_NAME" --branch=main --commit-hash="$RELEASE_SHA"
+
+      - name: Verify reviewed release convergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..24}; do
+            body="$(curl --fail --silent --show-error "https://${PROQPAY_CUSTOM_DOMAIN}/release.json" 2>/dev/null || true)"
+            commit="$(printf '%s' "$body" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(String(JSON.parse(s).commit||''))}catch{}})")"
+            if [ "$commit" = "$RELEASE_SHA" ]; then
+              echo "Production release converged to $RELEASE_SHA."
+              exit 0
+            fi
+            echo "Release convergence attempt ${attempt}/24: current=${commit:-unknown}, expected=$RELEASE_SHA"
+            sleep 5
+          done
+          echo "::error::Production did not converge to reviewed commit $RELEASE_SHA."
+          exit 1
 
       - name: Verify production health
         shell: bash
