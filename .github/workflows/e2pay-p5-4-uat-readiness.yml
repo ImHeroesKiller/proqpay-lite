@@ -10,6 +10,12 @@ on:
       - 'functions/api/e2pay-subaccounts.js'
       - '.github/workflows/e2pay-p5-4-uat-readiness.yml'
   workflow_dispatch:
+    inputs:
+      live_d1:
+        description: 'Collect live production D1 UAT evidence (requires CLOUDFLARE_D1_API_TOKEN)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -19,8 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,12 +34,28 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Verify Cloudflare access
+      - name: Run E2Pay contract and lifecycle regression
+        run: >
+          node --test
+          tests/e2pay-registration-confirmation-fix.test.mjs
+          tests/e2pay-client-integration-p0.test.mjs
+          tests/e2pay-project-routing-p1.test.mjs
+          tests/e2pay-provisioning-lifecycle-p2.test.mjs
+          tests/e2pay-p3-operational-readiness.test.mjs
+          tests/e2pay-p5-4-transactional-uat.test.mjs
+          tests/e2pay-p5-liquidity-routing.test.mjs
+      - name: Verify dedicated D1 credential
+        if: github.event_name == 'workflow_dispatch' && inputs.live_d1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
         run: |
-          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "::error::CLOUDFLARE_D1_API_TOKEN is required for live D1 readiness evidence."; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
           npx wrangler whoami >/dev/null
       - name: Collect P5.4 UAT evidence
+        if: github.event_name == 'workflow_dispatch' && inputs.live_d1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -106,6 +128,23 @@ jobs:
           };
           writeFileSync('/tmp/proqpay-p5-4-uat-readiness.json',JSON.stringify(evidence,null,2));
           console.log(JSON.stringify(evidence,null,2));
+          NODE
+      - name: Build static readiness evidence
+        if: github.event_name != 'workflow_dispatch' || !inputs.live_d1
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          writeFileSync('/tmp/proqpay-p5-4-uat-readiness.json',JSON.stringify({
+            generatedAt:new Date().toISOString(),
+            commit:process.env.GITHUB_SHA,
+            environment:'UAT',
+            contractRegression:'PASS',
+            financialExecutionPath:'PAYMENT_CONTROL_ONLY',
+            rawDisbursementAllowed:false,
+            routing:'PROJECT_OVERRIDE_THEN_CLIENT_INHERITANCE',
+            liveRuntime:{requested:false,status:'NOT_REQUESTED'}
+          },null,2));
           NODE
       - name: Publish readiness summary
         shell: bash
