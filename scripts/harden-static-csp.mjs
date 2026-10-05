@@ -43,18 +43,21 @@ export async function hardenStaticCsp(outDir){
   const headersPath=join(outDir,'_headers');
   let headers=await readFile(headersPath,'utf8');
   const scriptDirective="script-src 'self' 'unsafe-inline'";
+  const scriptElemDirective="script-src-elem 'self' 'unsafe-inline'";
   const styleDirective="style-src 'self' 'unsafe-inline'";
-  if(!headers.includes(scriptDirective) || !headers.includes(styleDirective)){
+  if(!headers.includes(scriptDirective) || !headers.includes(scriptElemDirective) || !headers.includes(styleDirective)){
     throw new Error('Expected CSP bootstrap directives were not found in out/_headers');
   }
 
+  const hardenedScript=["'self'",...scriptHashes].join(' ');
   headers=headers
-    .replace(scriptDirective,["script-src 'self'",...scriptHashes].join(' '))
+    .replace(scriptDirective,["script-src",hardenedScript].join(' '))
+    .replace(scriptElemDirective,["script-src-elem",hardenedScript].join(' '))
     .replace(styleDirective,["style-src 'self'",...styleHashes].join(' '));
 
   const cspLine=headers.split('\n').find((line)=>line.includes('Content-Security-Policy:'))||'';
-  if(/(?:^|;\s*)script-src\s[^;]*'unsafe-inline'/.test(cspLine) || /(?:^|;\s*)style-src\s[^;]*'unsafe-inline'/.test(cspLine)){
-    throw new Error('Unsafe inline remains in script-src/style-src after CSP hardening');
+  if(/(?:^|;\s*)script-src(?:-elem)?\s[^;]*'unsafe-inline'/.test(cspLine) || /(?:^|;\s*)style-src\s[^;]*'unsafe-inline'/.test(cspLine)){
+    throw new Error('Unsafe inline remains in script-src/script-src-elem/style-src after CSP hardening');
   }
   if(Buffer.byteLength(cspLine,'utf8')>24000){
     throw new Error('Generated CSP exceeds safe header budget');

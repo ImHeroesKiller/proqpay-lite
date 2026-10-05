@@ -8,8 +8,6 @@
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Resource-Policy: same-origin
   X-Permitted-Cross-Domain-Policies: none
-  Access-Control-Allow-Origin: https://proqpay.msg-os.com
-  Vary: Origin
 
 /_next/static/*
   Cache-Control: public, max-age=31536000, immutable

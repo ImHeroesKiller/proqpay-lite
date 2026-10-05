@@ -92,6 +92,10 @@ test('P2 browser policy and production verification enforce CSP hardening',async
   assert.match(headers,/frame-ancestors 'none'/);
   assert.match(headers,/object-src 'none'/);
   assert.match(headers,/Cross-Origin-Opener-Policy: same-origin/);
+  assert.doesNotMatch(headers,/^\s*Access-Control-Allow-Origin:/m);
+  const cspHardener=await readFile(new URL('../scripts/harden-static-csp.mjs',import.meta.url),'utf8');
+  assert.match(cspHardener,/script-src-elem/);
+  assert.match(cspHardener,/script-src\(\?:-elem\)\?/);
   assert.match(uptime,/Verify production browser security headers/);
   assert.match(uptime,/content-security-policy/);
   assert.match(prepare,/SECURITY_SESSION_DEVICE_MODE:\s*'ENFORCE_CRITICAL'/);
