@@ -1,6 +1,6 @@
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { d1All, d1First, hasD1 } from './_d1.js';
-import { liquidityState } from './payment-provider-routing.js';
+import { activeProviderAccount, liquidityState } from './payment-provider-routing.js';
 
 const METHODS='GET, OPTIONS';
 const ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -37,9 +37,14 @@ async function readLane(database,organizationId,submissionId){
     WHERE s.id=? AND s.org_id=? LIMIT 1`,[submissionId,organizationId]);
   if(!submission) return null;
 
-  const account=await d1First(database,`SELECT * FROM payment_provider_accounts
-    WHERE org_id=? AND client_id=? AND provider='E2PAY' AND environment='UAT'
-      AND account_scope='SUB_ACCOUNT' AND status='ACTIVE' LIMIT 1`,[organizationId,submission.client_id]);
+  const account=await activeProviderAccount(
+    database,
+    organizationId,
+    submission.client_id,
+    'E2PAY',
+    'UAT',
+    submission.project_id||null,
+  );
   const liquidity=liquidityState(account,Number(submission.expected_total||0));
 
   const pi=await d1First(database,`SELECT id,document_no,status,expected_total,recipient_count,content_hash,
