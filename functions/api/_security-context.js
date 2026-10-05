@@ -32,13 +32,12 @@ export async function requestSecurityContext(request, env = {}) {
       || ''
   ).split(',')[0].trim();
   const userAgent = String(request.headers.get('User-Agent') || '').trim();
-  const language = String(request.headers.get('Accept-Language') || '').trim();
-  const clientHints = [
-    request.headers.get('Sec-CH-UA') || '',
-    request.headers.get('Sec-CH-UA-Mobile') || '',
-    request.headers.get('Sec-CH-UA-Platform') || '',
-  ].join('|');
-  const deviceSource = [userAgent, language, clientHints].join('|');
+  // Keep the session fingerprint stable across navigation/refresh. Accept-Language
+  // and Sec-CH-UA brand/version hints can legitimately vary between browser
+  // navigation and fetch requests and must not invalidate an authenticated session.
+  const platform = String(request.headers.get('Sec-CH-UA-Platform') || '').trim();
+  const mobile = String(request.headers.get('Sec-CH-UA-Mobile') || '').trim();
+  const deviceSource = [userAgent, platform, mobile].join('|');
   return {
     ipHash: ip ? await protectedHash(ip, env, 'IP') : null,
     deviceHash: deviceSource.trim() ? await protectedHash(deviceSource, env, 'DEVICE') : null,

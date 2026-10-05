@@ -121,6 +121,8 @@ export async function readUserMfa(database, userId) {
 }
 
 export async function beginMfaEnrollment(database, env, user) {
+  const current = await readUserMfa(database, user.id);
+  if (current?.status === 'ACTIVE') return { alreadyActive:true };
   const secretBytes = crypto.getRandomValues(new Uint8Array(20));
   const secret = base32Encode(secretBytes);
   const encrypted = await encryptSecret(secret, env);

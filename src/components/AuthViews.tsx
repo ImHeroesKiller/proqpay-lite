@@ -117,6 +117,14 @@ export function LoginScreen() {
         });
         const enrolled = await enrollment.json().catch(() => ({}));
         if (!enrollment.ok) throw new Error(enrolled.error || "Enrollment MFA gagal");
+        if (enrolled.code === "MFA_ALREADY_ACTIVE" || enrolled.alreadyActive) {
+          setMfaStage("CODE");
+          setMfaCode("");
+          setMfaSecret("");
+          setMfaUri("");
+          setError("MFA sudah terdaftar. Masukkan kode 6 digit dari Google Authenticator.");
+          return;
+        }
         setMfaSecret(String(enrolled.secret || ""));
         setMfaUri(String(enrolled.otpauthUri || ""));
         setMfaCode("");
