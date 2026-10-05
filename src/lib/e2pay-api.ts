@@ -164,6 +164,14 @@ export async function upsertE2PaySubAccount(input:{
   })) as Promise<{ok:true;account:E2PaySubAccount;correlationId?:string}>;
 }
 
+export async function registerE2PaySubAccount(input:{clientId:string;environment?:string;phone:string;email?:string}){
+  return parse(await fetch('/api/e2pay-subaccounts',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'REGISTER_SUBACCOUNT',environment:'UAT',...input}),
+  })) as Promise<{ok:true;account:E2PaySubAccount;registration:{state:'PROVISIONED'|'PENDING_CONFIRMATION'};correlationId?:string}>;
+}
+
 export async function setE2PaySubAccountStatus(id:string,status:'DRAFT'|'ACTIVE'|'INACTIVE'){
   return parse(await fetch('/api/e2pay-subaccounts',{
     method:'POST',

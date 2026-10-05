@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
+import { getE2PaySubAccounts, registerE2PaySubAccount, type E2PaySubAccount } from '@/lib/e2pay-api';
 import {
   DataTableState as UiDataTableState,
   FilterBar as UiFilterBar,
@@ -74,6 +75,10 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const [projectsTruncated,setProjectsTruncated] = useState(false);
   const [originalProjectClientId,setOriginalProjectClientId] = useState('');
   const [detail,setDetail] = useState<{type:'client'|'project';item:Client|Project}|null>(null);
+  const [e2payAccounts,setE2PayAccounts]=useState<E2PaySubAccount[]>([]);
+  const [e2payPhone,setE2PayPhone]=useState('');
+  const [e2payEmail,setE2PayEmail]=useState('');
+  const [e2payBusy,setE2PayBusy]=useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const detailDialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement|null>(null);
@@ -97,6 +102,8 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  const loadE2Pay=useCallback(async()=>{try{const result=await getE2PaySubAccounts('UAT');setE2PayAccounts(result.accounts);}catch{/* payment integration may be unavailable while master data remains usable */}},[]);
+  useEffect(()=>{void loadE2Pay();},[loadE2Pay]);
 
   async function submit() {
     if (!mode) return;
@@ -134,6 +141,17 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   }
 
   const canCreateClient = actor?.permissions.includes('client:write') || false;
+  const canManageE2Pay = actor?.role==='SUPER_ADMIN'||actor?.role==='PAYROLL_PROCESSOR';
+  async function registerClientE2Pay(client:Client){
+    if(!e2payPhone.trim()) return;
+    setE2PayBusy(true);setMessage('');
+    try{
+      const result=await registerE2PaySubAccount({clientId:client.id,environment:'UAT',phone:e2payPhone.trim(),email:e2payEmail.trim()||client.contact_email});
+      setMessageTone('success');setMessage(result.registration.state==='PROVISIONED'?'Sub-client E2Pay aktif dan terhubung ke klien.':'Registrasi E2Pay terkirim dan menunggu konfirmasi provider.');
+      setE2PayPhone('');setE2PayEmail('');await loadE2Pay();
+    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Registrasi E2Pay gagal');}
+    finally{setE2PayBusy(false);}
+  }
   const canCreateProject = actor?.permissions.includes('project:write') || false;
   function editClient(client: Client) {
     setEditingId(client.id); setMode('client');
@@ -376,7 +394,11 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
           <div className="directory-modal-actions"><button type="button" className="btn" onClick={() => setMode(null)}>Batal</button><button type="button" className="btn btn-primary" disabled={saving || !form.name || (mode === 'project' && !form.clientId)} onClick={() => void submit()}>{saving ? 'Menyimpan…' : editingId ? 'Simpan perubahan' : 'Simpan'}</button></div>
         </div>
       </div>, document.body) : null}
-      {detail ? createPortal(<div className="directory-modal-backdrop" role="presentation" onMouseDown={(event)=>{if(event.target===event.currentTarget)setDetail(null);}}><div ref={detailDialogRef} className="directory-modal directory-detail-modal" role="dialog" aria-modal="true" aria-label={`Detail ${detail.type}`}><div className="directory-modal-title"><div><span>MASTER DATA</span><h3>{detail.item.name}</h3></div><button type="button" aria-label="Tutup detail" onClick={()=>setDetail(null)}>✕</button></div><DirectoryDetail detail={detail} /><div className="directory-modal-actions"><button type="button" className="btn" onClick={()=>setDetail(null)}>Tutup</button>{detail.type==='client'&&canCreateClient?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editClient(detail.item as Client);}}>Kelola</button>:detail.type==='project'&&canCreateProject&&(detail.item as Project).client_id?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editProject(detail.item as Project);}}>Kelola</button>:null}</div></div></div>,document.body):null}
+      {detail ? createPortal(<div className="directory-modal-backdrop" role="presentation" onMouseDown={(event)=>{if(event.target===event.currentTarget)setDetail(null);}}><div ref={detailDialogRef} className="directory-modal directory-detail-modal" role="dialog" aria-modal="true" aria-label={`Detail ${detail.type}`}><div className="directory-modal-title"><div><span>MASTER DATA</span><h3>{detail.item.name}</h3></div><button type="button" aria-label="Tutup detail" onClick={()=>setDetail(null)}>✕</button></div><DirectoryDetail detail={detail} />
+      {detail.type==='client'?<section className="directory-form-card"><div className="directory-form-card-title"><span>PAY</span><div><strong>Payment & Disbursement</strong><small>E2Pay sub-client mengikuti master klien dan digunakan sebagai sumber routing pembayaran.</small></div></div>
+        {(()=>{const client=detail.item as Client;const account=e2payAccounts.find((row)=>row.clientId===client.id);return account?<div className="directory-detail-grid"><div><span>Gateway</span><strong>E2Pay</strong></div><div><span>Status</span><strong>{account.status}</strong></div><div><span>Sub-client</span><strong>{account.providerSubAccountIdMasked||'Menunggu provisioning'}</strong></div><div><span>Environment</span><strong>{account.environment}</strong></div></div>:canManageE2Pay?<><div className="directory-form-grid"><label>Nomor HP sub-client<input type="tel" value={e2payPhone} maxLength={40} placeholder="+62..." onChange={(event)=>setE2PayPhone(event.target.value)}/></label><label>Email sub-client<input type="email" value={e2payEmail} maxLength={254} placeholder={client.contact_email||'ops@client.com'} onChange={(event)=>setE2PayEmail(event.target.value)}/></label></div><button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payPhone.trim()} onClick={()=>void registerClientE2Pay(client)}>{e2payBusy?'Mendaftarkan…':'Register E2Pay Sub-Client'}</button></>:<p className="directory-hint">Sub-client E2Pay belum terdaftar. Hubungi Super Admin atau Payroll Processor.</p>;})()}
+      </section>:null}
+      <div className="directory-modal-actions"><button type="button" className="btn" onClick={()=>setDetail(null)}>Tutup</button>{detail.type==='client'&&canCreateClient?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editClient(detail.item as Client);}}>Kelola</button>:detail.type==='project'&&canCreateProject&&(detail.item as Project).client_id?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editProject(detail.item as Project);}}>Kelola</button>:null}</div></div></div>,document.body):null}
     </section>
   );
 }
