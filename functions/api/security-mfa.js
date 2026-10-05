@@ -56,6 +56,15 @@ export async function onRequest({request,env}){
       return secureJson({error:'MFA enrollment tidak diperlukan untuk role ini',code:'MFA_NOT_REQUIRED'},409,request,env,METHODS);
     }
     if(action==='ENROLL_START'){
+      const existing=await readUserMfa(env.DB,user.id);
+      if(existing?.status==='ACTIVE'){
+        return secureJson({
+          ok:true,
+          code:'MFA_ALREADY_ACTIVE',
+          alreadyActive:true,
+          message:'MFA sudah aktif. Gunakan kode dari authenticator yang sudah terdaftar.',
+        },200,request,env,METHODS);
+      }
       const enrollment=await beginMfaEnrollment(env.DB,env,user);
       await d1Run(env.DB,`DELETE FROM app_sessions WHERE user_id=?`,[user.id]);
       return secureJson({
