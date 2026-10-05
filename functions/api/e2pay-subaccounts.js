@@ -218,8 +218,30 @@ export async function onRequest({request,env}){
       if(!current) return secureJson({error:'Mapping sub-account tidak ditemukan'},404,request,env,METHODS);
       if(current.status==='ACTIVE'&&current.provider_sub_account_id) return secureJson({error:'Sub-account sudah aktif',code:'E2PAY_SUBACCOUNT_ALREADY_PROVISIONED'},409,request,env,METHODS);
       const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,current.environment);
-      const host=await e2payHostAuthorize(runtimeEnv);
-      const registration=await e2payRegisterConfirm(runtimeEnv,host.accessToken,{username,password,token});
+      let host;
+      try{
+        host=await e2payHostAuthorize(runtimeEnv);
+      }catch(error){
+        const errorCode=clean(error?.code||'E2PAY_CONFIRM_HOST_AUTH_FAILED',120);
+        const errorMessage=clean(error?.message||'Host authorization E2Pay gagal saat konfirmasi',300);
+        await d1Batch(env.DB,[
+          {statement:`UPDATE payment_provider_accounts SET provisioning_attempt_count=COALESCE(provisioning_attempt_count,0)+1,last_provisioning_attempt_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=?,last_provisioning_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[errorCode,errorMessage,actor.email,id,organizationId]},
+          audit(organizationId,actor,'E2PAY_SUBACCOUNT_CONFIRMATION_FAILED',id,`environment=${current.environment} · stage=CONFIRM_HOST_AUTH · code=${errorCode}`,requestId),
+        ]);
+        return secureJson({error:'Host authorization E2Pay gagal saat konfirmasi. Challenge belum dihapus dan dapat dicoba ulang.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'CONFIRM_HOST_AUTH',retryable:true,correlationId:requestId},502,request,env,METHODS);
+      }
+      let registration;
+      try{
+        registration=await e2payRegisterConfirm(runtimeEnv,host.accessToken,{username,password,token});
+      }catch(error){
+        const errorCode=clean(error?.code||'E2PAY_REGISTER_CONFIRM_FAILED',120);
+        const errorMessage=clean(error?.message||'Konfirmasi registrasi E2Pay gagal',300);
+        await d1Batch(env.DB,[
+          {statement:`UPDATE payment_provider_accounts SET provisioning_attempt_count=COALESCE(provisioning_attempt_count,0)+1,last_provisioning_attempt_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=?,last_provisioning_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[errorCode,errorMessage,actor.email,id,organizationId]},
+          audit(organizationId,actor,'E2PAY_SUBACCOUNT_CONFIRMATION_FAILED',id,`environment=${current.environment} · stage=REGISTER_CONFIRM · code=${errorCode}`,requestId),
+        ]);
+        return secureJson({error:'Konfirmasi registrasi E2Pay ditolak atau gagal. Password dan token tidak disimpan; masukkan ulang bila mencoba lagi.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'REGISTER_CONFIRM',retryable:true,correlationId:requestId},502,request,env,METHODS);
+      }
       const providerSubAccountId=clean(registration?.accountId||registration?.merchantId||registration?.id,200);
       if(!providerSubAccountId) return secureJson({error:'E2Pay belum mengembalikan account identity setelah konfirmasi',code:'E2PAY_CONFIRM_ACCOUNT_ID_MISSING'},502,request,env,METHODS);
       const metadata=JSON.stringify({registrationConfirmedAt:new Date().toISOString(),registrationState:'PROVISIONED'});
@@ -241,8 +263,30 @@ export async function onRequest({request,env}){
         return secureJson({error:'Sub-account harus ACTIVE dan sudah diprovisioning sebelum balance sync',code:'E2PAY_SUBACCOUNT_NOT_READY'},409,request,env,METHODS);
       }
       const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,current.environment);
-      const auth=await e2payAuthorize(runtimeEnv);
-      const account=await e2payMerchantAccount(runtimeEnv,auth.accessToken);
+      let auth;
+      try{
+        auth=await e2payAuthorize(runtimeEnv);
+      }catch(error){
+        const errorCode=clean(error?.code||'E2PAY_MERCHANT_AUTH_FAILED',120);
+        const errorMessage=clean(error?.message||'Merchant authorization E2Pay gagal',300);
+        await d1Batch(env.DB,[
+          {statement:`UPDATE payment_provider_accounts SET last_provisioning_error_code=?,last_provisioning_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[errorCode,errorMessage,actor.email,id,organizationId]},
+          audit(organizationId,actor,'E2PAY_SUBACCOUNT_BALANCE_SYNC_FAILED',id,`environment=${current.environment} · stage=MERCHANT_AUTH · code=${errorCode}`,requestId),
+        ]);
+        return secureJson({error:'Merchant authorization E2Pay gagal. Saldo tidak diubah.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'MERCHANT_AUTH',retryable:true,correlationId:requestId},502,request,env,METHODS);
+      }
+      let account;
+      try{
+        account=await e2payMerchantAccount(runtimeEnv,auth.accessToken);
+      }catch(error){
+        const errorCode=clean(error?.code||'E2PAY_ACCOUNT_LOOKUP_FAILED',120);
+        const errorMessage=clean(error?.message||'Pembacaan account E2Pay gagal',300);
+        await d1Batch(env.DB,[
+          {statement:`UPDATE payment_provider_accounts SET last_provisioning_error_code=?,last_provisioning_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[errorCode,errorMessage,actor.email,id,organizationId]},
+          audit(organizationId,actor,'E2PAY_SUBACCOUNT_BALANCE_SYNC_FAILED',id,`environment=${current.environment} · stage=ACCOUNT_LOOKUP · code=${errorCode}`,requestId),
+        ]);
+        return secureJson({error:'Pembacaan account E2Pay gagal. Saldo tidak diubah.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'ACCOUNT_LOOKUP',retryable:true,correlationId:requestId},502,request,env,METHODS);
+      }
       const providerAccountId=clean(account?.accountId,200);
       if(!providerAccountId||providerAccountId!==clean(current.provider_sub_account_id,200)){
         return secureJson({
