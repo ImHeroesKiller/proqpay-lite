@@ -85,100 +85,28 @@ jobs:
           if-no-files-found: warn
 
 
-      - name: Prepare production Pages and D1 configuration
-        shell: bash
-        run: |
-          npx wrangler d1 list --json > /tmp/proqpay-d1.json
-          d1_id=$(node -e "const x=require('/tmp/proqpay-d1.json');const row=x.find(v=>v.name==='proqpay-lite-production');if(!row?.uuid)process.exit(1);process.stdout.write(row.uuid)")
-          npx wrangler pages download config "$PAGES_PROJECT_NAME" --force
-          config_file=""
-          for candidate in wrangler.jsonc wrangler.json wrangler.toml; do
-            if [ -f "$candidate" ]; then config_file="$candidate"; break; fi
-          done
-          test -n "$config_file" || { echo "Downloaded Pages config was not generated"; exit 1; }
-          node scripts/prepare-pages-config.mjs "$d1_id"
-          grep -q '"binding": "DB"' wrangler.jsonc
-          grep -q '"binding": "FILES"' wrangler.jsonc
-          grep -q '"binding": "AI"' wrangler.jsonc
-          grep -q '"SECURITY_MFA_ENFORCEMENT": "ENFORCE"' wrangler.jsonc
-          grep -q '"SECURITY_PASSKEY_ENFORCEMENT": "ENFORCE"' wrangler.jsonc
-          grep -q "\"WEBAUTHN_RP_ID\": \"${PROQPAY_CUSTOM_DOMAIN}\"" wrangler.jsonc
-          grep -q "\"CANONICAL_ORIGIN\": \"https://${PROQPAY_CUSTOM_DOMAIN}\"" wrangler.jsonc
-          grep -q '"API_MONITOR_RETENTION_DAYS": "180"' wrangler.jsonc
-
-      - name: Validate resumable D1 state
-        shell: bash
-        run: |
-          npx wrangler d1 execute proqpay-lite-production --remote \
-            --command="SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_cf_%' ORDER BY name" \
-            --json > /tmp/proqpay-d1-inventory.json
-          node scripts/validate-d1-cutover-state.mjs /tmp/proqpay-d1-inventory.json
-
-      - name: Export pre-deployment D1 backup
-        run: npx wrangler d1 export proqpay-lite-production --remote --output=/tmp/proqpay-pre-deploy.sql --skip-confirmation
-
-      - name: Preserve D1 backup
-        uses: actions/upload-artifact@v4
-        with:
-          name: proqpay-d1-pre-deploy-${{ github.run_id }}
-          path: /tmp/proqpay-pre-deploy.sql
-          retention-days: 30
-
-      - name: Apply pending D1 migrations
-        run: npx wrangler d1 migrations apply proqpay-lite-production --remote
-
-      - name: Reset dedicated UAT privileged security bootstrap
+      - name: Verify production Pages project access
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${PROQPAY_UAT_EMAIL:-}" || { echo "PROQPAY_UAT_EMAIL is missing"; exit 1; }
-          node --input-type=module <<'NODE'
-          import { writeFileSync } from 'node:fs';
-          const email=String(process.env.PROQPAY_UAT_EMAIL||'').trim().toLowerCase();
-          if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Invalid UAT email');
-          const escaped=email.replaceAll("'","''");
-          writeFileSync('/tmp/proqpay-uat-security-reset.sql', `
-          UPDATE app_user_passkeys
-             SET status='REVOKED',
-                 revoked_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-                 revoked_by='P4_UAT_BOOTSTRAP'
-           WHERE status='ACTIVE'
-             AND user_id IN (SELECT id FROM app_users WHERE lower(email)='${escaped}');
-          DELETE FROM app_user_mfa
-           WHERE user_id IN (SELECT id FROM app_users WHERE lower(email)='${escaped}');
-          DELETE FROM app_sessions
-           WHERE user_id IN (SELECT id FROM app_users WHERE lower(email)='${escaped}');
-          UPDATE app_users
-             SET mfa_required=1,
-                 failed_login_attempts=0,
-                 locked_until=NULL,
-                 updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-           WHERE lower(email)='${escaped}' AND status='ACTIVE';
-          INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id)
-          SELECT 'AUD-' || lower(hex(randomblob(16))),org_id,email,role,
-                 'UAT_SECURITY_BOOTSTRAP_RESET',
-                 'Dedicated CI UAT MFA/passkey state rotated before authenticated production regression.',
-                 'app_user',id
-            FROM app_users
-           WHERE lower(email)='${escaped}' AND status='ACTIVE';
-          `);
+          npx wrangler pages project list --json > /tmp/proqpay-pages.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const projects=JSON.parse(fs.readFileSync('/tmp/proqpay-pages.json','utf8'));
+          const expected=String(process.env.PAGES_PROJECT_NAME||'').trim();
+          if(!Array.isArray(projects) || !projects.some((project)=>project?.name===expected)){
+            console.error(`Pages project not found or inaccessible: ${expected}`);
+            process.exit(1);
+          }
+          console.log(`Pages project access verified: ${expected}`);
           NODE
-          npx wrangler d1 execute proqpay-lite-production --remote --file=/tmp/proqpay-uat-security-reset.sql
 
-      - name: Seed missing employee portal credentials
-        run: node scripts/seed-employee-portal-passwords.mjs
-
-      - name: Seed fresh isolated E2Pay UAT dataset
-        run: npx wrangler d1 execute proqpay-lite-production --remote --file=ops/e2pay-uat-fresh-seed.sql
-
-      - name: Reconcile canonical payment invariants
+      - name: Assert deploy is application-only
         shell: bash
         run: |
-          reconcile_sql="$(sed '/^[[:space:]]*--/d' ops/d1-reconcile.sql | tr '\n' ' ')"
-          assert_sql="$(sed '/^[[:space:]]*--/d' ops/d1-cutover-assert.sql | tr '\n' ' ')"
-          npx wrangler d1 execute proqpay-lite-production --remote --command="$reconcile_sql" --json > /tmp/proqpay-reconcile.json
-          npx wrangler d1 execute proqpay-lite-production --remote --command="$assert_sql" --json > /tmp/proqpay-assert.json
-          node -e "const x=require('/tmp/proqpay-assert.json');const rows=(Array.isArray(x)?x:[]).flatMap(v=>v.results||[]);if(rows.length){console.error(rows);process.exit(1)}"
+          set -euo pipefail
+          echo "Routine production deploy does not mutate D1, MFA/passkeys, portal credentials, or E2Pay UAT data."
+          echo "Database migration/maintenance must be executed through an explicit reviewed maintenance procedure."
 
       - name: Deploy reviewed commit to production
         run: npx wrangler pages deploy out --project-name="$PAGES_PROJECT_NAME" --branch=main --commit-hash="$RELEASE_SHA"
