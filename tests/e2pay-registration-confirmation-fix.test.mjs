@@ -43,7 +43,7 @@ test('E2Pay registration request follows provider host-token contract and preser
 
 test('E2Pay confirmation sends plain provider password and prefix plus OTP token',async()=>{
   assert.match(client,/composeE2PayRegistrationToken/);
-  assert.match(client,/return `\\$\\{String\\(tokenPrefix\\|\\|''\\)\\.trim\\(\\)\\}\\$\\{String\\(otp\\|\\|''\\)\\.trim\\(\\)\\}`/);
+  assert.equal(client.includes("return `${String(tokenPrefix||'').trim()}${String(otp||'').trim()}`;"),true);
   let captured=null;
   const result=await e2payRegisterConfirm(
     {E2PAY_ENV:'UAT'},
