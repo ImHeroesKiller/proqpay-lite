@@ -176,19 +176,25 @@ export async function gatewayRuntimeEnv(database, env, organizationId, environme
 
   const environment = normalizeEnvironment(environmentOverride, stored.environment);
   const credentials = stored.credentialProfiles?.[environment] || {};
+  // A partially saved profile must not blank a valid Worker secret. This is
+  // especially important for host OAuth used by sub-client registration.
+  const credential = (key, fallbackKey) => {
+    const storedValue=String(credentials?.[key] || '').trim();
+    return storedValue || String(env?.[fallbackKey] || '').trim();
+  };
   const overrides = {
     PAYMENT_GATEWAY_PROVIDER:stored.provider,
     E2PAY_ENV:environment,
-    E2PAY_MERCHANT_NAME:String(credentials.merchantName || ''),
-    E2PAY_CLIENT_ID:String(credentials.clientId || ''),
-    E2PAY_CLIENT_SECRET:String(credentials.clientSecret || ''),
-    E2PAY_PARTNER_ID:String(credentials.partnerId || ''),
-    E2PAY_SOURCE_ID:String(credentials.sourceId || ''),
-    E2PAY_MERCHANT_ID:String(credentials.merchantId || ''),
-    E2PAY_USERNAME:String(credentials.username || ''),
-    E2PAY_PASSWORD_MD5:String(credentials.passwordMd5 || ''),
-    E2PAY_ACCOUNT_SRC:String(credentials.accountSrc || ''),
-    E2PAY_FUNDING_BANK:String(credentials.fundingBank || env?.E2PAY_FUNDING_BANK || ''),
+    E2PAY_MERCHANT_NAME:credential('merchantName','E2PAY_MERCHANT_NAME'),
+    E2PAY_CLIENT_ID:credential('clientId','E2PAY_CLIENT_ID'),
+    E2PAY_CLIENT_SECRET:credential('clientSecret','E2PAY_CLIENT_SECRET'),
+    E2PAY_PARTNER_ID:credential('partnerId','E2PAY_PARTNER_ID'),
+    E2PAY_SOURCE_ID:credential('sourceId','E2PAY_SOURCE_ID'),
+    E2PAY_MERCHANT_ID:credential('merchantId','E2PAY_MERCHANT_ID'),
+    E2PAY_USERNAME:credential('username','E2PAY_USERNAME'),
+    E2PAY_PASSWORD_MD5:credential('passwordMd5','E2PAY_PASSWORD_MD5'),
+    E2PAY_ACCOUNT_SRC:credential('accountSrc','E2PAY_ACCOUNT_SRC'),
+    E2PAY_FUNDING_BANK:credential('fundingBank','E2PAY_FUNDING_BANK'),
   };
   return Object.assign(Object.create(env || null), overrides);
 }
