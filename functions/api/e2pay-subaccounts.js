@@ -132,33 +132,49 @@ export async function onRequest({request,env}){
       if(existing?.provider_sub_account_id) return secureJson({error:'Client sudah memiliki sub-account E2Pay',code:'E2PAY_SUBACCOUNT_ALREADY_REGISTERED'},409,request,env,METHODS);
 
       const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,environment);
+      let host;
+      try{
+        host=await e2payHostAuthorize(runtimeEnv);
+      }catch(error){
+        const id=existing?.id||'PPA-'+crypto.randomUUID();
+        const errorCode=clean(error?.code||'E2PAY_HOST_AUTH_FAILED',120);
+        const errorMessage=clean(error?.message||'Host authorization E2Pay gagal',300);
+        if(existing){
+          await d1Batch(env.DB,[{statement:`UPDATE payment_provider_accounts SET provisioning_state='FAILED',provisioning_attempt_count=COALESCE(provisioning_attempt_count,0)+1,last_provisioning_attempt_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=?,last_provisioning_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[errorCode,errorMessage,actor.email,id,organizationId]},audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_FAILED',id,`clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · stage=HOST_AUTH · code=${errorCode}`,requestId)]);
+        }else{
+          await d1Batch(env.DB,[{statement:`INSERT INTO payment_provider_accounts (id,org_id,client_id,project_id,provider,environment,account_scope,account_name,currency,status,provisioning_state,provisioning_attempt_count,last_provisioning_attempt_at,last_provisioning_error_code,last_provisioning_error_message,created_by,updated_by) VALUES(?,?,?,?,'E2PAY',?,'SUB_ACCOUNT',?,'IDR','DRAFT','FAILED',1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?,?,?,?)`,bindings:[id,organizationId,clientId,projectId,environment,client.name,errorCode,errorMessage,actor.email,actor.email]},audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_FAILED',id,`clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · stage=HOST_AUTH · code=${errorCode}`,requestId)]);
+        }
+        return secureJson({error:'Host authorization E2Pay gagal. Periksa credential host.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'HOST_AUTH',retryable:true,correlationId:requestId},502,request,env,METHODS);
+      }
+
       let registration;
       try{
-        const host=await e2payHostAuthorize(runtimeEnv);
         registration=await e2payRegisterRequest(runtimeEnv,host.accessToken,{phone,name:client.name,email});
       }catch(error){
         const id=existing?.id||'PPA-'+crypto.randomUUID();
         const errorCode=clean(error?.code||'E2PAY_REGISTER_REQUEST_FAILED',120);
         const errorMessage=clean(error?.message||'Registrasi E2Pay gagal',300);
         if(existing){
-          await d1Batch(env.DB,[{statement:`UPDATE payment_provider_accounts SET provisioning_state='FAILED',provisioning_attempt_count=COALESCE(provisioning_attempt_count,0)+1,last_provisioning_attempt_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=?,last_provisioning_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[errorCode,errorMessage,actor.email,id,organizationId]},audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_FAILED',id,`clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · code=${errorCode}`,requestId)]);
+          await d1Batch(env.DB,[{statement:`UPDATE payment_provider_accounts SET provisioning_state='FAILED',provisioning_attempt_count=COALESCE(provisioning_attempt_count,0)+1,last_provisioning_attempt_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=?,last_provisioning_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[errorCode,errorMessage,actor.email,id,organizationId]},audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_FAILED',id,`clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · stage=REGISTER_REQUEST · code=${errorCode}`,requestId)]);
         }else{
-          await d1Batch(env.DB,[{statement:`INSERT INTO payment_provider_accounts (id,org_id,client_id,project_id,provider,environment,account_scope,account_name,currency,status,provisioning_state,provisioning_attempt_count,last_provisioning_attempt_at,last_provisioning_error_code,last_provisioning_error_message,created_by,updated_by) VALUES(?,?,?,?,'E2PAY',?,'SUB_ACCOUNT',?,'IDR','DRAFT','FAILED',1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?,?,?,?)`,bindings:[id,organizationId,clientId,projectId,environment,client.name,errorCode,errorMessage,actor.email,actor.email]},audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_FAILED',id,`clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · code=${errorCode}`,requestId)]);
+          await d1Batch(env.DB,[{statement:`INSERT INTO payment_provider_accounts (id,org_id,client_id,project_id,provider,environment,account_scope,account_name,currency,status,provisioning_state,provisioning_attempt_count,last_provisioning_attempt_at,last_provisioning_error_code,last_provisioning_error_message,created_by,updated_by) VALUES(?,?,?,?,'E2PAY',?,'SUB_ACCOUNT',?,'IDR','DRAFT','FAILED',1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?,?,?,?)`,bindings:[id,organizationId,clientId,projectId,environment,client.name,errorCode,errorMessage,actor.email,actor.email]},audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_FAILED',id,`clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · stage=REGISTER_REQUEST · code=${errorCode}`,requestId)]);
         }
-        return secureJson({
-          error:'Registrasi E2Pay gagal. Data aman untuk dicoba ulang.',
-          code:errorCode,
-          providerStatus:Number(error?.httpStatus||0)||null,
-          providerMessage:errorMessage,
-          stage:error?.httpStatus===401||error?.httpStatus===403?'HOST_AUTH':'REGISTER_REQUEST',
-          retryable:true,
-          correlationId:requestId,
-        },502,request,env,METHODS);
+        return secureJson({error:'Permintaan registrasi E2Pay gagal. Data aman untuk dicoba ulang.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'REGISTER_REQUEST',retryable:true,correlationId:requestId},502,request,env,METHODS);
       }
+
       const providerSubAccountId=clean(registration?.accountId||registration?.merchantId||registration?.id,200)||null;
+      const registrationUsername=clean(registration?.username,200)||null;
+      const tokenPrefix=clean(registration?.tokenPrefix,120)||null;
+      const merchantRegistrationId=clean(registration?.merchantRegistrationId,200)||null;
+      const accountGroupId=clean(registration?.accountGroupId,200)||null;
+      if(!providerSubAccountId && (!registrationUsername || !tokenPrefix || !merchantRegistrationId)){
+        return secureJson({error:'Response registrasi E2Pay tidak lengkap untuk tahap konfirmasi',code:'E2PAY_REGISTRATION_CHALLENGE_INCOMPLETE',stage:'REGISTER_RESPONSE',retryable:true,correlationId:requestId},502,request,env,METHODS);
+      }
       const id=existing?.id||'PPA-'+crypto.randomUUID();
       const status=providerSubAccountId?'ACTIVE':'DRAFT';
-      const metadata=JSON.stringify({registrationRequestedAt:new Date().toISOString(),phoneLast4:phone.slice(-4)});
+      // Confirmation password/token are never persisted. Provider challenge fields
+      // are returned only to the active UI flow so the user can complete registration.
+      const metadata=JSON.stringify({registrationRequestedAt:new Date().toISOString(),phoneLast4:phone.slice(-4),merchantRegistrationIdLast4:merchantRegistrationId?.slice(-4)||null});
       const provisioningState=providerSubAccountId?'PROVISIONED':'PENDING_CONFIRMATION';
       const operations=[];
       if(existing){
@@ -175,7 +191,18 @@ export async function onRequest({request,env}){
       await d1Batch(env.DB,operations);
       const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name
         FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id WHERE ppa.id=? LIMIT 1`,[id]);
-      return secureJson({ok:true,account:publicRow(row),registration:{state:providerSubAccountId?'PROVISIONED':'PENDING_CONFIRMATION'},correlationId:requestId},providerSubAccountId?201:202,request,env,METHODS);
+      return secureJson({
+        ok:true,
+        account:publicRow(row),
+        registration:{
+          state:providerSubAccountId?'PROVISIONED':'PENDING_CONFIRMATION',
+          username:registrationUsername,
+          tokenPrefix,
+          merchantRegistrationId,
+          accountGroupId,
+        },
+        correlationId:requestId,
+      },providerSubAccountId?201:202,request,env,METHODS);
     }
 
     if(action==='CONFIRM_SUBACCOUNT'){
@@ -184,6 +211,9 @@ export async function onRequest({request,env}){
       const password=String(body.password||'');
       const token=clean(body.token,500);
       if(!id||!username||!password||!token) return secureJson({error:'id, username, password, dan token wajib untuk konfirmasi'},422,request,env,METHODS);
+      if(password.length<6||password.length>12||!/[A-Z]/.test(password)||!/[a-z]/.test(password)||!/[0-9]/.test(password)||!/[^A-Za-z0-9]/.test(password)){
+        return secureJson({error:'Password E2Pay harus 6-12 karakter dan mengandung huruf besar, huruf kecil, angka, serta karakter khusus.',code:'E2PAY_CONFIRM_PASSWORD_POLICY'},422,request,env,METHODS);
+      }
       const current=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' LIMIT 1`,[id,organizationId]);
       if(!current) return secureJson({error:'Mapping sub-account tidak ditemukan'},404,request,env,METHODS);
       if(current.status==='ACTIVE'&&current.provider_sub_account_id) return secureJson({error:'Sub-account sudah aktif',code:'E2PAY_SUBACCOUNT_ALREADY_PROVISIONED'},409,request,env,METHODS);

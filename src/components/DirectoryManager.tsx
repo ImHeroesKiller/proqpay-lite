@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
-import { getE2PaySubAccounts, registerE2PaySubAccount, type E2PaySubAccount } from '@/lib/e2pay-api';
+import { composeE2PayRegistrationToken, confirmE2PaySubAccount, getE2PaySubAccounts, registerE2PaySubAccount, type E2PaySubAccount } from '@/lib/e2pay-api';
 import {
   DataTableState as UiDataTableState,
   FilterBar as UiFilterBar,
@@ -79,6 +79,9 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const [e2payPhone,setE2PayPhone]=useState('');
   const [e2payEmail,setE2PayEmail]=useState('');
   const [e2payBusy,setE2PayBusy]=useState(false);
+  const [e2payChallenge,setE2PayChallenge]=useState<{id:string;username:string;tokenPrefix:string;merchantRegistrationId?:string|null;accountGroupId?:string|null}|null>(null);
+  const [e2payConfirmPassword,setE2PayConfirmPassword]=useState('');
+  const [e2payOtp,setE2PayOtp]=useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
   const detailDialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement|null>(null);
@@ -147,11 +150,73 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
     setE2PayBusy(true);setMessage('');
     try{
       const result=await registerE2PaySubAccount({clientId:client.id,projectId:project?.id,environment:'UAT',phone:e2payPhone.trim(),email:e2payEmail.trim()||client.contact_email});
-      setMessageTone('success');setMessage(result.registration.state==='PROVISIONED'?project?'Sub-client E2Pay override project aktif.':'Sub-client E2Pay aktif dan terhubung ke klien.':'Registrasi E2Pay terkirim dan menunggu konfirmasi provider.');
+      if(result.registration.state==='PENDING_CONFIRMATION'){
+        if(!result.registration.username||!result.registration.tokenPrefix) throw new Error('E2Pay tidak mengembalikan challenge konfirmasi yang lengkap.');
+        setE2PayChallenge({
+          id:result.account.id,
+          username:result.registration.username,
+          tokenPrefix:result.registration.tokenPrefix,
+          merchantRegistrationId:result.registration.merchantRegistrationId,
+          accountGroupId:result.registration.accountGroupId,
+        });
+        setE2PayConfirmPassword('');
+        setE2PayOtp('');
+        setMessageTone('success');
+        setMessage('Registration request diterima. Masukkan password baru dan OTP E2Pay untuk menyelesaikan aktivasi.');
+      }else{
+        setE2PayChallenge(null);
+        setMessageTone('success');
+        setMessage(project?'Sub-client E2Pay override project aktif.':'Sub-client E2Pay aktif dan terhubung ke klien.');
+      }
       setE2PayPhone('');setE2PayEmail('');await loadE2Pay();
     }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Registrasi E2Pay gagal');}
     finally{setE2PayBusy(false);}
   }
+
+  async function confirmClientE2Pay(account:E2PaySubAccount){
+    if(!e2payChallenge||e2payChallenge.id!==account.id) return;
+    if(!e2payConfirmPassword||!e2payOtp.trim()) return;
+    setE2PayBusy(true);setMessage('');
+    try{
+      await confirmE2PaySubAccount({
+        id:account.id,
+        username:e2payChallenge.username,
+        password:e2payConfirmPassword,
+        token:composeE2PayRegistrationToken(e2payChallenge.tokenPrefix,e2payOtp),
+      });
+      setE2PayChallenge(null);
+      setE2PayConfirmPassword('');
+      setE2PayOtp('');
+      setMessageTone('success');
+      setMessage('Sub-client E2Pay berhasil dikonfirmasi dan siap digunakan.');
+      await loadE2Pay();
+    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Konfirmasi E2Pay gagal');}
+    finally{setE2PayBusy(false);}
+  }
+  function renderE2PayRegistrationForm(client:Client,project?:Project,label?:string){
+    if(!canManageE2Pay) return null;
+    return <><div className="directory-form-grid">
+      <label>Nomor HP {project?'override':'sub-client'}<input type="tel" value={e2payPhone} maxLength={40} placeholder="+62..." onChange={(event)=>setE2PayPhone(event.target.value)}/></label>
+      <label>Email {project?'override':'sub-client'}<input type="email" value={e2payEmail} maxLength={254} placeholder={client.contact_email||'ops@client.com'} onChange={(event)=>setE2PayEmail(event.target.value)}/></label>
+    </div><button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payPhone.trim()} onClick={()=>void registerClientE2Pay(client,project)}>{e2payBusy?'Mendaftarkan…':label||(project?'Register Project Override':'Register E2Pay Sub-Client')}</button></>;
+  }
+
+  function renderE2PayPendingConfirmation(account:E2PaySubAccount,client:Client,project?:Project){
+    if(!canManageE2Pay) return <UiNotice tone="warning" title="Menunggu konfirmasi E2Pay">Registration request sudah diterima. Hubungi Super Admin atau Payroll Processor untuk menyelesaikan aktivasi.</UiNotice>;
+    const challenge=e2payChallenge?.id===account.id?e2payChallenge:null;
+    if(!challenge) return <><UiNotice tone="warning" title="Challenge konfirmasi tidak tersedia">Registration request sebelumnya masih pending, tetapi challenge hanya tersedia pada sesi registrasi aktif. Masukkan kembali nomor HP untuk meminta challenge baru.</UiNotice>{renderE2PayRegistrationForm(client,project,'Kirim ulang registration request')}</>;
+    return <><UiNotice tone="warning" title="Selesaikan konfirmasi E2Pay">OTP dikirim ke username <strong>{challenge.username}</strong>. Token konfirmasi menggunakan prefix <strong>{challenge.tokenPrefix}</strong> + OTP.</UiNotice>
+      <div className="directory-form-grid">
+        <label>Username E2Pay<input value={challenge.username} readOnly /></label>
+        <label>Token prefix<input value={challenge.tokenPrefix} readOnly /></label>
+        <label>Password baru<input type="password" autoComplete="new-password" value={e2payConfirmPassword} minLength={6} maxLength={12} placeholder="6-12 karakter" onChange={(event)=>setE2PayConfirmPassword(event.target.value)}/></label>
+        <label>OTP<input inputMode="numeric" autoComplete="one-time-code" value={e2payOtp} maxLength={20} placeholder="OTP dari E2Pay" onChange={(event)=>setE2PayOtp(event.target.value)}/></label>
+      </div>
+      <p className="directory-hint">Password wajib memiliki huruf besar, huruf kecil, angka, dan karakter khusus. Password dikirim langsung ke E2Pay dan tidak disimpan ProQPay.</p>
+      <button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payConfirmPassword||!e2payOtp.trim()} onClick={()=>void confirmClientE2Pay(account)}>{e2payBusy?'Mengonfirmasi…':'Konfirmasi & Aktifkan E2Pay'}</button>
+    </>;
+  }
+
   const canCreateProject = actor?.permissions.includes('project:write') || false;
   function editClient(client: Client) {
     setEditingId(client.id); setMode('client');
@@ -396,10 +461,10 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
       </div>, document.body) : null}
       {detail ? createPortal(<div className="directory-modal-backdrop" role="presentation" onMouseDown={(event)=>{if(event.target===event.currentTarget)setDetail(null);}}><div ref={detailDialogRef} className="directory-modal directory-detail-modal" role="dialog" aria-modal="true" aria-label={`Detail ${detail.type}`}><div className="directory-modal-title"><div><span>MASTER DATA</span><h3>{detail.item.name}</h3></div><button type="button" aria-label="Tutup detail" onClick={()=>setDetail(null)}>✕</button></div><DirectoryDetail detail={detail} />
       {detail.type==='client'?<section className="directory-form-card"><div className="directory-form-card-title"><span>PAY</span><div><strong>Payment & Disbursement</strong><small>E2Pay sub-client mengikuti master klien dan digunakan sebagai sumber routing pembayaran.</small></div></div>
-        {(()=>{const client=detail.item as Client;const account=e2payAccounts.find((row)=>row.clientId===client.id&&!row.projectId);return account?<><div className="directory-detail-grid"><div><span>Gateway</span><strong>E2Pay</strong></div><div><span>Status</span><strong>{account.status}</strong></div><div><span>Provisioning</span><strong>{account.provisioningState||'NOT_STARTED'}</strong></div><div><span>Readiness</span><strong>{account.readiness?.ready?'Ready':'Blocked'}</strong></div><div><span>Sub-client</span><strong>{account.providerSubAccountIdMasked||'Menunggu provisioning'}</strong></div><div><span>Environment</span><strong>{account.environment}</strong></div></div>{account.provisioningState==='FAILED'?<UiNotice tone="error" title="Provisioning gagal">{account.lastProvisioningErrorMessage||'Registrasi belum berhasil.'} {canManageE2Pay?'Masukkan kembali nomor HP lalu coba registrasi ulang.':''}</UiNotice>:account.provisioningState==='PENDING_CONFIRMATION'?<UiNotice tone="warning" title="Menunggu konfirmasi E2Pay">Registration request sudah diterima. Selesaikan tahap konfirmasi sebelum account dapat digunakan untuk PI.</UiNotice>:null}</>:canManageE2Pay?<><div className="directory-form-grid"><label>Nomor HP sub-client<input type="tel" value={e2payPhone} maxLength={40} placeholder="+62..." onChange={(event)=>setE2PayPhone(event.target.value)}/></label><label>Email sub-client<input type="email" value={e2payEmail} maxLength={254} placeholder={client.contact_email||'ops@client.com'} onChange={(event)=>setE2PayEmail(event.target.value)}/></label></div><button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payPhone.trim()} onClick={()=>void registerClientE2Pay(client)}>{e2payBusy?'Mendaftarkan…':'Register E2Pay Sub-Client'}</button></>:<p className="directory-hint">Sub-client E2Pay belum terdaftar. Hubungi Super Admin atau Payroll Processor.</p>;})()}
+        {(()=>{const client=detail.item as Client;const account=e2payAccounts.find((row)=>row.clientId===client.id&&!row.projectId);if(!account)return canManageE2Pay?renderE2PayRegistrationForm(client):<p className="directory-hint">Sub-client E2Pay belum terdaftar. Hubungi Super Admin atau Payroll Processor.</p>;return <><div className="directory-detail-grid"><div><span>Gateway</span><strong>E2Pay</strong></div><div><span>Status</span><strong>{account.status}</strong></div><div><span>Provisioning</span><strong>{account.provisioningState||'NOT_STARTED'}</strong></div><div><span>Readiness</span><strong>{account.readiness?.ready?'Ready':'Blocked'}</strong></div><div><span>Sub-client</span><strong>{account.providerSubAccountIdMasked||'Menunggu provisioning'}</strong></div><div><span>Environment</span><strong>{account.environment}</strong></div></div>{account.provisioningState==='FAILED'?<><UiNotice tone="error" title="Provisioning gagal">{account.lastProvisioningErrorMessage||'Registrasi belum berhasil.'}</UiNotice>{renderE2PayRegistrationForm(client,undefined,'Coba registrasi ulang')}</>:account.provisioningState==='PENDING_CONFIRMATION'?renderE2PayPendingConfirmation(account,client):null}</>;})()}
       </section>:null}
       {detail.type==='project'?<section className="directory-form-card"><div className="directory-form-card-title"><span>PAY</span><div><strong>Payment & Disbursement</strong><small>Project mewarisi E2Pay sub-client milik Client. Override hanya dibuat bila project membutuhkan account terpisah.</small></div></div>
-        {(()=>{const project=detail.item as Project;const override=e2payAccounts.find((row)=>row.projectId===project.id);const inherited=e2payAccounts.find((row)=>row.clientId===project.client_id&&!row.projectId);const account=override||inherited;const client=clients.find((row)=>row.id===project.client_id);return account?<><div className="directory-detail-grid"><div><span>Routing</span><strong>{override?'Project Override':'Inherited from Client'}</strong></div><div><span>Status</span><strong>{account.status}</strong></div><div><span>Provisioning</span><strong>{account.provisioningState||'NOT_STARTED'}</strong></div><div><span>Readiness</span><strong>{account.readiness?.ready?'Ready':'Blocked'}</strong></div><div><span>Sub-client</span><strong>{account.providerSubAccountIdMasked||'Menunggu provisioning'}</strong></div><div><span>Environment</span><strong>{account.environment}</strong></div></div>{!override&&canManageE2Pay&&client?<details><summary>Buat Project Override</summary><div className="directory-form-grid"><label>Nomor HP override<input type="tel" value={e2payPhone} maxLength={40} placeholder="+62..." onChange={(event)=>setE2PayPhone(event.target.value)}/></label><label>Email override<input type="email" value={e2payEmail} maxLength={254} onChange={(event)=>setE2PayEmail(event.target.value)}/></label></div><button type="button" className="btn" disabled={e2payBusy||!e2payPhone.trim()} onClick={()=>void registerClientE2Pay(client,project)}>{e2payBusy?'Mendaftarkan…':'Register Project Override'}</button></details>:null}</>:canManageE2Pay&&client?<><p className="directory-hint">Client belum memiliki E2Pay account. Daftarkan di Client terlebih dahulu; project akan mewarisinya otomatis.</p></>:<p className="directory-hint">Belum ada routing pembayaran aktif.</p>;})()}
+        {(()=>{const project=detail.item as Project;const override=e2payAccounts.find((row)=>row.projectId===project.id);const inherited=e2payAccounts.find((row)=>row.clientId===project.client_id&&!row.projectId);const account=override||inherited;const client=clients.find((row)=>row.id===project.client_id);if(!account)return canManageE2Pay&&client?<><p className="directory-hint">Client belum memiliki E2Pay account. Daftarkan di Client terlebih dahulu; project akan mewarisinya otomatis.</p></>:<p className="directory-hint">Belum ada routing pembayaran aktif.</p>;return <><div className="directory-detail-grid"><div><span>Routing</span><strong>{override?'Project Override':'Inherited from Client'}</strong></div><div><span>Status</span><strong>{account.status}</strong></div><div><span>Provisioning</span><strong>{account.provisioningState||'NOT_STARTED'}</strong></div><div><span>Readiness</span><strong>{account.readiness?.ready?'Ready':'Blocked'}</strong></div><div><span>Sub-client</span><strong>{account.providerSubAccountIdMasked||'Menunggu provisioning'}</strong></div><div><span>Environment</span><strong>{account.environment}</strong></div></div>{override&&client&&account.provisioningState==='FAILED'?<><UiNotice tone="error" title="Provisioning override gagal">{account.lastProvisioningErrorMessage||'Registrasi override belum berhasil.'}</UiNotice>{renderE2PayRegistrationForm(client,project,'Coba registrasi override ulang')}</>:override&&client&&account.provisioningState==='PENDING_CONFIRMATION'?renderE2PayPendingConfirmation(account,client,project):!override&&canManageE2Pay&&client?<details><summary>Buat Project Override</summary>{renderE2PayRegistrationForm(client,project)}</details>:null}</>;})()}
       </section>:null}
       <div className="directory-modal-actions"><button type="button" className="btn" onClick={()=>setDetail(null)}>Tutup</button>{detail.type==='client'&&canCreateClient?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editClient(detail.item as Client);}}>Kelola</button>:detail.type==='project'&&canCreateProject&&(detail.item as Project).client_id?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editProject(detail.item as Project);}}>Kelola</button>:null}</div></div></div>,document.body):null}
     </section>
