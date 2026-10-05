@@ -1,7 +1,7 @@
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
-import { e2payAuthorize, e2payHostAuthorize, e2payMerchantAccount, e2payRegisterRequest } from './payment-gateway-e2pay.js';
+import { e2payAuthorize, e2payHostAuthorize, e2payMerchantAccount, e2payRegisterConfirm, e2payRegisterRequest } from './payment-gateway-e2pay.js';
 import { liquidityState } from './payment-provider-routing.js';
 
 const METHODS='GET, POST, OPTIONS';
@@ -21,6 +21,9 @@ function publicRow(row,requiredAmount=0){
   return {
     id:row.id,
     clientId:row.client_id,
+    projectId:row.project_id||null,
+    projectCode:row.project_code||null,
+    projectName:row.project_name||null,
     clientCode:row.client_code,
     clientName:row.client_name,
     provider:row.provider,
@@ -73,11 +76,12 @@ export async function onRequest({request,env}){
       if(!ENVIRONMENTS.includes(environment)) return secureJson({error:'Environment tidak valid'},422,request,env,METHODS);
 
       const [rows,clients]=await Promise.all([
-        d1All(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name
+        d1All(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name
           FROM payment_provider_accounts ppa
           LEFT JOIN clients c ON c.id=ppa.client_id
+          LEFT JOIN projects p ON p.id=ppa.project_id
           WHERE ppa.org_id=? AND ppa.provider='E2PAY' AND ppa.environment=?
-          ORDER BY CASE ppa.status WHEN 'ACTIVE' THEN 0 WHEN 'DRAFT' THEN 1 ELSE 2 END,c.name,ppa.created_at`,
+          ORDER BY CASE ppa.status WHEN 'ACTIVE' THEN 0 WHEN 'DRAFT' THEN 1 ELSE 2 END,c.name,p.name,ppa.created_at`,
           [organizationId,environment]),
         d1All(env.DB,`SELECT id,code,name,status FROM clients WHERE org_id=? ORDER BY name`,[organizationId]),
       ]);
@@ -108,15 +112,17 @@ export async function onRequest({request,env}){
     if(action==='REGISTER_SUBACCOUNT'){
       const clientId=clean(body.clientId,120);
       const environment=clean(body.environment||'UAT',40).toUpperCase();
+      const projectId=clean(body.projectId,120)||null;
       const phone=clean(body.phone,40);
       const email=clean(body.email,254)||null;
       if(!clientId||!phone) return secureJson({error:'clientId dan nomor HP wajib diisi'},422,request,env,METHODS);
       if(!ENVIRONMENTS.includes(environment)) return secureJson({error:'Environment tidak valid'},422,request,env,METHODS);
       const client=await d1First(env.DB,'SELECT id,name,status FROM clients WHERE id=? AND org_id=? LIMIT 1',[clientId,organizationId]);
+      if(projectId){ const project=await d1First(env.DB,'SELECT id FROM projects WHERE id=? AND client_id=? AND org_id=? LIMIT 1',[projectId,clientId,organizationId]); if(!project) return secureJson({error:'Project tidak ditemukan pada client yang dipilih'},404,request,env,METHODS); }
       if(!client) return secureJson({error:'Client tidak ditemukan'},404,request,env,METHODS);
       const existing=await d1First(env.DB,`SELECT * FROM payment_provider_accounts
-        WHERE org_id=? AND client_id=? AND provider='E2PAY' AND environment=? AND account_scope='SUB_ACCOUNT' LIMIT 1`,
-        [organizationId,clientId,environment]);
+        WHERE org_id=? AND client_id=? AND provider='E2PAY' AND environment=? AND account_scope='SUB_ACCOUNT' AND ((? IS NULL AND project_id IS NULL) OR project_id=?) LIMIT 1`,
+        [organizationId,clientId,environment,projectId,projectId]);
       if(existing?.provider_sub_account_id) return secureJson({error:'Client sudah memiliki sub-account E2Pay',code:'E2PAY_SUBACCOUNT_ALREADY_REGISTERED'},409,request,env,METHODS);
 
       const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,environment);
@@ -132,16 +138,39 @@ export async function onRequest({request,env}){
           bindings:[providerSubAccountId,client.name,status,metadata,actor.email,id,organizationId]});
       }else{
         operations.push({statement:`INSERT INTO payment_provider_accounts
-          (id,org_id,client_id,provider,environment,account_scope,provider_sub_account_id,account_name,currency,status,metadata_json,created_by,updated_by)
-          VALUES(?,?,?,'E2PAY',?,'SUB_ACCOUNT',?,?,'IDR',?,?,?,?)`,
-          bindings:[id,organizationId,clientId,environment,providerSubAccountId,client.name,status,metadata,actor.email,actor.email]});
+          (id,org_id,client_id,project_id,provider,environment,account_scope,provider_sub_account_id,account_name,currency,status,metadata_json,created_by,updated_by)
+          VALUES(?,?,?,?,'E2PAY',?,'SUB_ACCOUNT',?,?,'IDR',?,?,?,?)`,
+          bindings:[id,organizationId,clientId,projectId,environment,providerSubAccountId,client.name,status,metadata,actor.email,actor.email]});
       }
       operations.push(audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_REQUESTED',id,
-        `clientId=${clientId} · environment=${environment} · phoneLast4=${phone.slice(-4)} · status=${status}`,requestId));
+        `clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · environment=${environment} · phoneLast4=${phone.slice(-4)} · status=${status}`,requestId));
       await d1Batch(env.DB,operations);
       const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name
         FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id WHERE ppa.id=? LIMIT 1`,[id]);
       return secureJson({ok:true,account:publicRow(row),registration:{state:providerSubAccountId?'PROVISIONED':'PENDING_CONFIRMATION'},correlationId:requestId},providerSubAccountId?201:202,request,env,METHODS);
+    }
+
+    if(action==='CONFIRM_SUBACCOUNT'){
+      const id=clean(body.id,140);
+      const username=clean(body.username,200);
+      const password=String(body.password||'');
+      const token=clean(body.token,500);
+      if(!id||!username||!password||!token) return secureJson({error:'id, username, password, dan token wajib untuk konfirmasi'},422,request,env,METHODS);
+      const current=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' LIMIT 1`,[id,organizationId]);
+      if(!current) return secureJson({error:'Mapping sub-account tidak ditemukan'},404,request,env,METHODS);
+      if(current.status==='ACTIVE'&&current.provider_sub_account_id) return secureJson({error:'Sub-account sudah aktif',code:'E2PAY_SUBACCOUNT_ALREADY_PROVISIONED'},409,request,env,METHODS);
+      const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,current.environment);
+      const host=await e2payHostAuthorize(runtimeEnv);
+      const registration=await e2payRegisterConfirm(runtimeEnv,host.accessToken,{username,password,token});
+      const providerSubAccountId=clean(registration?.accountId||registration?.merchantId||registration?.id,200);
+      if(!providerSubAccountId) return secureJson({error:'E2Pay belum mengembalikan account identity setelah konfirmasi',code:'E2PAY_CONFIRM_ACCOUNT_ID_MISSING'},502,request,env,METHODS);
+      const metadata=JSON.stringify({registrationConfirmedAt:new Date().toISOString(),registrationState:'PROVISIONED'});
+      await d1Batch(env.DB,[
+        {statement:`UPDATE payment_provider_accounts SET provider_sub_account_id=?,status='ACTIVE',metadata_json=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,metadata,actor.email,id,organizationId]},
+        audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_CONFIRMED',id,`environment=${current.environment} · accountLast4=${providerSubAccountId.slice(-4)}`,requestId),
+      ]);
+      const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id LEFT JOIN projects p ON p.id=ppa.project_id WHERE ppa.id=? LIMIT 1`,[id]);
+      return secureJson({ok:true,account:publicRow(row),registration:{state:'PROVISIONED'},correlationId:requestId},200,request,env,METHODS);
     }
 
     if(action==='SYNC_BALANCE'){
