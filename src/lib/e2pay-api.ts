@@ -129,6 +129,12 @@ export type E2PaySubAccount = {
   accountName?:string|null;
   currency:string;
   status:'DRAFT'|'ACTIVE'|'INACTIVE';
+  provisioningState?:'NOT_STARTED'|'PENDING_CONFIRMATION'|'PROVISIONED'|'FAILED'|'SUSPENDED';
+  provisioningAttemptCount?:number;
+  lastProvisioningAttemptAt?:string|null;
+  lastProvisioningErrorCode?:string|null;
+  lastProvisioningErrorMessage?:string|null;
+  readiness?:{ready:boolean;reason:string};
   balance:number|null;
   availableBalance:number|null;
   lastBalanceSyncAt?:string|null;
