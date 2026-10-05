@@ -7,13 +7,9 @@ import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
 const script = fs.readFileSync(new URL('../scripts/migrate-neon-uat.mjs', import.meta.url), 'utf8');
-const workflow = fs.readFileSync(new URL('../.github/workflows/neon-uat-migration.yml', import.meta.url), 'utf8');
-
-test('Neon UAT migration is explicit, backed up, and excludes legacy payment sources', () => {
-  assert.match(workflow, /MIGRATE NEON UAT DATA TO D1 PRODUCTION/);
-  assert.match(workflow, /PROQPAY_NEON_DATABASE_URL/);
-  assert.match(workflow, /Export current D1 backup/);
-  assert.ok(workflow.indexOf('Export current D1 backup') < workflow.indexOf('Import canonical UAT master data'));
+test('retired Neon UAT migration has no active GitHub Action and keeps the converter read-only', () => {
+  const retiredWorkflow = new URL('../.github/workflows/neon-uat-migration.yml', import.meta.url);
+  assert.equal(fs.existsSync(retiredWorkflow), false);
   assert.doesNotMatch(script, /['"](?:payments|approvals|payrolls)['"]/);
   assert.match(script, /BEGIN READ ONLY/);
   assert.doesNotMatch(script, /['"]BEGIN TRANSACTION;|['"]COMMIT;/);
