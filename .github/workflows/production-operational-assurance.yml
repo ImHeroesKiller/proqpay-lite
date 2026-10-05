@@ -180,7 +180,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const title='P4.4 OPS: operational closure gate failed';
+            const title='OPS: production operational assurance failed';
             const {data}=await github.rest.issues.listForRepo({owner:context.repo.owner,repo:context.repo.repo,state:'open',per_page:100});
             const existing=data.find(x=>x.title===title);
             if(existing){
