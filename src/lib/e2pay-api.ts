@@ -209,6 +209,7 @@ export type E2PayUatLane = {
   submission:{id:string;clientId:string;clientName:string;period:string;paymentPeriod:string;state:string;expectedTotal:number;recipientCount:number};
   subAccount:{id:string;masked:string;status:string;availableBalance:number|null;lastBalanceSyncAt?:string|null}|null;
   liquidity:{state:string;ready:boolean;requiredAmount:number;availableBalance:number|null;gap:number;ageMs?:number};
+  readiness:{ready:boolean;blockers:Array<{code:string;message:string}>;nextAction:string|null};
   paymentInstruction:{id:string;documentNo?:string|null;status:string;expectedTotal:number;recipientCount:number;contentHash?:string|null;providerAccountRegistryId?:string|null;providerEnvironment?:string|null;providerSubAccountMasked?:string|null;createdAt?:string|null;updatedAt?:string|null}|null;
   transaction:{id:string;status:string;providerStatus?:string|null;amount:number;errorCode?:string|null;errorMessage?:string|null;providerAccountRegistryId?:string|null;providerSubAccountMasked?:string|null;createdAt?:string|null;updatedAt?:string|null;paidAt?:string|null}|null;
   itemSummary:{total:number;succeeded:number;unresolved:number;failed:number;retryReady:number};
