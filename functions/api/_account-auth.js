@@ -188,8 +188,11 @@ export async function authenticateSession(request, env) {
       },
     }).catch(() => null);
 
-    const deviceMode=String(env.SECURITY_SESSION_DEVICE_MODE || 'ENFORCE_CRITICAL').trim().toUpperCase();
-    if (deviceChanged && privileged && deviceMode !== 'AUDIT') {
+    const deviceMode=String(env.SECURITY_SESSION_DEVICE_MODE || 'AUDIT').trim().toUpperCase();
+    // Browser hints are anomaly signals, not durable device identities. Do not
+    // destroy a valid cookie-backed session on refresh unless strict enforcement
+    // was explicitly selected by the operator.
+    if (deviceChanged && privileged && deviceMode === 'ENFORCE_STRICT') {
       await d1Run(env.DB,'DELETE FROM app_sessions WHERE token_hash=?',[tokenHash]);
       return null;
     }
