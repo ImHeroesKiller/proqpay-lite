@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
-import { getE2PaySubAccounts, registerE2PaySubAccount, type E2PaySubAccount } from '@/lib/e2pay-api';
+import { composeE2PayRegistrationToken, confirmE2PaySubAccount, getE2PaySubAccounts, registerE2PaySubAccount, type E2PaySubAccount } from '@/lib/e2pay-api';
 import {
   DataTableState as UiDataTableState,
   FilterBar as UiFilterBar,
@@ -79,6 +79,9 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const [e2payPhone,setE2PayPhone]=useState('');
   const [e2payEmail,setE2PayEmail]=useState('');
   const [e2payBusy,setE2PayBusy]=useState(false);
+  const [e2payChallenge,setE2PayChallenge]=useState<{id:string;username:string;tokenPrefix:string;merchantRegistrationId?:string|null;accountGroupId?:string|null}|null>(null);
+  const [e2payConfirmPassword,setE2PayConfirmPassword]=useState('');
+  const [e2payOtp,setE2PayOtp]=useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
   const detailDialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement|null>(null);
@@ -147,9 +150,47 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
     setE2PayBusy(true);setMessage('');
     try{
       const result=await registerE2PaySubAccount({clientId:client.id,projectId:project?.id,environment:'UAT',phone:e2payPhone.trim(),email:e2payEmail.trim()||client.contact_email});
-      setMessageTone('success');setMessage(result.registration.state==='PROVISIONED'?project?'Sub-client E2Pay override project aktif.':'Sub-client E2Pay aktif dan terhubung ke klien.':'Registrasi E2Pay terkirim dan menunggu konfirmasi provider.');
+      if(result.registration.state==='PENDING_CONFIRMATION'){
+        if(!result.registration.username||!result.registration.tokenPrefix) throw new Error('E2Pay tidak mengembalikan challenge konfirmasi yang lengkap.');
+        setE2PayChallenge({
+          id:result.account.id,
+          username:result.registration.username,
+          tokenPrefix:result.registration.tokenPrefix,
+          merchantRegistrationId:result.registration.merchantRegistrationId,
+          accountGroupId:result.registration.accountGroupId,
+        });
+        setE2PayConfirmPassword('');
+        setE2PayOtp('');
+        setMessageTone('success');
+        setMessage('Registration request diterima. Masukkan password baru dan OTP E2Pay untuk menyelesaikan aktivasi.');
+      }else{
+        setE2PayChallenge(null);
+        setMessageTone('success');
+        setMessage(project?'Sub-client E2Pay override project aktif.':'Sub-client E2Pay aktif dan terhubung ke klien.');
+      }
       setE2PayPhone('');setE2PayEmail('');await loadE2Pay();
     }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Registrasi E2Pay gagal');}
+    finally{setE2PayBusy(false);}
+  }
+
+  async function confirmClientE2Pay(account:E2PaySubAccount){
+    if(!e2payChallenge||e2payChallenge.id!==account.id) return;
+    if(!e2payConfirmPassword||!e2payOtp.trim()) return;
+    setE2PayBusy(true);setMessage('');
+    try{
+      await confirmE2PaySubAccount({
+        id:account.id,
+        username:e2payChallenge.username,
+        password:e2payConfirmPassword,
+        token:composeE2PayRegistrationToken(e2payChallenge.tokenPrefix,e2payOtp),
+      });
+      setE2PayChallenge(null);
+      setE2PayConfirmPassword('');
+      setE2PayOtp('');
+      setMessageTone('success');
+      setMessage('Sub-client E2Pay berhasil dikonfirmasi dan siap digunakan.');
+      await loadE2Pay();
+    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Konfirmasi E2Pay gagal');}
     finally{setE2PayBusy(false);}
   }
   const canCreateProject = actor?.permissions.includes('project:write') || false;
