@@ -123,6 +123,24 @@ test('P2.1 privileged authorization rejects TOTP-only session after a passkey ex
   assert.equal((await denied.response.json()).code,'PASSKEY_REAUTH_REQUIRED');
 });
 
+test('P2.1 canonical middleware replaces Cloudflare static wildcard CORS with canonical origin',async()=>{
+  const env={CANONICAL_ORIGIN:'https://proqpay.msg-os.com'};
+  const response=await canonicalMiddleware({
+    request:new Request('https://proqpay.msg-os.com/robots.txt'),
+    env,
+    next:async()=>new Response('ok',{status:200,headers:{'Access-Control-Allow-Origin':'*'}}),
+  });
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'),'https://proqpay.msg-os.com');
+  assert.equal(response.headers.get('Vary'),'Origin');
+
+  const api=await canonicalMiddleware({
+    request:new Request('https://proqpay.msg-os.com/api/health'),
+    env,
+    next:async()=>new Response('ok',{status:200,headers:{'Access-Control-Allow-Origin':'*'}}),
+  });
+  assert.equal(api.headers.get('Access-Control-Allow-Origin'),'*');
+});
+
 test('P2.1 canonical middleware redirects reads, rejects mutations, and preserves health probe',async()=>{
   const env={CANONICAL_ORIGIN:'https://proqpay.msg-os.com'};
   const redirected=await canonicalMiddleware({
