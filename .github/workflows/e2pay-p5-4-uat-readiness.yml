@@ -152,10 +152,15 @@ jobs:
           node --input-type=module <<'NODE'
           import { readFileSync, appendFileSync } from 'node:fs';
           const x=JSON.parse(readFileSync('/tmp/proqpay-p5-4-uat-readiness.json','utf8'));
-          const lines=['## E2Pay P5.4 UAT Readiness','',`- Canary: ${x.canary.state}`,`- Batch: ${x.batch.state}`,'- Financial execution: Payment Control / Payroll Controller only','- Raw Integration Console disbursement: disabled'];
+          const lines=['## E2Pay P5.4 UAT Readiness','',`- Contract regression: ${x.contractRegression||'PASS'}`,'- Financial execution: Payment Control / Payroll Controller only','- Raw Integration Console disbursement: disabled',`- Live D1 evidence: ${x.liveRuntime?.status||'COLLECTED'}`];
+          if(x.canary?.state) lines.push(`- Canary: ${x.canary.state}`);
+          if(x.batch?.state) lines.push(`- Batch: ${x.batch.state}`);
+          if(x.liveRuntime?.canary?.state) lines.push(`- Canary: ${x.liveRuntime.canary.state}`);
+          if(x.liveRuntime?.batch?.state) lines.push(`- Batch: ${x.liveRuntime.batch.state}`);
           appendFileSync(process.env.GITHUB_STEP_SUMMARY,lines.join('\n')+'\n');
           NODE
       - name: Upload P5.4 evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: proqpay-p5-4-uat-readiness-${{ github.run_id }}
