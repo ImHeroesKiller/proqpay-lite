@@ -21,6 +21,8 @@ test('P0 registration is owned by Client UI rather than requiring raw provider I
 });
 
 test('P0 preserves controller-only payment execution boundary',()=>{
-  assert.doesNotMatch(api,/PAYROLL_CONTROLLER'\]/);
-  assert.doesNotMatch(ui,/actor\?\.role==='PAYROLL_CONTROLLER'/);
+  assert.match(api,/const READ_ROLES=\['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'\]/);
+  assert.match(api,/const MANAGE_ROLES=\['SUPER_ADMIN','PAYROLL_PROCESSOR'\]/);
+  assert.doesNotMatch(api,/const MANAGE_ROLES=.*PAYROLL_CONTROLLER/);
+  assert.doesNotMatch(ui,/canManageE2Pay\s*=.*PAYROLL_CONTROLLER/);
 });
