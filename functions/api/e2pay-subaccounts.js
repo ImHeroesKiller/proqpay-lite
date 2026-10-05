@@ -211,6 +211,9 @@ export async function onRequest({request,env}){
       const password=String(body.password||'');
       const token=clean(body.token,500);
       if(!id||!username||!password||!token) return secureJson({error:'id, username, password, dan token wajib untuk konfirmasi'},422,request,env,METHODS);
+      if(password.length<6||password.length>12||!/[A-Z]/.test(password)||!/[a-z]/.test(password)||!/[0-9]/.test(password)||!/[^A-Za-z0-9]/.test(password)){
+        return secureJson({error:'Password E2Pay harus 6-12 karakter dan mengandung huruf besar, huruf kecil, angka, serta karakter khusus.',code:'E2PAY_CONFIRM_PASSWORD_POLICY'},422,request,env,METHODS);
+      }
       const current=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' LIMIT 1`,[id,organizationId]);
       if(!current) return secureJson({error:'Mapping sub-account tidak ditemukan'},404,request,env,METHODS);
       if(current.status==='ACTIVE'&&current.provider_sub_account_id) return secureJson({error:'Sub-account sudah aktif',code:'E2PAY_SUBACCOUNT_ALREADY_PROVISIONED'},409,request,env,METHODS);
