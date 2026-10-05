@@ -12,13 +12,17 @@ const response=await fetch(`${baseUrl}/api/login`,{
 const body=await response.json().catch(()=>({}));
 
 if(response.status!==428){
-  throw new Error(`Expected MFA enforcement challenge (HTTP 428), received HTTP ${response.status}`);
+  throw new Error(`Expected strong-auth enforcement challenge (HTTP 428), received HTTP ${response.status}`);
 }
-if(!['MFA_REQUIRED','MFA_ENROLLMENT_REQUIRED'].includes(String(body?.code||''))){
-  throw new Error(`Unexpected MFA challenge code: ${String(body?.code||'NONE')}`);
+const challenge=String(body?.code||'');
+const accepted=new Set(['MFA_REQUIRED','MFA_ENROLLMENT_REQUIRED','PASSKEY_REQUIRED']);
+if(!accepted.has(challenge)){
+  throw new Error(`Unexpected strong-auth challenge code: ${challenge||'NONE'}`);
 }
 console.log(JSON.stringify({
   ok:true,
-  mfaEnforced:true,
-  challenge:String(body.code),
+  strongAuthEnforced:true,
+  mfaEnforced:challenge.startsWith('MFA_'),
+  passkeyEnforced:challenge==='PASSKEY_REQUIRED',
+  challenge,
 }));
