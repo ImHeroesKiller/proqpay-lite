@@ -3,6 +3,7 @@ import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { e2payAuthorize, e2payHostAuthorize, e2payMerchantAccount, e2payRegisterConfirm, e2payRegisterRequest, normalizeE2PayPassword } from './payment-gateway-e2pay.js';
 import { liquidityState } from './payment-provider-routing.js';
+import { encryptProviderAccountCredential, mergeProviderAccountMetadata, providerAccountCredentialState, scopedE2PayRuntimeEnv } from './payment-provider-account-credentials.js';
 
 const METHODS='GET, POST, OPTIONS';
 const READ_ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -40,6 +41,7 @@ function publicRow(row,requiredAmount=0){
     lastProvisioningErrorCode:row.last_provisioning_error_code||null,
     lastProvisioningErrorMessage:row.last_provisioning_error_message||null,
     readiness:{ready:row.status==='ACTIVE'&&Boolean(row.provider_sub_account_id)&&String(row.provisioning_state||'PROVISIONED')==='PROVISIONED',reason:row.status!=='ACTIVE'?'ACCOUNT_NOT_ACTIVE':!row.provider_sub_account_id?'PROVIDER_ID_MISSING':String(row.provisioning_state||'PROVISIONED')!=='PROVISIONED'?'PROVISIONING_INCOMPLETE':'READY'},
+    merchantCredential:providerAccountCredentialState(row),
     balance:row.balance===null?null:Number(row.balance),
     availableBalance:row.available_balance===null?null:Number(row.available_balance),
     lastBalanceSyncAt:row.last_balance_sync_at,
