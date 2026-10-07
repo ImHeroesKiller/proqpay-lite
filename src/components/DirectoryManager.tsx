@@ -162,11 +162,11 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
         setE2PayConfirmPassword('');
         setE2PayOtp('');
         setMessageTone('success');
-        setMessage('Registration request diterima. Masukkan password baru dan OTP E2Pay untuk menyelesaikan aktivasi.');
+        setMessage(`Registration request ${client.name} diterima. Pairing ke ${project?'project '+project.name:'client '+client.name} sudah dibuat sebagai DRAFT; selesaikan OTP untuk aktivasi.`);
       }else{
         setE2PayChallenge(null);
         setMessageTone('success');
-        setMessage(project?'Sub-client E2Pay override project aktif.':'Sub-client E2Pay aktif dan terhubung ke klien.');
+        setMessage(project?`Sub-merchant E2Pay aktif dan ter-pair ke project ${project.name}.`:`Sub-merchant E2Pay aktif dan ter-pair ke client ${client.name}.`);
       }
       setE2PayPhone('');setE2PayEmail('');await loadE2Pay();
     }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Registrasi E2Pay gagal');}
@@ -188,14 +188,14 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
       setE2PayConfirmPassword('');
       setE2PayOtp('');
       setMessageTone('success');
-      setMessage('Sub-client E2Pay berhasil dikonfirmasi dan siap digunakan.');
+      setMessage(`Sub-merchant E2Pay berhasil dikonfirmasi dan pairing ${account.projectId?'project override':'client'} sudah ACTIVE.`);
       await loadE2Pay();
     }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Konfirmasi E2Pay gagal');}
     finally{setE2PayBusy(false);}
   }
   function renderE2PayRegistrationForm(client:Client,project?:Project,label?:string){
     if(!canManageE2Pay) return null;
-    return <><div className="directory-form-grid">
+    return <><UiNotice tone="info" title="Registrasi sub-merchant E2Pay">Host credential MSG digunakan untuk registrasi. Setelah request diterima, ProQPay otomatis membuat pairing ke ${project?'project ini':'client ini'}; aktivasi final dilakukan setelah OTP.</UiNotice><div className="directory-form-grid">
       <label>Nomor HP {project?'override':'sub-client'}<input type="tel" value={e2payPhone} maxLength={40} placeholder="+62..." onChange={(event)=>setE2PayPhone(event.target.value)}/></label>
       <label>Email {project?'override':'sub-client'}<input type="email" value={e2payEmail} maxLength={254} placeholder={client.contact_email||'ops@client.com'} onChange={(event)=>setE2PayEmail(event.target.value)}/></label>
     </div><button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payPhone.trim()} onClick={()=>void registerClientE2Pay(client,project)}>{e2payBusy?'Mendaftarkan…':label||(project?'Register Project Override':'Register E2Pay Sub-Client')}</button></>;
