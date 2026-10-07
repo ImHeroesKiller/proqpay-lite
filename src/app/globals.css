@@ -1,5 +1,6 @@
 /* ProQPay Lite — 2026 Design System */
 :root {
+  --app-font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --bg: #f5f6fa;
   --bg-surface: #ffffff;
   --bg-subtle: #f3f5f9;
@@ -175,7 +176,7 @@
 
 html, body {
   height: 100%;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--app-font-sans);
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;

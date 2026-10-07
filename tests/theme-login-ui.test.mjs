@@ -40,3 +40,12 @@ test('D1 first login forces the password change modal', () => {
   assert.match(page, /actor\.mustChangePassword/);
   assert.match(page, /<ChangePasswordModal forced/);
 });
+
+
+test('root layout avoids remote next/font coupling in Cloudflare builds', () => {
+  const layout = readFileSync('src/app/layout.tsx','utf8');
+  assert.doesNotMatch(layout, /next\/font\/google/);
+  assert.doesNotMatch(layout, /Inter\(/);
+  assert.match(css, /--app-font-sans:/);
+  assert.match(css, /font-family:\s*var\(--app-font-sans\)/);
+});
