@@ -19,6 +19,8 @@ function masked(value){
   return text ? '••••'+text.slice(-4) : null;
 }
 function publicRow(row,requiredAmount=0){
+  const merchantCredential=providerAccountCredentialState(row);
+  const provisioned=row.status==='ACTIVE'&&Boolean(row.provider_sub_account_id)&&String(row.provisioning_state||'PROVISIONED')==='PROVISIONED';
   return {
     id:row.id,
     clientId:row.client_id,
@@ -40,8 +42,8 @@ function publicRow(row,requiredAmount=0){
     lastProvisioningAttemptAt:row.last_provisioning_attempt_at||null,
     lastProvisioningErrorCode:row.last_provisioning_error_code||null,
     lastProvisioningErrorMessage:row.last_provisioning_error_message||null,
-    readiness:{ready:row.status==='ACTIVE'&&Boolean(row.provider_sub_account_id)&&String(row.provisioning_state||'PROVISIONED')==='PROVISIONED',reason:row.status!=='ACTIVE'?'ACCOUNT_NOT_ACTIVE':!row.provider_sub_account_id?'PROVIDER_ID_MISSING':String(row.provisioning_state||'PROVISIONED')!=='PROVISIONED'?'PROVISIONING_INCOMPLETE':'READY'},
-    merchantCredential:providerAccountCredentialState(row),
+    readiness:{ready:provisioned&&merchantCredential.ready,reason:row.status!=='ACTIVE'?'ACCOUNT_NOT_ACTIVE':!row.provider_sub_account_id?'PROVIDER_ID_MISSING':String(row.provisioning_state||'PROVISIONED')!=='PROVISIONED'?'PROVISIONING_INCOMPLETE':!merchantCredential.ready?'MERCHANT_CREDENTIAL_REQUIRED':'READY'},
+    merchantCredential,
     balance:row.balance===null?null:Number(row.balance),
     availableBalance:row.available_balance===null?null:Number(row.available_balance),
     lastBalanceSyncAt:row.last_balance_sync_at,
