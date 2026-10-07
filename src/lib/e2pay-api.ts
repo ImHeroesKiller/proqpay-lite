@@ -162,6 +162,7 @@ export type E2PaySubAccount = {
   lastProvisioningErrorCode?:string|null;
   lastProvisioningErrorMessage?:string|null;
   readiness?:{ready:boolean;reason:string};
+  merchantCredential?:{ready:boolean;version:number|null;updatedAt?:string|null};
   balance:number|null;
   availableBalance:number|null;
   lastBalanceSyncAt?:string|null;
@@ -241,6 +242,15 @@ export async function syncE2PaySubAccountBalance(id:string,requiredAmount=0){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'SYNC_BALANCE',id,requiredAmount}),
   })) as Promise<{ok:true;account:E2PaySubAccount;correlationId?:string}>;
+}
+
+
+export async function bindE2PaySubAccountCredential(input:{id:string;username:string;password:string}){
+  return parse(await fetch('/api/e2pay-subaccounts',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'BIND_SUBACCOUNT_CREDENTIAL',...input}),
+  })) as Promise<{ok:true;account:E2PaySubAccount;credentialValidated:true;correlationId?:string}>;
 }
 
 
