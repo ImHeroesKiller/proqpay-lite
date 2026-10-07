@@ -154,7 +154,7 @@ test('UAT bootstrap profile stores only the supplied merchant bootstrap credenti
   assert.equal(runtime.E2PAY_CLIENT_ID, 'uat-client');
   assert.equal(runtime.E2PAY_CLIENT_SECRET, 'uat-secret');
   assert.equal(runtime.E2PAY_PARTNER_ID, '0041');
-  assert.equal(runtime.E2PAY_SOURCE_ID, 'MANDIRIS');
+  assert.equal(runtime.E2PAY_SOURCE_ID, 'MANDIRISG');
   assert.equal(runtime.E2PAY_USERNAME, '');
   assert.equal(runtime.E2PAY_PASSWORD_MD5, '');
   assert.equal(runtime.E2PAY_ACCOUNT_SRC, '');
@@ -183,7 +183,7 @@ test('Payment Gateway settings keeps bootstrap fields and accepts merchant login
   assert.doesNotMatch(ui, /key:'accountSrc'/);
   assert.match(ui, /PT Mandiri Semesta Gemilang/);
   assert.match(ui, /0041/);
-  assert.match(ui, /MANDIRIS/);
+  assert.match(ui, /MANDIRISG/);
   assert.doesNotMatch(ui, /6281510000006|00410187/);
 });
 
@@ -257,4 +257,25 @@ test('settings endpoint keeps TEST non-persistent and requires explicit activati
   assert.match(ui, /Configure → Save Draft → Test → Activate/);
   assert.match(ui, /Runtime payment belum berubah/);
   assert.match(ui, /Test Connection tidak menyimpan source account/);
+});
+
+
+test('legacy MANDIRIS sourceId is normalized to confirmed UAT MANDIRISG without changing Production values', async () => {
+  const DB = new D1Mock();
+  await writeGatewaySecureSettings(DB, env, 'ORG-OTSINDO', 'admin@proqpay.test', {
+    provider:'E2PAY',
+    environment:'UAT',
+    credentials:{clientId:'uat-client',clientSecret:'uat-secret',sourceId:'MANDIRIS'},
+  });
+  const uat=await gatewayRuntimeEnv(DB,{...env,DB},'ORG-OTSINDO','UAT');
+  assert.equal(uat.E2PAY_SOURCE_ID,'MANDIRISG');
+
+  await writeGatewaySecureSettings(DB, env, 'ORG-OTSINDO', 'admin@proqpay.test', {
+    provider:'E2PAY',
+    environment:'PRODUCTION',
+    credentials:{clientId:'prod-client',clientSecret:'prod-secret',sourceId:'MANDIRIS'},
+  });
+  const prod=await gatewayRuntimeEnv(DB,{...env,DB},'ORG-OTSINDO','PRODUCTION');
+  assert.equal(prod.E2PAY_SOURCE_ID,'MANDIRIS');
+  DB.sqlite.close();
 });

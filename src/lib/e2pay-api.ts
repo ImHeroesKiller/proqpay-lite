@@ -62,9 +62,36 @@ export type E2PayTransactionRow = {
   merchantName?:string;
 };
 
+export class E2PayApiError extends Error {
+  status:number;
+  code?:string;
+  stage?:string;
+  providerStatus?:number|null;
+  providerMessage?:string;
+  correlationId?:string;
+  constructor(message:string,response:Response,data:Record<string,unknown>={}){
+    super(message);
+    this.name='E2PayApiError';
+    this.status=response.status;
+    this.code=typeof data.code==='string'?data.code:undefined;
+    this.stage=typeof data.stage==='string'?data.stage:undefined;
+    this.providerStatus=typeof data.providerStatus==='number'?data.providerStatus:null;
+    this.providerMessage=typeof data.providerMessage==='string'?data.providerMessage:undefined;
+    this.correlationId=typeof data.correlationId==='string'?data.correlationId:undefined;
+  }
+}
+
 async function parse(response:Response){
-  const data=await response.json().catch(()=>({}));
-  if(!response.ok) throw new Error(data.error||data.message||`HTTP ${response.status}`);
+  const data=await response.json().catch(()=>({})) as Record<string,unknown>;
+  if(!response.ok){
+    const base=String(data.error||data.message||`HTTP ${response.status}`);
+    const provider=typeof data.providerMessage==='string'&&data.providerMessage&&!base.includes(data.providerMessage)
+      ? ` · ${data.providerMessage}`
+      : '';
+    const stage=typeof data.stage==='string'&&data.stage ? ` [${data.stage}]` : '';
+    const correlation=typeof data.correlationId==='string'&&data.correlationId ? ` · ref ${data.correlationId}` : '';
+    throw new E2PayApiError(base+provider+stage+correlation,response,data);
+  }
   return data;
 }
 
@@ -190,7 +217,7 @@ export async function registerE2PaySubAccount(input:{clientId:string;projectId?:
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'REGISTER_SUBACCOUNT',environment:'UAT',...input}),
-  })) as Promise<{ok:true;account:E2PaySubAccount;registration:E2PayRegistrationChallenge;correlationId?:string}>;
+  })) as Promise<{ok:true;account:E2PaySubAccount;registration:E2PayRegistrationChallenge;pairing?:{clientId:string;projectId?:string|null;scope:'CLIENT'|'PROJECT_OVERRIDE'};correlationId?:string}>;
 }
 
 export async function confirmE2PaySubAccount(input:{id:string;username:string;password:string;token:string}){
