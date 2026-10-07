@@ -195,7 +195,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   }
   function renderE2PayRegistrationForm(client:Client,project?:Project,label?:string){
     if(!canManageE2Pay) return null;
-    return <><UiNotice tone="info" title="Registrasi sub-merchant E2Pay">Host credential MSG digunakan untuk registrasi. Setelah request diterima, ProQPay otomatis membuat pairing ke ${project?'project ini':'client ini'}; aktivasi final dilakukan setelah OTP.</UiNotice><div className="directory-form-grid">
+    return <><UiNotice tone="info" title="Registrasi sub-merchant E2Pay">Host credential MSG digunakan untuk registrasi. Setelah request diterima, ProQPay otomatis membuat pairing ke {project?'project ini':'client ini'}; aktivasi final dilakukan setelah OTP.</UiNotice><div className="directory-form-grid">
       <label>Nomor HP {project?'override':'sub-client'}<input type="tel" value={e2payPhone} maxLength={40} placeholder="+62..." onChange={(event)=>setE2PayPhone(event.target.value)}/></label>
       <label>Email {project?'override':'sub-client'}<input type="email" value={e2payEmail} maxLength={254} placeholder={client.contact_email||'ops@client.com'} onChange={(event)=>setE2PayEmail(event.target.value)}/></label>
     </div><button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payPhone.trim()} onClick={()=>void registerClientE2Pay(client,project)}>{e2payBusy?'Mendaftarkan…':label||(project?'Register Project Override':'Register E2Pay Sub-Client')}</button></>;
