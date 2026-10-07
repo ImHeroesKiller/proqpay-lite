@@ -87,3 +87,13 @@ test('confirmation password policy fails before provider call',()=>{
   assert.match(api,/password\.length<6\|\|password\.length>12/);
   assert.match(api,/E2PAY_CONFIRM_PASSWORD_POLICY/);
 });
+
+
+test('submerchant registration pairing contract is explicit for client and project routing',()=>{
+  assert.match(api,/pairing:\{/);
+  assert.match(api,/scope:projectId\?'PROJECT_OVERRIDE':'CLIENT'/);
+  assert.match(api,/stage:'REGISTRATION_CONFIG'/);
+  assert.match(client,/providerMessage/);
+  assert.match(client,/correlationId/);
+  assert.match(ui,/otomatis membuat pairing/);
+});
