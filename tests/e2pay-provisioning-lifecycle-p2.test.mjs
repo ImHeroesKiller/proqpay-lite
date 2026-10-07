@@ -17,8 +17,9 @@ test('P2 persists operational provisioning lifecycle without confirmation secret
 });
 
 test('P2 readiness fails closed until provisioning is active',()=>{
-  assert.match(api,/readiness:\{ready:row\.status==='ACTIVE'/);
+  assert.match(api,/readiness:\{ready:provisioned&&merchantCredential\.ready/);
   assert.match(api,/PROVISIONING_INCOMPLETE/);
+  assert.match(api,/MERCHANT_CREDENTIAL_REQUIRED/);
   assert.match(ui,/Readiness/);
   assert.match(ui,/Provisioning gagal/);
   assert.match(ui,/Menunggu konfirmasi E2Pay/);
