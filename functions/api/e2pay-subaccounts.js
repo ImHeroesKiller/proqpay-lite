@@ -1,7 +1,7 @@
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
-import { e2payAuthorize, e2payHostAuthorize, e2payMerchantAccount, e2payRegisterConfirm, e2payRegisterRequest } from './payment-gateway-e2pay.js';
+import { e2payAuthorize, e2payHostAuthorize, e2payMerchantAccount, e2payRegisterConfirm, e2payRegisterRequest, normalizeE2PayPassword } from './payment-gateway-e2pay.js';
 import { liquidityState } from './payment-provider-routing.js';
 
 const METHODS='GET, POST, OPTIONS';
@@ -257,8 +257,20 @@ export async function onRequest({request,env}){
         ]);
         return secureJson({error:'Konfirmasi registrasi E2Pay ditolak atau gagal. Password dan token tidak disimpan; masukkan ulang bila mencoba lagi.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'REGISTER_CONFIRM',retryable:true,correlationId:requestId},502,request,env,METHODS);
       }
-      const providerSubAccountId=clean(registration?.accountId||registration?.merchantId||registration?.id,200);
-      if(!providerSubAccountId) return secureJson({error:'E2Pay belum mengembalikan account identity setelah konfirmasi',code:'E2PAY_CONFIRM_ACCOUNT_ID_MISSING'},502,request,env,METHODS);
+      let providerSubAccountId=clean(registration?.accountId||registration?.merchantId||registration?.id,200);
+      if(!providerSubAccountId){
+        try{
+          const merchantRuntimeEnv={...runtimeEnv,E2PAY_USERNAME:username,E2PAY_PASSWORD_MD5:normalizeE2PayPassword(password)};
+          const merchantAuth=await e2payAuthorize(merchantRuntimeEnv);
+          const merchantAccount=await e2payMerchantAccount(merchantRuntimeEnv,merchantAuth.accessToken);
+          providerSubAccountId=clean(merchantAccount?.accountId||merchantAccount?.merchantId||merchantAccount?.id,200);
+        }catch(error){
+          const errorCode=clean(error?.code||'E2PAY_CONFIRM_ACCOUNT_LOOKUP_FAILED',120);
+          const errorMessage=clean(error?.message||'Account identity E2Pay belum dapat dibaca setelah konfirmasi',300);
+          return secureJson({error:'Konfirmasi diterima, tetapi account identity E2Pay belum dapat dibaca.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'CONFIRM_ACCOUNT_LOOKUP',retryable:true,correlationId:requestId},502,request,env,METHODS);
+        }
+      }
+      if(!providerSubAccountId) return secureJson({error:'E2Pay belum mengembalikan account identity setelah konfirmasi',code:'E2PAY_CONFIRM_ACCOUNT_ID_MISSING',stage:'CONFIRM_ACCOUNT_LOOKUP',retryable:true,correlationId:requestId},502,request,env,METHODS);
       const metadata=JSON.stringify({registrationConfirmedAt:new Date().toISOString(),registrationState:'PROVISIONED'});
       await d1Batch(env.DB,[
         {statement:`UPDATE payment_provider_accounts SET provider_sub_account_id=?,status='ACTIVE',metadata_json=?,provisioning_state='PROVISIONED',last_provisioning_error_code=NULL,last_provisioning_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,metadata,actor.email,id,organizationId]},
