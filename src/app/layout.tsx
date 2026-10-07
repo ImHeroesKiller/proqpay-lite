@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import "./polish.css";
 import "./employee-services.css";
@@ -7,11 +6,6 @@ import "./audit-console.css";
 import "./e2pay-wallet.css";
 import PwaRegister from "@/components/PwaRegister";
 
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "ProQPay — AI Payroll OS",
@@ -50,7 +44,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="id">
-      <body className={inter.className}>
+      <body>
         {children}
         <PwaRegister />
       </body>
