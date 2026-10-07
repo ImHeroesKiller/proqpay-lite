@@ -82,7 +82,7 @@ test('P5.2/P5.3 wiring gates approval and execution on client liquidity and rout
   assert.match(operating,/E2PAY_LIQUIDITY_/);
   assert.match(operating,/provider_account_registry_id,provider,provider_environment,provider_sub_account_id/);
   assert.match(gateway,/validatePaymentProviderSnapshot/);
-  assert.match(gateway,/E2PAY_SOURCE_MODE:'SUB_ACCOUNT_SNAPSHOT'/);
+  assert.match(gateway,/scopedE2PayRuntimeEnv/);
   assert.match(gateway,/liquidityBalance:providerAccount\?\.available_balance/);
   assert.match(service,/liquidityBalance===null/);
   assert.match(subaccounts,/E2PAY_SUBACCOUNT_BALANCE_SOURCE_MISMATCH/);
