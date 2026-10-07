@@ -9,6 +9,10 @@ const packages=lock.packages||{};
 
 const temporaryDevOnlyAdvisories=new Set([
   'https://github.com/advisories/ghsa-vfj7-8cjw-p6xm',
+  // Cloudflare local tooling only: Wrangler -> Miniflare -> Sharp.
+  // Keep this exception dev-only; runtime/production packages are never accepted.
+  // Remove once the locked Wrangler/Miniflare chain consumes sharp >=0.35.5.
+  'https://github.com/advisories/ghsa-wq5f-xc86-pv6w',
 ]);
 
 const severityRank={low:1,moderate:2,high:3,critical:4};
@@ -50,7 +54,7 @@ for(const [name,item] of Object.entries(vulnerabilities)){
 
 if(accepted.length){
   console.warn('Temporarily accepted dev-only advisory chain:',accepted.join(', '));
-  console.warn('Accepted advisory: GHSA-vfj7-8cjw-p6xm (no patched version as of gate creation).');
+  console.warn('Accepted advisories are restricted to dev-only dependency nodes; runtime High/Critical findings still block CI.');
 }
 if(blockers.length){
   console.error('Blocking High/Critical dependency vulnerabilities remain:');
