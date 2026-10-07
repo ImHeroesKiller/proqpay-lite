@@ -259,24 +259,43 @@ export async function onRequest({request,env}){
         ]);
         return secureJson({error:'Konfirmasi registrasi E2Pay ditolak atau gagal. Password dan token tidak disimpan; masukkan ulang bila mencoba lagi.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'REGISTER_CONFIRM',retryable:true,correlationId:requestId},502,request,env,METHODS);
       }
-      let providerSubAccountId=clean(registration?.accountId||registration?.merchantId||registration?.id,200);
-      if(!providerSubAccountId){
-        try{
-          const merchantRuntimeEnv={...runtimeEnv,E2PAY_USERNAME:username,E2PAY_PASSWORD_MD5:normalizeE2PayPassword(password)};
-          const merchantAuth=await e2payAuthorize(merchantRuntimeEnv);
-          const merchantAccount=await e2payMerchantAccount(merchantRuntimeEnv,merchantAuth.accessToken);
-          providerSubAccountId=clean(merchantAccount?.accountId||merchantAccount?.merchantId||merchantAccount?.id,200);
-        }catch(error){
-          const errorCode=clean(error?.code||'E2PAY_CONFIRM_ACCOUNT_LOOKUP_FAILED',120);
-          const errorMessage=clean(error?.message||'Account identity E2Pay belum dapat dibaca setelah konfirmasi',300);
-          return secureJson({error:'Konfirmasi diterima, tetapi account identity E2Pay belum dapat dibaca.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'CONFIRM_ACCOUNT_LOOKUP',retryable:true,correlationId:requestId},502,request,env,METHODS);
-        }
+      const confirmAccountId=clean(registration?.accountId||registration?.merchantId||registration?.id,200);
+      let merchantAccount;
+      const passwordMd5=normalizeE2PayPassword(password);
+      try{
+        const merchantRuntimeEnv=Object.assign(Object.create(runtimeEnv),{
+          E2PAY_USERNAME:username,
+          E2PAY_PASSWORD_MD5:passwordMd5,
+        });
+        const merchantAuth=await e2payAuthorize(merchantRuntimeEnv);
+        merchantAccount=await e2payMerchantAccount(merchantRuntimeEnv,merchantAuth.accessToken);
+      }catch(error){
+        const errorCode=clean(error?.code||'E2PAY_CONFIRM_ACCOUNT_LOOKUP_FAILED',120);
+        const errorMessage=clean(error?.message||'Account identity E2Pay belum dapat dibaca setelah konfirmasi',300);
+        return secureJson({error:'Konfirmasi diterima, tetapi merchant login/account E2Pay belum dapat divalidasi.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'CONFIRM_ACCOUNT_LOOKUP',retryable:true,correlationId:requestId},502,request,env,METHODS);
       }
-      if(!providerSubAccountId) return secureJson({error:'E2Pay belum mengembalikan account identity setelah konfirmasi',code:'E2PAY_CONFIRM_ACCOUNT_ID_MISSING',stage:'CONFIRM_ACCOUNT_LOOKUP',retryable:true,correlationId:requestId},502,request,env,METHODS);
-      const metadata=JSON.stringify({registrationConfirmedAt:new Date().toISOString(),registrationState:'PROVISIONED'});
+      const merchantAccountId=clean(merchantAccount?.accountId||merchantAccount?.merchantId||merchantAccount?.id,200);
+      if(!merchantAccountId) return secureJson({error:'E2Pay belum mengembalikan account identity setelah konfirmasi',code:'E2PAY_CONFIRM_ACCOUNT_ID_MISSING',stage:'CONFIRM_ACCOUNT_LOOKUP',retryable:true,correlationId:requestId},502,request,env,METHODS);
+      if(confirmAccountId&&confirmAccountId!==merchantAccountId){
+        return secureJson({
+          error:'Account identity hasil konfirmasi tidak sama dengan merchant login baru. Aktivasi diblokir.',
+          code:'E2PAY_CONFIRM_ACCOUNT_ID_MISMATCH',
+          confirmAccountIdMasked:masked(confirmAccountId),
+          merchantAccountIdMasked:masked(merchantAccountId),
+          stage:'CONFIRM_ACCOUNT_LOOKUP',
+        },409,request,env,METHODS);
+      }
+      const providerSubAccountId=confirmAccountId||merchantAccountId;
+      const merchantCredential=await encryptProviderAccountCredential(runtimeEnv,{username,passwordMd5});
+      const metadata=mergeProviderAccountMetadata(current,{
+        registrationConfirmedAt:new Date().toISOString(),
+        registrationState:'PROVISIONED',
+        merchantCredential,
+      });
+      const balance=Number(merchantAccount?.balance||0);
       await d1Batch(env.DB,[
-        {statement:`UPDATE payment_provider_accounts SET provider_sub_account_id=?,status='ACTIVE',metadata_json=?,provisioning_state='PROVISIONED',last_provisioning_error_code=NULL,last_provisioning_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,metadata,actor.email,id,organizationId]},
-        audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_CONFIRMED',id,`environment=${current.environment} · accountLast4=${providerSubAccountId.slice(-4)}`,requestId),
+        {statement:`UPDATE payment_provider_accounts SET provider_sub_account_id=?,provider_account_id=?,account_name=COALESCE(?,account_name),status='ACTIVE',metadata_json=?,provisioning_state='PROVISIONED',balance=?,available_balance=?,last_balance_sync_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=NULL,last_provisioning_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,merchantAccountId,clean(merchantAccount?.accountName,200)||null,metadata,balance,balance,actor.email,id,organizationId]},
+        audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_CONFIRMED',id,`environment=${current.environment} · accountLast4=${providerSubAccountId.slice(-4)} · credential=SCOPED_ENCRYPTED · balanceValidated=true`,requestId),
       ]);
       const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id LEFT JOIN projects p ON p.id=ppa.project_id WHERE ppa.id=? LIMIT 1`,[id]);
       return secureJson({
