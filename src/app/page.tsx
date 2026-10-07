@@ -59,11 +59,15 @@ export default function Home() {
     const requestedPeriod = params.get('period');
     setDb(data);
     setSettings(st);
-    void fetch('/api/me', { signal: controller.signal, headers: { Accept: 'application/json' } })
+    void fetch('/api/me?probe=1', { signal: controller.signal, headers: { Accept: 'application/json' } })
       .then(async (response) => {
         const result = await response.json().catch(() => ({}));
-        if (response.status === 401) { setAuthRequired(true); return; }
         if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+        if (result.authenticated === false && !result.user) {
+          setAuthRequired(true);
+          setActor(null);
+          return;
+        }
         const authenticatedActor = { ...(result.user || {}), authMode: result.authMode || 'origin' };
         setActor(authenticatedActor);
         const periodScopes:[string|undefined] = [undefined];

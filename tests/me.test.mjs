@@ -31,3 +31,34 @@ test('access mode fails closed without a valid Access assertion', async () => {
 test('permissions fail closed for an unknown role', () => {
   assert.deepEqual(permissionsFor('UNKNOWN'), []);
 });
+
+
+test('probe mode returns 200 unauthenticated instead of noisy 401', async () => {
+  const request = new Request('https://proqpay-lite.pages.dev/api/me?probe=1');
+  const response = await onRequest({
+    request,
+    env: {
+      AUTH_MODE: 'access',
+      CF_ACCESS_TEAM_DOMAIN: 'https://example.cloudflareaccess.com',
+      CF_ACCESS_AUD: 'audience',
+    },
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.authenticated, false);
+  assert.equal(body.user, null);
+});
+
+test('normal protected me endpoint keeps 401 semantics', async () => {
+  const request = new Request('https://proqpay-lite.pages.dev/api/me');
+  const response = await onRequest({
+    request,
+    env: {
+      AUTH_MODE: 'access',
+      CF_ACCESS_TEAM_DOMAIN: 'https://example.cloudflareaccess.com',
+      CF_ACCESS_AUD: 'audience',
+    },
+  });
+  assert.equal(response.status, 401);
+});

@@ -20,7 +20,17 @@ export async function onRequest({ request, env }) {
     roles: ROLES,
     methods: METHODS,
   });
-  if (authorization.response) return authorization.response;
+  if (authorization.response) {
+    const probe = new URL(request.url).searchParams.get('probe') === '1';
+    if (probe && authorization.response.status === 401) {
+      return secureJson({
+        authenticated:false,
+        authMode:String(env.AUTH_MODE || 'origin').toLowerCase(),
+        user:null,
+      },200,request,env,METHODS);
+    }
+    return authorization.response;
+  }
 
   const actor = authorization.actor;
   const effectiveAuthMode = actor.authSource || String(env.AUTH_MODE || 'origin').toLowerCase();
