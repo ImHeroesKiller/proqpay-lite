@@ -132,6 +132,16 @@ export async function onRequest({request,env}){
       if(existing?.provider_sub_account_id) return secureJson({error:'Client sudah memiliki sub-account E2Pay',code:'E2PAY_SUBACCOUNT_ALREADY_REGISTERED'},409,request,env,METHODS);
 
       const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,environment);
+      const sourceId=clean(runtimeEnv.E2PAY_SOURCE_ID,120);
+      if(!sourceId){
+        return secureJson({
+          error:'Konfigurasi sourceId E2Pay belum tersedia.',
+          code:'E2PAY_SOURCE_ID_REQUIRED',
+          stage:'REGISTRATION_CONFIG',
+          retryable:false,
+          correlationId:requestId,
+        },503,request,env,METHODS);
+      }
       let host;
       try{
         host=await e2payHostAuthorize(runtimeEnv);
@@ -201,6 +211,11 @@ export async function onRequest({request,env}){
           merchantRegistrationId,
           accountGroupId,
         },
+        pairing:{
+          clientId,
+          projectId,
+          scope:projectId?'PROJECT_OVERRIDE':'CLIENT',
+        },
         correlationId:requestId,
       },providerSubAccountId?201:202,request,env,METHODS);
     }
@@ -250,7 +265,13 @@ export async function onRequest({request,env}){
         audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_CONFIRMED',id,`environment=${current.environment} · accountLast4=${providerSubAccountId.slice(-4)}`,requestId),
       ]);
       const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id LEFT JOIN projects p ON p.id=ppa.project_id WHERE ppa.id=? LIMIT 1`,[id]);
-      return secureJson({ok:true,account:publicRow(row),registration:{state:'PROVISIONED'},correlationId:requestId},200,request,env,METHODS);
+      return secureJson({
+        ok:true,
+        account:publicRow(row),
+        registration:{state:'PROVISIONED'},
+        pairing:{clientId:current.client_id,projectId:current.project_id||null,scope:current.project_id?'PROJECT_OVERRIDE':'CLIENT'},
+        correlationId:requestId,
+      },200,request,env,METHODS);
     }
 
     if(action==='SYNC_BALANCE'){
