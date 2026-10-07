@@ -195,6 +195,53 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
     }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Konfirmasi E2Pay gagal');}
     finally{setE2PayBusy(false);}
   }
+
+  async function bindClientE2PayCredential(account:E2PaySubAccount){
+    if(!e2payMerchantUsername.trim()||!e2payMerchantPassword) return;
+    setE2PayBusy(true);setMessage('');
+    try{
+      await bindE2PaySubAccountCredential({
+        id:account.id,
+        username:e2payMerchantUsername.trim(),
+        password:e2payMerchantPassword,
+      });
+      setE2PayMerchantUsername('');
+      setE2PayMerchantPassword('');
+      setMessageTone('success');
+      setMessage('Credential merchant sub-client berhasil divalidasi, dienkripsi, dan saldo awal tersinkron.');
+      await loadE2Pay();
+    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Validasi credential sub-client gagal');}
+    finally{setE2PayBusy(false);}
+  }
+
+  async function syncClientE2PayBalance(account:E2PaySubAccount){
+    setE2PayBusy(true);setMessage('');
+    try{
+      const result=await syncE2PaySubAccountBalance(account.id);
+      setMessageTone('success');
+      setMessage(`Saldo E2Pay sub-client tersinkron: Rp ${Number(result.account.availableBalance||0).toLocaleString('id-ID')}.`);
+      await loadE2Pay();
+    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Sync balance E2Pay gagal');}
+    finally{setE2PayBusy(false);}
+  }
+
+  function renderE2PayMerchantCredential(account:E2PaySubAccount){
+    if(account.status!=='ACTIVE'||account.provisioningState!=='PROVISIONED') return null;
+    if(account.merchantCredential?.ready){
+      return <div className="directory-inline-actions">
+        <UiNotice tone="info" title="Merchant credential scoped aktif">Credential sub-client tersimpan terenkripsi dan digunakan khusus untuk account {account.providerSubAccountIdMasked||'ini'}.</UiNotice>
+        <button type="button" className="btn" disabled={e2payBusy} onClick={()=>void syncClientE2PayBalance(account)}>{e2payBusy?'Menyinkronkan…':'Sync Balance'}</button>
+      </div>;
+    }
+    if(!canManageE2Pay) return <UiNotice tone="warning" title="Merchant credential belum terhubung">Hubungi Super Admin atau Payroll Processor untuk memvalidasi merchant login sub-client sebelum payment.</UiNotice>;
+    return <><UiNotice tone="warning" title="Hubungkan merchant login sub-client">Sub-client sudah ACTIVE tetapi merchant credential scoped belum tersimpan. Masukkan credential merchant yang dibuat saat aktivasi; ProQPay akan memvalidasi account dan menyimpan hash credential secara terenkripsi.</UiNotice>
+      <div className="directory-form-grid">
+        <label>Username E2Pay<input value={e2payMerchantUsername} autoComplete="username" onChange={(event)=>setE2PayMerchantUsername(event.target.value)} /></label>
+        <label>Password merchant<input type="password" autoComplete="current-password" value={e2payMerchantPassword} onChange={(event)=>setE2PayMerchantPassword(event.target.value)} /></label>
+      </div>
+      <button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payMerchantUsername.trim()||!e2payMerchantPassword} onClick={()=>void bindClientE2PayCredential(account)}>{e2payBusy?'Memvalidasi…':'Validasi & Simpan Credential'}</button>
+    </>;
+  }
   function renderE2PayRegistrationForm(client:Client,project?:Project,label?:string){
     if(!canManageE2Pay) return null;
     return <><UiNotice tone="info" title="Registrasi sub-merchant E2Pay">Host credential MSG digunakan untuk registrasi. Setelah request diterima, ProQPay otomatis membuat pairing ke {project?'project ini':'client ini'}; aktivasi final dilakukan setelah OTP.</UiNotice><div className="directory-form-grid">
@@ -214,7 +261,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
         <label>Password baru<input type="password" autoComplete="new-password" value={e2payConfirmPassword} minLength={6} maxLength={12} placeholder="6-12 karakter" onChange={(event)=>setE2PayConfirmPassword(event.target.value)}/></label>
         <label>OTP<input inputMode="numeric" autoComplete="one-time-code" value={e2payOtp} maxLength={20} placeholder="OTP dari E2Pay" onChange={(event)=>setE2PayOtp(event.target.value)}/></label>
       </div>
-      <p className="directory-hint">Password wajib memiliki huruf besar, huruf kecil, angka, dan karakter khusus. Password dikirim langsung ke E2Pay dan tidak disimpan ProQPay.</p>
+      <p className="directory-hint">Password wajib memiliki huruf besar, huruf kecil, angka, dan karakter khusus. Password plaintext tidak disimpan; setelah merchant login tervalidasi, ProQPay menyimpan credential hash secara terenkripsi untuk sub-client tersebut.</p>
       <button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payConfirmPassword||!e2payOtp.trim()} onClick={()=>void confirmClientE2Pay(account)}>{e2payBusy?'Mengonfirmasi…':'Konfirmasi & Aktifkan E2Pay'}</button>
     </>;
   }
