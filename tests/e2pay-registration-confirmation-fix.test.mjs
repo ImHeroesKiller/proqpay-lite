@@ -78,7 +78,8 @@ test('registration challenge is transient and actionable in Client and Project U
   assert.match(ui,/composeE2PayRegistrationToken/);
   assert.match(ui,/Kirim ulang registration request/);
   assert.match(ui,/Konfirmasi & Aktifkan E2Pay/);
-  assert.match(ui,/Password dikirim langsung ke E2Pay dan tidak disimpan ProQPay/);
+  assert.match(ui,/Password plaintext tidak disimpan/);
+  assert.match(api,/encryptProviderAccountCredential/);
   assert.doesNotMatch(api,/metadata=JSON\.stringify\([^\n]*tokenPrefix/);
   assert.doesNotMatch(api,/metadata=JSON\.stringify\([^\n]*password/);
 });
