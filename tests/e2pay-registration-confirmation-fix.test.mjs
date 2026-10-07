@@ -43,7 +43,7 @@ test('E2Pay registration request follows provider host-token contract and preser
 
 test('E2Pay confirmation sends plain provider password and prefix plus OTP token',async()=>{
   assert.match(client,/composeE2PayRegistrationToken/);
-  assert.equal(client.includes("return `${String(tokenPrefix||'').trim()}${String(otp||'').trim()}`;"),true);
+  assert.match(ui,/startsWith\(e2payChallenge\.tokenPrefix\.toUpperCase\(\)\)/);
   let captured=null;
   const result=await e2payRegisterConfirm(
     {E2PAY_ENV:'UAT'},
@@ -96,4 +96,18 @@ test('submerchant registration pairing contract is explicit for client and proje
   assert.match(client,/providerMessage/);
   assert.match(client,/correlationId/);
   assert.match(ui,/otomatis membuat pairing/);
+});
+
+
+test('confirmation accepts a full provider token without duplicating its prefix',()=>{
+  assert.match(ui,/e2payOtp\.trim\(\)\.toUpperCase\(\)\.startsWith\(e2payChallenge\.tokenPrefix\.toUpperCase\(\)\)/);
+  assert.match(ui,/composeE2PayRegistrationToken\(e2payChallenge\.tokenPrefix,e2payOtp\)/);
+});
+
+test('confirmation can resolve provider account identity through the new merchant login when confirm response omits it',()=>{
+  assert.match(api,/normalizeE2PayPassword\(password\)/);
+  assert.match(api,/E2PAY_USERNAME:username/);
+  assert.match(api,/await e2payAuthorize\(merchantRuntimeEnv\)/);
+  assert.match(api,/await e2payMerchantAccount\(merchantRuntimeEnv,merchantAuth\.accessToken\)/);
+  assert.match(api,/stage:'CONFIRM_ACCOUNT_LOOKUP'/);
 });

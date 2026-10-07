@@ -182,7 +182,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
         id:account.id,
         username:e2payChallenge.username,
         password:e2payConfirmPassword,
-        token:composeE2PayRegistrationToken(e2payChallenge.tokenPrefix,e2payOtp),
+        token:e2payOtp.trim().toUpperCase().startsWith(e2payChallenge.tokenPrefix.toUpperCase()) ? e2payOtp.trim() : composeE2PayRegistrationToken(e2payChallenge.tokenPrefix,e2payOtp),
       });
       setE2PayChallenge(null);
       setE2PayConfirmPassword('');
