@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
-import { composeE2PayRegistrationToken, confirmE2PaySubAccount, getE2PaySubAccounts, registerE2PaySubAccount, type E2PaySubAccount } from '@/lib/e2pay-api';
+import { bindE2PaySubAccountCredential, composeE2PayRegistrationToken, confirmE2PaySubAccount, getE2PaySubAccounts, registerE2PaySubAccount, syncE2PaySubAccountBalance, type E2PaySubAccount } from '@/lib/e2pay-api';
 import {
   DataTableState as UiDataTableState,
   FilterBar as UiFilterBar,
@@ -82,6 +82,8 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const [e2payChallenge,setE2PayChallenge]=useState<{id:string;username:string;tokenPrefix:string;merchantRegistrationId?:string|null;accountGroupId?:string|null}|null>(null);
   const [e2payConfirmPassword,setE2PayConfirmPassword]=useState('');
   const [e2payOtp,setE2PayOtp]=useState('');
+  const [e2payMerchantUsername,setE2PayMerchantUsername]=useState('');
+  const [e2payMerchantPassword,setE2PayMerchantPassword]=useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
   const detailDialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement|null>(null);
