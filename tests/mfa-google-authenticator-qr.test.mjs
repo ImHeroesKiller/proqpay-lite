@@ -23,3 +23,12 @@ test('manual setup key remains available as fallback',async()=>{
   assert.match(view,/Salin setup key/);
   assert.match(view,/Buka di Authenticator/);
 });
+
+
+test('MFA HOTP counter encoding remains Cloudflare ES2017 compatible',async()=>{
+  const helper=await readFile(new URL('../functions/api/_mfa.js',import.meta.url),'utf8');
+  assert.doesNotMatch(helper,/\b\d+n\b/);
+  assert.doesNotMatch(helper,/BigInt\(/);
+  assert.match(helper,/bytes\[index\] = value % 256/);
+  assert.match(helper,/Math\.floor\(value \/ 256\)/);
+});
