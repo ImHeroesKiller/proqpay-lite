@@ -102,10 +102,10 @@ async function hotp(secret, counter) {
     ['sign'],
   );
   const bytes = new Uint8Array(8);
-  let value = BigInt(counter);
+  let value = Math.max(0, Math.floor(Number(counter) || 0));
   for (let index = 7; index >= 0; index -= 1) {
-    bytes[index] = Number(value & 255n);
-    value >>= 8n;
+    bytes[index] = value % 256;
+    value = Math.floor(value / 256);
   }
   const digest = new Uint8Array(await crypto.subtle.sign('HMAC', key, bytes));
   const offset = digest[digest.length - 1] & 15;
