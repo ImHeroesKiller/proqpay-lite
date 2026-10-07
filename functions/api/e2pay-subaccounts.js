@@ -307,6 +307,57 @@ export async function onRequest({request,env}){
       },200,request,env,METHODS);
     }
 
+    if(action==='BIND_SUBACCOUNT_CREDENTIAL'){
+      const id=clean(body.id,140);
+      const username=clean(body.username,200);
+      const password=String(body.password||'');
+      if(!id||!username||!password) return secureJson({error:'id, username, dan password merchant wajib diisi'},422,request,env,METHODS);
+      const current=await d1First(env.DB,`SELECT * FROM payment_provider_accounts
+        WHERE id=? AND org_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' LIMIT 1`,[id,organizationId]);
+      if(!current) return secureJson({error:'Mapping sub-account tidak ditemukan'},404,request,env,METHODS);
+      if(current.status!=='ACTIVE'||!current.provider_sub_account_id){
+        return secureJson({error:'Sub-account harus ACTIVE dan sudah diprovisioning sebelum credential dihubungkan',code:'E2PAY_SUBACCOUNT_NOT_READY'},409,request,env,METHODS);
+      }
+      const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,current.environment);
+      const passwordMd5=normalizeE2PayPassword(password);
+      let merchantAccount;
+      try{
+        const candidateEnv=Object.assign(Object.create(runtimeEnv),{
+          E2PAY_USERNAME:username,
+          E2PAY_PASSWORD_MD5:passwordMd5,
+          E2PAY_ACCOUNT_SRC:current.provider_sub_account_id,
+          E2PAY_SOURCE_MODE:'SUB_ACCOUNT_SNAPSHOT',
+        });
+        const auth=await e2payAuthorize(candidateEnv);
+        merchantAccount=await e2payMerchantAccount(candidateEnv,auth.accessToken);
+      }catch(error){
+        const errorCode=clean(error?.code||'E2PAY_SUBACCOUNT_CREDENTIAL_VALIDATION_FAILED',120);
+        const errorMessage=clean(error?.message||'Validasi credential merchant E2Pay gagal',300);
+        return secureJson({error:'Credential merchant E2Pay tidak dapat divalidasi.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'SUBACCOUNT_CREDENTIAL_VALIDATE',retryable:true,correlationId:requestId},502,request,env,METHODS);
+      }
+      const providerAccountId=clean(merchantAccount?.accountId||merchantAccount?.merchantId||merchantAccount?.id,200);
+      if(!providerAccountId||providerAccountId!==clean(current.provider_sub_account_id,200)){
+        return secureJson({
+          error:'Credential merchant tidak merepresentasikan sub-account yang dipilih.',
+          code:'E2PAY_SUBACCOUNT_CREDENTIAL_ACCOUNT_MISMATCH',
+          providerAccountIdMasked:masked(providerAccountId),
+          mappedSubAccountIdMasked:masked(current.provider_sub_account_id),
+          stage:'SUBACCOUNT_CREDENTIAL_VALIDATE',
+        },409,request,env,METHODS);
+      }
+      const merchantCredential=await encryptProviderAccountCredential(runtimeEnv,{username,passwordMd5});
+      const metadataJson=mergeProviderAccountMetadata(current,{merchantCredential,credentialValidatedAt:new Date().toISOString()});
+      const balance=Number(merchantAccount?.balance||0);
+      await d1Batch(env.DB,[
+        {statement:`UPDATE payment_provider_accounts SET metadata_json=?,provider_account_id=?,account_name=COALESCE(?,account_name),balance=?,available_balance=?,last_balance_sync_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=NULL,last_provisioning_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,
+          bindings:[metadataJson,providerAccountId,clean(merchantAccount?.accountName,200)||null,balance,balance,actor.email,id,organizationId]},
+        audit(organizationId,actor,'E2PAY_SUBACCOUNT_CREDENTIAL_BOUND',id,`environment=${current.environment} · accountLast4=${providerAccountId.slice(-4)} · credential=SCOPED_ENCRYPTED · balance=${balance}`,requestId),
+      ]);
+      const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name
+        FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id LEFT JOIN projects p ON p.id=ppa.project_id WHERE ppa.id=? LIMIT 1`,[id]);
+      return secureJson({ok:true,account:publicRow(row),credentialValidated:true,correlationId:requestId},200,request,env,METHODS);
+    }
+
     if(action==='SYNC_BALANCE'){
       const id=clean(body.id,140);
       if(!id) return secureJson({error:'id mapping wajib diisi'},422,request,env,METHODS);
@@ -317,9 +368,21 @@ export async function onRequest({request,env}){
         return secureJson({error:'Sub-account harus ACTIVE dan sudah diprovisioning sebelum balance sync',code:'E2PAY_SUBACCOUNT_NOT_READY'},409,request,env,METHODS);
       }
       const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,current.environment);
+      let scopedRuntimeEnv;
+      try{
+        scopedRuntimeEnv=await scopedE2PayRuntimeEnv(env.DB,runtimeEnv,current);
+      }catch(error){
+        return secureJson({
+          error:'Credential merchant E2Pay sub-account belum terhubung. Hubungkan credential merchant sebelum sync balance.',
+          code:clean(error?.code||'E2PAY_SUBACCOUNT_CREDENTIAL_REQUIRED',120),
+          stage:'SUBACCOUNT_CREDENTIAL',
+          retryable:false,
+          correlationId:requestId,
+        },409,request,env,METHODS);
+      }
       let auth;
       try{
-        auth=await e2payAuthorize(runtimeEnv);
+        auth=await e2payAuthorize(scopedRuntimeEnv);
       }catch(error){
         const errorCode=clean(error?.code||'E2PAY_MERCHANT_AUTH_FAILED',120);
         const errorMessage=clean(error?.message||'Merchant authorization E2Pay gagal',300);
@@ -331,7 +394,7 @@ export async function onRequest({request,env}){
       }
       let account;
       try{
-        account=await e2payMerchantAccount(runtimeEnv,auth.accessToken);
+        account=await e2payMerchantAccount(scopedRuntimeEnv,auth.accessToken);
       }catch(error){
         const errorCode=clean(error?.code||'E2PAY_ACCOUNT_LOOKUP_FAILED',120);
         const errorMessage=clean(error?.message||'Pembacaan account E2Pay gagal',300);
@@ -341,10 +404,10 @@ export async function onRequest({request,env}){
         ]);
         return secureJson({error:'Pembacaan account E2Pay gagal. Saldo tidak diubah.',code:errorCode,providerStatus:Number(error?.httpStatus||0)||null,providerMessage:errorMessage,stage:'ACCOUNT_LOOKUP',retryable:true,correlationId:requestId},502,request,env,METHODS);
       }
-      const providerAccountId=clean(account?.accountId,200);
+      const providerAccountId=clean(account?.accountId||account?.merchantId||account?.id,200);
       if(!providerAccountId||providerAccountId!==clean(current.provider_sub_account_id,200)){
         return secureJson({
-          error:'Credential E2Pay aktif tidak merepresentasikan sub-account yang dipilih. Balance tidak diubah.',
+          error:'Credential E2Pay scoped tidak merepresentasikan sub-account yang dipilih. Balance tidak diubah.',
           code:'E2PAY_SUBACCOUNT_BALANCE_SOURCE_MISMATCH',
           providerAccountIdMasked:masked(providerAccountId),
           mappedSubAccountIdMasked:masked(current.provider_sub_account_id),
@@ -354,13 +417,14 @@ export async function onRequest({request,env}){
       await d1Batch(env.DB,[
         {statement:`UPDATE payment_provider_accounts SET provider_account_id=?,account_name=COALESCE(?,account_name),
           balance=?,available_balance=?,last_balance_sync_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+          last_provisioning_error_code=NULL,last_provisioning_error_message=NULL,
           updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,
           bindings:[providerAccountId,clean(account?.accountName,200)||null,balance,balance,actor.email,id,organizationId]},
         audit(organizationId,actor,'E2PAY_SUBACCOUNT_BALANCE_SYNCED',id,
-          `balance=${balance} · accountLast4=${providerAccountId.slice(-4)} · environment=${current.environment}`,requestId),
+          `balance=${balance} · accountLast4=${providerAccountId.slice(-4)} · environment=${current.environment} · credential=SCOPED`,requestId),
       ]);
-      const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name
-        FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id WHERE ppa.id=? LIMIT 1`,[id]);
+      const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name
+        FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id LEFT JOIN projects p ON p.id=ppa.project_id WHERE ppa.id=? LIMIT 1`,[id]);
       return secureJson({ok:true,account:publicRow(row,Number(body.requiredAmount||0)),correlationId:requestId},200,request,env,METHODS);
     }
 
