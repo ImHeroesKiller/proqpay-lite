@@ -56,6 +56,17 @@ function normalizeProvider(value, fallback = 'UNCONFIGURED') {
   return PROVIDERS.includes(normalized) ? normalized : fallback;
 }
 
+function normalizeE2PaySourceId(environment, value) {
+  const sourceId = String(value || '').trim();
+  // Legacy UAT configuration used MANDIRIS. E2Pay confirmed the canonical
+  // sourceId for the MSG host credential is MANDIRISG. Normalize only this
+  // known legacy UAT value so Production/custom sourceIds remain untouched.
+  if (String(environment || '').toUpperCase() === 'UAT' && sourceId.toUpperCase() === 'MANDIRIS') {
+    return 'MANDIRISG';
+  }
+  return sourceId;
+}
+
 function normalizeProfiles(raw, activeEnvironment) {
   if (raw?.profiles && typeof raw.profiles === 'object' && !Array.isArray(raw.profiles)) {
     return {
@@ -189,7 +200,7 @@ export async function gatewayRuntimeEnv(database, env, organizationId, environme
     E2PAY_CLIENT_ID:credential('clientId','E2PAY_CLIENT_ID'),
     E2PAY_CLIENT_SECRET:credential('clientSecret','E2PAY_CLIENT_SECRET'),
     E2PAY_PARTNER_ID:credential('partnerId','E2PAY_PARTNER_ID'),
-    E2PAY_SOURCE_ID:credential('sourceId','E2PAY_SOURCE_ID'),
+    E2PAY_SOURCE_ID:normalizeE2PaySourceId(environment, credential('sourceId','E2PAY_SOURCE_ID')),
     E2PAY_MERCHANT_ID:credential('merchantId','E2PAY_MERCHANT_ID'),
     E2PAY_USERNAME:credential('username','E2PAY_USERNAME'),
     E2PAY_PASSWORD_MD5:credential('passwordMd5','E2PAY_PASSWORD_MD5'),
