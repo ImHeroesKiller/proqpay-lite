@@ -62,3 +62,34 @@ test('P5.5 client UI requires credential validation and enables balance synchron
   assert.match(ui,/Scoped & encrypted/);
   assert.match(ui,/Password plaintext tidak disimpan/);
 });
+
+
+test('P5.5 keeps every scoped subclient under the registered parent source and fails closed on parent mismatch',async()=>{
+  const merchantCredential=await encryptProviderAccountCredential(env,{
+    username:'081200000002',
+    passwordMd5:'B'.repeat(32),
+  });
+  const row={
+    provider_sub_account_id:'SUB-ACCOUNT-0002',
+    metadata_json:JSON.stringify({parentSourceId:'MANDIRISG',merchantCredential}),
+  };
+  const scoped=await scopedE2PayRuntimeEnv(null,env,row);
+  assert.equal(scoped.E2PAY_SOURCE_ID,'MANDIRISG');
+  assert.equal(scoped.E2PAY_ACCOUNT_SRC,'SUB-ACCOUNT-0002');
+
+  await assert.rejects(
+    ()=>scopedE2PayRuntimeEnv(null,{...env,E2PAY_SOURCE_ID:'OTHER-PARENT'},row),
+    (error)=>error?.code==='E2PAY_PARENT_SOURCE_MISMATCH',
+  );
+});
+
+test('P5.5 never falls back from scoped merchant credential to another merchant login',async()=>{
+  const row={
+    provider_sub_account_id:'SUB-ACCOUNT-NO-CREDENTIAL',
+    metadata_json:JSON.stringify({parentSourceId:'MANDIRISG'}),
+  };
+  await assert.rejects(
+    ()=>scopedE2PayRuntimeEnv(null,{...env,E2PAY_USERNAME:'GLOBAL',E2PAY_PASSWORD_MD5:'C'.repeat(32)},row),
+    (error)=>error?.code==='E2PAY_SUBACCOUNT_CREDENTIAL_REQUIRED',
+  );
+});
