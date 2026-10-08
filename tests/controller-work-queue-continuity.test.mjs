@@ -17,7 +17,7 @@ test('Controller owns CONTROLLER_REVIEW regardless of navigation period',async()
   assert.equal(action.owner,'PAYROLL_CONTROLLER');
   assert.equal(action.workflowCommand,'CLIENT_APPROVAL_PENDING');
 
-  const queue=await import('../src/lib/payroll-work-queue.ts');
+  const queue=await import('../src/lib/payroll-work-queue-core.js');
   assert.equal(queue.includeSubmissionForWorkspace({
     role:'PAYROLL_CONTROLLER',
     row:{id:'SUB-ATE-SEP',period:'2026-09',payment_period:'2026-09'},
@@ -33,7 +33,7 @@ test('Controller owns CONTROLLER_REVIEW regardless of navigation period',async()
 });
 
 test('Focused submission bypasses stale period and filter browse scope',async()=>{
-  const queue=await import('../src/lib/payroll-work-queue.ts');
+  const queue=await import('../src/lib/payroll-work-queue-core.js');
   assert.equal(queue.includeSubmissionForWorkspace({
     role:'PAYROLL_CONTROLLER',
     row:{id:'SUB-ATE-SEP',period:'2026-09'},
@@ -51,7 +51,7 @@ test('Focused submission bypasses stale period and filter browse scope',async()=
 });
 
 test('Controller payment queue remains visible across periods for owned statuses',async()=>{
-  const queue=await import('../src/lib/payroll-work-queue.ts');
+  const queue=await import('../src/lib/payroll-work-queue-core.js');
   assert.equal(queue.includePaymentForWorkspace({
     role:'PAYROLL_CONTROLLER',
     row:{submission_id:'SUB-1',payroll_period:'2026-09',payment_period:'2026-09',status:'PAYMENT_APPROVAL_PENDING'},
