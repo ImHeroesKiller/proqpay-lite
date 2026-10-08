@@ -24,7 +24,8 @@ test('P2 orders payment queue by action priority and removes low-value created c
 test('P2 keeps controller in one PI surface after approval and gateway changes',async()=>{
   const source=await read('src/components/OperatingWorkspace.tsx');
   assert.match(source,/Approve & Continue/);
-  assert.match(source,/then\(\(\)=>void openDetail\(detail\.paymentInstruction\.id\)\)/);
+  assert.match(source,/await act\(\{action:'APPROVE_PAYMENT'.*'Payment Instruction disetujui berdasarkan content hash'\)/s);
+  assert.match(source,/await openDetail\(current\.paymentInstruction\.id\)/);
   assert.match(source,/Status payment diperbarui'\);await openDetail\(detail\.paymentInstruction\.id\)/);
 });
 
