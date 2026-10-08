@@ -44,6 +44,7 @@ function publicRow(row,requiredAmount=0){
     lastProvisioningErrorMessage:row.last_provisioning_error_message||null,
     readiness:{ready:provisioned&&merchantCredential.ready,reason:row.status!=='ACTIVE'?'ACCOUNT_NOT_ACTIVE':!row.provider_sub_account_id?'PROVIDER_ID_MISSING':String(row.provisioning_state||'PROVISIONED')!=='PROVISIONED'?'PROVISIONING_INCOMPLETE':!merchantCredential.ready?'MERCHANT_CREDENTIAL_REQUIRED':'READY'},
     merchantCredential,
+    parentSourceId:(()=>{try{return JSON.parse(String(row.metadata_json||'{}'))?.parentSourceId||null;}catch{return null;}})(),
     balance:row.balance===null?null:Number(row.balance),
     availableBalance:row.available_balance===null?null:Number(row.available_balance),
     lastBalanceSyncAt:row.last_balance_sync_at,
@@ -188,7 +189,7 @@ export async function onRequest({request,env}){
       const status=providerSubAccountId?'ACTIVE':'DRAFT';
       // Confirmation password/token are never persisted. Provider challenge fields
       // are returned only to the active UI flow so the user can complete registration.
-      const metadata=JSON.stringify({registrationRequestedAt:new Date().toISOString(),phoneLast4:phone.slice(-4),merchantRegistrationIdLast4:merchantRegistrationId?.slice(-4)||null});
+      const metadata=mergeProviderAccountMetadata(existing,{registrationRequestedAt:new Date().toISOString(),phoneLast4:phone.slice(-4),merchantRegistrationIdLast4:merchantRegistrationId?.slice(-4)||null,parentSourceId:sourceId});
       const provisioningState=providerSubAccountId?'PROVISIONED':'PENDING_CONFIRMATION';
       const operations=[];
       if(existing){
@@ -292,6 +293,7 @@ export async function onRequest({request,env}){
       const metadata=mergeProviderAccountMetadata(current,{
         registrationConfirmedAt:new Date().toISOString(),
         registrationState:'PROVISIONED',
+        parentSourceId:String(runtimeEnv.E2PAY_SOURCE_ID||'').trim(),
         merchantCredential,
       });
       const balance=Number(merchantAccount?.balance||0);
@@ -348,7 +350,9 @@ export async function onRequest({request,env}){
         },409,request,env,METHODS);
       }
       const merchantCredential=await encryptProviderAccountCredential(runtimeEnv,{username,passwordMd5});
-      const metadataJson=mergeProviderAccountMetadata(current,{merchantCredential,credentialValidatedAt:new Date().toISOString()});
+      const parentSourceId=String(runtimeEnv.E2PAY_SOURCE_ID||'').trim();
+      if(!parentSourceId) return secureJson({error:'Parent source E2Pay belum dikonfigurasi.',code:'E2PAY_PARENT_SOURCE_REQUIRED',stage:'SUBACCOUNT_CREDENTIAL_VALIDATE'},409,request,env,METHODS);
+      const metadataJson=mergeProviderAccountMetadata(current,{merchantCredential,parentSourceId,credentialValidatedAt:new Date().toISOString()});
       const balance=Number(merchantAccount?.balance||0);
       await d1Batch(env.DB,[
         {statement:`UPDATE payment_provider_accounts SET metadata_json=?,provider_account_id=?,account_name=COALESCE(?,account_name),balance=?,available_balance=?,last_balance_sync_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=NULL,last_provisioning_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,
