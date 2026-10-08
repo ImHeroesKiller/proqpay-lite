@@ -6,6 +6,7 @@ import { formatIDR, formatIDRShort } from '@/lib/format';
 import { invalidateOperatingCache, listOperatingDashboard } from '@/lib/operating-model-api';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
+import { payrollPeriodMatches } from '@/lib/payroll-work-queue';
 import { IconAlertTriangle, IconCheckCircle, IconClock, IconLayers, IconRefresh, IconShieldCheck, IconWallet } from './Icons';
 import type { DashboardActor, DashboardApiResponse, DashboardPaymentInstruction, DashboardPortfolioSummary, DashboardSubmission } from '@/lib/dashboard-types';
 import { getE2PayOverview, type E2PayAccountSnapshot } from '@/lib/e2pay-api';
@@ -60,13 +61,13 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
     if (background) setRefreshing(true); else setLoading(true);
     setError('');
     try {
-      setData(await listOperatingDashboard(undefined,period));
+      setData(await listOperatingDashboard(undefined,actor.role==='PAYROLL_CONTROLLER'?'ALL':period));
     } catch (loadError) {
       setError(loadError instanceof Error?loadError.message:'Dashboard operasional gagal dimuat');
     } finally {
       if (background) setRefreshing(false); else setLoading(false);
     }
-  },[period]);
+  },[period,actor.role]);
   useEffect(()=>{void load(false);},[load]);
 
   const loadGatewayBalance = useCallback(async(force=false)=>{
@@ -138,13 +139,18 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
 
   const tiers=useMemo(()=>[...new Set(operationalSubmissions.map((row)=>String(row.service_tier||'')).filter(Boolean))].sort(),[operationalSubmissions]);
   const activeFilterCount=[client!=='ALL',stage!=='ALL',tier!=='ALL',Boolean(query.trim())].filter(Boolean).length;
-  const visible=useMemo(()=>operationalSubmissions.filter((row)=>{
+  const matchesDashboardFilters=useCallback((row:OperationalSubmission,includePeriod=true)=>{
     const haystack=[row.client_name,row.project_name,row.period,row.payment_period,row.state,row.business.label,row.nextAction.label,row.id].join(' ').toLowerCase();
     const workflowFilter=stage==='ALL'||row.business.stage===stage;
-    return (period==='ALL'||row.period===period||row.payment_period===period)
+    return (!includePeriod||payrollPeriodMatches(row,period))
       &&(client==='ALL'||row.client_id===client)&&workflowFilter
       &&(tier==='ALL'||row.service_tier===tier)&&(!query.trim()||haystack.includes(query.trim().toLowerCase()));
-  }),[operationalSubmissions,period,client,stage,tier,query]);
+  },[period,client,stage,tier,query]);
+  const visible=useMemo(()=>operationalSubmissions.filter((row)=>matchesDashboardFilters(row,true)),[operationalSubmissions,matchesDashboardFilters]);
+  const actionScope=useMemo(()=>operationalSubmissions.filter((row)=>
+    matchesDashboardFilters(row,actor.role!=='PAYROLL_CONTROLLER')
+    && row.nextAction.actionable
+  ),[operationalSubmissions,matchesDashboardFilters,actor.role]);
   const visibleIds=useMemo(()=>new Set(visible.map((row)=>row.id)),[visible]);
   const visibleInstructions=useMemo(()=>instructions.filter((row)=>visibleIds.has(row.submission_id)),[instructions,visibleIds]);
 
@@ -154,7 +160,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const openExceptions=visible.reduce((sum,row)=>sum+Number(row.open_exception_count||0),0);
   const affectedExceptionRuns=visible.filter((row)=>Number(row.open_exception_count||0)>0).length;
   const attentionRuns=visible.filter((row)=>row.nextAction.tone==='danger'||Number(row.blocking_count||0)>0||Number(row.open_exception_count||0)>0).length;
-  const awaitingApproval=visible.filter((row)=>row.nextAction.actionable&&row.nextAction.category==='APPROVAL').length;
+  const awaitingApproval=actionScope.filter((row)=>row.nextAction.category==='APPROVAL').length;
   const matched=visible.filter((row)=>row.reconciliation_status==='MATCHED').length;
   const reconciliationPending=visible.filter((row)=>row.business.stage==='CLOSE'&&row.reconciliation_status!=='MATCHED').length;
   const paymentDueInstructions=visibleInstructions.filter((row)=>['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(String(row.status)));
@@ -163,8 +169,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const proofCount=visibleInstructions.reduce((sum,row)=>sum+Number(row.proof_count||0),0);
 
   const actions=useMemo(()=>{
-    return visible
-      .filter((row)=>row.nextAction.actionable)
+    return actionScope
       .map((row)=>({
         id:`action-${row.id}-${row.nextAction.code}`,
         tone:row.nextAction.tone as Tone,
@@ -179,7 +184,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
         submissionId:String(row.id),
       }))
       .sort((a,b)=>a.priority-b.priority||({danger:0,warning:1,info:2,success:3}[a.tone]-{danger:0,warning:1,info:2,success:3}[b.tone]));
-  },[visible]);
+  },[actionScope]);
 
   const deadlines=useMemo(()=>visible.map((row)=>{
     const raw=row.payment_date||row.due_date||row.cutoff_date||row.payment_due_date;

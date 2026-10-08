@@ -21,6 +21,7 @@ export type OperatingResource =
 const CACHE_TTL_MS = 15_000;
 const responseCache = new Map<string, { expiresAt: number; data: unknown }>();
 const inflightRequests = new Map<string, Promise<unknown>>();
+let cacheActorNamespace = 'anonymous';
 
 async function parseResponse<T=unknown>(response: Response):Promise<T> {
   const data = await response.json().catch(() => ({})) as Record<string,unknown>;
@@ -31,19 +32,22 @@ async function parseResponse<T=unknown>(response: Response):Promise<T> {
   return data as T;
 }
 
+function cacheKey(url:string){ return `${cacheActorNamespace}:${url}`; }
+
 function cachedOperatingGet<T=unknown>(url: string):Promise<T> {
-  const cached = responseCache.get(url);
+  const key=cacheKey(url);
+  const cached = responseCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.data as T);
-  const pending = inflightRequests.get(url);
+  const pending = inflightRequests.get(key);
   if (pending) return pending as Promise<T>;
   const request = fetch(url, { headers:{ Accept:'application/json' } })
     .then((response)=>parseResponse<T>(response))
     .then((data) => {
-      responseCache.set(url, { data, expiresAt:Date.now() + CACHE_TTL_MS });
+      responseCache.set(key, { data, expiresAt:Date.now() + CACHE_TTL_MS });
       return data;
     })
-    .finally(() => inflightRequests.delete(url));
-  inflightRequests.set(url, request as Promise<unknown>);
+    .finally(() => inflightRequests.delete(key));
+  inflightRequests.set(key, request as Promise<unknown>);
   return request;
 }
 
@@ -51,6 +55,20 @@ export async function listOperatingResource<T=any>(resource: OperatingResource, 
   const params = new URLSearchParams({ resource });
   if (clientId) params.set('clientId', clientId);
   return cachedOperatingGet<T>(`/api/operating-model?${params}`);
+}
+
+export async function listAllOperatingSubmissions(clientId?:string):Promise<{submissions:any[];submissionsMeta:{returned:number;truncated:boolean}}> {
+  const submissions:any[]=[];
+  let offset=0;
+  while(true){
+    const params=new URLSearchParams({resource:'submissions',offset:String(offset),limit:'500'});
+    if(clientId) params.set('clientId',clientId);
+    const page=await cachedOperatingGet<any>(`/api/operating-model?${params}`);
+    submissions.push(...(page.submissions||[]));
+    if(page.submissionsMeta?.nextOffset==null) break;
+    offset=Number(page.submissionsMeta.nextOffset);
+  }
+  return {submissions,submissionsMeta:{returned:submissions.length,truncated:false}};
 }
 
 export async function listAllOperatingExceptions(clientId?:string):Promise<{exceptions:any[];exceptionsMeta:{returned:number;truncated:boolean}}> {
@@ -94,7 +112,8 @@ export function listOperatingDashboard(clientId?: string, period?: string):Promi
   const baseParams = new URLSearchParams({ resource:'dashboard' });
   if (clientId) baseParams.set('clientId', clientId);
   if (period && period !== 'ALL') baseParams.set('period', period);
-  const aggregateKey = `/api/operating-model?${baseParams}&aggregate=all`;
+  const aggregateUrl = `/api/operating-model?${baseParams}&aggregate=all`;
+  const aggregateKey = cacheKey(aggregateUrl);
   const cached = responseCache.get(aggregateKey);
   if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.data as DashboardApiResponse);
   const pending = inflightRequests.get(aggregateKey);
@@ -139,8 +158,17 @@ export async function listOperatingPeriods(clientId?: string):Promise<{periods:s
   return { periods:Array.isArray(result.periods) ? result.periods.map(String) : [] };
 }
 
+export function setOperatingCacheActor(actor?:{id?:string|null;email?:string|null;role?:string|null}|null) {
+  const next = actor ? [actor.id||'',actor.email||'',actor.role||''].join('|') : 'anonymous';
+  if (next === cacheActorNamespace) return;
+  cacheActorNamespace = next;
+  responseCache.clear();
+  inflightRequests.clear();
+}
+
 export function invalidateOperatingCache() {
   responseCache.clear();
+  inflightRequests.clear();
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('proqpay:operating-cache-invalidated'));
   }

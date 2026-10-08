@@ -479,18 +479,31 @@ async function readResource(database, params, actor, env, organizationId) {
       paymentReportFacets:{periods:periodRows.map((row)=>String(row.period)),statuses:statusRows.map((row)=>String(row.status))} } };
   }
 
+  if (resource === 'submissions') {
+    const submissionOffset = Math.max(0, Number.parseInt(params.get('offset') || '0', 10) || 0);
+    const submissionLimit = Math.min(500, Math.max(1, Number.parseInt(params.get('limit') || '200', 10) || 200));
+    const rows = await d1All(database, `${SUBMISSION_SELECT} WHERE ${submissionScope.sql}
+      ORDER BY s.created_at DESC,s.id DESC LIMIT ? OFFSET ?`,
+      [...submissionScope.bindings, submissionLimit + 1, submissionOffset]);
+    const truncated = rows.length > submissionLimit;
+    const page = truncated ? rows.slice(0, submissionLimit) : rows;
+    parseJsonFields(page, ['arrears_periods']);
+    return { data: { ok: true, submissions:page,
+      submissionsMeta:{ offset:submissionOffset, limit:submissionLimit, returned:page.length,
+        nextOffset:truncated ? submissionOffset + submissionLimit : null, truncated } } };
+  }
+
   const dashboardPeriodSql = resource === 'dashboard' && requestedPeriod
     ? ' AND (s.period=? OR COALESCE(s.payment_period,s.period)=?)'
     : '';
   const dashboardBindings = requestedPeriod && resource === 'dashboard'
     ? [...submissionScope.bindings, requestedPeriod, requestedPeriod]
     : submissionScope.bindings;
-  const submissionLimit = resource === 'dashboard' ? 1000 : 200;
-  const dashboardPagingSql = resource === 'dashboard' ? ` OFFSET ${dashboardOffset}` : '';
+  const submissionLimit = 1000;
+  const dashboardPagingSql = ` OFFSET ${dashboardOffset}`;
   const submissions = await d1All(database, `${SUBMISSION_SELECT} WHERE ${submissionScope.sql}${dashboardPeriodSql}
     ORDER BY s.created_at DESC LIMIT ${submissionLimit}${dashboardPagingSql}`, dashboardBindings);
   parseJsonFields(submissions, ['arrears_periods']);
-  if (resource !== 'dashboard') return { data: { ok: true, submissions } };
 
   const totalRow = await d1First(database, `SELECT COUNT(*) AS total FROM payroll_submissions s
     WHERE ${submissionScope.sql}${dashboardPeriodSql}`, dashboardBindings);

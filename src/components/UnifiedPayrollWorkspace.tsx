@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import OperatingWorkspace, { type WorkspaceFilterState } from '@/components/OperatingWorkspace';
-import { listOperatingResource } from '@/lib/operating-model-api';
+import { listAllOperatingSubmissions } from '@/lib/operating-model-api';
 
 type Stage = 'PAYROLL' | 'PAYMENT' | 'CLOSE';
 
@@ -73,7 +73,7 @@ export default function UnifiedPayrollWorkspace({
 
   useEffect(()=>{
     let cancelled=false;
-    void listOperatingResource<{submissions?:any[]}>('submissions')
+    void listAllOperatingSubmissions()
       .then((result)=>{if(!cancelled)setSubmissions(result.submissions || []);})
       .catch(()=>{if(!cancelled)setSubmissions([]);});
     return ()=>{cancelled=true;};
@@ -119,18 +119,19 @@ export default function UnifiedPayrollWorkspace({
     ()=>submissions.filter((row)=>period==='ALL' || row.period===period || row.payment_period===period),
     [submissions,period],
   );
+  const filterSubmissions=isController?submissions:scopedSubmissions;
   const clients=useMemo(()=>{
     const map=new Map<string,string>();
-    scopedSubmissions.forEach((row)=>map.set(String(row.client_id),String(row.client_name || row.client_id)));
+    filterSubmissions.forEach((row)=>map.set(String(row.client_id),String(row.client_name || row.client_id)));
     return [...map.entries()].sort((a,b)=>a[1].localeCompare(b[1]));
-  },[scopedSubmissions]);
+  },[filterSubmissions]);
   const projects=useMemo(()=>{
     const map=new Map<string,string>();
-    scopedSubmissions
+    filterSubmissions
       .filter((row)=>filters.clientId==='ALL' || String(row.client_id)===filters.clientId)
       .forEach((row)=>{if(row.project_id)map.set(String(row.project_id),String(row.project_name || row.project_id));});
     return [...map.entries()].sort((a,b)=>a[1].localeCompare(b[1]));
-  },[scopedSubmissions,filters.clientId]);
+  },[filterSubmissions,filters.clientId]);
 
   useEffect(()=>{
     if(filters.clientId!=='ALL' && !clients.some(([id])=>id===filters.clientId)) patchFilters({clientId:'ALL',projectId:'ALL'});

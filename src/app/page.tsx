@@ -13,7 +13,7 @@ import AppHeader from '@/components/AppHeader';
 import SystemHealthBubble from '@/components/SystemHealthBubble';
 import { writeSystemLog } from '@/lib/system-log';
 import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
-import { listOperatingDashboard, listOperatingPeriods } from '@/lib/operating-model-api';
+import { listOperatingDashboard, listOperatingPeriods, setOperatingCacheActor } from '@/lib/operating-model-api';
 import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
 import AppFooter from '@/components/AppFooter';
 
@@ -66,10 +66,12 @@ export default function Home() {
         if (result.authenticated === false && !result.user) {
           setAuthRequired(true);
           setActor(null);
+          setOperatingCacheActor(null);
           return;
         }
         const authenticatedActor = { ...(result.user || {}), authMode: result.authMode || 'origin' };
         setActor(authenticatedActor);
+        setOperatingCacheActor(authenticatedActor);
         const periodScopes:[string|undefined] = [undefined];
         void Promise.all(periodScopes.map((clientId:string|undefined)=>listOperatingPeriods(clientId)))
           .then((results)=>{

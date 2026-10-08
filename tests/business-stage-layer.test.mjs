@@ -122,6 +122,7 @@ test('Control Tower and Pay Run detail consume the canonical mapper instead of d
 
 test('PI ready is not misreported as awaiting approval before submission', async () => {
   const tower = await readFile(new URL('../src/components/PayrollControlTower.tsx', import.meta.url), 'utf8');
-  assert.match(tower,/row\.nextAction\.actionable&&row\.nextAction\.category==='APPROVAL'/);
+  assert.match(tower,/const awaitingApproval=actionScope\.filter\(\(row\)=>row\.nextAction\.category==='APPROVAL'\)\.length/);
+  assert.match(tower,/actionScope[\s\S]*row\.nextAction\.actionable/);
   assert.doesNotMatch(tower,/\['PAYMENT_APPROVAL_PENDING','PAYMENT_INSTRUCTION_READY'\]\.includes\(row\.state\)/);
 });
