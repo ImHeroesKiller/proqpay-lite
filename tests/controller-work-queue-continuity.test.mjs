@@ -72,19 +72,19 @@ test('Submission transport is fully paginated instead of silently stopping at 20
   ]);
   assert.match(backend,/resource === 'submissions'/);
   assert.match(backend,/submissionsMeta:{ offset:submissionOffset, limit:submissionLimit/);
-  assert.match(backend,/submissionLimit \\+ 1, submissionOffset/);
+  assert.match(backend,/submissionLimit \+ 1, submissionOffset/);
   assert.match(api,/function listAllOperatingSubmissions/);
-  assert.match(api,/page\\.submissionsMeta\\?\\.nextOffset/);
-  assert.match(workspace,/resource === 'submissions' \\? listAllOperatingSubmissions/);
+  assert.match(api,/page\.submissionsMeta\?\.nextOffset/);
+  assert.match(workspace,/resource === 'submissions' \? listAllOperatingSubmissions/);
 });
 
 test('Controller dashboard requests cross-period work while portfolio remains period-filtered',async()=>{
   const source=await read('src/components/PayrollControlTower.tsx');
-  assert.match(source,/actor\\.role==='PAYROLL_CONTROLLER'\\?'ALL':period/);
-  assert.match(source,/matchesDashboardFilters\\(row,actor\\.role!=='PAYROLL_CONTROLLER'\\)/);
-  assert.match(source,/const visible=useMemo\\(\\(\\)=>operationalSubmissions\\.filter\\(\\(row\\)=>matchesDashboardFilters\\(row,true\\)\\)/);
-  assert.match(source,/const awaitingApproval=actionScope\\.filter/);
-  assert.match(source,/return actionScope[\\s\\S]*?\\.map/);
+  assert.match(source,/actor\.role==='PAYROLL_CONTROLLER'\?'ALL':period/);
+  assert.match(source,/matchesDashboardFilters\(row,actor\.role!=='PAYROLL_CONTROLLER'\)/);
+  assert.match(source,/const visible=useMemo\(\(\)=>operationalSubmissions\.filter\(\(row\)=>matchesDashboardFilters\(row,true\)\)/);
+  assert.match(source,/const awaitingApproval=actionScope\.filter/);
+  assert.match(source,/return actionScope[\s\S]*?\.map/);
 });
 
 test('Operating cache is isolated by authenticated actor identity',async()=>{
@@ -93,9 +93,9 @@ test('Operating cache is isolated by authenticated actor identity',async()=>{
     read('src/app/page.tsx'),
   ]);
   assert.match(api,/let cacheActorNamespace = 'anonymous'/);
-  assert.match(api,/function cacheKey\\(url:string\\)/);
+  assert.match(api,/function cacheKey\(url:string\)/);
   assert.match(api,/export function setOperatingCacheActor/);
-  assert.match(api,/responseCache\\.clear\\(\\);[\\s\\S]*?inflightRequests\\.clear\\(\\)/);
-  assert.match(page,/setOperatingCacheActor\\(authenticatedActor\\)/);
-  assert.match(page,/setOperatingCacheActor\\(null\\)/);
+  assert.match(api,/responseCache\.clear\(\);[\s\S]*?inflightRequests\.clear\(\)/);
+  assert.match(page,/setOperatingCacheActor\(authenticatedActor\)/);
+  assert.match(page,/setOperatingCacheActor\(null\)/);
 });
