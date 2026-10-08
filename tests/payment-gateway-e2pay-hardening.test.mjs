@@ -58,7 +58,7 @@ test('provider ambiguity never becomes a blind retry after a financial POST',asy
 
 test('gateway endpoint serializes reconciliation and hides execution internals',async()=>{
   const source=await read('functions/api/payment-gateway.js');
-  assert.match(source,/action === 'RECONCILE'.*e2payLoginReadiness/s);
+  assert.match(source,/action === 'RECONCILE'.*scopedE2PayRuntimeEnv/s);
   assert.match(source,/const reconcileLease = await acquireExecutionLease/);
   assert.match(source,/releaseExecutionLease\(database, transaction\.id, reconcileLease\)/);
   assert.match(source,/PAYMENT_GATEWAY_REQUEST_MISMATCH/);

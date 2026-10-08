@@ -15,13 +15,14 @@ import {
   isRetryableE2PayFailure,
   isE2PayRetryCandidate,
 } from './payment-gateway-e2pay-service.js';
-import { e2payLoginReadiness } from './payment-gateway-e2pay.js';
+import { e2payHostReadiness } from './payment-gateway-e2pay.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { arGateMessage, evaluateClientArGate } from './ar-payment-control.js';
 import { actorFraudDecision, beneficiaryFraudDecision, paymentLimitDecision } from './_fraud-controls.js';
 import { recordFraudIncident } from './_fraud-incidents.js';
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import { activeProviderAccount, liquidityState, validatePaymentProviderSnapshot } from './payment-provider-routing.js';
+import { scopedE2PayRuntimeEnv } from './payment-provider-account-credentials.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER'];
@@ -344,8 +345,8 @@ export async function onRequest(context) {
     if (!paymentInstructionId) return secureJson({ error: 'paymentInstructionId wajib diisi' }, 422, request, env, METHODS);
     if (!['EXECUTE','RECONCILE','VERIFY_FAILED','RETRY_FAILED'].includes(action)) return secureJson({ error: 'action gateway tidak valid' }, 422, request, env, METHODS);
 
-    const actionReadiness = (action === 'RECONCILE' || action === 'VERIFY_FAILED') && readiness.provider === 'E2PAY'
-      ? e2payLoginReadiness(runtimeEnv)
+    const actionReadiness = readiness.provider === 'E2PAY'
+      ? e2payHostReadiness(runtimeEnv)
       : readiness;
     if (!actionReadiness.configured) {
       return secureJson({ error: actionReadiness.reason, code: action === 'RECONCILE' ? 'E2PAY_RECONCILE_NOT_READY' : 'PAYMENT_GATEWAY_NOT_READY', gateway: readiness }, 503, request, env, METHODS);
@@ -364,12 +365,27 @@ export async function onRequest(context) {
     let providerLiquidity=null;
     let routedRuntimeEnv=runtimeEnv;
     if(readiness.provider==='E2PAY'){
-      providerAccount=await activeProviderAccount(
-        database,organizationId,payment.client_id,'E2PAY',payment.provider_environment||runtimeEnv.E2PAY_ENV
-      );
+      providerAccount=payment.provider_account_registry_id
+        ? await d1First(database,`SELECT * FROM payment_provider_accounts
+            WHERE id=? AND org_id=? AND provider='E2PAY' AND status='ACTIVE' LIMIT 1`,
+          [payment.provider_account_registry_id,organizationId])
+        : await activeProviderAccount(
+          database,organizationId,payment.client_id,'E2PAY',payment.provider_environment||runtimeEnv.E2PAY_ENV
+        );
       const routingValidation=validatePaymentProviderSnapshot(payment,providerAccount);
-      if(!routingValidation.ok && financialAction){
+      const scopedAction=financialAction||action==='RECONCILE'||action==='VERIFY_FAILED';
+      if(!routingValidation.ok && scopedAction){
         return secureJson({error:routingValidation.error,code:routingValidation.code},409,request,env,METHODS);
+      }
+      if(scopedAction){
+        try{
+          routedRuntimeEnv=await scopedE2PayRuntimeEnv(database,runtimeEnv,providerAccount);
+        }catch(error){
+          return secureJson({
+            error:'Credential merchant E2Pay sub-account belum terhubung. Validasi merchant login pada Client/Project sebelum payment.',
+            code:String(error?.code||'E2PAY_SUBACCOUNT_CREDENTIAL_REQUIRED'),
+          },409,request,env,METHODS);
+        }
       }
       if(financialAction){
         providerLiquidity=liquidityState(providerAccount,Number(payment.expected_total));
@@ -382,10 +398,6 @@ export async function onRequest(context) {
             liquidity:providerLiquidity,
           },409,request,env,METHODS);
         }
-        routedRuntimeEnv=Object.assign(Object.create(runtimeEnv),{
-          E2PAY_ACCOUNT_SRC:payment.provider_sub_account_id,
-          E2PAY_SOURCE_MODE:'SUB_ACCOUNT_SNAPSHOT',
-        });
       }
     }
     const riskDecision = financialAction
@@ -448,7 +460,7 @@ export async function onRequest(context) {
         }, 409, request, env, METHODS);
       }
       try {
-        const result = await reconcileE2PayBatch({ database, env:runtimeEnv, transactionId:transaction.id, payment });
+        const result = await reconcileE2PayBatch({ database, env:routedRuntimeEnv, transactionId:transaction.id, payment });
         transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transaction.id]);
         await d1Batch(database, [auditOperation(organizationId, authorization.actor, 'E2PAY_RECONCILED',
           result.parentStatus + ' · ' + result.summary.succeeded + '/' + result.summary.total, payment.id)]);
@@ -468,7 +480,7 @@ export async function onRequest(context) {
         },409,request,env,METHODS);
       }
       try{
-        const result=await verifyFailedE2PayBatch({database,env:runtimeEnv,transactionId:transaction.id,payment});
+        const result=await verifyFailedE2PayBatch({database,env:routedRuntimeEnv,transactionId:transaction.id,payment});
         transaction=await d1First(database,'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1',[transaction.id]);
         await d1Batch(database,[auditOperation(
           organizationId,
