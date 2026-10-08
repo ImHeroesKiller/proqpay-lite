@@ -126,7 +126,8 @@ test('cancelled and rejected pay runs are terminal and do not generate phantom w
 test('Control Tower Action Center consumes only actionable engine output', async () => {
   const source=await readFile(new URL('../src/components/PayrollControlTower.tsx',import.meta.url),'utf8');
   assert.match(source,/derivePayrollNextAction/);
-  assert.match(source,/filter\(\(row\)=>row\.nextAction\.actionable\)/);
+  assert.match(source,/const actionScope=useMemo\([\s\S]*row\.nextAction\.actionable/);
+  assert.match(source,/return actionScope[\s\S]*?\.map\(\(row\)=>\(\{/);
   assert.doesNotMatch(source,/PI menunggu approval/);
   assert.doesNotMatch(source,/Workflow perlu dilanjutkan/);
 });
