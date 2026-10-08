@@ -163,6 +163,7 @@ export type E2PaySubAccount = {
   lastProvisioningErrorMessage?:string|null;
   readiness?:{ready:boolean;reason:string};
   merchantCredential?:{ready:boolean;version:number|null;updatedAt?:string|null};
+  parentSourceId?:string|null;
   balance:number|null;
   availableBalance:number|null;
   lastBalanceSyncAt?:string|null;
