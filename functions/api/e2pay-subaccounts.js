@@ -113,12 +113,15 @@ export async function onRequest({request,env}){
       },200,request,env,METHODS);
     }
 
-    if(!MANAGE_ROLES.includes(actor.role)){
-      return secureJson({error:'Mapping sub-account E2Pay hanya tersedia untuk Super Admin atau Payroll Processor'},403,request,env,METHODS);
-    }
-
     const body=await request.json().catch(()=>({}));
     const action=clean(body.action||'UPSERT_SUBACCOUNT',80).toUpperCase();
+
+    // Balance refresh is an operational read/check required by Payroll Controller
+    // immediately before payment approval. It does not mutate routing or credentials.
+    const controllerSafeActions=new Set(['SYNC_BALANCE']);
+    if(!MANAGE_ROLES.includes(actor.role) && !controllerSafeActions.has(action)){
+      return secureJson({error:'Mapping sub-account E2Pay hanya tersedia untuk Super Admin atau Payroll Processor'},403,request,env,METHODS);
+    }
 
     if(action==='REGISTER_SUBACCOUNT'){
       const clientId=clean(body.clientId,120);
