@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { executeOperatingAction, getExceptionHistory, getPayRunDetail, getPaymentInstructionDetail, listAllOperatingExceptions, listAllPaginatedOperatingResource, listOperatingResource, type OperatingResource } from '@/lib/operating-model-api';
+import { executeOperatingAction, getExceptionHistory, getPayRunDetail, getPaymentInstructionDetail, listAllOperatingExceptions, listAllOperatingSubmissions, listAllPaginatedOperatingResource, listOperatingResource, setOperatingCacheActor, type OperatingResource } from '@/lib/operating-model-api';
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 import PaymentGatewayExecutionActions from '@/components/PaymentGatewayExecutionActions';
 import { PaymentEvidenceRegister, PaymentReconciliationControl } from '@/components/PaymentEvidenceReconciliation';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
+import { includePaymentForWorkspace, includeSubmissionForWorkspace } from '@/lib/payroll-work-queue';
 import {
   filterPaymentInstructionLines,
   paymentActivityLabel,
@@ -105,9 +106,11 @@ export default function OperatingWorkspace({
       const me = await meResponse.json();
       if (!meResponse.ok) throw new Error(me.error || `HTTP ${meResponse.status}`);
       setActor(me.user || null);
+      setOperatingCacheActor(me.user || null);
       const clientIds = me.user?.role === 'CLIENT_USER' ? (me.user.clientIds || []) : [undefined];
       const results = await Promise.all(clientIds.flatMap((clientId: string | undefined) => resources.map((resource) =>
-        resource === 'exceptions' ? listAllOperatingExceptions(clientId)
+        resource === 'submissions' ? listAllOperatingSubmissions(clientId)
+          : resource === 'exceptions' ? listAllOperatingExceptions(clientId)
           : resource === 'payment-instructions' || resource === 'payment-proofs' || resource === 'reconciliations' ? listAllPaginatedOperatingResource(resource, clientId)
           : listOperatingResource(resource, clientId)
       )));
@@ -195,23 +198,26 @@ export default function OperatingWorkspace({
     const workflowMatches=mode==='actions' ? true : simplifiedWorkspace
       ? (statusFilter === 'ALL' || business.stage === statusFilter)
       : (statusFilter === 'ALL' || row.state === statusFilter);
-    return (periodFilter === 'ALL' || row.period === periodFilter || row.payment_period === periodFilter)
+    const inRoleQueue=includeSubmissionForWorkspace({
+      role,row,period:periodFilter,focusSubmissionId,nextAction,
+    });
+    if(focusSubmissionId) return inRoleQueue;
+    return inRoleQueue
       && (clientFilter === 'ALL' || row.client_id === clientFilter)
       && (projectFilter === 'ALL' || row.project_id === projectFilter)
       && workflowMatches
-      && (!focusSubmissionId || String(row.id)===focusSubmissionId)
       && (!dashboardStage || business.stage===dashboardStage)
       && (mode==='actions' || !query.trim() || haystack.includes(query.trim().toLowerCase()));
   }), [submissions, instructionBySubmission, periodFilter, clientFilter, projectFilter, statusFilter, query, simplifiedWorkspace, role, actor?.permissions, focusSubmissionId, dashboardStage]);
   const visibleSubmissionIds = useMemo(() => new Set(visibleSubmissions.map((row) => row.id)), [visibleSubmissions]);
   const visibleInstructions = useMemo(() => (data.paymentInstructions || []).filter((row) => {
-    const periodMatches = periodFilter === 'ALL' || row.payroll_period === periodFilter || row.payment_period === periodFilter;
+    const inRoleQueue=includePaymentForWorkspace({role,row,period:periodFilter,focusSubmissionId});
+    if(focusSubmissionId) return inRoleQueue;
     const clientMatches = clientFilter === 'ALL' || row.client_id === clientFilter;
     const projectMatches = projectFilter === 'ALL' || row.project_id === projectFilter;
     const statusMatches = statusFilter === 'ALL' || row.status === statusFilter;
     const queryMatches = !query.trim() || [row.document_no,row.client_name,row.project_name,row.status].join(' ').toLowerCase().includes(query.trim().toLowerCase());
-    const focusMatches=!focusSubmissionId || String(row.submission_id)===focusSubmissionId;
-    return periodMatches && clientMatches && projectMatches && statusMatches && queryMatches && focusMatches;
+    return inRoleQueue && clientMatches && projectMatches && statusMatches && queryMatches;
   }), [data.paymentInstructions, periodFilter, clientFilter, projectFilter, statusFilter, query, focusSubmissionId]);
   const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
 
