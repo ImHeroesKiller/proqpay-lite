@@ -91,6 +91,19 @@ export async function scopedE2PayRuntimeEnv(database,env,row){
     ? await d1First(database,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? LIMIT 1`,[row.id,row.org_id])
     : row;
   const account=source||row;
+  const meta=metadata(account);
+  const configuredParentSourceId=String(env?.E2PAY_SOURCE_ID||'').trim();
+  const registeredParentSourceId=String(meta?.parentSourceId||'').trim();
+  if(!configuredParentSourceId){
+    const error=new Error('Parent source E2Pay belum dikonfigurasi');
+    error.code='E2PAY_PARENT_SOURCE_REQUIRED';
+    throw error;
+  }
+  if(registeredParentSourceId&&registeredParentSourceId!==configuredParentSourceId){
+    const error=new Error('Parent source E2Pay sub-account tidak cocok dengan konfigurasi aktif');
+    error.code='E2PAY_PARENT_SOURCE_MISMATCH';
+    throw error;
+  }
   const credential=await decryptProviderAccountCredential(env,account);
   if(!credential){
     const error=new Error('Credential merchant E2Pay sub-account belum tersimpan');
@@ -101,6 +114,7 @@ export async function scopedE2PayRuntimeEnv(database,env,row){
     E2PAY_USERNAME:credential.username,
     E2PAY_PASSWORD_MD5:credential.passwordMd5,
     E2PAY_ACCOUNT_SRC:String(account?.provider_sub_account_id||'').trim(),
+    E2PAY_SOURCE_ID:configuredParentSourceId,
     E2PAY_SOURCE_MODE:'SUB_ACCOUNT_SNAPSHOT',
   });
 }
