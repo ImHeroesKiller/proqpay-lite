@@ -1703,16 +1703,17 @@ async function executeAction(database, body, actor, env, organizationId) {
     const approvalProviderAccount=payment.provider==='E2PAY'
       ? await activeProviderAccount(database,organizationId,payment.client_id,'E2PAY',payment.provider_environment,payment.project_id||null)
       : null;
+    let approvalLiquidity=null;
     if(payment.provider==='E2PAY'){
       const routingValidation=validatePaymentProviderSnapshot(payment,approvalProviderAccount);
       if(!routingValidation.ok) return {status:409,data:{error:routingValidation.error,code:routingValidation.code}};
-      const liquidity=liquidityState(approvalProviderAccount,Number(payment.expected_total));
-      if(!liquidity.ready) return {status:409,data:{
-        error:liquidity.state==='INSUFFICIENT'
+      approvalLiquidity=liquidityState(approvalProviderAccount,Number(payment.expected_total));
+      if(!approvalLiquidity.ready) return {status:409,data:{
+        error:approvalLiquidity.state==='INSUFFICIENT'
           ? 'Saldo E2Pay sub-account client tidak mencukupi untuk approval PI'
           : 'Saldo E2Pay sub-account belum fresh/siap untuk approval PI',
-        code:'E2PAY_LIQUIDITY_'+liquidity.state,
-        liquidity,
+        code:'E2PAY_LIQUIDITY_'+approvalLiquidity.state,
+        liquidity:approvalLiquidity,
       }};
     }
     const serverHash = await instructionContentHash({
@@ -1749,9 +1750,19 @@ async function executeAction(database, body, actor, env, organizationId) {
           actor.requestDeviceHash || actor.sessionDeviceHash || null,
           actor.mfaVerifiedAt || null,
         ] },
-      { statement: `UPDATE payment_instructions SET status='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=? AND status='PAYMENT_APPROVAL_PENDING'`, bindings: [payment.id] },
+      { statement: `UPDATE payment_instructions SET status='APPROVED_FOR_PAYMENT',
+          provider_balance_snapshot=COALESCE(?,provider_balance_snapshot),
+          provider_available_balance_snapshot=COALESCE(?,provider_available_balance_snapshot),
+          provider_balance_checked_at=COALESCE(?,provider_balance_checked_at),
+          updated_at=${NOW} WHERE id=? AND status='PAYMENT_APPROVAL_PENDING'`,
+        bindings: [
+          approvalProviderAccount?.balance??null,
+          approvalProviderAccount?.available_balance??null,
+          approvalProviderAccount?.last_balance_sync_at||null,
+          payment.id,
+        ] },
       { statement: `UPDATE payroll_submissions SET state='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=? AND state='PAYMENT_APPROVAL_PENDING'`, bindings: [payment.submission_id] },
-      auditOperation(organizationId, actor, 'PAYMENT_APPROVED', `Maker-checker approval passed · ${payment.recipient_count} recipients · ${serverHash}`, 'payment_instruction', payment.id),
+      auditOperation(organizationId, actor, 'PAYMENT_APPROVED', `Maker-checker approval passed · ${payment.recipient_count} recipients · ${serverHash}${approvalLiquidity?` · liquidity=${approvalLiquidity.state} · available=${approvalLiquidity.availableBalance}`:''}`, 'payment_instruction', payment.id),
     ]);
     return { data: { ok: true, approval: { id: approvalId, paymentInstructionId: payment.id, status: 'APPROVED' } } };
   }
