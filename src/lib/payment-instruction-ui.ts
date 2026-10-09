@@ -54,7 +54,8 @@ export type PaymentInstructionRecord = {
   provider?: string | null;
   provider_environment?: string | null;
   providerSubAccountIdMasked?: string | null;
-  providerLiquidity?: { balanceSnapshot:number|null; availableBalanceSnapshot:number|null; checkedAt?:string|null } | null;
+  provider_account_registry_id?: string | null;
+  providerLiquidity?: { balanceSnapshot:number|null; availableBalanceSnapshot:number|null; checkedAt?:string|null; state?:string; ready?:boolean } | null;
 };
 
 export type PaymentProofRecord = {

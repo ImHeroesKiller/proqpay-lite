@@ -10,6 +10,7 @@ import { PaymentEvidenceRegister, PaymentReconciliationControl } from '@/compone
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
 import { includePaymentForWorkspace, includeSubmissionForWorkspace } from '@/lib/payroll-work-queue';
+import { syncE2PaySubAccountBalance } from '@/lib/e2pay-api';
 import {
   filterPaymentInstructionLines,
   paymentActivityLabel,
@@ -949,6 +950,8 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
   const [detailQuery, setDetailQuery] = useState('');
   const [detailBank, setDetailBank] = useState('ALL');
   const [detailPage, setDetailPage] = useState(1);
+  const [liquiditySyncing,setLiquiditySyncing]=useState(false);
+  const [liquidityError,setLiquidityError]=useState('');
   const detailLines = useMemo<PaymentInstructionLine[]>(() => detail?.lines || [], [detail]);
   const bankSummaries = useMemo(() => summarizePaymentBanks(detailLines), [detailLines]);
   const filteredDetailLines = useMemo(() => filterPaymentInstructionLines(detailLines,detailQuery,detailBank), [detailLines, detailBank, detailQuery]);
@@ -964,10 +967,46 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
     return () => document.removeEventListener('keydown', close);
   }, [detail]);
   async function openDetail(id:string) {
-    setDetailLoading(true); setDetailError(''); setApprovalConfirmed(false); setDetailQuery(''); setDetailBank('ALL'); setDetailPage(1);
+    setDetailLoading(true); setDetailError(''); setLiquidityError(''); setApprovalConfirmed(false); setDetailQuery(''); setDetailBank('ALL'); setDetailPage(1);
     try { setDetail(await getPaymentInstructionDetail(id)); }
     catch (error) { setDetailError(error instanceof Error ? error.message : 'Detail PI gagal dimuat'); }
     finally { setDetailLoading(false); }
+  }
+  async function refreshLiquidity(target:PaymentInstructionDetail){
+    const accountId=target.paymentInstruction.provider_account_registry_id;
+    if(!accountId || String(target.paymentInstruction.provider||'').toUpperCase()!=='E2PAY') return target;
+    setLiquiditySyncing(true); setLiquidityError('');
+    try{
+      await syncE2PaySubAccountBalance(accountId,Number(target.control.expectedTotal||0));
+      const refreshed=await getPaymentInstructionDetail(target.paymentInstruction.id);
+      setDetail(refreshed);
+      return refreshed;
+    }catch(error){
+      const message=error instanceof Error?error.message:'Sync balance E2Pay gagal';
+      setLiquidityError(message);
+      throw error;
+    }finally{
+      setLiquiditySyncing(false);
+    }
+  }
+  async function approveWithFreshLiquidity(){
+    if(!detail) return;
+    let current=detail;
+    if(String(current.paymentInstruction.provider||'').toUpperCase()==='E2PAY'){
+      try{
+        current=await refreshLiquidity(current);
+      }catch{
+        return;
+      }
+      if(current.paymentInstruction.providerLiquidity?.ready!==true){
+        setLiquidityError(current.paymentInstruction.providerLiquidity?.state==='INSUFFICIENT'
+          ? 'Saldo E2Pay sub-account tidak mencukupi untuk PI ini.'
+          : 'Liquidity E2Pay belum fresh/siap. Sync balance diperlukan sebelum approval.');
+        return;
+      }
+    }
+    await act({action:'APPROVE_PAYMENT',paymentInstructionId:current.paymentInstruction.id,actionHash:current.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash');
+    await openDetail(current.paymentInstruction.id);
   }
   const priority:Record<string,number>=phase==='payment'
     ? {PAYMENT_APPROVAL_PENDING:0,APPROVED_FOR_PAYMENT:1,DISBURSEMENT_PROCESSING:2,PAYMENT_INSTRUCTION_READY:3,REVISION_REQUIRED:4}
@@ -1032,9 +1071,11 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
         </section>
         {detail.paymentInstruction.provider?<section className="pi-integrity-panel" aria-label="Provider routing snapshot">
           <div><strong>Provider source terkunci</strong><span>{detail.paymentInstruction.provider} · {detail.paymentInstruction.provider_environment||'-'} · Sub-account {detail.paymentInstruction.providerSubAccountIdMasked||'belum tersedia'}</span></div>
-          <div><strong>Balance snapshot</strong><span>{detail.paymentInstruction.providerLiquidity?.availableBalanceSnapshot===null||detail.paymentInstruction.providerLiquidity?.availableBalanceSnapshot===undefined?'Belum tersinkron':formatIDR(Number(detail.paymentInstruction.providerLiquidity.availableBalanceSnapshot))}</span></div>
-          <div><strong>Balance checked</strong><span>{detail.paymentInstruction.providerLiquidity?.checkedAt?dateTime(detail.paymentInstruction.providerLiquidity.checkedAt):'Belum ada provider balance evidence'}</span></div>
+          <div><strong>Available balance</strong><span>{detail.paymentInstruction.providerLiquidity?.availableBalanceSnapshot===null||detail.paymentInstruction.providerLiquidity?.availableBalanceSnapshot===undefined?'Belum tersinkron':formatIDR(Number(detail.paymentInstruction.providerLiquidity.availableBalanceSnapshot))}</span></div>
+          <div><strong>Liquidity status</strong><span>{detail.paymentInstruction.providerLiquidity?.ready?'FUNDED':String(detail.paymentInstruction.providerLiquidity?.state||'NOT_SYNCED').replaceAll('_',' ')} · {detail.paymentInstruction.providerLiquidity?.checkedAt?dateTime(detail.paymentInstruction.providerLiquidity.checkedAt):'Belum ada provider balance evidence'}</span></div>
+          {detail.paymentInstruction.status==='PAYMENT_APPROVAL_PENDING'&&role==='PAYROLL_CONTROLLER'&&String(detail.paymentInstruction.provider).toUpperCase()==='E2PAY'?<div><strong>Pre-approval balance check</strong><span><button type="button" className="btn" disabled={liquiditySyncing} onClick={()=>void refreshLiquidity(detail)}>{liquiditySyncing?'Menyinkronkan…':'Sync Balance E2Pay'}</button></span></div>:null}
         </section>:<section className="app-notice-bubble app-notice-error" role="alert"><strong>Provider routing snapshot belum tersedia</strong><span>PI legacy harus diregenerasi sebelum approval/payment execution.</span></section>}
+        {liquidityError?<section className="app-notice-bubble app-notice-error" role="alert"><strong>Liquidity belum siap</strong><span>{liquidityError}</span></section>:null}
         {detail.paymentInstruction.rejection_reason ? <section className={`app-notice-bubble ${detail.paymentInstruction.status==='REVISION_REQUIRED'?'app-notice-error':'app-notice-info'}`} role="status"><strong>{detail.paymentInstruction.status==='REVISION_REQUIRED'?'PI dikembalikan untuk revisi':'Riwayat reject sebelumnya'}</strong><span>{detail.paymentInstruction.rejection_reason} · {detail.paymentInstruction.rejected_by || 'Payroll Controller'}</span></section> : null}
         {phase==='payment' && gatewayCanView && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(detail.paymentInstruction.status) ? <section className="pi-gateway-section" aria-label="Payment execution">
           <div className="pi-section-heading"><div><span>PAYMENT EXECUTION</span><h4>Gateway & provider status</h4></div><small>Terikat ke PI dan periode {period}</small></div>
@@ -1077,7 +1118,7 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
           <a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">PDF resmi</a>
           {role==='PAYROLL_CONTROLLER' && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? <details className="pi-export-more"><summary>Bank file</summary><div>{['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>)}</div></details> : null}
         </div>
-        {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Kontrol utama PI sudah saya review.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady} onClick={()=>void act({action:'APPROVE_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,actionHash:detail.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash').then(()=>void openDetail(detail.paymentInstruction.id))}>Approve & Continue</button></div> : null}
+        {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Kontrol utama PI sudah saya review.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady || liquiditySyncing} onClick={()=>void approveWithFreshLiquidity()}>{liquiditySyncing?'Syncing balance…':'Approve & Continue'}</button></div> : null}
       </footer>
     </div></div>, document.body) : null}
     {phase==='reconcile' ? <>

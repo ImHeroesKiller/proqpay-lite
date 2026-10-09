@@ -326,7 +326,7 @@ async function readResource(database, params, actor, env, organizationId) {
     if (!assertClientScope(actor, env, instruction.client_id) || !assertProjectScope(actor, instruction.project_id)) {
       return { status: 403, data: { error: 'Payment instruction scope denied' } };
     }
-    const [lines, approvals, activity, proofSummary, reconciliationHistory] = await Promise.all([
+    const [lines, approvals, activity, proofSummary, reconciliationHistory, liveProviderAccount] = await Promise.all([
       d1All(database, `SELECT id,employee_id,beneficiary_name,bank_name,bank_code,
         COALESCE(account_last4,substr(masked_account,-4)) AS account_last4,masked_account,amount,line_hash
         FROM payment_instruction_lines WHERE payment_instruction_id=? ORDER BY beneficiary_name,id LIMIT 5000`, [paymentInstructionId]),
@@ -342,6 +342,10 @@ async function readResource(database, params, actor, env, organizationId) {
         MAX(created_at) AS latest_proof_at FROM payment_proofs WHERE payment_instruction_id=?`, [paymentInstructionId]),
       d1All(database, `SELECT id,expected_total,instruction_total,settlement_total,difference,settlement_source,status,reviewed_by,created_at
         FROM reconciliation_attempts WHERE payment_instruction_id=? ORDER BY created_at DESC LIMIT 50`, [paymentInstructionId]),
+      instruction.provider_account_registry_id
+        ? d1First(database,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? LIMIT 1`,
+          [instruction.provider_account_registry_id,organizationId])
+        : Promise.resolve(null),
     ]);
     const total = lines.reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const expectedRecipients = Number(instruction.recipient_count || 0);
@@ -351,9 +355,15 @@ async function readResource(database, params, actor, env, organizationId) {
       provider_account_snapshot:undefined,
       providerSubAccountIdMasked:instruction.provider_sub_account_id?'••••'+String(instruction.provider_sub_account_id).slice(-4):null,
       providerLiquidity:instruction.provider_account_registry_id?{
-        balanceSnapshot:instruction.provider_balance_snapshot===null?null:Number(instruction.provider_balance_snapshot),
-        availableBalanceSnapshot:instruction.provider_available_balance_snapshot===null?null:Number(instruction.provider_available_balance_snapshot),
-        checkedAt:instruction.provider_balance_checked_at||null,
+        balanceSnapshot:liveProviderAccount?.balance===null||liveProviderAccount?.balance===undefined
+          ? (instruction.provider_balance_snapshot===null?null:Number(instruction.provider_balance_snapshot))
+          : Number(liveProviderAccount.balance),
+        availableBalanceSnapshot:liveProviderAccount?.available_balance===null||liveProviderAccount?.available_balance===undefined
+          ? (instruction.provider_available_balance_snapshot===null?null:Number(instruction.provider_available_balance_snapshot))
+          : Number(liveProviderAccount.available_balance),
+        checkedAt:liveProviderAccount?.last_balance_sync_at||instruction.provider_balance_checked_at||null,
+        state:liveProviderAccount?liquidityState(liveProviderAccount,Number(instruction.expected_total)).state:'NOT_MAPPED',
+        ready:liveProviderAccount?liquidityState(liveProviderAccount,Number(instruction.expected_total)).ready:false,
       }:null,
     };
     return { data: { ok: true, paymentInstruction: publicInstruction, lines, approvals, activity, proofSummary, reconciliationHistory,
@@ -1403,7 +1413,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     const providerEnvironment=String(gatewayEnv.E2PAY_ENV||'UAT').toUpperCase();
     let providerAccount=null;
     if(provider==='E2PAY'){
-      providerAccount=await activeProviderAccount(database,organizationId,submission.client_id,'E2PAY',providerEnvironment);
+      providerAccount=await activeProviderAccount(database,organizationId,submission.client_id,'E2PAY',providerEnvironment,submission.project_id||null);
       if(!providerAccount){
         return {status:409,data:{
           error:'Client belum memiliki ACTIVE E2Pay sub-account untuk environment '+providerEnvironment,
@@ -1638,7 +1648,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (actorFraud.blocked) {
       return { status:403, data:{ error:'Approval payment diblokir oleh kontrol fraud', code:actorFraud.code || 'PAYMENT_FRAUD_BLOCKED' } };
     }
-    const payment = await d1First(database, `SELECT pi.*,s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,
+    const payment = await d1First(database, `SELECT pi.*,s.project_id AS project_id,s.period AS payroll_period,COALESCE(s.payment_period,s.period) AS payment_period,
       COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total,
       COALESCE((SELECT COUNT(*) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_count
       FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
@@ -1691,18 +1701,19 @@ async function executeAction(database, body, actor, env, organizationId) {
       }
     }
     const approvalProviderAccount=payment.provider==='E2PAY'
-      ? await activeProviderAccount(database,organizationId,payment.client_id,'E2PAY',payment.provider_environment)
+      ? await activeProviderAccount(database,organizationId,payment.client_id,'E2PAY',payment.provider_environment,payment.project_id||null)
       : null;
+    let approvalLiquidity=null;
     if(payment.provider==='E2PAY'){
       const routingValidation=validatePaymentProviderSnapshot(payment,approvalProviderAccount);
       if(!routingValidation.ok) return {status:409,data:{error:routingValidation.error,code:routingValidation.code}};
-      const liquidity=liquidityState(approvalProviderAccount,Number(payment.expected_total));
-      if(!liquidity.ready) return {status:409,data:{
-        error:liquidity.state==='INSUFFICIENT'
+      approvalLiquidity=liquidityState(approvalProviderAccount,Number(payment.expected_total));
+      if(!approvalLiquidity.ready) return {status:409,data:{
+        error:approvalLiquidity.state==='INSUFFICIENT'
           ? 'Saldo E2Pay sub-account client tidak mencukupi untuk approval PI'
           : 'Saldo E2Pay sub-account belum fresh/siap untuk approval PI',
-        code:'E2PAY_LIQUIDITY_'+liquidity.state,
-        liquidity,
+        code:'E2PAY_LIQUIDITY_'+approvalLiquidity.state,
+        liquidity:approvalLiquidity,
       }};
     }
     const serverHash = await instructionContentHash({
@@ -1739,9 +1750,19 @@ async function executeAction(database, body, actor, env, organizationId) {
           actor.requestDeviceHash || actor.sessionDeviceHash || null,
           actor.mfaVerifiedAt || null,
         ] },
-      { statement: `UPDATE payment_instructions SET status='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=? AND status='PAYMENT_APPROVAL_PENDING'`, bindings: [payment.id] },
+      { statement: `UPDATE payment_instructions SET status='APPROVED_FOR_PAYMENT',
+          provider_balance_snapshot=COALESCE(?,provider_balance_snapshot),
+          provider_available_balance_snapshot=COALESCE(?,provider_available_balance_snapshot),
+          provider_balance_checked_at=COALESCE(?,provider_balance_checked_at),
+          updated_at=${NOW} WHERE id=? AND status='PAYMENT_APPROVAL_PENDING'`,
+        bindings: [
+          approvalProviderAccount?.balance??null,
+          approvalProviderAccount?.available_balance??null,
+          approvalProviderAccount?.last_balance_sync_at||null,
+          payment.id,
+        ] },
       { statement: `UPDATE payroll_submissions SET state='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=? AND state='PAYMENT_APPROVAL_PENDING'`, bindings: [payment.submission_id] },
-      auditOperation(organizationId, actor, 'PAYMENT_APPROVED', `Maker-checker approval passed · ${payment.recipient_count} recipients · ${serverHash}`, 'payment_instruction', payment.id),
+      auditOperation(organizationId, actor, 'PAYMENT_APPROVED', `Maker-checker approval passed · ${payment.recipient_count} recipients · ${serverHash}${approvalLiquidity?` · liquidity=${approvalLiquidity.state} · available=${approvalLiquidity.availableBalance}`:''}`, 'payment_instruction', payment.id),
     ]);
     return { data: { ok: true, approval: { id: approvalId, paymentInstructionId: payment.id, status: 'APPROVED' } } };
   }
