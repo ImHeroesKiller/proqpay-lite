@@ -177,7 +177,7 @@ export async function onRequest({request,env}){
         {statement:`INSERT INTO e2pay_disbursement_limit_requests
           (id,org_id,provider_account_registry_id,client_id,project_id,environment,requested_amount,status,reason,
            requested_by_user_id,requested_by_email,expires_at)
-          VALUES(?,?,?,?,?,?,?,'PENDING_APPROVAL',?,?,?,?,?)`,
+          VALUES(?,?,?,?,?,?,?,'PENDING_APPROVAL',?,?,?,?)`,
           bindings:[id,organizationId,account.id,account.client_id,account.project_id||null,account.environment,amount,reason,actor.id||null,actor.email,expiresAt]},
         audit(organizationId,actor,'E2PAY_DISBURSEMENT_LIMIT_REQUESTED',id,
           `client=${account.client_id} · project=${account.project_id||'CLIENT'} · amount=${amount}`,correlationId),
