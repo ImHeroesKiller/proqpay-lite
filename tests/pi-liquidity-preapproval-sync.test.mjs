@@ -38,7 +38,8 @@ test('Controller approval UI syncs E2Pay balance before APPROVE_PAYMENT',async()
   assert.match(source,/await syncE2PaySubAccountBalance\(accountId,Number\(target\.control\.expectedTotal\|\|0\)\)/);
   assert.match(source,/async function approveWithFreshLiquidity/);
   assert.match(source,/current=await refreshLiquidity\(current\)/);
-  assert.match(source,/providerLiquidity\?\.ready!==true/);
+  assert.match(source,/providerFunding\?\.subClient\.ready!==true/);
+  assert.match(source,/providerFunding\?\.limit\.ready!==true/);
   assert.match(source,/onClick=\{\(\)=>void approveWithFreshLiquidity\(\)\}/);
   assert.match(source,/Sync Balance E2Pay/);
 });

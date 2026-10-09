@@ -2,7 +2,7 @@ name: Cloudflare Pages Production Deploy
 
 on:
   workflow_run:
-    workflows: ["Quality Gate"]
+    workflows: ["Cloudflare D1 Reviewed Migrations"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:

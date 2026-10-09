@@ -9,6 +9,7 @@ import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import { revealEmployeeBankAccount } from './_employee-bank-security.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { activeProviderAccount, liquidityState, providerSnapshot, validatePaymentProviderSnapshot } from './payment-provider-routing.js';
+import { readProviderFundingState } from './e2pay-disbursement-limit-core.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const PROCESSOR_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
@@ -348,6 +349,9 @@ async function readResource(database, params, actor, env, organizationId) {
         : Promise.resolve(null),
     ]);
     const total = lines.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const liveFunding=instruction.provider_account_registry_id
+      ? await readProviderFundingState(database,organizationId,instruction.provider_account_registry_id,Number(instruction.expected_total),instruction.id)
+      : null;
     const expectedRecipients = Number(instruction.recipient_count || 0);
     const recipientBalanced = expectedRecipients === lines.length;
     const publicInstruction={...instruction,
@@ -365,6 +369,7 @@ async function readResource(database, params, actor, env, organizationId) {
         state:liveProviderAccount?liquidityState(liveProviderAccount,Number(instruction.expected_total)).state:'NOT_MAPPED',
         ready:liveProviderAccount?liquidityState(liveProviderAccount,Number(instruction.expected_total)).ready:false,
       }:null,
+      providerFunding:liveFunding,
     };
     return { data: { ok: true, paymentInstruction: publicInstruction, lines, approvals, activity, proofSummary, reconciliationHistory,
       control: {
@@ -1714,6 +1719,18 @@ async function executeAction(database, body, actor, env, organizationId) {
           : 'Saldo E2Pay sub-account belum fresh/siap untuk approval PI',
         code:'E2PAY_LIQUIDITY_'+approvalLiquidity.state,
         liquidity:approvalLiquidity,
+      }};
+      const funding=await readProviderFundingState(
+        database,organizationId,approvalProviderAccount.id,Number(payment.expected_total),payment.id
+      );
+      if(!funding.ready) return {status:409,data:{
+        error:funding.state==='NO_ACTIVE_LIMIT'
+          ? 'Approved disbursement limit sub-client belum tersedia.'
+          : funding.state==='LIMIT_INSUFFICIENT'
+            ? 'Remaining approved disbursement limit tidak mencukupi untuk PI.'
+            : 'Funding & disbursement limit belum siap untuk approval PI.',
+        code:'E2PAY_FUNDING_'+funding.state,
+        funding,
       }};
     }
     const serverHash = await instructionContentHash({

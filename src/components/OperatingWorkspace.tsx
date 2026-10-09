@@ -6,6 +6,7 @@ import { executeOperatingAction, getExceptionHistory, getPayRunDetail, getPaymen
 import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 import PaymentGatewayExecutionActions from '@/components/PaymentGatewayExecutionActions';
+import E2PayFundingLimitControl from '@/components/E2PayFundingLimitControl';
 import { PaymentEvidenceRegister, PaymentReconciliationControl } from '@/components/PaymentEvidenceReconciliation';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
@@ -406,6 +407,7 @@ export default function OperatingWorkspace({
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} payRuns={visibleSubmissions} role={role} canResolve={isProcessor || isClient} act={act} />}
+          {mode === 'payments' && ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role) ? <E2PayFundingLimitControl role={role} /> : null}
           {mode === 'payments' && <Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} />}
           {mode === 'reconcile' && <Payments phase="reconcile" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isPaymentController} canReconcile={isPaymentController && Boolean(actor?.permissions?.includes('reconciliation:write'))} canApprove={false} gatewayCanView={false} period={periodFilter} act={act} />}
           {mode === 'billing' && actor && <BillingWorkspace
@@ -998,10 +1000,16 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
       }catch{
         return;
       }
-      if(current.paymentInstruction.providerLiquidity?.ready!==true){
-        setLiquidityError(current.paymentInstruction.providerLiquidity?.state==='INSUFFICIENT'
+      if(current.paymentInstruction.providerFunding?.subClient.ready!==true){
+        setLiquidityError(current.paymentInstruction.providerFunding?.subClient.state==='INSUFFICIENT'
           ? 'Saldo E2Pay sub-account tidak mencukupi untuk PI ini.'
-          : 'Liquidity E2Pay belum fresh/siap. Sync balance diperlukan sebelum approval.');
+          : 'Balance sub-client E2Pay belum fresh/siap. Sync balance diperlukan sebelum approval.');
+        return;
+      }
+      if(current.paymentInstruction.providerFunding?.limit.ready!==true){
+        setLiquidityError(current.paymentInstruction.providerFunding?.limit.state==='LIMIT_INSUFFICIENT'
+          ? 'Remaining approved disbursement limit tidak mencukupi untuk PI ini.'
+          : 'Approved disbursement limit belum tersedia. Payroll Processor harus mengajukan limit dan Payroll Controller menyetujuinya.');
         return;
       }
     }
@@ -1061,7 +1069,8 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
             <span className={integrity.valid?'ok':'warn'}><b>{integrity.valid?'✓':'!'}</b> Snapshot integrity</span>
             <span className={detail.control.recipientBalanced?'ok':'warn'}><b>{detail.control.recipientBalanced?'✓':'!'}</b> Recipient count</span>
             <span className={detail.paymentInstruction.provider?'ok':'warn'}><b>{detail.paymentInstruction.provider?'✓':'!'}</b> Provider routing</span>
-            <span className={detail.paymentInstruction.providerLiquidity?.availableBalanceSnapshot!=null&&Number(detail.paymentInstruction.providerLiquidity.availableBalanceSnapshot)>=Number(detail.control.expectedTotal||0)?'ok':'warn'}><b>{detail.paymentInstruction.providerLiquidity?.availableBalanceSnapshot!=null&&Number(detail.paymentInstruction.providerLiquidity.availableBalanceSnapshot)>=Number(detail.control.expectedTotal||0)?'✓':'!'}</b> Liquidity</span>
+            <span className={detail.paymentInstruction.providerFunding?.subClient.ready?'ok':'warn'}><b>{detail.paymentInstruction.providerFunding?.subClient.ready?'✓':'!'}</b> Provider balance</span>
+            <span className={detail.paymentInstruction.providerFunding?.limit.ready?'ok':'warn'}><b>{detail.paymentInstruction.providerFunding?.limit.ready?'✓':'!'}</b> Disbursement limit</span>
           </div>
         </section>
         <section className={`pi-integrity-panel ${integrity.valid ? 'pi-integrity-valid' : 'pi-integrity-warning'}`} aria-label={integrity.valid?'Integrity Payment Instruction valid':'Integrity Payment Instruction perlu perhatian'}>
@@ -1071,11 +1080,11 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
         </section>
         {detail.paymentInstruction.provider?<section className="pi-integrity-panel" aria-label="Provider routing snapshot">
           <div><strong>Provider source terkunci</strong><span>{detail.paymentInstruction.provider} · {detail.paymentInstruction.provider_environment||'-'} · Sub-account {detail.paymentInstruction.providerSubAccountIdMasked||'belum tersedia'}</span></div>
-          <div><strong>Available balance</strong><span>{detail.paymentInstruction.providerLiquidity?.availableBalanceSnapshot===null||detail.paymentInstruction.providerLiquidity?.availableBalanceSnapshot===undefined?'Belum tersinkron':formatIDR(Number(detail.paymentInstruction.providerLiquidity.availableBalanceSnapshot))}</span></div>
-          <div><strong>Liquidity status</strong><span>{detail.paymentInstruction.providerLiquidity?.ready?'FUNDED':String(detail.paymentInstruction.providerLiquidity?.state||'NOT_SYNCED').replaceAll('_',' ')} · {detail.paymentInstruction.providerLiquidity?.checkedAt?dateTime(detail.paymentInstruction.providerLiquidity.checkedAt):'Belum ada provider balance evidence'}</span></div>
+          <div><strong>Balance ProQPay</strong><span>{detail.paymentInstruction.providerFunding?.parent.balance==null?'Belum tersinkron':formatIDR(Number(detail.paymentInstruction.providerFunding.parent.balance))} · {String(detail.paymentInstruction.providerFunding?.parent.state||'NOT_SYNCED').replaceAll('_',' ')}</span></div>
+          <div><strong>Balance sub-client</strong><span>{detail.paymentInstruction.providerFunding?.subClient.availableBalance==null?'Belum tersinkron':formatIDR(Number(detail.paymentInstruction.providerFunding.subClient.availableBalance))} · {String(detail.paymentInstruction.providerFunding?.subClient.state||'NOT_SYNCED').replaceAll('_',' ')}</span></div>
+          <div><strong>Disbursement limit</strong><span>{detail.paymentInstruction.providerFunding?.limit.id?formatIDR(Number(detail.paymentInstruction.providerFunding.limit.remainingAmount||0))+' remaining dari '+formatIDR(Number(detail.paymentInstruction.providerFunding.limit.approvedAmount||0)):'Belum ada approved limit'} · {String(detail.paymentInstruction.providerFunding?.limit.state||'NO_ACTIVE_LIMIT').replaceAll('_',' ')}</span></div>
           {detail.paymentInstruction.status==='PAYMENT_APPROVAL_PENDING'&&role==='PAYROLL_CONTROLLER'&&String(detail.paymentInstruction.provider).toUpperCase()==='E2PAY'?<div><strong>Pre-approval balance check</strong><span><button type="button" className="btn" disabled={liquiditySyncing} onClick={()=>void refreshLiquidity(detail)}>{liquiditySyncing?'Menyinkronkan…':'Sync Balance E2Pay'}</button></span></div>:null}
         </section>:<section className="app-notice-bubble app-notice-error" role="alert"><strong>Provider routing snapshot belum tersedia</strong><span>PI legacy harus diregenerasi sebelum approval/payment execution.</span></section>}
-        {liquidityError?<section className="app-notice-bubble app-notice-error" role="alert"><strong>Liquidity belum siap</strong><span>{liquidityError}</span></section>:null}
         {detail.paymentInstruction.rejection_reason ? <section className={`app-notice-bubble ${detail.paymentInstruction.status==='REVISION_REQUIRED'?'app-notice-error':'app-notice-info'}`} role="status"><strong>{detail.paymentInstruction.status==='REVISION_REQUIRED'?'PI dikembalikan untuk revisi':'Riwayat reject sebelumnya'}</strong><span>{detail.paymentInstruction.rejection_reason} · {detail.paymentInstruction.rejected_by || 'Payroll Controller'}</span></section> : null}
         {phase==='payment' && gatewayCanView && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(detail.paymentInstruction.status) ? <section className="pi-gateway-section" aria-label="Payment execution">
           <div className="pi-section-heading"><div><span>PAYMENT EXECUTION</span><h4>Gateway & provider status</h4></div><small>Terikat ke PI dan periode {period}</small></div>

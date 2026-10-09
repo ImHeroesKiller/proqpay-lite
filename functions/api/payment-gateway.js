@@ -23,6 +23,7 @@ import { recordFraudIncident } from './_fraud-incidents.js';
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import { activeProviderAccount, liquidityState, validatePaymentProviderSnapshot } from './payment-provider-routing.js';
 import { scopedE2PayRuntimeEnv } from './payment-provider-account-credentials.js';
+import { consumeDisbursementLimit, readProviderFundingState, reserveDisbursementLimit } from './e2pay-disbursement-limit-core.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER'];
@@ -363,6 +364,7 @@ export async function onRequest(context) {
     const financialAction = action === 'EXECUTE' || action === 'RETRY_FAILED';
     let providerAccount=null;
     let providerLiquidity=null;
+    let providerFunding=null;
     let routedRuntimeEnv=runtimeEnv;
     if(readiness.provider==='E2PAY'){
       providerAccount=payment.provider_account_registry_id
@@ -396,6 +398,20 @@ export async function onRequest(context) {
               : 'Saldo E2Pay sub-account belum fresh/siap. Sync balance sebelum process payment.',
             code:'E2PAY_LIQUIDITY_'+providerLiquidity.state,
             liquidity:providerLiquidity,
+          },409,request,env,METHODS);
+        }
+        providerFunding=await readProviderFundingState(
+          database,organizationId,providerAccount.id,Number(payment.expected_total),payment.id
+        );
+        if(!providerFunding.ready){
+          return secureJson({
+            error:providerFunding.state==='LIMIT_INSUFFICIENT'
+              ? 'Remaining approved disbursement limit tidak mencukupi untuk PI ini.'
+              : providerFunding.state==='NO_ACTIVE_LIMIT'
+                ? 'Sub-client belum memiliki approved disbursement limit.'
+                : 'Funding control E2Pay belum siap untuk eksekusi payment.',
+            code:'E2PAY_FUNDING_'+providerFunding.state,
+            funding:providerFunding,
           },409,request,env,METHODS);
         }
       }
@@ -464,6 +480,9 @@ export async function onRequest(context) {
         transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transaction.id]);
         await d1Batch(database, [auditOperation(organizationId, authorization.actor, 'E2PAY_RECONCILED',
           result.parentStatus + ' · ' + result.summary.succeeded + '/' + result.summary.total, payment.id)]);
+        if(result.parentStatus==='SUCCEEDED'){
+          await consumeDisbursementLimit(database,payment.id,Number(payment.expected_total));
+        }
         return secureJson({ ...result, transaction:publicTransaction(transaction), gateway:readiness }, result.statusCode, request, env, METHODS);
       } finally {
         await releaseExecutionLease(database, transaction.id, reconcileLease);
@@ -575,6 +594,24 @@ export async function onRequest(context) {
       return secureJson({ error: 'Beneficiary snapshot tidak sesuai control total', code: 'PAYMENT_BENEFICIARY_TOTAL_MISMATCH' }, 409, request, env, METHODS);
     }
 
+    if (readiness.provider==='E2PAY' && financialAction) {
+      const reservation=await reserveDisbursementLimit(database,{
+        organizationId,
+        providerAccountRegistryId:providerAccount.id,
+        paymentInstructionId:payment.id,
+        amount:Number(payment.expected_total),
+      });
+      if(!reservation.ok){
+        return secureJson({
+          error:reservation.code==='E2PAY_DISBURSEMENT_LIMIT_INSUFFICIENT'
+            ? 'Disbursement limit berubah atau telah terpakai oleh payment lain. Muat ulang funding state.'
+            : 'Approved disbursement limit belum tersedia untuk payment ini.',
+          code:reservation.code,
+          funding:providerFunding,
+        },409,request,env,METHODS);
+      }
+    }
+
     let transactionId = transaction?.id || `PGT-${crypto.randomUUID()}`;
     if (!transaction) {
       try {
@@ -622,7 +659,10 @@ export async function onRequest(context) {
         transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE id=? LIMIT 1', [transactionId]);
         await d1Batch(database, [auditOperation(organizationId, authorization.actor, action === 'RETRY_FAILED' ? 'E2PAY_FAILED_ITEMS_RETRIED' : 'E2PAY_EXECUTION',
           `${result.parentStatus || result.code || 'UNKNOWN'} · ${result.summary?.succeeded || 0}/${result.summary?.total || beneficiaries.length}`, payment.id)]);
-        return secureJson({ ...result, transaction:publicTransaction(transaction), gateway:readiness }, result.statusCode, request, env, METHODS);
+        if(result.parentStatus==='SUCCEEDED'){
+          await consumeDisbursementLimit(database,payment.id,Number(payment.expected_total));
+        }
+        return secureJson({ ...result, transaction:publicTransaction(transaction), gateway:readiness, funding:providerFunding }, result.statusCode, request, env, METHODS);
       } catch (error) {
         const unresolved = await d1First(database, `SELECT COUNT(*) AS count FROM payment_gateway_items
           WHERE payment_gateway_transaction_id=? AND status IN ('PENDING','PROCESSING','UNKNOWN')`, [transactionId]);
