@@ -276,3 +276,93 @@ export async function getE2PayUatValidation(){
     protocol:string[];
   }>;
 }
+
+
+export type E2PayFundingState = {
+  providerAccountRegistryId:string;
+  clientId:string;
+  clientCode?:string|null;
+  clientName?:string|null;
+  projectId?:string|null;
+  projectCode?:string|null;
+  projectName?:string|null;
+  environment:string;
+  providerSubAccountIdMasked?:string|null;
+  ready:boolean;
+  state:string;
+  requiredAmount:number;
+  effectiveDisbursementCapacity:number;
+  approvalCapacity:number;
+  parent:{ready:boolean;state:string;balance:number|null;refreshedAt?:string|null;ageMs?:number|null};
+  subClient:{ready:boolean;state:string;availableBalance:number|null;checkedAt?:string|null;ageMs?:number|null;accountId?:string|null;accountLast4?:string|null};
+  limit:{ready:boolean;state:string;id?:string|null;approvedAmount:number;committedAmount:number;currentCommittedAmount:number;remainingAmount:number;capacityForPayment:number;expiresAt?:string|null;approvedAt?:string|null};
+};
+
+export type E2PayDisbursementLimitRequest = {
+  id:string;
+  providerAccountRegistryId:string;
+  clientId:string;
+  clientCode?:string|null;
+  clientName?:string|null;
+  projectId?:string|null;
+  projectCode?:string|null;
+  projectName?:string|null;
+  environment:string;
+  requestedAmount:number;
+  approvedAmount:number|null;
+  committedAmount:number;
+  remainingAmount:number;
+  status:'PENDING_APPROVAL'|'ACTIVE'|'REJECTED'|'REVOKED'|'EXHAUSTED'|'EXPIRED';
+  reason?:string|null;
+  requestedByEmail:string;
+  requestedAt:string;
+  approvedByEmail?:string|null;
+  approvedAt?:string|null;
+  rejectedReason?:string|null;
+  expiresAt?:string|null;
+};
+
+export async function getE2PayDisbursementLimits(filters:{providerAccountRegistryId?:string;requiredAmount?:number}={}){
+  const params=new URLSearchParams();
+  if(filters.providerAccountRegistryId) params.set('providerAccountRegistryId',filters.providerAccountRegistryId);
+  if(filters.requiredAmount) params.set('requiredAmount',String(filters.requiredAmount));
+  return parse(await fetch('/api/e2pay-disbursement-limits?'+params.toString(),{headers:{Accept:'application/json'},cache:'no-store'})) as Promise<{
+    ok:true;
+    funding:E2PayFundingState[];
+    requests:E2PayDisbursementLimitRequest[];
+    authority:{canRequest:boolean;canApprove:boolean;canMonitor:boolean};
+    correlationId?:string;
+  }>;
+}
+
+export async function requestE2PayDisbursementLimit(input:{providerAccountRegistryId:string;amount:number;reason:string;expiresAt?:string}){
+  return parse(await fetch('/api/e2pay-disbursement-limits',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'REQUEST_LIMIT',...input}),
+  })) as Promise<Record<string,unknown>&{ok:true;correlationId?:string}>;
+}
+
+export async function approveE2PayDisbursementLimit(id:string){
+  return parse(await fetch('/api/e2pay-disbursement-limits',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'APPROVE_LIMIT',id}),
+  })) as Promise<Record<string,unknown>&{ok:true;correlationId?:string}>;
+}
+
+export async function rejectE2PayDisbursementLimit(id:string,reason:string){
+  return parse(await fetch('/api/e2pay-disbursement-limits',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'REJECT_LIMIT',id,reason}),
+  })) as Promise<Record<string,unknown>&{ok:true;correlationId?:string}>;
+}
+
+export async function revokeE2PayDisbursementLimit(id:string,reason:string){
+  return parse(await fetch('/api/e2pay-disbursement-limits',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'REVOKE_LIMIT',id,reason}),
+  })) as Promise<Record<string,unknown>&{ok:true;correlationId?:string}>;
+}
