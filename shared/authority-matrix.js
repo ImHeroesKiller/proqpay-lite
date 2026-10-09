@@ -28,10 +28,10 @@ export const ROLE_PERMISSIONS = Object.freeze({
   ]),
   PAYROLL_PROCESSOR: Object.freeze([
     'read','employees:write','import:write','submission:write','exception:write',
-    'payroll:write','payment:prepare','reconciliation:write','billing:prepare',
+    'payroll:write','payment:prepare','disbursement-limit:request','reconciliation:write','billing:prepare',
   ]),
   PAYROLL_CONTROLLER: Object.freeze([
-    'read','approval:write','PAYMENT_APPROVER','payment:approve',
+    'read','approval:write','PAYMENT_APPROVER','payment:approve','disbursement-limit:approve',
     'reconciliation:write','billing:approve','ar:write',
   ]),
   CLIENT_USER: Object.freeze(['read']),
@@ -77,6 +77,8 @@ export const ACTION_RULES = Object.freeze({
   'payment.prepare': Object.freeze({ permission:'payment:prepare' }),
   'payment.execute': Object.freeze({ capability:'gateway:execute' }),
   'payment.approve': Object.freeze({ permission:'payment:approve' }),
+  'disbursement-limit.request': Object.freeze({ permission:'disbursement-limit:request' }),
+  'disbursement-limit.approve': Object.freeze({ permission:'disbursement-limit:approve' }),
   'reconciliation.manage': Object.freeze({ permission:'reconciliation:write' }),
   'billing.prepare': Object.freeze({ permission:'billing:prepare' }),
   'billing.approve': Object.freeze({ permission:'billing:approve' }),
