@@ -55,7 +55,8 @@ test('Payment Instructions P3 keeps approval readiness derived from one integrit
   assert.match(helper,/approvalReady:valid&&detail\?\.paymentInstruction\?\.status==='PAYMENT_APPROVAL_PENDING'/);
   assert.match(workspace,/disabled={!approvalConfirmed \|\| !integrity.approvalReady \|\| liquiditySyncing}/);
   assert.match(workspace,/approveWithFreshLiquidity/);
-  assert.match(workspace,/providerLiquidity\?\.ready!==true/);
+  assert.match(workspace,/providerFunding\?\.subClient\.ready!==true/);
+  assert.match(workspace,/providerFunding\?\.limit\.ready!==true/);
   assert.match(workspace,/pi-integrity-panel \$\{integrity.valid/);
 });
 
