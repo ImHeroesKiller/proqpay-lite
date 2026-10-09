@@ -2,7 +2,7 @@ name: Cloudflare Pages Production Deploy
 
 on:
   workflow_run:
-    workflows: ["Quality Gate"]
+    workflows: ["Cloudflare D1 Reviewed Migrations"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -28,7 +28,6 @@ jobs:
       PROQPAY_UAT_PASSWORD: ${{ secrets.PROQPAY_UAT_PASSWORD }}
       PROQPAY_CUSTOM_DOMAIN: ${{ vars.PROQPAY_CUSTOM_DOMAIN || 'proqpay.msg-os.com' }}
       CLOUDFLARE_ZONE_NAME: ${{ vars.CLOUDFLARE_ZONE_NAME || 'msg-os.com' }}
-      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE || 'proqpay-lite-production' }}
 
     steps:
       - name: Checkout reviewed commit
@@ -102,48 +101,12 @@ jobs:
           console.log(`Pages project access verified: ${expected}`);
           NODE
 
-      - name: Backup production D1 before reviewed migrations
+      - name: Assert deploy is application-only
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler d1 export "$D1_DATABASE_NAME" --remote --output=/tmp/proqpay-d1-backup.sql
-          node scripts/verify-d1-backup.mjs /tmp/proqpay-d1-backup.sql
-
-      - name: Apply reviewed D1 migrations
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx wrangler d1 migrations apply "$D1_DATABASE_NAME" --remote
-
-      - name: Verify P5.6 D1 schema
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --json --command "SELECT name,type FROM sqlite_master WHERE name IN ('e2pay_disbursement_limit_requests','e2pay_disbursement_limit_usage','payment_instruction_provider_routing_immutable') ORDER BY name;" > /tmp/proqpay-p56-schema.json
-          node - <<'NODE'
-          const fs=require('fs');
-          const payload=JSON.parse(fs.readFileSync('/tmp/proqpay-p56-schema.json','utf8'));
-          const rows=(Array.isArray(payload)?payload:[payload]).flatMap((item)=>Array.isArray(item?.results)?item.results:[]);
-          const names=new Set(rows.map((row)=>String(row?.name||'')));
-          const required=['e2pay_disbursement_limit_requests','e2pay_disbursement_limit_usage','payment_instruction_provider_routing_immutable'];
-          const missing=required.filter((name)=>!names.has(name));
-          if(missing.length){
-            console.error('P5.6 schema verification failed. Missing: '+missing.join(', '));
-            process.exit(1);
-          }
-          console.log('P5.6 D1 schema verified.');
-          NODE
-
-      - name: Preserve D1 migration evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: proqpay-d1-migration-evidence-${{ github.run_id }}
-          path: |
-            /tmp/proqpay-backup-verification.json
-            /tmp/proqpay-p56-schema.json
-          retention-days: 90
-          if-no-files-found: warn
+          echo "Routine production deploy does not mutate D1, MFA/passkeys, portal credentials, or E2Pay UAT data."
+          echo "Database migration/maintenance must be executed through an explicit reviewed maintenance procedure."
 
       - name: Deploy reviewed commit to production
         run: npx wrangler pages deploy out --project-name="$PAGES_PROJECT_NAME" --branch=main --commit-hash="$RELEASE_SHA"
