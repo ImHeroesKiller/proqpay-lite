@@ -56,6 +56,16 @@ export type PaymentInstructionRecord = {
   providerSubAccountIdMasked?: string | null;
   provider_account_registry_id?: string | null;
   providerLiquidity?: { balanceSnapshot:number|null; availableBalanceSnapshot:number|null; checkedAt?:string|null; state?:string; ready?:boolean } | null;
+  providerFunding?: {
+    ready:boolean;
+    state:string;
+    requiredAmount:number;
+    effectiveDisbursementCapacity:number;
+    approvalCapacity:number;
+    parent:{ready:boolean;state:string;balance:number|null;refreshedAt?:string|null;ageMs?:number|null};
+    subClient:{ready:boolean;state:string;availableBalance:number|null;checkedAt?:string|null;ageMs?:number|null;accountId?:string|null;accountLast4?:string|null};
+    limit:{ready:boolean;state:string;id?:string|null;approvedAmount:number;committedAmount:number;currentCommittedAmount:number;remainingAmount:number;capacityForPayment:number;expiresAt?:string|null;approvedAt?:string|null};
+  } | null;
 };
 
 export type PaymentProofRecord = {
