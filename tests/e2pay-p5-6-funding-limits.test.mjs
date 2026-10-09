@@ -18,7 +18,9 @@ function seed(db){
     INSERT INTO client_service_plans(id,client_id,tier,status,effective_from,created_by)
       VALUES('SP-A','CLI-A','STANDARD','ACTIVE','2026-01-01','seed');
     INSERT INTO payroll_submissions(id,org_id,client_id,service_plan_id,service_tier,period,state,created_by)
-      VALUES('SUB-A','ORG-X','CLI-A','SP-A','STANDARD','2026-09','APPROVED_FOR_PAYMENT','seed');
+      VALUES
+      ('SUB-A','ORG-X','CLI-A','SP-A','STANDARD','2026-09','APPROVED_FOR_PAYMENT','seed'),
+      ('SUB-B','ORG-X','CLI-A','SP-A','STANDARD','2026-10','APPROVED_FOR_PAYMENT','seed');
     INSERT INTO payment_provider_accounts
       (id,org_id,client_id,provider,environment,account_scope,provider_sub_account_id,status,balance,available_balance,last_balance_sync_at,created_by)
       VALUES('PPA-A','ORG-X','CLI-A','E2PAY','UAT','SUB_ACCOUNT','SUB-0190','ACTIVE',50000000,50000000,strftime('%Y-%m-%dT%H:%M:%fZ','now'),'seed');
@@ -30,7 +32,7 @@ function seed(db){
        provider_account_registry_id,provider,provider_environment,provider_sub_account_id,provider_account_snapshot)
       VALUES
       ('PI-A','ORG-X','CLI-A','SUB-A','APPROVED_FOR_PAYMENT',15900000,'USR-P','IDEMP-A',3,'PPA-A','E2PAY','UAT','SUB-0190','{"registryId":"PPA-A"}'),
-      ('PI-B','ORG-X','CLI-A','SUB-A','APPROVED_FOR_PAYMENT',10000000,'USR-P','IDEMP-B',1,'PPA-A','E2PAY','UAT','SUB-0190','{"registryId":"PPA-A"}');
+      ('PI-B','ORG-X','CLI-A','SUB-B','APPROVED_FOR_PAYMENT',10000000,'USR-P','IDEMP-B',1,'PPA-A','E2PAY','UAT','SUB-0190','{"registryId":"PPA-A"}');
     INSERT INTO e2pay_disbursement_limit_requests
       (id,org_id,provider_account_registry_id,client_id,environment,requested_amount,approved_amount,status,reason,requested_by_email,approved_by_email,approved_at)
       VALUES('DLR-A','ORG-X','PPA-A','CLI-A','UAT',20000000,20000000,'ACTIVE','Payroll limit','processor@test','controller@test',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
