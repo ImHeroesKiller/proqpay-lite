@@ -164,7 +164,7 @@ export type E2PaySubAccount = {
   readiness?:{ready:boolean;reason:string};
   merchantCredential?:{ready:boolean;version:number|null;updatedAt?:string|null};
   parentSourceId?:string|null;
-  provisioning?:{state:string;credentialMode:'SERVICE_MANAGED';phoneLast4?:string|null;lastErrorCode?:string|null;lastErrorMessage?:string|null;updatedAt?:string|null};
+  provisioning?:{state:string;credentialMode:'SERVICE_MANAGED';phoneLast4?:string|null;lastErrorCode?:string|null;lastErrorMessage?:string|null;updatedAt?:string|null;credentialHealth?:{state:string;healthy:boolean;degraded:boolean;recoveryRequired:boolean;version:number;failureCount:number;lastValidatedAt?:string|null;lastErrorCode?:string|null;lastErrorAt?:string|null}};
   balance:number|null;
   availableBalance:number|null;
   lastBalanceSyncAt?:string|null;
@@ -250,6 +250,12 @@ export async function syncE2PaySubAccountBalance(id:string,requiredAmount=0){
   })) as Promise<{ok:true;account:E2PaySubAccount;correlationId?:string}>;
 }
 
+
+export async function checkE2PayCredentialHealth(id:string){
+  return parse(await fetch('/api/e2pay-subaccounts',{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'CHECK_CREDENTIAL_HEALTH',id}),
+  })) as Promise<{ok:true;credentialHealth:{state:string;healthy:boolean;degraded:boolean;recoveryRequired:boolean;version:number;failureCount:number;lastValidatedAt?:string|null;lastErrorCode?:string|null;lastErrorAt?:string|null};correlationId?:string}>;
+}
 
 export async function bindE2PaySubAccountCredential(input:{id:string;username:string;password:string}){
   return parse(await fetch('/api/e2pay-subaccounts',{

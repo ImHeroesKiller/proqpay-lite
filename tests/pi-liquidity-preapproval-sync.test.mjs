@@ -17,7 +17,7 @@ test('liquidity requires a fresh synced balance and enough funds',()=>{
 
 test('Payroll Controller may sync balance but cannot mutate sub-account mapping',async()=>{
   const source=await read('functions/api/e2pay-subaccounts.js');
-  assert.match(source,/const controllerSafeActions=new Set\(\['SYNC_BALANCE'\]\)/);
+  assert.match(source,/const controllerSafeActions=new Set\(\['SYNC_BALANCE','CHECK_CREDENTIAL_HEALTH'\]\)/);
   assert.match(source,/!MANAGE_ROLES\.includes\(actor\.role\) && !controllerSafeActions\.has\(action\)/);
   assert.match(source,/if\(action==='SYNC_BALANCE'\)/);
 });

@@ -56,11 +56,11 @@ test('P5.5 payment execution, reconciliation and failed verification use scoped 
   assert.match(gateway,/E2PAY_SUBACCOUNT_CREDENTIAL_REQUIRED/);
 });
 
-test('P5.5 client UI requires credential validation and enables balance synchronization',()=>{
-  assert.match(ui,/Validasi & Simpan Credential/);
+test('P5.5/P5.7 client UI keeps scoped credential security while using automated lifecycle for new accounts',()=>{
   assert.match(ui,/Sync Balance/);
-  assert.match(ui,/Scoped & encrypted/);
-  assert.match(ui,/Credential sub-client tersimpan terenkripsi|credential merchant dibuat, dienkripsi, divalidasi/);
+  assert.match(ui,/Periksa Ulang Credential/);
+  assert.match(ui,/Credential dikelola otomatis/);
+  assert.match(ui,/Legacy credential recovery/);
 });
 
 
