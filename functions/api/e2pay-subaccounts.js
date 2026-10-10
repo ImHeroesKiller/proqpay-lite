@@ -5,6 +5,7 @@ import { e2payAuthorize, e2payHostAuthorize, e2payMerchantAccount, e2payRegister
 import { liquidityState } from './payment-provider-routing.js';
 import { decryptProviderProvisioningSecret, encryptProviderAccountCredential, encryptProviderProvisioningSecret, mergeProviderAccountMetadata, providerAccountCredentialState, scopedE2PayRuntimeEnv } from './payment-provider-account-credentials.js';
 import { composeProvisioningToken, generateManagedMerchantPassword, provisioningDisplayState } from './e2pay-provisioning-orchestrator.js';
+import { credentialHealthState, manualCredentialBindingAllowed, markCredentialFailure, markCredentialHealthy } from './e2pay-credential-lifecycle.js';
 
 const METHODS='GET, POST, OPTIONS';
 const READ_ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -49,7 +50,22 @@ function publicRow(row,requiredAmount=0){
     readiness:{ready:provisioned&&merchantCredential.ready,reason:row.status!=='ACTIVE'?'ACCOUNT_NOT_ACTIVE':!row.provider_sub_account_id?'PROVIDER_ID_MISSING':String(row.provisioning_state||'PROVISIONED')!=='PROVISIONED'?'PROVISIONING_INCOMPLETE':!merchantCredential.ready?'MERCHANT_CREDENTIAL_REQUIRED':'READY'},
     merchantCredential,
     parentSourceId:meta?.parentSourceId||null,
-    provisioning:{state:orchestrationState,credentialMode:'SERVICE_MANAGED',phoneLast4:meta?.phoneLast4||null,lastErrorCode:row.provisioning_session_error_code||null,lastErrorMessage:row.provisioning_session_error_message||null,updatedAt:row.provisioning_session_updated_at||null},
+    provisioning:{
+      state:orchestrationState,
+      credentialMode:'SERVICE_MANAGED',
+      phoneLast4:meta?.phoneLast4||null,
+      lastErrorCode:row.provisioning_session_error_code||null,
+      lastErrorMessage:row.provisioning_session_error_message||null,
+      updatedAt:row.provisioning_session_updated_at||null,
+      credentialHealth:credentialHealthState({
+        credential_state:row.provisioning_credential_state,
+        credential_version:row.provisioning_credential_version,
+        credential_last_validated_at:row.provisioning_credential_last_validated_at,
+        credential_failure_count:row.provisioning_credential_failure_count,
+        credential_last_error_code:row.provisioning_credential_last_error_code,
+        credential_last_error_at:row.provisioning_credential_last_error_at,
+      }),
+    },
     balance:row.balance===null?null:Number(row.balance),
     availableBalance:row.available_balance===null?null:Number(row.available_balance),
     lastBalanceSyncAt:row.last_balance_sync_at,
@@ -96,7 +112,13 @@ export async function onRequest({request,env}){
           ,pps.state AS provisioning_session_state,
           pps.last_error_code AS provisioning_session_error_code,
           pps.last_error_message AS provisioning_session_error_message,
-          pps.updated_at AS provisioning_session_updated_at
+          pps.updated_at AS provisioning_session_updated_at,
+          pps.credential_state AS provisioning_credential_state,
+          pps.credential_version AS provisioning_credential_version,
+          pps.credential_last_validated_at AS provisioning_credential_last_validated_at,
+          pps.credential_failure_count AS provisioning_credential_failure_count,
+          pps.credential_last_error_code AS provisioning_credential_last_error_code,
+          pps.credential_last_error_at AS provisioning_credential_last_error_at
           FROM payment_provider_accounts ppa
           LEFT JOIN clients c ON c.id=ppa.client_id
           LEFT JOIN projects p ON p.id=ppa.project_id
@@ -128,7 +150,7 @@ export async function onRequest({request,env}){
 
     // Balance refresh is an operational read/check required by Payroll Controller
     // immediately before payment approval. It does not mutate routing or credentials.
-    const controllerSafeActions=new Set(['SYNC_BALANCE']);
+    const controllerSafeActions=new Set(['SYNC_BALANCE','CHECK_CREDENTIAL_HEALTH']);
     if(!MANAGE_ROLES.includes(actor.role) && !controllerSafeActions.has(action)){
       return secureJson({error:'Mapping sub-account E2Pay hanya tersedia untuk Super Admin atau Payroll Processor'},403,request,env,METHODS);
     }
@@ -321,7 +343,7 @@ export async function onRequest({request,env}){
       const balance=Number(merchantAccount?.balance||0);
       await d1Batch(env.DB,[
         {statement:`UPDATE payment_provider_accounts SET provider_sub_account_id=?,provider_account_id=?,account_name=COALESCE(?,account_name),status='ACTIVE',metadata_json=?,provisioning_state='PROVISIONED',balance=?,available_balance=?,last_balance_sync_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=NULL,last_provisioning_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,merchantAccountId,clean(merchantAccount?.accountName,200)||null,metadata,balance,balance,actor.email,id,organizationId]},
-        {statement:`UPDATE provider_provisioning_sessions SET state='READY',provider_account_id=?,ready_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_error_code=NULL,last_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,actor.email,session.id,organizationId]},
+        {statement:`UPDATE provider_provisioning_sessions SET state='READY',provider_account_id=?,ready_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_error_code=NULL,last_error_message=NULL,credential_state='HEALTHY',credential_version=CASE WHEN credential_version<1 THEN 1 ELSE credential_version END,credential_last_validated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),credential_failure_count=0,credential_last_error_code=NULL,credential_last_error_at=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,actor.email,session.id,organizationId]},
         audit(organizationId,actor,'E2PAY_PROVISIONING_READY',id,`environment=${current.environment} · accountLast4=${providerSubAccountId.slice(-4)} · credential=SERVICE_MANAGED_ENCRYPTED · balanceValidated=true`,requestId),
       ]);
       const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id LEFT JOIN projects p ON p.id=ppa.project_id WHERE ppa.id=? LIMIT 1`,[id]);
@@ -414,6 +436,44 @@ export async function onRequest({request,env}){
       },200,request,env,METHODS);
     }
 
+    if(action==='CHECK_CREDENTIAL_HEALTH'){
+      const id=clean(body.id,140);
+      if(!id) return secureJson({error:'id mapping wajib diisi'},422,request,env,METHODS);
+      const current=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' LIMIT 1`,[id,organizationId]);
+      if(!current) return secureJson({error:'Mapping sub-account tidak ditemukan'},404,request,env,METHODS);
+      const session=await d1First(env.DB,`SELECT * FROM provider_provisioning_sessions WHERE provider_account_registry_id=? AND org_id=? LIMIT 1`,[id,organizationId]);
+      if(!session) return secureJson({error:'Account legacy belum memiliki lifecycle credential otomatis.',code:'E2PAY_LEGACY_CREDENTIAL_RECOVERY_REQUIRED',legacy:true,correlationId:requestId},409,request,env,METHODS);
+      const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,current.environment);
+      let scopedRuntimeEnv;
+      try{ scopedRuntimeEnv=await scopedE2PayRuntimeEnv(env.DB,runtimeEnv,current); }
+      catch(error){
+        const code=clean(error?.code||'E2PAY_SUBACCOUNT_CREDENTIAL_REQUIRED',120);
+        await markCredentialFailure(env.DB,session,actor.email,code);
+        return secureJson({error:'Credential service-managed belum dapat digunakan.',code,stage:'CREDENTIAL_HEALTH',retryable:false,correlationId:requestId},409,request,env,METHODS);
+      }
+      let auth;
+      let account;
+      try{
+        auth=await e2payAuthorize(scopedRuntimeEnv);
+        account=await e2payMerchantAccount(scopedRuntimeEnv,auth.accessToken);
+      }catch(error){
+        const code=clean(error?.code||'E2PAY_CREDENTIAL_HEALTH_PROVIDER_FAILED',120);
+        await markCredentialFailure(env.DB,session,actor.email,code);
+        const refreshed=await d1First(env.DB,`SELECT * FROM provider_provisioning_sessions WHERE id=? LIMIT 1`,[session.id]);
+        return secureJson({error:'Validasi credential ke E2Pay belum berhasil. Credential tidak diubah.',code,stage:'CREDENTIAL_HEALTH',retryable:true,credentialHealth:credentialHealthState(refreshed),correlationId:requestId},502,request,env,METHODS);
+      }
+      const providerAccountId=clean(account?.accountId||account?.merchantId||account?.id,200);
+      if(!providerAccountId||providerAccountId!==clean(current.provider_sub_account_id,200)){
+        await markCredentialFailure(env.DB,session,actor.email,'E2PAY_CREDENTIAL_HEALTH_ACCOUNT_MISMATCH');
+        const refreshed=await d1First(env.DB,`SELECT * FROM provider_provisioning_sessions WHERE id=? LIMIT 1`,[session.id]);
+        return secureJson({error:'Credential tidak cocok dengan sub-account yang dipetakan.',code:'E2PAY_CREDENTIAL_HEALTH_ACCOUNT_MISMATCH',stage:'CREDENTIAL_HEALTH',retryable:false,credentialHealth:credentialHealthState(refreshed),correlationId:requestId},409,request,env,METHODS);
+      }
+      await markCredentialHealthy(env.DB,session,actor.email);
+      const refreshed=await d1First(env.DB,`SELECT * FROM provider_provisioning_sessions WHERE id=? LIMIT 1`,[session.id]);
+      await d1Batch(env.DB,[audit(organizationId,actor,'E2PAY_CREDENTIAL_HEALTH_VERIFIED',id,`environment=${current.environment} · accountLast4=${providerAccountId.slice(-4)} · state=HEALTHY`,requestId)]);
+      return secureJson({ok:true,credentialHealth:credentialHealthState(refreshed),correlationId:requestId},200,request,env,METHODS);
+    }
+
     if(action==='BIND_SUBACCOUNT_CREDENTIAL'){
       const id=clean(body.id,140);
       const username=clean(body.username,200);
@@ -422,6 +482,10 @@ export async function onRequest({request,env}){
       const current=await d1First(env.DB,`SELECT * FROM payment_provider_accounts
         WHERE id=? AND org_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' LIMIT 1`,[id,organizationId]);
       if(!current) return secureJson({error:'Mapping sub-account tidak ditemukan'},404,request,env,METHODS);
+      const credentialSession=await d1First(env.DB,`SELECT * FROM provider_provisioning_sessions WHERE provider_account_registry_id=? AND org_id=? LIMIT 1`,[id,organizationId]);
+      if(!manualCredentialBindingAllowed(credentialSession)){
+        return secureJson({error:'Credential account ini dikelola otomatis oleh ProQPay. Manual binding tidak diizinkan.',code:'E2PAY_SERVICE_MANAGED_CREDENTIAL_NO_MANUAL_BIND',stage:'CREDENTIAL_LIFECYCLE',retryable:false,correlationId:requestId},409,request,env,METHODS);
+      }
       if(current.status!=='ACTIVE'||!current.provider_sub_account_id){
         return secureJson({error:'Sub-account harus ACTIVE dan sudah diprovisioning sebelum credential dihubungkan',code:'E2PAY_SUBACCOUNT_NOT_READY'},409,request,env,METHODS);
       }
@@ -473,6 +537,7 @@ export async function onRequest({request,env}){
       const current=await d1First(env.DB,`SELECT * FROM payment_provider_accounts
         WHERE id=? AND org_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' LIMIT 1`,[id,organizationId]);
       if(!current) return secureJson({error:'Mapping sub-account tidak ditemukan'},404,request,env,METHODS);
+      const credentialSession=await d1First(env.DB,`SELECT * FROM provider_provisioning_sessions WHERE provider_account_registry_id=? AND org_id=? LIMIT 1`,[id,organizationId]);
       if(current.status!=='ACTIVE'||!current.provider_sub_account_id){
         return secureJson({error:'Sub-account harus ACTIVE dan sudah diprovisioning sebelum balance sync',code:'E2PAY_SUBACCOUNT_NOT_READY'},409,request,env,METHODS);
       }
@@ -481,8 +546,9 @@ export async function onRequest({request,env}){
       try{
         scopedRuntimeEnv=await scopedE2PayRuntimeEnv(env.DB,runtimeEnv,current);
       }catch(error){
+        if(credentialSession) await markCredentialFailure(env.DB,credentialSession,actor.email,clean(error?.code||'E2PAY_SUBACCOUNT_CREDENTIAL_REQUIRED',120));
         return secureJson({
-          error:'Credential merchant E2Pay sub-account belum terhubung. Hubungkan credential merchant sebelum sync balance.',
+          error:credentialSession?'Credential service-managed belum siap. Jalankan pemeriksaan credential atau recovery.':'Credential merchant E2Pay sub-account belum terhubung. Hubungkan credential merchant sebelum sync balance.',
           code:clean(error?.code||'E2PAY_SUBACCOUNT_CREDENTIAL_REQUIRED',120),
           stage:'SUBACCOUNT_CREDENTIAL',
           retryable:false,
@@ -495,6 +561,7 @@ export async function onRequest({request,env}){
       }catch(error){
         const errorCode=clean(error?.code||'E2PAY_MERCHANT_AUTH_FAILED',120);
         const errorMessage=clean(error?.message||'Merchant authorization E2Pay gagal',300);
+        if(credentialSession) await markCredentialFailure(env.DB,credentialSession,actor.email,errorCode);
         await d1Batch(env.DB,[
           {statement:`UPDATE payment_provider_accounts SET last_provisioning_error_code=?,last_provisioning_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[errorCode,errorMessage,actor.email,id,organizationId]},
           audit(organizationId,actor,'E2PAY_SUBACCOUNT_BALANCE_SYNC_FAILED',id,`environment=${current.environment} · stage=MERCHANT_AUTH · code=${errorCode}`,requestId),
@@ -523,6 +590,7 @@ export async function onRequest({request,env}){
         },409,request,env,METHODS);
       }
       const balance=Number(account?.balance||0);
+      if(credentialSession) await markCredentialHealthy(env.DB,credentialSession,actor.email);
       await d1Batch(env.DB,[
         {statement:`UPDATE payment_provider_accounts SET provider_account_id=?,account_name=COALESCE(?,account_name),
           balance=?,available_balance=?,last_balance_sync_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
