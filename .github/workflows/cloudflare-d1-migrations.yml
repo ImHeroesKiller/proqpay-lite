@@ -55,11 +55,46 @@ jobs:
           npx wrangler d1 export "$D1_DATABASE_NAME" --remote --output=/tmp/proqpay-d1-backup.sql
           node scripts/verify-d1-backup.mjs /tmp/proqpay-d1-backup.sql
 
+      - name: Resolve production D1 configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 list --json > /tmp/proqpay-d1-list.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const payload=JSON.parse(fs.readFileSync('/tmp/proqpay-d1-list.json','utf8'));
+          const target=String(process.env.D1_DATABASE_NAME||'').trim();
+          const rows=Array.isArray(payload)?payload:(Array.isArray(payload?.result)?payload.result:[]);
+          const row=rows.find((item)=>String(item?.name||item?.database_name||'').trim()===target);
+          if(!row){
+            console.error('Production D1 database not found: '+target);
+            process.exit(1);
+          }
+          const databaseId=String(row.uuid||row.id||row.database_id||'').trim();
+          if(!databaseId){
+            console.error('Production D1 database id is missing for: '+target);
+            process.exit(1);
+          }
+          const config={
+            "$schema":"./node_modules/wrangler/config-schema.json",
+            "name":"proqpay-lite-d1-migrations",
+            "compatibility_date":"2026-08-21",
+            "d1_databases":[{
+              "binding":"DB",
+              "database_name":target,
+              "database_id":databaseId,
+              "migrations_dir":"migrations"
+            }]
+          };
+          fs.writeFileSync('/tmp/wrangler-p56.json',JSON.stringify(config,null,2));
+          console.log('Resolved reviewed D1 migration target: '+target);
+          NODE
+
       - name: Apply reviewed migrations
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler d1 migrations apply "$D1_DATABASE_NAME" --remote
+          npx wrangler d1 migrations apply "$D1_DATABASE_NAME" --remote --config /tmp/wrangler-p56.json
 
       - name: Verify P5.6 schema and routing trigger
         shell: bash
@@ -92,5 +127,6 @@ jobs:
           path: |
             /tmp/proqpay-backup-verification.json
             /tmp/proqpay-p56-schema.json
+            /tmp/proqpay-d1-list.json
           retention-days: 90
           if-no-files-found: warn
