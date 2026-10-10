@@ -288,6 +288,9 @@ export type E2PayFundingState = {
   projectName?:string|null;
   environment:string;
   providerSubAccountIdMasked?:string|null;
+  provisioningState?:string;
+  merchantCredential?:{ready:boolean;version:number|null;updatedAt?:string|null};
+  accountReadiness?:{ready:boolean;reason:string};
   ready:boolean;
   state:string;
   requiredAmount:number;
