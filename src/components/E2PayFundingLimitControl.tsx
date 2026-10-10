@@ -82,6 +82,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
   }
 
   const selectedActiveLimit=selected?active.find((item)=>item.providerAccountRegistryId===selected.providerAccountRegistryId):null;
+  const credentialRequired=Boolean(selected&&selected.provisioningState==='PROVISIONED'&&!selected.merchantCredential?.ready);
   const messageIsError=/gagal|tidak|wajib|belum|insufficient|stale/i.test(message);
 
   return <section className="card ui-section-card">
@@ -112,8 +113,8 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
             <strong>Funding account</strong>
             <span>Pilih sub-client yang akan disinkronkan atau diberikan limit.</span>
           </div>
-          {selected?<span className={`ui-status-badge ${selected.state==='READY'?'ui-status-success':selected.state==='SUBCLIENT_NOT_SYNCED'?'ui-status-warning':'ui-status-accent'}`}>
-            {selected.state==='SUBCLIENT_NOT_SYNCED'?'Perlu sinkronisasi':selected.state}
+          {selected?<span className={`ui-status-badge ${credentialRequired?'ui-status-warning':selected.state==='READY'?'ui-status-success':selected.state==='SUBCLIENT_NOT_SYNCED'?'ui-status-warning':'ui-status-accent'}`}>
+            {credentialRequired?'Provisioned · Credential Required':selected.state==='SUBCLIENT_NOT_SYNCED'?'Perlu sinkronisasi':selected.state}
           </span>:null}
         </div>
         <label className="ui-form-field">
@@ -130,6 +131,14 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
           </small>:null}
         </label>
       </div>
+
+      {credentialRequired?<div className="card ui-section-card ui-notice ui-notice-warning" role="status">
+        <div>
+          <strong>Sub-client sudah provisioned, merchant credential belum terhubung</strong>
+          <span>Account {selected?.providerSubAccountIdMasked||''} sudah ACTIVE / PROVISIONED. Hubungkan merchant credential scoped satu kali agar balance sync P5.5/P5.6 dapat berjalan.</span>
+        </div>
+        <a className="btn btn-primary" href="/?view=clients">Hubungkan Credential</a>
+      </div>:null}
 
       {selected?<div className="ui-metric-grid">
         <div className="card ui-metric-card">
@@ -159,8 +168,8 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
           Sinkronkan saldo provider sebelum menentukan atau menyetujui limit disbursement.
         </div>
         <div className="ui-action-bar-actions">
-          <button type="button" className="btn" disabled={busy==='SYNC'} onClick={()=>void syncFunding()}>
-            {busy==='SYNC'?'Menyinkronkan…':'Sync balance'}
+          <button type="button" className="btn" disabled={busy==='SYNC'||credentialRequired} onClick={()=>void syncFunding()}>
+            {credentialRequired?'Credential diperlukan':busy==='SYNC'?'Menyinkronkan…':'Sync balance'}
           </button>
         </div>
       </div>:null}

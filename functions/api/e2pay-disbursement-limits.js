@@ -1,6 +1,7 @@
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { d1All, d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { readProviderFundingState } from './e2pay-disbursement-limit-core.js';
+import { providerAccountCredentialState } from './payment-provider-account-credentials.js';
 
 const METHODS='GET, POST, OPTIONS';
 const ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -84,6 +85,8 @@ export async function onRequest({request,env}){
       const funding=[];
       for(const account of accounts){
         const state=await readProviderFundingState(env.DB,organizationId,account.id,requiredAmount);
+        const merchantCredential=providerAccountCredentialState(account);
+        const provisioned=account.status==='ACTIVE'&&Boolean(account.provider_sub_account_id)&&String(account.provisioning_state||'PROVISIONED')==='PROVISIONED';
         funding.push({
           providerAccountRegistryId:account.id,
           clientId:account.client_id,
@@ -94,6 +97,12 @@ export async function onRequest({request,env}){
           projectName:account.project_name||null,
           environment:account.environment,
           providerSubAccountIdMasked:account.provider_sub_account_id?'••••'+String(account.provider_sub_account_id).slice(-4):null,
+          provisioningState:String(account.provisioning_state||'NOT_STARTED'),
+          merchantCredential,
+          accountReadiness:{
+            ready:provisioned&&merchantCredential.ready,
+            reason:!provisioned?'PROVISIONING_INCOMPLETE':!merchantCredential.ready?'MERCHANT_CREDENTIAL_REQUIRED':'READY',
+          },
           ...state,
         });
       }
