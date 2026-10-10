@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import {
@@ -137,7 +138,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
           <strong>Sub-client sudah provisioned, merchant credential belum terhubung</strong>
           <span>Account {selected?.providerSubAccountIdMasked||''} sudah ACTIVE / PROVISIONED. Hubungkan merchant credential scoped satu kali agar balance sync P5.5/P5.6 dapat berjalan.</span>
         </div>
-        <a className="btn btn-primary" href="/?view=clients">Hubungkan Credential</a>
+        <Link className="btn btn-primary" href="/?view=clients">Hubungkan Credential</Link>
       </div>:null}
 
       {selected?<div className="ui-metric-grid">
