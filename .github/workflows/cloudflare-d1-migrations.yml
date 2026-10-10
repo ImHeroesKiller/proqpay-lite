@@ -86,7 +86,7 @@ jobs:
               "migrations_dir":"migrations"
             }]
           };
-          fs.writeFileSync('/tmp/wrangler-p56.json',JSON.stringify(config,null,2));
+          fs.writeFileSync('wrangler-p56.json',JSON.stringify(config,null,2));
           console.log('Resolved reviewed D1 migration target: '+target);
           NODE
 
@@ -94,7 +94,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler d1 migrations apply "$D1_DATABASE_NAME" --remote --config /tmp/wrangler-p56.json
+          npx wrangler d1 migrations apply "$D1_DATABASE_NAME" --remote --config wrangler-p56.json
 
       - name: Verify P5.6 schema and routing trigger
         shell: bash
