@@ -1,6 +1,6 @@
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { d1All, d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
-import { readProviderFundingState } from './e2pay-disbursement-limit-core.js';
+import { disbursementLimitSchemaReady, readProviderFundingState } from './e2pay-disbursement-limit-core.js';
 
 const METHODS='GET, POST, OPTIONS';
 const ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -66,6 +66,16 @@ export async function onRequest({request,env}){
   const correlationId=requestId(request);
 
   try{
+    const schemaReady=await disbursementLimitSchemaReady(env.DB);
+    if(!schemaReady){
+      return secureJson({
+        error:'P5.6 disbursement limit schema belum diterapkan ke production D1.',
+        code:'E2PAY_LIMIT_SCHEMA_REQUIRED',
+        migration:'0055_e2pay_disbursement_limits.sql',
+        retryable:false,
+        correlationId,
+      },503,request,env,METHODS);
+    }
     await expireLimits(env.DB,organizationId);
 
     if(request.method==='GET'){

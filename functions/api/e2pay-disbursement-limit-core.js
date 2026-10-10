@@ -3,6 +3,14 @@ import { liquidityState, PROVIDER_BALANCE_MAX_AGE_MS } from './payment-provider-
 
 export const PARENT_BALANCE_MAX_AGE_MS=5*60*1000;
 
+export async function disbursementLimitSchemaReady(database){
+  const rows=await Promise.all([
+    d1First(database,"SELECT name FROM sqlite_master WHERE type='table' AND name='e2pay_disbursement_limit_requests' LIMIT 1"),
+    d1First(database,"SELECT name FROM sqlite_master WHERE type='table' AND name='e2pay_disbursement_limit_usage' LIMIT 1"),
+  ]);
+  return rows.every(Boolean);
+}
+
 function ageMs(value,nowMs=Date.now()){
   const valueMs=new Date(value||0).getTime();
   return Number.isFinite(valueMs)?nowMs-valueMs:Number.POSITIVE_INFINITY;
@@ -30,6 +38,34 @@ export async function readProviderFundingState(database,organizationId,providerA
       :'READY';
 
   const subLiquidity=liquidityState(account,required,nowMs,PROVIDER_BALANCE_MAX_AGE_MS);
+
+  const schemaReady=await disbursementLimitSchemaReady(database);
+  if(!schemaReady){
+    return {
+      ready:false,
+      state:'LIMIT_SCHEMA_REQUIRED',
+      schemaReady:false,
+      requiredAmount:required,
+      effectiveDisbursementCapacity:0,
+      approvalCapacity:Math.max(0,Math.min(
+        parentState==='READY'?Number(parentBalance||0):0,
+        subLiquidity.state==='FUNDED'?Number(subLiquidity.availableBalance||0):0,
+      )),
+      parent:{
+        ready:parentState==='READY',state:parentState,balance:parentBalance,
+        refreshedAt:parent?.refreshed_at||null,ageMs:Number.isFinite(parentAge)?parentAge:null,
+      },
+      subClient:{
+        ready:subLiquidity.ready,state:subLiquidity.state,availableBalance:subLiquidity.availableBalance,
+        checkedAt:account.last_balance_sync_at||null,ageMs:subLiquidity.ageMs??null,
+        accountId:account.id,accountLast4:String(account.provider_sub_account_id||'').slice(-4)||null,
+      },
+      limit:{
+        ready:false,state:'SCHEMA_REQUIRED',id:null,approvedAmount:0,committedAmount:0,
+        currentCommittedAmount:0,remainingAmount:0,capacityForPayment:0,expiresAt:null,approvedAt:null,
+      },
+    };
+  }
 
   const activeLimit=await d1First(database,`SELECT * FROM e2pay_disbursement_limit_requests
     WHERE org_id=? AND provider_account_registry_id=? AND status='ACTIVE'
@@ -106,6 +142,7 @@ export async function readProviderFundingState(database,organizationId,providerA
 }
 
 export async function reserveDisbursementLimit(database,{organizationId,providerAccountRegistryId,paymentInstructionId,amount}){
+  if(!await disbursementLimitSchemaReady(database)) return {ok:false,code:'E2PAY_LIMIT_SCHEMA_REQUIRED'};
   const required=Math.max(0,Number(amount||0));
   if(!required) return {ok:false,code:'E2PAY_LIMIT_AMOUNT_INVALID'};
 
@@ -149,6 +186,7 @@ export async function reserveDisbursementLimit(database,{organizationId,provider
 }
 
 export async function consumeDisbursementLimit(database,paymentInstructionId,amount){
+  if(!await disbursementLimitSchemaReady(database)) return {ok:false,code:'E2PAY_LIMIT_SCHEMA_REQUIRED'};
   const value=Math.max(0,Number(amount||0));
   await d1Run(database,`UPDATE e2pay_disbursement_limit_usage
     SET status='CONSUMED',consumed_amount=CASE WHEN ? > 0 THEN ? ELSE reserved_amount END,
@@ -167,6 +205,7 @@ export async function consumeDisbursementLimit(database,paymentInstructionId,amo
 }
 
 export async function releaseDisbursementLimit(database,paymentInstructionId,reason='PAYMENT_NOT_EXECUTED'){
+  if(!await disbursementLimitSchemaReady(database)) return {ok:false,code:'E2PAY_LIMIT_SCHEMA_REQUIRED'};
   await d1Run(database,`UPDATE e2pay_disbursement_limit_usage
     SET status='RELEASED',released_at=COALESCE(released_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       release_reason=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
