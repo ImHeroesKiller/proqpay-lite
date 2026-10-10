@@ -10,6 +10,7 @@ import { revealEmployeeBankAccount } from './_employee-bank-security.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { activeProviderAccount, liquidityState, providerSnapshot, validatePaymentProviderSnapshot } from './payment-provider-routing.js';
 import { readProviderFundingState } from './e2pay-disbursement-limit-core.js';
+import { providerAccountCredentialState } from './payment-provider-account-credentials.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const PROCESSOR_ROLES = new Set(['SUPER_ADMIN', 'PAYROLL_PROCESSOR']);
@@ -1419,18 +1420,10 @@ async function executeAction(database, body, actor, env, organizationId) {
     let providerAccount=null;
     if(provider==='E2PAY'){
       providerAccount=await activeProviderAccount(database,organizationId,submission.client_id,'E2PAY',providerEnvironment,submission.project_id||null);
-      if(!providerAccount){
-        return {status:409,data:{
-          error:'Client belum memiliki ACTIVE E2Pay sub-account untuk environment '+providerEnvironment,
-          code:'E2PAY_SUBACCOUNT_MAPPING_REQUIRED',
-        }};
-      }
-      if(!providerAccount.provider_sub_account_id){
-        return {status:409,data:{
-          error:'E2Pay sub-account client belum selesai diprovisioning',
-          code:'E2PAY_SUBACCOUNT_NOT_PROVISIONED',
-        }};
-      }
+      // P5.7.3: PI preparation is intentionally asynchronous from provider provisioning.
+      // Missing/unfinished E2Pay routing does not block payroll snapshot creation; routing
+      // is bound once at PI submission after Payment Readiness becomes READY.
+      if(providerAccount && !providerAccount.provider_sub_account_id) providerAccount=null;
     }
     const billingSnapshot = JSON.stringify({
       method:String(billingProfile.billing_method || 'PER_EMPLOYEE'),
@@ -1503,7 +1496,8 @@ async function executeAction(database, body, actor, env, organizationId) {
       throw error;
     }
     const paymentInstruction = await d1First(database, 'SELECT * FROM payment_instructions WHERE id=?', [id]);
-    return { status: 201, data: { ok: true, paymentInstruction } };
+    return { status: 201, data: { ok: true, paymentInstruction,
+      paymentReadiness:{ready:Boolean(paymentInstruction.provider_account_registry_id),state:paymentInstruction.provider_account_registry_id?'ROUTING_BOUND':'PROVIDER_PENDING',blockingStage:'PAYMENT_SUBMISSION'} } };
   }
 
   if (body.action === 'SUBMIT_PAYMENT_INSTRUCTION') {
@@ -1513,12 +1507,38 @@ async function executeAction(database, body, actor, env, organizationId) {
     const payment = await d1First(database, `SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1`, [body.paymentInstructionId, organizationId]);
     if (!payment) return { status:404, data:{ error:'Payment instruction tidak ditemukan' } };
     if (payment.status !== 'PAYMENT_INSTRUCTION_READY') return { status:409, data:{ error:'PI tidak berada pada status siap submit' } };
+
+    let paymentForSubmit=payment;
+    if(!payment.provider_account_registry_id){
+      const gatewayEnv=await gatewayRuntimeEnv(database,env,organizationId);
+      const provider=String(gatewayEnv.PAYMENT_GATEWAY_PROVIDER||'').toUpperCase();
+      const providerEnvironment=String(gatewayEnv.E2PAY_ENV||'UAT').toUpperCase();
+      if(provider==='E2PAY'){
+        const submission=await d1First(database,'SELECT project_id FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1',[payment.submission_id,organizationId]);
+        const providerAccount=await activeProviderAccount(database,organizationId,payment.client_id,'E2PAY',providerEnvironment,submission?.project_id||null);
+        const credential=providerAccountCredentialState(providerAccount||{});
+        if(!providerAccount?.provider_sub_account_id || !credential.ready){
+          return {status:409,data:{
+            error:'Payroll sudah siap, tetapi Payment Readiness masih menunggu aktivasi E2Pay. PI tetap tersimpan dan dapat disubmit setelah provider READY.',
+            code:'PAYMENT_READINESS_PENDING',
+            paymentReadiness:{ready:false,state:!providerAccount?'PROVIDER_PENDING':!providerAccount.provider_sub_account_id?'PROVISIONING_PENDING':'CREDENTIAL_PENDING',blockingStage:'PAYMENT_SUBMISSION'},
+          }};
+        }
+        const routingSnapshot=providerSnapshot(providerAccount);
+        await d1Batch(database,[
+          {statement:`UPDATE payment_instructions SET provider_account_registry_id=?,provider=?,provider_environment=?,provider_sub_account_id=?,provider_account_snapshot=?,provider_balance_snapshot=?,provider_available_balance_snapshot=?,provider_balance_checked_at=?,updated_at=${NOW} WHERE id=? AND status='PAYMENT_INSTRUCTION_READY' AND provider_account_registry_id IS NULL`,
+            bindings:[providerAccount.id,providerAccount.provider,providerAccount.environment,providerAccount.provider_sub_account_id,JSON.stringify(routingSnapshot),providerAccount.balance??null,providerAccount.available_balance??null,providerAccount.last_balance_sync_at||null,payment.id]},
+          auditOperation(organizationId,actor,'PAYMENT_ROUTING_BOUND',`Provider routing bound asynchronously · ${providerAccount.provider} · accountLast4=${String(providerAccount.provider_sub_account_id).slice(-4)}`,'payment_instruction',payment.id),
+        ]);
+        paymentForSubmit=await d1First(database,'SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1',[payment.id,organizationId]);
+      }
+    }
     await d1Batch(database, [
-      { statement:`UPDATE payment_instructions SET status='PAYMENT_APPROVAL_PENDING',creator_user_id=?,updated_at=${NOW} WHERE id=?`, bindings:[actor.id,payment.id] },
-      { statement:`UPDATE payroll_submissions SET state='PAYMENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=?`, bindings:[payment.submission_id] },
-      auditOperation(organizationId, actor, 'PAYMENT_INSTRUCTION_SUBMITTED', 'PI dikirim ke Controller untuk approval', 'payment_instruction', payment.id),
+      { statement:`UPDATE payment_instructions SET status='PAYMENT_APPROVAL_PENDING',creator_user_id=?,updated_at=${NOW} WHERE id=?`, bindings:[actor.id,paymentForSubmit.id] },
+      { statement:`UPDATE payroll_submissions SET state='PAYMENT_APPROVAL_PENDING',updated_at=${NOW} WHERE id=?`, bindings:[paymentForSubmit.submission_id] },
+      auditOperation(organizationId, actor, 'PAYMENT_INSTRUCTION_SUBMITTED', 'PI dikirim ke Controller untuk approval', 'payment_instruction', paymentForSubmit.id),
     ]);
-    return { data:{ ok:true,paymentInstruction:await d1First(database,'SELECT * FROM payment_instructions WHERE id=?',[payment.id]) } };
+    return { data:{ ok:true,paymentInstruction:await d1First(database,'SELECT * FROM payment_instructions WHERE id=?',[paymentForSubmit.id]),paymentReadiness:{ready:true,state:'ROUTING_BOUND',blockingStage:null} } };
   }
 
   if (body.action === 'CREATE_EXCEPTION') {

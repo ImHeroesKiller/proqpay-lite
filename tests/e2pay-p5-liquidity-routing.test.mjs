@@ -78,7 +78,7 @@ test('P5.2/P5.3 wiring gates approval and execution on client liquidity and rout
     read('functions/api/payment-gateway-e2pay-service.js'),
     read('functions/api/e2pay-subaccounts.js'),
   ]);
-  assert.match(operating,/E2PAY_SUBACCOUNT_MAPPING_REQUIRED/);
+  assert.match(operating,/PAYMENT_READINESS_PENDING/);
   assert.match(operating,/E2PAY_LIQUIDITY_/);
   assert.match(operating,/provider_account_registry_id,provider,provider_environment,provider_sub_account_id/);
   assert.match(gateway,/validatePaymentProviderSnapshot/);
