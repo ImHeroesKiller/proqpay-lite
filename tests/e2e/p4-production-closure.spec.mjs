@@ -243,6 +243,25 @@ test.describe.serial('P4 production closure regression',()=>{
       expect(result.status,`${result.path} must not lose authentication`).not.toBe(401);
     }
 
+    const p56Checks=await page.evaluate(async()=>{
+      const fetchJson=async(path)=>{
+        const response=await fetch(path,{credentials:'same-origin'});
+        return {path,status:response.status,body:await response.json().catch(()=>({}))};
+      };
+      const funding=await fetchJson('/api/e2pay-disbursement-limits?');
+      const pi=await fetchJson('/api/operating-model?resource=payment-instruction-detail&paymentInstructionId=PI-6cc0c2b7-cbea-409d-ab8b-2122376dab18');
+      return {funding,pi};
+    });
+    expect(p56Checks.funding.status,'P5.6 funding endpoint must be healthy').toBe(200);
+    expect(p56Checks.funding.body?.ok).toBe(true);
+    expect(Array.isArray(p56Checks.funding.body?.funding)).toBe(true);
+    expect(Array.isArray(p56Checks.funding.body?.requests)).toBe(true);
+    expect(p56Checks.pi.status,'P5.6 PI detail endpoint must not crash').toBeLessThan(500);
+    expect(p56Checks.pi.status,'P5.6 PI detail must remain authenticated').not.toBe(401);
+    if(p56Checks.pi.status===200){
+      expect(p56Checks.pi.body?.paymentInstruction?.providerFunding).toBeDefined();
+    }
+
     await page.setViewportSize({width:390,height:844});
     await page.goto('/?view=dashboard',{waitUntil:'domcontentloaded'});
     const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);
