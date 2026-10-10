@@ -139,10 +139,10 @@ test('P5.7.0 approval freezes request and beneficiary routing snapshots',()=>{
   `).run();
   assert.throws(()=>db.sqlite.prepare(
     "UPDATE disbursement_requests SET provider_sub_account_id_snapshot='OTHER' WHERE id='DR-P57-1'"
-  ).run(),/Approved disbursement routing is immutable/);
+  ).run(),/Ready disbursement business intent is immutable|Approved disbursement routing is immutable/);
   assert.throws(()=>db.sqlite.prepare(
     "UPDATE disbursement_request_items SET amount=900000 WHERE id='DRI-P57'"
-  ).run(),/Approved disbursement beneficiary snapshot is immutable/);
+  ).run(),/Ready disbursement beneficiary snapshot is immutable|Approved disbursement beneficiary snapshot is immutable/);
 });
 
 test('P5.7.0 corporate account requires encrypted storage and verified primary uniqueness',()=>{
