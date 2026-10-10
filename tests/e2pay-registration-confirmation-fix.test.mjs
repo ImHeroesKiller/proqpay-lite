@@ -41,9 +41,7 @@ test('E2Pay registration request follows provider host-token contract and preser
   assert.equal(result.merchantRegistrationId,'REG-1234');
 });
 
-test('E2Pay confirmation sends plain provider password and prefix plus OTP token',async()=>{
-  assert.match(client,/composeE2PayRegistrationToken/);
-  assert.match(ui,/startsWith\(e2payChallenge\.tokenPrefix\.toUpperCase\(\)\)/);
+test('E2Pay provider confirmation protocol still sends plain provider password and token',async()=>{
   let captured=null;
   const result=await e2payRegisterConfirm(
     {E2PAY_ENV:'UAT'},
@@ -70,18 +68,16 @@ test('sub-account API distinguishes host auth from register request failures',()
   assert.doesNotMatch(api,/error\?\.httpStatus===401\|\|error\?\.httpStatus===403\?'HOST_AUTH'/);
 });
 
-test('registration challenge is transient and actionable in Client and Project UI',()=>{
-  assert.match(api,/username:registrationUsername/);
-  assert.match(api,/tokenPrefix,/);
-  assert.match(client,/E2PayRegistrationChallenge/);
-  assert.match(ui,/confirmE2PaySubAccount/);
-  assert.match(ui,/composeE2PayRegistrationToken/);
-  assert.match(ui,/Kirim ulang registration request/);
-  assert.match(ui,/Konfirmasi & Aktifkan E2Pay/);
-  assert.match(ui,/Password plaintext tidak disimpan/);
+test('registration challenge is persisted server-side while UI exposes only OTP activation',()=>{
+  assert.match(api,/provider_provisioning_sessions/);
+  assert.match(api,/provider_username/);
+  assert.match(api,/token_prefix/);
+  assert.match(client,/activateE2PaySubAccount/);
+  assert.match(ui,/Verifikasi OTP & Aktifkan/);
+  assert.match(ui,/Kirim ulang OTP aktivasi/);
+  assert.match(api,/encryptProviderProvisioningSecret/);
   assert.match(api,/encryptProviderAccountCredential/);
-  assert.doesNotMatch(api,/metadata=JSON\.stringify\([^\n]*tokenPrefix/);
-  assert.doesNotMatch(api,/metadata=JSON\.stringify\([^\n]*password/);
+  assert.doesNotMatch(ui,/Password baru/);
 });
 
 test('confirmation password policy fails before provider call',()=>{
@@ -96,13 +92,13 @@ test('submerchant registration pairing contract is explicit for client and proje
   assert.match(api,/stage:'REGISTRATION_CONFIG'/);
   assert.match(client,/providerMessage/);
   assert.match(client,/correlationId/);
-  assert.match(ui,/otomatis membuat pairing/);
+  assert.match(ui,/Host credential MSG digunakan otomatis/);
 });
 
 
-test('confirmation accepts a full provider token without duplicating its prefix',()=>{
-  assert.match(ui,/e2payOtp\.trim\(\)\.toUpperCase\(\)\.startsWith\(e2payChallenge\.tokenPrefix\.toUpperCase\(\)\)/);
-  assert.match(ui,/composeE2PayRegistrationToken\(e2payChallenge\.tokenPrefix,e2payOtp\)/);
+test('zero-friction activation composes provider token only in the backend',()=>{
+  assert.match(api,/composeProvisioningToken\(session\.token_prefix,otp\)/);
+  assert.doesNotMatch(ui,/composeE2PayRegistrationToken/);
 });
 
 test('confirmation can resolve provider account identity through the new merchant login when confirm response omits it',()=>{

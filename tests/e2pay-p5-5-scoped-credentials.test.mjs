@@ -60,7 +60,7 @@ test('P5.5 client UI requires credential validation and enables balance synchron
   assert.match(ui,/Validasi & Simpan Credential/);
   assert.match(ui,/Sync Balance/);
   assert.match(ui,/Scoped & encrypted/);
-  assert.match(ui,/Password plaintext tidak disimpan/);
+  assert.match(ui,/Credential sub-client tersimpan terenkripsi|credential merchant dibuat, dienkripsi, divalidasi/);
 });
 
 
