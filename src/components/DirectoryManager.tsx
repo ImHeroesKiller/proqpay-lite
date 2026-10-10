@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
-import { bindE2PaySubAccountCredential, composeE2PayRegistrationToken, confirmE2PaySubAccount, getE2PaySubAccounts, registerE2PaySubAccount, syncE2PaySubAccountBalance, type E2PaySubAccount } from '@/lib/e2pay-api';
+import { activateE2PaySubAccount, bindE2PaySubAccountCredential, getE2PaySubAccounts, registerE2PaySubAccount, syncE2PaySubAccountBalance, type E2PaySubAccount } from '@/lib/e2pay-api';
 import {
   DataTableState as UiDataTableState,
   FilterBar as UiFilterBar,
@@ -79,8 +79,6 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const [e2payPhone,setE2PayPhone]=useState('');
   const [e2payEmail,setE2PayEmail]=useState('');
   const [e2payBusy,setE2PayBusy]=useState(false);
-  const [e2payChallenge,setE2PayChallenge]=useState<{id:string;username:string;tokenPrefix:string;merchantRegistrationId?:string|null;accountGroupId?:string|null}|null>(null);
-  const [e2payConfirmPassword,setE2PayConfirmPassword]=useState('');
   const [e2payOtp,setE2PayOtp]=useState('');
   const [e2payMerchantUsername,setE2PayMerchantUsername]=useState('');
   const [e2payMerchantPassword,setE2PayMerchantPassword]=useState('');
@@ -152,23 +150,13 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
     setE2PayBusy(true);setMessage('');
     try{
       const result=await registerE2PaySubAccount({clientId:client.id,projectId:project?.id,environment:'UAT',phone:e2payPhone.trim(),email:e2payEmail.trim()||client.contact_email});
-      if(result.registration.state==='PENDING_CONFIRMATION'){
-        if(!result.registration.username||!result.registration.tokenPrefix) throw new Error('E2Pay tidak mengembalikan challenge konfirmasi yang lengkap.');
-        setE2PayChallenge({
-          id:result.account.id,
-          username:result.registration.username,
-          tokenPrefix:result.registration.tokenPrefix,
-          merchantRegistrationId:result.registration.merchantRegistrationId,
-          accountGroupId:result.registration.accountGroupId,
-        });
-        setE2PayConfirmPassword('');
+      if(result.registration.state==='OTP_REQUIRED'){
         setE2PayOtp('');
         setMessageTone('success');
-        setMessage(`Registration request ${client.name} diterima. Pairing ke ${project?'project '+project.name:'client '+client.name} sudah dibuat sebagai DRAFT; selesaikan OTP untuk aktivasi.`);
+        setMessage(`Registrasi ${client.name} diterima. OTP telah dikirim ke nomor ••••${result.registration.phoneLast4||''}; masukkan OTP untuk aktivasi.`);
       }else{
-        setE2PayChallenge(null);
-        setMessageTone('success');
-        setMessage(project?`Sub-merchant E2Pay aktif dan ter-pair ke project ${project.name}.`:`Sub-merchant E2Pay aktif dan ter-pair ke client ${client.name}.`);
+        setMessageTone('info');
+        setMessage('Account provider memerlukan review sebelum payment dapat diaktifkan.');
       }
       setE2PayPhone('');setE2PayEmail('');await loadE2Pay();
     }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Registrasi E2Pay gagal');}
@@ -176,23 +164,15 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   }
 
   async function confirmClientE2Pay(account:E2PaySubAccount){
-    if(!e2payChallenge||e2payChallenge.id!==account.id) return;
-    if(!e2payConfirmPassword||!e2payOtp.trim()) return;
+    if(!e2payOtp.trim()) return;
     setE2PayBusy(true);setMessage('');
     try{
-      await confirmE2PaySubAccount({
-        id:account.id,
-        username:e2payChallenge.username,
-        password:e2payConfirmPassword,
-        token:e2payOtp.trim().toUpperCase().startsWith(e2payChallenge.tokenPrefix.toUpperCase()) ? e2payOtp.trim() : composeE2PayRegistrationToken(e2payChallenge.tokenPrefix,e2payOtp),
-      });
-      setE2PayChallenge(null);
-      setE2PayConfirmPassword('');
+      await activateE2PaySubAccount({id:account.id,otp:e2payOtp.trim()});
       setE2PayOtp('');
       setMessageTone('success');
-      setMessage(`Sub-merchant E2Pay berhasil dikonfirmasi dan pairing ${account.projectId?'project override':'client'} sudah ACTIVE.`);
+      setMessage('E2Pay berhasil diaktifkan. Credential dikelola aman oleh ProQPay dan saldo awal sudah tersinkron.');
       await loadE2Pay();
-    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Konfirmasi E2Pay gagal');}
+    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Aktivasi E2Pay gagal');}
     finally{setE2PayBusy(false);}
   }
 
@@ -244,25 +224,23 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   }
   function renderE2PayRegistrationForm(client:Client,project?:Project,label?:string){
     if(!canManageE2Pay) return null;
-    return <><UiNotice tone="info" title="Registrasi sub-merchant E2Pay">Host credential MSG digunakan untuk registrasi. Setelah request diterima, ProQPay otomatis membuat pairing ke {project?'project ini':'client ini'}; aktivasi final dilakukan setelah OTP.</UiNotice><div className="directory-form-grid">
+    return <><UiNotice tone="info" title="Registrasi sub-merchant E2Pay">Host credential MSG digunakan otomatis. Setelah registrasi, user hanya perlu memasukkan OTP satu kali; credential merchant dibuat, dienkripsi, divalidasi, dan dikelola oleh backend ProQPay.</UiNotice><div className="directory-form-grid">
       <label>Nomor HP {project?'override':'sub-client'}<input type="tel" value={e2payPhone} maxLength={40} placeholder="+62..." onChange={(event)=>setE2PayPhone(event.target.value)}/></label>
       <label>Email {project?'override':'sub-client'}<input type="email" value={e2payEmail} maxLength={254} placeholder={client.contact_email||'ops@client.com'} onChange={(event)=>setE2PayEmail(event.target.value)}/></label>
     </div><button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payPhone.trim()} onClick={()=>void registerClientE2Pay(client,project)}>{e2payBusy?'Mendaftarkan…':label||(project?'Register Project Override':'Register E2Pay Sub-Client')}</button></>;
   }
 
   function renderE2PayPendingConfirmation(account:E2PaySubAccount,client:Client,project?:Project){
-    if(!canManageE2Pay) return <UiNotice tone="warning" title="Menunggu konfirmasi E2Pay">Registration request sudah diterima. Hubungi Super Admin atau Payroll Processor untuk menyelesaikan aktivasi.</UiNotice>;
-    const challenge=e2payChallenge?.id===account.id?e2payChallenge:null;
-    if(!challenge) return <><UiNotice tone="warning" title="Challenge konfirmasi tidak tersedia">Registration request sebelumnya masih pending, tetapi challenge hanya tersedia pada sesi registrasi aktif. Masukkan kembali nomor HP untuk meminta challenge baru.</UiNotice>{renderE2PayRegistrationForm(client,project,'Kirim ulang registration request')}</>;
-    return <><UiNotice tone="warning" title="Selesaikan konfirmasi E2Pay">OTP dikirim ke username <strong>{challenge.username}</strong>. Token konfirmasi menggunakan prefix <strong>{challenge.tokenPrefix}</strong> + OTP.</UiNotice>
+    if(!canManageE2Pay) return <UiNotice tone="warning" title="Menunggu konfirmasi E2Pay">OTP activation masih diperlukan. Hubungi Super Admin atau Payroll Processor untuk menyelesaikan aktivasi.</UiNotice>;
+    const state=account.provisioning?.state||'MANUAL_REVIEW';
+    const canResume=state==='OTP_REQUIRED'||state==='RETRYABLE_ERROR'||state==='ACTIVATING';
+    if(!canResume) return <><UiNotice tone="warning" title="Provisioning lama perlu diperbarui">Account ini dibuat sebelum zero-friction provisioning dan challenge aman tidak tersedia. Kirim ulang registration request; sub-account existing tidak akan diduplikasi.</UiNotice>{renderE2PayRegistrationForm(client,project,'Kirim ulang OTP aktivasi')}</>;
+    return <><UiNotice tone="warning" title="Verifikasi OTP E2Pay">Masukkan OTP yang dikirim ke nomor ••••{account.provisioning?.phoneLast4||'----'}. Username, password merchant, dan token prefix dikelola otomatis oleh ProQPay.</UiNotice>
       <div className="directory-form-grid">
-        <label>Username E2Pay<input value={challenge.username} readOnly /></label>
-        <label>Token prefix<input value={challenge.tokenPrefix} readOnly /></label>
-        <label>Password baru<input type="password" autoComplete="new-password" value={e2payConfirmPassword} minLength={6} maxLength={12} placeholder="6-12 karakter" onChange={(event)=>setE2PayConfirmPassword(event.target.value)}/></label>
         <label>OTP<input inputMode="numeric" autoComplete="one-time-code" value={e2payOtp} maxLength={20} placeholder="OTP dari E2Pay" onChange={(event)=>setE2PayOtp(event.target.value)}/></label>
       </div>
-      <p className="directory-hint">Password wajib memiliki huruf besar, huruf kecil, angka, dan karakter khusus. Password plaintext tidak disimpan; setelah merchant login tervalidasi, ProQPay menyimpan credential hash secara terenkripsi untuk sub-client tersebut.</p>
-      <button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payConfirmPassword||!e2payOtp.trim()} onClick={()=>void confirmClientE2Pay(account)}>{e2payBusy?'Mengonfirmasi…':'Konfirmasi & Aktifkan E2Pay'}</button>
+      <p className="directory-hint">Aktivasi bersifat resumable: jika koneksi provider terputus setelah OTP diterima, ProQPay akan melanjutkan session yang sama tanpa membuat merchant baru.</p>
+      <button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payOtp.trim()} onClick={()=>void confirmClientE2Pay(account)}>{e2payBusy?'Mengaktifkan…':'Verifikasi OTP & Aktifkan'}</button>
     </>;
   }
 

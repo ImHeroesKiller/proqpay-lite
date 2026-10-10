@@ -1,9 +1,10 @@
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
-import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
+import { d1All, d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { e2payAuthorize, e2payHostAuthorize, e2payMerchantAccount, e2payRegisterConfirm, e2payRegisterRequest, normalizeE2PayPassword } from './payment-gateway-e2pay.js';
 import { liquidityState } from './payment-provider-routing.js';
-import { encryptProviderAccountCredential, mergeProviderAccountMetadata, providerAccountCredentialState, scopedE2PayRuntimeEnv } from './payment-provider-account-credentials.js';
+import { decryptProviderProvisioningSecret, encryptProviderAccountCredential, encryptProviderProvisioningSecret, mergeProviderAccountMetadata, providerAccountCredentialState, scopedE2PayRuntimeEnv } from './payment-provider-account-credentials.js';
+import { composeProvisioningToken, generateManagedMerchantPassword, provisioningDisplayState } from './e2pay-provisioning-orchestrator.js';
 
 const METHODS='GET, POST, OPTIONS';
 const READ_ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -20,6 +21,9 @@ function masked(value){
 }
 function publicRow(row,requiredAmount=0){
   const merchantCredential=providerAccountCredentialState(row);
+  let meta={};
+  try{ meta=JSON.parse(String(row?.metadata_json||'{}'))||{}; }catch{}
+  const orchestrationState=provisioningDisplayState({sessionState:row.provisioning_session_state,accountStatus:row.status,providerSubAccountId:row.provider_sub_account_id,credentialReady:merchantCredential.ready});
   const provisioned=row.status==='ACTIVE'&&Boolean(row.provider_sub_account_id)&&String(row.provisioning_state||'PROVISIONED')==='PROVISIONED';
   return {
     id:row.id,
@@ -44,7 +48,8 @@ function publicRow(row,requiredAmount=0){
     lastProvisioningErrorMessage:row.last_provisioning_error_message||null,
     readiness:{ready:provisioned&&merchantCredential.ready,reason:row.status!=='ACTIVE'?'ACCOUNT_NOT_ACTIVE':!row.provider_sub_account_id?'PROVIDER_ID_MISSING':String(row.provisioning_state||'PROVISIONED')!=='PROVISIONED'?'PROVISIONING_INCOMPLETE':!merchantCredential.ready?'MERCHANT_CREDENTIAL_REQUIRED':'READY'},
     merchantCredential,
-    parentSourceId:(()=>{try{return JSON.parse(String(row.metadata_json||'{}'))?.parentSourceId||null;}catch{return null;}})(),
+    parentSourceId:meta?.parentSourceId||null,
+    provisioning:{state:orchestrationState,credentialMode:'SERVICE_MANAGED',phoneLast4:meta?.phoneLast4||null,lastErrorCode:row.provisioning_session_error_code||null,lastErrorMessage:row.provisioning_session_error_message||null,updatedAt:row.provisioning_session_updated_at||null},
     balance:row.balance===null?null:Number(row.balance),
     availableBalance:row.available_balance===null?null:Number(row.available_balance),
     lastBalanceSyncAt:row.last_balance_sync_at,
@@ -88,9 +93,14 @@ export async function onRequest({request,env}){
 
       const [rows,clients]=await Promise.all([
         d1All(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name
+          ,pps.state AS provisioning_session_state,
+          pps.last_error_code AS provisioning_session_error_code,
+          pps.last_error_message AS provisioning_session_error_message,
+          pps.updated_at AS provisioning_session_updated_at
           FROM payment_provider_accounts ppa
           LEFT JOIN clients c ON c.id=ppa.client_id
           LEFT JOIN projects p ON p.id=ppa.project_id
+          LEFT JOIN provider_provisioning_sessions pps ON pps.provider_account_registry_id=ppa.id
           WHERE ppa.org_id=? AND ppa.provider='E2PAY' AND ppa.environment=?
           ORDER BY CASE ppa.status WHEN 'ACTIVE' THEN 0 WHEN 'DRAFT' THEN 1 ELSE 2 END,c.name,p.name,ppa.created_at`,
           [organizationId,environment]),
@@ -138,6 +148,7 @@ export async function onRequest({request,env}){
         WHERE org_id=? AND client_id=? AND provider='E2PAY' AND environment=? AND account_scope='SUB_ACCOUNT' AND ((? IS NULL AND project_id IS NULL) OR project_id=?) LIMIT 1`,
         [organizationId,clientId,environment,projectId,projectId]);
       if(existing?.provider_sub_account_id) return secureJson({error:'Client sudah memiliki sub-account E2Pay',code:'E2PAY_SUBACCOUNT_ALREADY_REGISTERED'},409,request,env,METHODS);
+      const existingSession=existing ? await d1First(env.DB,`SELECT * FROM provider_provisioning_sessions WHERE provider_account_registry_id=? AND org_id=? LIMIT 1`,[existing.id,organizationId]) : null;
 
       const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,environment);
       const sourceId=clean(runtimeEnv.E2PAY_SOURCE_ID,120);
@@ -204,21 +215,22 @@ export async function onRequest({request,env}){
           VALUES(?,?,?,?,'E2PAY',?,'SUB_ACCOUNT',?,?,'IDR',?,?,?,1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?,?)`,
           bindings:[id,organizationId,clientId,projectId,environment,providerSubAccountId,client.name,status,metadata,provisioningState,actor.email,actor.email]});
       }
-      operations.push(audit(organizationId,actor,'E2PAY_SUBACCOUNT_REGISTRATION_REQUESTED',id,
-        `clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · environment=${environment} · phoneLast4=${phone.slice(-4)} · status=${status}`,requestId));
+      const sessionId=existingSession?.id||'PPS-'+crypto.randomUUID();
+      const orchestrationState=providerSubAccountId?'MANUAL_REVIEW':'OTP_REQUIRED';
+      if(existingSession){
+        operations.push({statement:`UPDATE provider_provisioning_sessions SET state=?,provider_registration_id=?,provider_username=?,token_prefix=?,account_group_id=?,provider_account_id=?,last_error_code=NULL,last_error_message=NULL,attempt_count=attempt_count+1,last_attempt_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[orchestrationState,merchantRegistrationId,registrationUsername,tokenPrefix,accountGroupId,providerSubAccountId,actor.email,sessionId,organizationId]});
+      }else{
+        operations.push({statement:`INSERT INTO provider_provisioning_sessions(id,org_id,client_id,project_id,provider,environment,provider_account_registry_id,state,credential_mode,provider_registration_id,provider_username,token_prefix,account_group_id,provider_account_id,attempt_count,last_attempt_at,created_by,updated_by) VALUES(?,?,?,?,'E2PAY',?,?,?,'SERVICE_MANAGED',?,?,?,?,?,1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?,?)`,bindings:[sessionId,organizationId,clientId,projectId,environment,id,orchestrationState,merchantRegistrationId,registrationUsername,tokenPrefix,accountGroupId,providerSubAccountId,actor.email,actor.email]});
+      }
+      operations.push(audit(organizationId,actor,'E2PAY_PROVISIONING_OTP_REQUESTED',id,
+        `clientId=${clientId} · projectId=${projectId||'INHERITED_CLIENT'} · environment=${environment} · phoneLast4=${phone.slice(-4)} · orchestration=${orchestrationState}`,requestId));
       await d1Batch(env.DB,operations);
       const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name
         FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id WHERE ppa.id=? LIMIT 1`,[id]);
       return secureJson({
         ok:true,
         account:publicRow(row),
-        registration:{
-          state:providerSubAccountId?'PROVISIONED':'PENDING_CONFIRMATION',
-          username:registrationUsername,
-          tokenPrefix,
-          merchantRegistrationId,
-          accountGroupId,
-        },
+        registration:{state:providerSubAccountId?'MANUAL_REVIEW':'OTP_REQUIRED',phoneLast4:phone.slice(-4),credentialMode:'SERVICE_MANAGED'},
         pairing:{
           clientId,
           projectId,
@@ -226,6 +238,94 @@ export async function onRequest({request,env}){
         },
         correlationId:requestId,
       },providerSubAccountId?201:202,request,env,METHODS);
+    }
+
+    if(action==='ACTIVATE_SUBACCOUNT'){
+      const id=clean(body.id,140);
+      const otp=clean(body.otp,120).replace(/\s+/g,'');
+      if(!id||!otp) return secureJson({error:'id dan OTP wajib diisi'},422,request,env,METHODS);
+      const current=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' LIMIT 1`,[id,organizationId]);
+      if(!current) return secureJson({error:'Mapping sub-account tidak ditemukan'},404,request,env,METHODS);
+      if(current.status==='ACTIVE'&&current.provider_sub_account_id&&providerAccountCredentialState(current).ready){
+        return secureJson({ok:true,account:publicRow(current),provisioning:{state:'READY',credentialMode:'SERVICE_MANAGED'},correlationId:requestId},200,request,env,METHODS);
+      }
+      const session=await d1First(env.DB,`SELECT * FROM provider_provisioning_sessions WHERE provider_account_registry_id=? AND org_id=? LIMIT 1`,[id,organizationId]);
+      if(!session?.provider_username||!session?.token_prefix){
+        return secureJson({error:'Sesi provisioning lama tidak memiliki challenge yang dapat dilanjutkan. Kirim ulang registrasi untuk memperoleh OTP baru.',code:'E2PAY_PROVISIONING_SESSION_REQUIRED',stage:'OTP_ACTIVATION',retryable:true,correlationId:requestId},409,request,env,METHODS);
+      }
+      const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,current.environment);
+      let pendingSecret=await decryptProviderProvisioningSecret(runtimeEnv,current);
+      if(!pendingSecret){
+        pendingSecret={username:String(session.provider_username),password:generateManagedMerchantPassword()};
+        const encrypted=await encryptProviderProvisioningSecret(runtimeEnv,pendingSecret);
+        const pendingMetadata=mergeProviderAccountMetadata(current,{pendingProvisioningSecret:encrypted});
+        await d1Batch(env.DB,[
+          {statement:`UPDATE payment_provider_accounts SET metadata_json=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[pendingMetadata,actor.email,id,organizationId]},
+          {statement:`UPDATE provider_provisioning_sessions SET state='ACTIVATING',otp_attempt_count=otp_attempt_count+1,last_attempt_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_error_code=NULL,last_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[actor.email,session.id,organizationId]},
+          audit(organizationId,actor,'E2PAY_PROVISIONING_ACTIVATION_STARTED',id,`environment=${current.environment} · credential=SERVICE_MANAGED`,requestId),
+        ]);
+        current.metadata_json=pendingMetadata;
+      }else{
+        await d1Run(env.DB,`UPDATE provider_provisioning_sessions SET state='ACTIVATING',otp_attempt_count=otp_attempt_count+1,last_attempt_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_error_code=NULL,last_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,[actor.email,session.id,organizationId]);
+      }
+      const passwordMd5=normalizeE2PayPassword(pendingSecret.password);
+      const merchantRuntimeEnv=Object.assign(Object.create(runtimeEnv),{E2PAY_USERNAME:pendingSecret.username,E2PAY_PASSWORD_MD5:passwordMd5});
+      let merchantAuth=null;
+      let registration=null;
+      try{ merchantAuth=await e2payAuthorize(merchantRuntimeEnv); }catch{}
+      if(!merchantAuth){
+        let host;
+        try{ host=await e2payHostAuthorize(runtimeEnv); }
+        catch(error){
+          const errorCode=clean(error?.code||'E2PAY_CONFIRM_HOST_AUTH_FAILED',120);
+          const errorMessage=clean(error?.message||'Host authorization E2Pay gagal saat aktivasi',300);
+          await d1Run(env.DB,`UPDATE provider_provisioning_sessions SET state='RETRYABLE_ERROR',last_error_code=?,last_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,[errorCode,errorMessage,actor.email,session.id,organizationId]);
+          return secureJson({error:'Aktivasi E2Pay belum dapat dilanjutkan. Coba lagi tanpa membuat sub-account baru.',code:errorCode,stage:'ACTIVATION_HOST_AUTH',retryable:true,correlationId:requestId},502,request,env,METHODS);
+        }
+        try{
+          registration=await e2payRegisterConfirm(runtimeEnv,host.accessToken,{username:pendingSecret.username,password:pendingSecret.password,token:composeProvisioningToken(session.token_prefix,otp)});
+        }catch(error){
+          const errorCode=clean(error?.code||'E2PAY_REGISTER_CONFIRM_FAILED',120);
+          const errorMessage=clean(error?.message||'OTP/konfirmasi E2Pay ditolak',300);
+          await d1Batch(env.DB,[
+            {statement:`UPDATE provider_provisioning_sessions SET state='OTP_REQUIRED',last_error_code=?,last_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[errorCode,errorMessage,actor.email,session.id,organizationId]},
+            audit(organizationId,actor,'E2PAY_PROVISIONING_OTP_FAILED',id,`environment=${current.environment} · code=${errorCode}`,requestId),
+          ]);
+          return secureJson({error:'OTP E2Pay tidak dapat dikonfirmasi. Periksa OTP lalu coba lagi.',code:errorCode,stage:'OTP_CONFIRM',retryable:true,correlationId:requestId},502,request,env,METHODS);
+        }
+        try{ merchantAuth=await e2payAuthorize(merchantRuntimeEnv); }
+        catch(error){
+          const errorCode=clean(error?.code||'E2PAY_POST_CONFIRM_AUTH_FAILED',120);
+          const errorMessage=clean(error?.message||'Merchant authorization belum dapat divalidasi setelah konfirmasi',300);
+          await d1Run(env.DB,`UPDATE provider_provisioning_sessions SET state='RETRYABLE_ERROR',last_error_code=?,last_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,[errorCode,errorMessage,actor.email,session.id,organizationId]);
+          return secureJson({error:'OTP telah diproses, tetapi validasi account E2Pay belum selesai. Coba aktivasi lagi; ProQPay akan resume secara aman.',code:errorCode,stage:'POST_CONFIRM_AUTH',retryable:true,correlationId:requestId},502,request,env,METHODS);
+        }
+      }
+      let merchantAccount;
+      try{ merchantAccount=await e2payMerchantAccount(merchantRuntimeEnv,merchantAuth.accessToken); }
+      catch(error){
+        const errorCode=clean(error?.code||'E2PAY_CONFIRM_ACCOUNT_LOOKUP_FAILED',120);
+        const errorMessage=clean(error?.message||'Account identity E2Pay belum dapat dibaca',300);
+        await d1Run(env.DB,`UPDATE provider_provisioning_sessions SET state='RETRYABLE_ERROR',last_error_code=?,last_error_message=?,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,[errorCode,errorMessage,actor.email,session.id,organizationId]);
+        return secureJson({error:'Account E2Pay sudah diaktivasi tetapi validasi account belum selesai. Coba lagi untuk resume.',code:errorCode,stage:'ACCOUNT_VALIDATION',retryable:true,correlationId:requestId},502,request,env,METHODS);
+      }
+      const merchantAccountId=clean(merchantAccount?.accountId||merchantAccount?.merchantId||merchantAccount?.id,200);
+      const confirmAccountId=clean(registration?.accountId||registration?.merchantId||registration?.id,200);
+      if(!merchantAccountId||(confirmAccountId&&confirmAccountId!==merchantAccountId)){
+        await d1Run(env.DB,`UPDATE provider_provisioning_sessions SET state='MANUAL_REVIEW',last_error_code='E2PAY_ACCOUNT_ID_MISMATCH',last_error_message='Provider account identity mismatch',updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,[actor.email,session.id,organizationId]);
+        return secureJson({error:'Identitas account hasil aktivasi tidak konsisten. Aktivasi dihentikan untuk review.',code:'E2PAY_ACCOUNT_ID_MISMATCH',stage:'ACCOUNT_VALIDATION',retryable:false,correlationId:requestId},409,request,env,METHODS);
+      }
+      const providerSubAccountId=confirmAccountId||merchantAccountId;
+      const merchantCredential=await encryptProviderAccountCredential(runtimeEnv,{username:pendingSecret.username,passwordMd5});
+      const metadata=mergeProviderAccountMetadata(current,{registrationConfirmedAt:new Date().toISOString(),registrationState:'PROVISIONED',parentSourceId:String(runtimeEnv.E2PAY_SOURCE_ID||'').trim(),merchantCredential,pendingProvisioningSecret:null});
+      const balance=Number(merchantAccount?.balance||0);
+      await d1Batch(env.DB,[
+        {statement:`UPDATE payment_provider_accounts SET provider_sub_account_id=?,provider_account_id=?,account_name=COALESCE(?,account_name),status='ACTIVE',metadata_json=?,provisioning_state='PROVISIONED',balance=?,available_balance=?,last_balance_sync_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=NULL,last_provisioning_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,merchantAccountId,clean(merchantAccount?.accountName,200)||null,metadata,balance,balance,actor.email,id,organizationId]},
+        {statement:`UPDATE provider_provisioning_sessions SET state='READY',provider_account_id=?,ready_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_error_code=NULL,last_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerSubAccountId,actor.email,session.id,organizationId]},
+        audit(organizationId,actor,'E2PAY_PROVISIONING_READY',id,`environment=${current.environment} · accountLast4=${providerSubAccountId.slice(-4)} · credential=SERVICE_MANAGED_ENCRYPTED · balanceValidated=true`,requestId),
+      ]);
+      const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id LEFT JOIN projects p ON p.id=ppa.project_id WHERE ppa.id=? LIMIT 1`,[id]);
+      return secureJson({ok:true,account:publicRow(row),provisioning:{state:'READY',credentialMode:'SERVICE_MANAGED'},correlationId:requestId},200,request,env,METHODS);
     }
 
     if(action==='CONFIRM_SUBACCOUNT'){

@@ -73,6 +73,27 @@ export async function decryptProviderAccountCredential(env,row){
   return {username,passwordMd5};
 }
 
+export async function encryptProviderProvisioningSecret(env,secret){
+  const username=String(secret?.username||'').trim();
+  const password=String(secret?.password||'');
+  if(!username||password.length<6||password.length>12) throw new Error('Secret provisioning E2Pay tidak valid');
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const plain=encoder.encode(JSON.stringify({username,password}));
+  const cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},await encryptionKey(env),plain);
+  return {ciphertext:bytesToBase64(new Uint8Array(cipher)),iv:bytesToBase64(iv),version:1,updatedAt:new Date().toISOString()};
+}
+
+export async function decryptProviderProvisioningSecret(env,row){
+  const secret=metadata(row)?.pendingProvisioningSecret;
+  if(!secret?.ciphertext||!secret?.iv) return null;
+  const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:base64ToBytes(secret.iv)},await encryptionKey(env),base64ToBytes(secret.ciphertext));
+  const parsed=JSON.parse(decoder.decode(plain));
+  const username=String(parsed?.username||'').trim();
+  const password=String(parsed?.password||'');
+  if(!username||password.length<6||password.length>12) return null;
+  return {username,password};
+}
+
 export function mergeProviderAccountMetadata(row,patch={}){
   return JSON.stringify({...metadata(row),...patch});
 }
