@@ -81,62 +81,166 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
     setAmount('');
   }
 
-  return <section className="card" style={{padding:18,display:'grid',gap:14}}>
-    <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',flexWrap:'wrap'}}>
-      <div><span className="workspace-eyebrow">FUNDING CONTROL</span><h3 style={{margin:'4px 0 0'}}>ProQPay → Sub-client → Disbursement Limit</h3><p style={{margin:'5px 0 0',color:'var(--text3)',fontSize:13}}>Saldo provider tetap dipisahkan dari limit internal. Processor mengajukan limit; Controller approve/reject.</p></div>
-      <button type="button" className="btn" disabled={loading||Boolean(busy)} onClick={()=>void load()}>{loading?'Memuat…':'Refresh'}</button>
-    </div>
+  const selectedActiveLimit=selected?active.find((item)=>item.providerAccountRegistryId===selected.providerAccountRegistryId):null;
+  const messageIsError=/gagal|tidak|wajib|belum|insufficient|stale/i.test(message);
 
-    {message?<div className={/gagal|tidak|wajib|belum|insufficient|stale/i.test(message)?'app-notice-bubble app-notice-error':'app-notice-bubble app-notice-info'} role="status"><strong>{/gagal|tidak|wajib|belum|insufficient|stale/i.test(message)?'Perlu perhatian':'Informasi'}</strong><span>{message}</span></div>:null}
-
-    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:10}}>
-      {funding.map((row)=>{
-        const activeLimit=active.find((item)=>item.providerAccountRegistryId===row.providerAccountRegistryId);
-        return <button key={row.providerAccountRegistryId} type="button" onClick={()=>setAccountId(row.providerAccountRegistryId)} className="btn" style={{textAlign:'left',padding:14,borderWidth:accountId===row.providerAccountRegistryId?2:1}}>
-          <strong>{row.clientName||row.clientCode||row.clientId}</strong>
-          <small style={{display:'block',marginTop:5}}>{row.projectName?row.projectName+' · ':''}{row.providerSubAccountIdMasked||'Sub-account'}</small>
-          <small style={{display:'block',marginTop:7}}>Parent {row.parent.balance===null?'Belum sync':formatIDR(row.parent.balance)} · Sub-client {row.subClient.availableBalance===null?'Belum sync':formatIDR(row.subClient.availableBalance)}</small>
-          <small style={{display:'block',marginTop:4}}>Limit {activeLimit?formatIDR(activeLimit.remainingAmount)+' remaining':'Belum aktif'}</small>
-        </button>;
-      })}
-    </div>
-
-    {selected?<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10}}>
-      <div className="card" style={{padding:12}}><span style={{fontSize:11,color:'var(--text3)'}}>BALANCE PROQPAY</span><strong style={{display:'block',marginTop:4}}>{selected.parent.balance===null?'Belum sync':formatIDR(selected.parent.balance)}</strong><small>{selected.parent.state}</small></div>
-      <div className="card" style={{padding:12}}><span style={{fontSize:11,color:'var(--text3)'}}>BALANCE SUB-CLIENT</span><strong style={{display:'block',marginTop:4}}>{selected.subClient.availableBalance===null?'Belum sync':formatIDR(selected.subClient.availableBalance)}</strong><small>{selected.subClient.state}</small></div>
-      <div className="card" style={{padding:12}}><span style={{fontSize:11,color:'var(--text3)'}}>APPROVAL CAPACITY</span><strong style={{display:'block',marginTop:4}}>{formatIDR(selected.approvalCapacity||0)}</strong><small>Min(parent, sub-client)</small></div>
-      <div className="card" style={{padding:12}}><span style={{fontSize:11,color:'var(--text3)'}}>DISBURSEMENT CAPACITY</span><strong style={{display:'block',marginTop:4}}>{formatIDR(selected.effectiveDisbursementCapacity||0)}</strong><small>{selected.state}</small></div>
-    </div>:null}
-
-    {selected&&(canRequest||canApprove)?<div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-      <button type="button" className="btn" disabled={busy==='SYNC'} onClick={()=>void syncFunding()}>{busy==='SYNC'?'Syncing…':'Sync Parent + Sub-client Balance'}</button>
-    </div>:null}
-
-    {selected&&canRequest?<div style={{display:'grid',gap:10}}>
-      <div style={{display:'grid',gridTemplateColumns:'minmax(180px,240px) minmax(260px,1fr)',gap:10}}>
-        <label><span style={{display:'block',fontSize:12,marginBottom:5}}>Nominal limit</span><input type="number" min="1" value={amount} onChange={(event)=>setAmount(event.target.value)} placeholder="Contoh 20000000" /></label>
-        <label><span style={{display:'block',fontSize:12,marginBottom:5}}>Alasan</span><input value={reason} onChange={(event)=>setReason(event.target.value)} maxLength={500} /></label>
+  return <section className="card ui-section-card">
+    <div className="ui-section-card-head">
+      <div>
+        <span className="workspace-eyebrow">FUNDING CONTROL</span>
+        <h2 style={{marginTop:4}}>ProQPay → Sub-client → Disbursement Limit</h2>
+        <p>Kelola sinkronisasi saldo dan limit disbursement dengan maker-checker antara Payroll Processor dan Payroll Controller.</p>
       </div>
-      <div><button type="button" className="btn btn-primary" disabled={busy==='REQUEST'||!amount||reason.trim().length<5} onClick={()=>void requestLimit()}>{busy==='REQUEST'?'Mengirim…':'Ajukan Limit ke Controller'}</button></div>
-    </div>:null}
+      <div className="ui-section-card-action">
+        <button type="button" className="btn" disabled={loading||Boolean(busy)} onClick={()=>void load()}>
+          {loading?'Memuat…':'Refresh'}
+        </button>
+      </div>
+    </div>
 
-    {pending.length?<div style={{display:'grid',gap:8}}>
-      <strong>Menunggu Controller</strong>
-      {pending.map((item)=><div key={item.id} className="card" style={{padding:12,display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',flexWrap:'wrap'}}>
-        <div><strong>{item.clientName||item.clientCode||item.clientId} · {formatIDR(item.requestedAmount)}</strong><small style={{display:'block',marginTop:4}}>{item.projectName||'Client level'} · {item.requestedByEmail} · {item.reason||'-'}</small></div>
-        {canApprove?<div style={{display:'flex',gap:8}}>
-          <button className="btn" disabled={Boolean(busy)} onClick={()=>{const reason=window.prompt('Alasan penolakan limit (minimal 10 karakter):');if(reason)void run('REJECT-'+item.id,()=>rejectE2PayDisbursementLimit(item.id,reason),'Limit ditolak.');}}>Reject</button>
-          <button className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void run('APPROVE-'+item.id,()=>approveE2PayDisbursementLimit(item.id),'Limit disetujui dan aktif.')}>Approve Limit</button>
-        </div>:null}
-      </div>)}
-    </div>:null}
+    <div className="ui-stack">
+      {message?<div className={`card ui-section-card ui-notice ${messageIsError?'ui-notice-error':'ui-notice-success'}`} role="status">
+        <div>
+          <strong>{messageIsError?'Perlu perhatian':'Informasi'}</strong>
+          <span>{message}</span>
+        </div>
+      </div>:null}
 
-    {active.length?<div style={{display:'grid',gap:8}}>
-      <strong>Limit aktif</strong>
-      {active.map((item)=><div key={item.id} className="card" style={{padding:12,display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',flexWrap:'wrap'}}>
-        <div><strong>{item.clientName||item.clientCode||item.clientId}</strong><small style={{display:'block',marginTop:4}}>Approved {formatIDR(item.approvedAmount||0)} · Committed {formatIDR(item.committedAmount)} · Remaining {formatIDR(item.remainingAmount)}</small></div>
-        {canApprove?<button className="btn" disabled={Boolean(busy)} onClick={()=>{const reason=window.prompt('Alasan revoke limit (minimal 10 karakter):');if(reason)void run('REVOKE-'+item.id,()=>revokeE2PayDisbursementLimit(item.id,reason),'Limit direvoke.');}}>Revoke</button>:null}
-      </div>)}
-    </div>:null}
+      <div className="card ui-filter-bar">
+        <div className="ui-filter-bar-head">
+          <div>
+            <strong>Funding account</strong>
+            <span>Pilih sub-client yang akan disinkronkan atau diberikan limit.</span>
+          </div>
+          {selected?<span className={`ui-status-badge ${selected.state==='READY'?'ui-status-success':selected.state==='SUBCLIENT_NOT_SYNCED'?'ui-status-warning':'ui-status-accent'}`}>
+            {selected.state==='SUBCLIENT_NOT_SYNCED'?'Perlu sinkronisasi':selected.state}
+          </span>:null}
+        </div>
+        <label className="ui-form-field">
+          <span>Sub-client / account</span>
+          <select value={accountId} onChange={(event)=>setAccountId(event.target.value)} disabled={loading||!funding.length}>
+            {!funding.length?<option value="">Belum ada funding account</option>:null}
+            {funding.map((row)=><option key={row.providerAccountRegistryId} value={row.providerAccountRegistryId}>
+              {(row.clientName||row.clientCode||row.clientId)}{row.projectName?` · ${row.projectName}`:''} · {row.providerSubAccountIdMasked||'Sub-account'}
+            </option>)}
+          </select>
+          {selected?<small>
+            Parent {selected.parent.balance===null?'belum sync':formatIDR(selected.parent.balance)} · Sub-client {selected.subClient.availableBalance===null?'belum sync':formatIDR(selected.subClient.availableBalance)}
+            {selectedActiveLimit?` · Limit tersisa ${formatIDR(selectedActiveLimit.remainingAmount)}`:' · Limit belum aktif'}
+          </small>:null}
+        </label>
+      </div>
+
+      {selected?<div className="ui-metric-grid">
+        <div className="card ui-metric-card">
+          <span>Balance ProQPay</span>
+          <strong>{selected.parent.balance===null?'Belum sync':formatIDR(selected.parent.balance)}</strong>
+          <small>{selected.parent.state==='STALE'?'Perlu refresh saldo':selected.parent.state}</small>
+        </div>
+        <div className={`card ui-metric-card ${selected.subClient.availableBalance===null?'ui-tone-warning':''}`}>
+          <span>Balance Sub-client</span>
+          <strong>{selected.subClient.availableBalance===null?'Belum sync':formatIDR(selected.subClient.availableBalance)}</strong>
+          <small>{selected.subClient.state==='NOT_SYNCED'?'Belum pernah disinkronkan':selected.subClient.state}</small>
+        </div>
+        <div className="card ui-metric-card">
+          <span>Approval Capacity</span>
+          <strong>{formatIDR(selected.approvalCapacity||0)}</strong>
+          <small>Minimum saldo parent & sub-client</small>
+        </div>
+        <div className={`card ui-metric-card ${selected.effectiveDisbursementCapacity>0?'ui-tone-success':'ui-tone-warning'}`}>
+          <span>Disbursement Capacity</span>
+          <strong>{formatIDR(selected.effectiveDisbursementCapacity||0)}</strong>
+          <small>{selected.state==='SUBCLIENT_NOT_SYNCED'?'Menunggu sinkronisasi sub-client':selected.state}</small>
+        </div>
+      </div>:null}
+
+      {selected&&(canRequest||canApprove)?<div className="ui-action-bar">
+        <div className="ui-action-bar-meta">
+          Sinkronkan saldo provider sebelum menentukan atau menyetujui limit disbursement.
+        </div>
+        <div className="ui-action-bar-actions">
+          <button type="button" className="btn" disabled={busy==='SYNC'} onClick={()=>void syncFunding()}>
+            {busy==='SYNC'?'Menyinkronkan…':'Sync balance'}
+          </button>
+        </div>
+      </div>:null}
+
+      {selected&&canRequest?<div className="card ui-filter-bar">
+        <div className="ui-filter-bar-head">
+          <div>
+            <strong>Ajukan limit disbursement</strong>
+            <span>Payroll Controller akan melakukan approval sebelum limit dapat digunakan.</span>
+          </div>
+        </div>
+        <div className="ui-form-stack">
+          <div className="ui-form-grid">
+            <label className="ui-form-field">
+              <span>Nominal limit</span>
+              <input type="number" min="1" value={amount} onChange={(event)=>setAmount(event.target.value)} placeholder="Contoh: 20000000" />
+              <small>Maksimum mengikuti approval capacity yang tersedia.</small>
+            </label>
+            <label className="ui-form-field">
+              <span>Alasan</span>
+              <input value={reason} onChange={(event)=>setReason(event.target.value)} maxLength={500} />
+              <small>Berikan alasan operasional yang cukup untuk proses approval.</small>
+            </label>
+          </div>
+          <div className="ui-form-actions">
+            <button type="button" className="btn btn-primary" disabled={busy==='REQUEST'||!amount||reason.trim().length<5} onClick={()=>void requestLimit()}>
+              {busy==='REQUEST'?'Mengirim…':'Ajukan Limit ke Controller'}
+            </button>
+          </div>
+        </div>
+      </div>:null}
+
+      {pending.length?<div className="card ui-filter-bar">
+        <div className="ui-filter-bar-head">
+          <div>
+            <strong>Menunggu approval Controller</strong>
+            <span>{pending.length} request limit membutuhkan keputusan.</span>
+          </div>
+          <span className="ui-status-badge ui-status-warning">Pending {pending.length}</span>
+        </div>
+        <div className="ui-table-wrap">
+          <table className="ui-data-table">
+            <thead><tr><th>Sub-client</th><th>Nominal</th><th>Alasan</th><th>Requester</th>{canApprove?<th>Aksi</th>:null}</tr></thead>
+            <tbody>{pending.map((item)=><tr key={item.id}>
+              <td><strong>{item.clientName||item.clientCode||item.clientId}</strong><br/><small>{item.projectName||'Client level'}</small></td>
+              <td><strong>{formatIDR(item.requestedAmount)}</strong></td>
+              <td>{item.reason||'-'}</td>
+              <td>{item.requestedByEmail}</td>
+              {canApprove?<td>
+                <div className="ui-cluster">
+                  <button className="btn" disabled={Boolean(busy)} onClick={()=>{const rejectReason=window.prompt('Alasan penolakan limit (minimal 10 karakter):');if(rejectReason)void run('REJECT-'+item.id,()=>rejectE2PayDisbursementLimit(item.id,rejectReason),'Limit ditolak.');}}>Reject</button>
+                  <button className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void run('APPROVE-'+item.id,()=>approveE2PayDisbursementLimit(item.id),'Limit disetujui dan aktif.')}>Approve Limit</button>
+                </div>
+              </td>:null}
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </div>:null}
+
+      {active.length?<div className="card ui-filter-bar">
+        <div className="ui-filter-bar-head">
+          <div>
+            <strong>Limit aktif</strong>
+            <span>Monitor committed dan remaining capacity per sub-client.</span>
+          </div>
+          <span className="ui-status-badge ui-status-success">Active {active.length}</span>
+        </div>
+        <div className="ui-table-wrap">
+          <table className="ui-data-table">
+            <thead><tr><th>Sub-client</th><th>Approved</th><th>Committed</th><th>Remaining</th>{canApprove?<th>Aksi</th>:null}</tr></thead>
+            <tbody>{active.map((item)=><tr key={item.id}>
+              <td><strong>{item.clientName||item.clientCode||item.clientId}</strong><br/><small>{item.projectName||'Client level'}</small></td>
+              <td>{formatIDR(item.approvedAmount||0)}</td>
+              <td>{formatIDR(item.committedAmount)}</td>
+              <td><strong>{formatIDR(item.remainingAmount)}</strong></td>
+              {canApprove?<td><button className="btn" disabled={Boolean(busy)} onClick={()=>{const revokeReason=window.prompt('Alasan revoke limit (minimal 10 karakter):');if(revokeReason)void run('REVOKE-'+item.id,()=>revokeE2PayDisbursementLimit(item.id,revokeReason),'Limit direvoke.');}}>Revoke</button></td>:null}
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </div>:null}
+    </div>
   </section>;
 }
