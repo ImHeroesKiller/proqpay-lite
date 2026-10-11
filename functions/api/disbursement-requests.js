@@ -6,6 +6,7 @@ import { canonicalBankCode, encryptAccountNumber, sha256Hex } from './payment-in
 import { revealEmployeeBankAccount } from './_employee-bank-security.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { canonicalSourceType, disbursementIdentity, intentFromSource, publicDisbursementRequest } from './disbursement-request-core.js';
+import { resolveProviderChannel } from './provider-channel-router.js';
 
 const METHODS='GET, POST, OPTIONS';
 const SOURCE_READY_PI=new Set(['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT']);
@@ -127,9 +128,18 @@ export async function onRequest({request,env}){
     if(!current) return secureJson({error:'Disbursement Request tidak ditemukan'},404,request,env,METHODS);
     if(current.status==='PENDING_APPROVAL') return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id),idempotentReplay:true},200,request,env,METHODS);
     if(current.status!=='READY') return secureJson({error:'Disbursement Request tidak berada pada status READY',code:'DISBURSEMENT_NOT_READY'},409,request,env,METHODS);
+    const route=await resolveProviderChannel(env.DB,{
+      provider:current.provider,environment:current.provider_environment,purpose:current.purpose,
+      destinationMode:current.destination_mode,beneficiaryType:current.beneficiary_type,
+    });
+    if(!route.ok) return secureJson({
+      error:'Provider channel untuk intent ini belum ACTIVE/terkonfirmasi. Disbursement Request tetap READY dan tidak dikirim ke approval.',
+      code:route.code,intentKey:route.intentKey||null,
+    },409,request,env,METHODS);
     await d1Batch(env.DB,[
-      {statement:`UPDATE disbursement_requests SET status='PENDING_APPROVAL',requested_by_user_id=?,requested_by_email=?,requested_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_by_user_id=?,updated_by_email=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='READY'`,bindings:[actor.id||null,actor.email,actor.id||null,actor.email,id,organizationId]},
-      audit(organizationId,actor,'DISBURSEMENT_REQUEST_SUBMITTED',`purpose=${current.purpose} · destination=${current.destination_mode} · amount=${current.amount}`,id),
+      {statement:`UPDATE disbursement_requests SET status='PENDING_APPROVAL',provider_channel_mapping_id=?,provider_channel_snapshot=?,requested_by_user_id=?,requested_by_email=?,requested_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_by_user_id=?,updated_by_email=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='READY'`,bindings:[route.mapping.id,JSON.stringify(route.snapshot),actor.id||null,actor.email,actor.id||null,actor.email,id,organizationId]},
+      audit(organizationId,actor,'DISBURSEMENT_PROVIDER_CHANNEL_BOUND',`intent=${route.snapshot.intentKey} · providerChannel=${route.snapshot.providerChannel} · contract=${route.snapshot.contractVersion} · configHash=${route.snapshot.configHash}`,id),
+      audit(organizationId,actor,'DISBURSEMENT_REQUEST_SUBMITTED',`purpose=${current.purpose} · destination=${current.destination_mode} · amount=${current.amount} · channel=${route.snapshot.providerChannel}`,id),
     ]);
     return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id)},200,request,env,METHODS);
   }

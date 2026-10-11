@@ -95,7 +95,7 @@ test('P5.7.0 provider channel mapping does not invent E2Pay channel codes',()=>{
       id,provider,environment,purpose,destination_mode,beneficiary_type,
       provider_channel,mapping_status,created_by
     ) VALUES('PCM-BAD','E2PAY','UAT','PAYROLL','DIRECT_EMPLOYEE','EMPLOYEE',NULL,'ACTIVE','seed')
-  `).run(),/CHECK constraint failed/);
+  `).run(),/CHECK constraint failed|Active provider channel mapping requires confirmation evidence/);
   assert.doesNotThrow(()=>db.sqlite.prepare(`
     INSERT INTO provider_channel_mappings(
       id,provider,environment,purpose,destination_mode,beneficiary_type,
