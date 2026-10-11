@@ -32,6 +32,8 @@ export async function disbursementIdentity({orgId,clientId,sourceDocumentType,so
 }
 
 export function publicDisbursementRequest(row,items=[]){
+  let providerChannel=null;
+  try{ providerChannel=row.provider_channel_snapshot?JSON.parse(String(row.provider_channel_snapshot)):null; }catch{ providerChannel=null; }
   return {
     id:row.id,clientId:row.client_id,projectId:row.project_id||null,provider:row.provider,environment:row.provider_environment,
     providerSubAccountIdMasked:row.provider_sub_account_id_snapshot?'••••'+String(row.provider_sub_account_id_snapshot).slice(-4):null,
@@ -39,7 +41,7 @@ export function publicDisbursementRequest(row,items=[]){
     sourceDocumentType:row.source_document_type,sourceDocumentId:row.source_document_id,
     amount:Number(row.amount||0),currency:row.currency,recipientCount:Number(row.recipient_count||0),status:row.status,
     clientReference:row.client_reference,correlationId:row.correlation_id,requestedBy:row.requested_by_email||null,requestedAt:row.requested_at||null,
-    createdAt:row.created_at,providerChannel:row.provider_channel_snapshot||null,
+    createdAt:row.created_at,providerChannel,
     items:items.map((item)=>({id:item.id,sequenceNo:Number(item.sequence_no),sourceItemType:item.source_item_type,sourceItemId:item.source_item_id,
       beneficiaryType:item.beneficiary_type,beneficiaryReference:item.beneficiary_reference,employeeId:item.employee_id||null,
       bankCode:item.bank_code,bankName:item.bank_name||null,beneficiaryName:item.beneficiary_name,accountLast4:item.account_number_last4,
