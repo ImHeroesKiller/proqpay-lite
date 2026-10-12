@@ -1,0 +1,37 @@
+name: P5.8.3 UAT Reset Eligibility (Read-Only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE || 'proqpay-lite-production' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Confirm Cloudflare D1 authorization
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" && test -n "${CLOUDFLARE_API_TOKEN:-}"
+          npx wrangler whoami >/dev/null
+      - name: Read UAT reset eligibility metrics (NO DELETE)
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --json --command "$(sed '/^--/d' ops/p583-uat-reset-readiness.sql)" >/tmp/p583-metrics.json
+          node scripts/p583-reset-gate.mjs /tmp/p583-metrics.json /tmp/p583-reset-report.json
+      - name: Save aggregates without IDs or secrets
+        uses: actions/upload-artifact@v4
+        with:
+          name: p583-reset-preflight-${{ github.run_id }}
+          path: /tmp/p583-reset-report.json
+          if-no-files-found: error
+          retention-days: 14
