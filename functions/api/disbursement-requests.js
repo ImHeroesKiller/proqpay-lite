@@ -118,6 +118,13 @@ export async function onRequest({request,env}){
       const detail=await requestWithItems(env.DB,organizationId,id);
       return detail?secureJson({ok:true,request:detail},200,request,env,METHODS):secureJson({error:'Disbursement Request tidak ditemukan'},404,request,env,METHODS);
     }
+    const sourceId=clean(url.searchParams.get('sourceDocumentId'),160);
+    if(sourceId){
+      const sourceType=canonicalSourceType(url.searchParams.get('sourceDocumentType'));
+      if(!['PAYMENT_INSTRUCTION','EWA_REQUEST'].includes(sourceType)) return secureJson({error:'Invalid sourceDocumentType'},422,request,env,METHODS);
+      const existing=await existingForSource(env.DB,organizationId,sourceType,sourceId);
+      return secureJson({ok:true,requests:existing?[publicDisbursementRequest(existing,[])]:[]},200,request,env,METHODS);
+    }
     const status=clean(url.searchParams.get('status'),40).toUpperCase();
     const clientId=clean(url.searchParams.get('clientId'),140);
     const bindings=[organizationId];

@@ -9,6 +9,7 @@ import { actorFraudDecision, beneficiaryFraudDecision, paymentLimitDecision } fr
 import { recordFraudIncident } from './_fraud-incidents.js';
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import { decryptAccountNumber, sha256Hex } from './payment-instruction-core.js';
+import { applyCanonicalEwaSettlement } from './ewa-canonical-settlement.js';
 import { roleHasCapability } from '../../shared/authority-matrix.js';
 import { legacyGatewayForPi, LEGACY_FINANCIAL_PRESENT } from './_payment-source-guard.js';
 
@@ -72,7 +73,10 @@ export async function onRequest({request,env}){
     if(dr.source_document_type==='PAYMENT_INSTRUCTION' && await legacyGatewayForPi(env.DB,organizationId,dr.source_document_id))
       return secureJson(LEGACY_FINANCIAL_PRESENT,409,request,env,METHODS);
     let execution=await loadExecution(env.DB,organizationId,drId);
-    if(execution?.status==='SUCCEEDED') return secureJson({ok:true,execution:safeExecution(execution),idempotentReplay:true},200,request,env,METHODS);
+    if(execution?.status==='SUCCEEDED'){
+      await applyCanonicalEwaSettlement(env.DB,dr,actor.email);
+      return secureJson({ok:true,execution:safeExecution(execution),idempotentReplay:true},200,request,env,METHODS);
+    }
     if(execution?.status==='RECONCILIATION_REQUIRED'||dr.status==='RECONCILIATION_REQUIRED') return secureJson({error:'Status provider belum final. Reconciliation wajib sebelum tindakan berikutnya.',code:'E2PAY_RECONCILIATION_REQUIRED',execution:safeExecution(execution)},409,request,env,METHODS);
     if(execution?.status==='FAILED') return secureJson({error:'Execution sebelumnya gagal. Blind retry diblokir; review/reconciliation diperlukan.',code:'DISBURSEMENT_CONTROLLED_RECOVERY_REQUIRED',execution:safeExecution(execution)},409,request,env,METHODS);
     if(!['APPROVED','EXECUTING','PROCESSING'].includes(String(dr.status))) return secureJson({error:`DR berstatus ${dr.status} belum dapat dieksekusi`,code:'DISBURSEMENT_NOT_APPROVED'},409,request,env,METHODS);
@@ -138,6 +142,7 @@ export async function onRequest({request,env}){
         audit(organizationId,actor,result.parentStatus==='SUCCEEDED'?'DISBURSEMENT_SETTLED':result.parentStatus==='RECONCILIATION_REQUIRED'?'DISBURSEMENT_EXECUTION_UNCERTAIN':result.parentStatus==='FAILED'?'DISBURSEMENT_EXECUTION_FAILED':'DISBURSEMENT_EXECUTION_PROCESSING',`execution=${execution.id} · provider=${dr.provider} · channel=${channelSnapshot.providerChannel} · status=${result.parentStatus} · succeeded=${result.summary?.succeeded||0}/${result.summary?.total||requestItems.length}`,dr.id),
       ]);
       if(result.parentStatus==='SUCCEEDED') await consumeDisbursementRequestLimit(env.DB,dr.id,Number(dr.amount));
+      if(result.parentStatus==='SUCCEEDED') await applyCanonicalEwaSettlement(env.DB,dr,actor.email);
       else if(result.parentStatus==='FAILED'&&!result.financialPostStarted) await releaseDisbursementRequestLimit(env.DB,dr.id,'PRE_PROVIDER_EXECUTION_FAILED');
       execution=await loadExecution(env.DB,organizationId,dr.id);
       const items=await d1All(env.DB,'SELECT * FROM disbursement_execution_items WHERE disbursement_execution_id=? ORDER BY created_at,id',[execution.id]);

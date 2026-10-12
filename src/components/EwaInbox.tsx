@@ -7,7 +7,7 @@ import {
   EwaStatusBadge,
 } from "@/components/employee-services/EwaLifecycle";
 import { EmployeeServiceState } from "@/components/employee-services/OperationalState";
-import DisbursementDialog from "@/components/employee-services/DisbursementDialog";
+import CanonicalDisbursementWorkspace from "@/components/CanonicalDisbursementWorkspace";
 import {
   FilterBar as UiFilterBar,
   MetricCard as UiMetricCard,
@@ -34,12 +34,14 @@ const IDR = new Intl.NumberFormat("id-ID", {
 function EwaActionButtons({
   row,
   busy,
+  role,
   onAction,
   onDisburse,
   onDetail,
 }: {
   row: EwaRow;
   busy: boolean;
+  role:string;
   onAction: (id: string, action: string) => void;
   onDisburse: (id: string) => void;
   onDetail: (row: EwaRow) => void;
@@ -49,7 +51,7 @@ function EwaActionButtons({
       <button type="button" className="btn" onClick={() => onDetail(row)}>
         Detail
       </button>
-      {row.status === "SUBMITTED" ? (
+      {row.status === "SUBMITTED" && role === "SUPER_ADMIN" ? (
         <>
           <button type="button" className="btn btn-primary" disabled={busy} onClick={() => onAction(row.id, "APPROVE")}>
             Setujui
@@ -58,9 +60,9 @@ function EwaActionButtons({
             Tolak
           </button>
         </>
-      ) : row.status === "APPROVED" ? (
+      ) : row.status === "APPROVED" && ["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role) ? (
         <button type="button" className="btn btn-primary" disabled={busy} onClick={() => onDisburse(row.id)}>
-          Catat pencairan
+          Canonical Disbursement
         </button>
       ) : null}
     </div>
@@ -86,6 +88,8 @@ export default function EwaInbox() {
   const [busy, setBusy] = useState("");
   const [selected, setSelected] = useState<EwaRow | null>(null);
   const [disbursementTarget, setDisbursementTarget] = useState<EwaRow | null>(null);
+  const [actor,setActor]=useState<{role:string;email?:string;permissions?:string[]}|null>(null);
+  useEffect(()=>{void fetch("/api/me").then(r=>r.ok?r.json():null).then(data=>setActor(data?.user||null)).catch(()=>setActor(null));},[]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -257,6 +261,7 @@ export default function EwaInbox() {
                       <EwaActionButtons
                         row={row}
                         busy={Boolean(busy)}
+                        role={actor?.role||""}
                         onAction={(id, action) => void act(id, action)}
                         onDisburse={(id) => void disburse(id)}
                         onDetail={setSelected}
@@ -284,6 +289,7 @@ export default function EwaInbox() {
                 <EwaActionButtons
                   row={row}
                   busy={Boolean(busy)}
+                  role={actor?.role||""}
                   onAction={(id, action) => void act(id, action)}
                   onDisburse={(id) => void disburse(id)}
                   onDetail={setSelected}
@@ -305,19 +311,10 @@ export default function EwaInbox() {
       />
 
       {selected ? <EwaDetailPanel row={selected} onClose={() => setSelected(null)} /> : null}
-      {disbursementTarget ? (
-        <DisbursementDialog
-          row={disbursementTarget}
-          busy={Boolean(busy)}
-          error={message}
-          onClose={() => setDisbursementTarget(null)}
-          onConfirm={(input) => {
-            void act(disbursementTarget.id, "DISBURSE", input).then((success) => {
-              if (success) setDisbursementTarget(null);
-            });
-          }}
-        />
-      ) : null}
+      {disbursementTarget ? <div style={{marginTop:14,display:'grid',gap:8}}>
+        <button type="button" className="btn" style={{justifySelf:'start'}} onClick={()=>setDisbursementTarget(null)}>Tutup canonical payment</button>
+        <CanonicalDisbursementWorkspace actor={actor} sourceType="EWA_REQUEST" focusSourceId={disbursementTarget.id} clientId={disbursementTarget.client_id||''} onChanged={()=>void load()} />
+      </div> : null}
     </section>
   );
 }

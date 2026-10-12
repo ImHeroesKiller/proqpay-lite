@@ -83,7 +83,7 @@ export default function Sidebar({
   const clientExperience = role === "CLIENT_USER";
   const canManageSettings = roleHasCapability(role || "", "settings");
   const canViewAudit = roleHasCapability(role || "", "audit:view");
-  const canManageEmployeeServices = roleHasCapability(role || "", "employee-services:manage");
+  const canManageEmployeeServices = roleHasCapability(role || "", "employee-services:manage") || ["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role || "");
   const employeeServicesActive = view === "ewa";
   const systemActive = ["integrations", "logs"].includes(view);
 
