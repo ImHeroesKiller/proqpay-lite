@@ -100,6 +100,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const dialogRef = useRef<HTMLDivElement>(null);
   const detailDialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement|null>(null);
+  const recoveryAutoOpenedRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -123,6 +124,14 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const loadE2Pay=useCallback(async()=>{try{const result=await getE2PaySubAccounts('UAT');setE2PayAccounts(result.accounts);}catch{/* payment integration may be unavailable while master data remains usable */}},[]);
   const loadClientReadiness=useCallback(async()=>{try{const response=await fetch('/api/client-readiness',{headers:{Accept:'application/json'}});const data=await response.json().catch(()=>({}));if(response.ok)setClientReadiness(data.clients||[]);}catch{/* readiness is advisory; directory remains usable */}},[]);
   useEffect(()=>{void loadE2Pay();void loadClientReadiness();},[loadE2Pay,loadClientReadiness]);
+  useEffect(()=>{
+    if(typeof window==='undefined'||loading||detail||recoveryAutoOpenedRef.current) return;
+    const params=new URLSearchParams(window.location.search);
+    const recoveryClientId=params.get('recoveryClientId');
+    if(!recoveryClientId) return;
+    const target=clients.find((client)=>client.id===recoveryClientId);
+    if(target){recoveryAutoOpenedRef.current=true;setActiveDirectoryTab('clients');setDetail({type:'client',item:target});}
+  },[clients,loading,detail]);
 
   async function submit() {
     if (!mode) return;
@@ -217,6 +226,12 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
       setMessageTone('success');
       setMessage('Credential merchant sub-client berhasil divalidasi, dienkripsi, dan saldo awal tersinkron.');
       await Promise.all([loadE2Pay(),loadClientReadiness()]);
+      if(typeof window!=='undefined'){
+        const params=new URLSearchParams(window.location.search);
+        if(params.get('recoveryAccountId')===account.id&&params.get('recoveryReturnView')==='payment-instructions'){
+          window.location.assign(`/?view=payment-instructions&fundingAccountId=${encodeURIComponent(account.id)}&recoveryComplete=1`);
+        }
+      }
     }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Validasi credential sub-client gagal');}
     finally{setE2PayBusy(false);}
   }

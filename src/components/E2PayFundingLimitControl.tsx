@@ -21,7 +21,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState('');
   const [message,setMessage]=useState('');
-  const [accountId,setAccountId]=useState('');
+  const [accountId,setAccountId]=useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('fundingAccountId')||'');
   const [amount,setAmount]=useState('');
   const [reason,setReason]=useState('Limit operasional disbursement payroll');
 
@@ -35,7 +35,8 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
       setFunding(data.funding);
       setRequests(data.requests);
       if(!accountId&&data.funding.length) setAccountId(data.funding[0].providerAccountRegistryId);
-      setMessage('');
+      const recoveryComplete=typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('recoveryComplete')==='1';
+      setMessage(recoveryComplete?'Legacy credential berhasil direcovery. Balance awal sudah disinkronkan; funding account siap diverifikasi.':'');
     }catch(error){
       setMessage(error instanceof Error?error.message:'Funding & limit gagal dimuat');
     }finally{
@@ -83,7 +84,10 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
   }
 
   const selectedActiveLimit=selected?active.find((item)=>item.providerAccountRegistryId===selected.providerAccountRegistryId):null;
-  const credentialRequired=Boolean(selected&&selected.provisioningState==='PROVISIONED'&&!selected.merchantCredential?.ready);
+  const legacyRecoveryRequired=Boolean(selected&&(selected.legacyCompatibility==='LEGACY_CREDENTIAL_RECOVERY_REQUIRED'||selected.credentialHealth?.state==='LEGACY_MANUAL'||selected.accountReadiness?.reason==='LEGACY_CREDENTIAL_RECOVERY_REQUIRED'));
+  const credentialRequired=Boolean(selected&&selected.provisioningState==='PROVISIONED'&&!selected.merchantCredential?.ready&&!legacyRecoveryRequired);
+  const credentialBlocked=Boolean(legacyRecoveryRequired||credentialRequired);
+  const recoveryHref=selected?`/?view=clients&recoveryClientId=${encodeURIComponent(selected.clientId)}&recoveryAccountId=${encodeURIComponent(selected.providerAccountRegistryId)}&recoveryReturnView=payment-instructions`: '/?view=clients';
   const messageIsError=/gagal|tidak|wajib|belum|insufficient|stale/i.test(message);
 
   return <section className="card ui-section-card">
@@ -114,8 +118,8 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
             <strong>Funding account</strong>
             <span>Pilih sub-client yang akan disinkronkan atau diberikan limit.</span>
           </div>
-          {selected?<span className={`ui-status-badge ${credentialRequired?'ui-status-warning':selected.state==='READY'?'ui-status-success':selected.state==='SUBCLIENT_NOT_SYNCED'?'ui-status-warning':'ui-status-accent'}`}>
-            {credentialRequired?'Provisioned · Credential Required':selected.state==='SUBCLIENT_NOT_SYNCED'?'Perlu sinkronisasi':selected.state}
+          {selected?<span className={`ui-status-badge ${credentialBlocked?'ui-status-warning':selected.state==='READY'?'ui-status-success':selected.state==='SUBCLIENT_NOT_SYNCED'?'ui-status-warning':'ui-status-accent'}`}>
+            {legacyRecoveryRequired?'Legacy · Recovery Required':credentialRequired?'Credential Lifecycle Required':selected.state==='SUBCLIENT_NOT_SYNCED'?'Perlu sinkronisasi':selected.state}
           </span>:null}
         </div>
         <label className="ui-form-field">
@@ -133,12 +137,18 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
         </label>
       </div>
 
-      {credentialRequired?<div className="card ui-section-card ui-notice ui-notice-warning" role="status">
+      {legacyRecoveryRequired?<div className="card ui-section-card ui-notice ui-notice-warning" role="status">
         <div>
-          <strong>Sub-client sudah provisioned, merchant credential belum terhubung</strong>
-          <span>Account {selected?.providerSubAccountIdMasked||''} sudah ACTIVE / PROVISIONED. Hubungkan merchant credential scoped satu kali agar balance sync P5.5/P5.6 dapat berjalan.</span>
+          <strong>Legacy E2Pay account · credential recovery diperlukan</strong>
+          <span>Account {selected?.providerSubAccountIdMasked||''} adalah sub-account existing yang dipertahankan. Recovery merchant credential dilakukan satu kali tanpa membuat merchant/sub-account baru. Setelah valid, lifecycle otomatis menjadi READY / HEALTHY dan balance awal disinkronkan.</span>
         </div>
-        <Link className="btn btn-primary" href="/?view=clients">Hubungkan Credential</Link>
+        <Link className="btn btn-primary" href={recoveryHref}>Recovery Credential</Link>
+      </div>:credentialRequired?<div className="card ui-section-card ui-notice ui-notice-warning" role="status">
+        <div>
+          <strong>Credential lifecycle belum READY</strong>
+          <span>Account {selected?.providerSubAccountIdMasked||''} memakai lifecycle service-managed. Buka master Client untuk pemeriksaan credential; manual credential binding tidak digunakan untuk account P5.7 baru.</span>
+        </div>
+        <Link className="btn btn-primary" href={recoveryHref}>Periksa Credential</Link>
       </div>:null}
 
       {selected?<div className="ui-metric-grid">
@@ -169,8 +179,8 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
           Sinkronkan saldo provider sebelum menentukan atau menyetujui limit disbursement.
         </div>
         <div className="ui-action-bar-actions">
-          <button type="button" className="btn" disabled={busy==='SYNC'||credentialRequired} onClick={()=>void syncFunding()}>
-            {credentialRequired?'Credential diperlukan':busy==='SYNC'?'Menyinkronkan…':'Sync balance'}
+          <button type="button" className="btn" disabled={busy==='SYNC'||credentialBlocked} onClick={()=>void syncFunding()}>
+            {legacyRecoveryRequired?'Recovery credential diperlukan':credentialRequired?'Credential belum READY':busy==='SYNC'?'Menyinkronkan…':'Sync balance'}
           </button>
         </div>
       </div>:null}
