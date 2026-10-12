@@ -2,6 +2,7 @@ import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson }
 import { d1All, d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { readProviderFundingState } from './e2pay-disbursement-limit-core.js';
 import { providerAccountCredentialState } from './payment-provider-account-credentials.js';
+import { credentialHealthState, legacyCredentialRecoveryState } from './e2pay-credential-lifecycle.js';
 
 const METHODS='GET, POST, OPTIONS';
 const ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -74,10 +75,15 @@ export async function onRequest({request,env}){
       const accountId=clean(url.searchParams.get('providerAccountRegistryId'),120);
       const requiredAmount=Math.max(0,Number(url.searchParams.get('requiredAmount')||0)||0);
 
-      const accounts=await d1All(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name
+      const accounts=await d1All(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name,
+          pps.state AS provisioning_session_state,pps.credential_state AS provisioning_credential_state,
+          pps.credential_version AS provisioning_credential_version,pps.credential_last_validated_at AS provisioning_credential_last_validated_at,
+          pps.credential_failure_count AS provisioning_credential_failure_count,pps.credential_last_error_code AS provisioning_credential_last_error_code,
+          pps.credential_last_error_at AS provisioning_credential_last_error_at
         FROM payment_provider_accounts ppa
         LEFT JOIN clients c ON c.id=ppa.client_id
         LEFT JOIN projects p ON p.id=ppa.project_id
+        LEFT JOIN provider_provisioning_sessions pps ON pps.provider_account_registry_id=ppa.id
         WHERE ppa.org_id=? AND ppa.provider='E2PAY' AND ppa.account_scope='SUB_ACCOUNT'
           AND ppa.status='ACTIVE' AND (?='' OR ppa.id=?)
         ORDER BY c.name,p.name,ppa.created_at`,[organizationId,accountId,accountId]);
@@ -99,9 +105,18 @@ export async function onRequest({request,env}){
           providerSubAccountIdMasked:account.provider_sub_account_id?'••••'+String(account.provider_sub_account_id).slice(-4):null,
           provisioningState:String(account.provisioning_state||'NOT_STARTED'),
           merchantCredential,
+          legacyCompatibility:legacyCredentialRecoveryState({credential_state:account.provisioning_credential_state},merchantCredential.ready),
+          credentialHealth:credentialHealthState({
+            credential_state:account.provisioning_credential_state,
+            credential_version:account.provisioning_credential_version,
+            credential_last_validated_at:account.provisioning_credential_last_validated_at,
+            credential_failure_count:account.provisioning_credential_failure_count,
+            credential_last_error_code:account.provisioning_credential_last_error_code,
+            credential_last_error_at:account.provisioning_credential_last_error_at,
+          }),
           accountReadiness:{
             ready:provisioned&&merchantCredential.ready,
-            reason:!provisioned?'PROVISIONING_INCOMPLETE':!merchantCredential.ready?'MERCHANT_CREDENTIAL_REQUIRED':'READY',
+            reason:!provisioned?'PROVISIONING_INCOMPLETE':!merchantCredential.ready&&String(account.provisioning_credential_state||'')==='LEGACY_MANUAL'?'LEGACY_CREDENTIAL_RECOVERY_REQUIRED':!merchantCredential.ready?'MERCHANT_CREDENTIAL_REQUIRED':'READY',
           },
           ...state,
         });

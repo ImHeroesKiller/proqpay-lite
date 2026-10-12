@@ -301,6 +301,8 @@ export type E2PayFundingState = {
   providerSubAccountIdMasked?:string|null;
   provisioningState?:string;
   merchantCredential?:{ready:boolean;version:number|null;updatedAt?:string|null};
+  legacyCompatibility?:string|null;
+  credentialHealth?:{state:string;healthy:boolean;degraded:boolean;recoveryRequired:boolean;version:number;failureCount:number;lastValidatedAt?:string|null;lastErrorCode?:string|null;lastErrorAt?:string|null};
   accountReadiness?:{ready:boolean;reason:string};
   ready:boolean;
   state:string;

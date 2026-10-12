@@ -125,8 +125,10 @@ test('P5.6 API and gateway wire maker-checker, funding gate, reservation and con
   assert.match(gateway,/E2PAY_FUNDING_/);
   assert.match(operating,/Approved disbursement limit sub-client belum tersedia/);
   assert.match(ui,/ProQPay → Sub-client → Disbursement Limit/);
-  assert.match(ui,/Provisioned · Credential Required/);
-  assert.match(ui,/Hubungkan Credential/);
+  assert.match(ui,/Legacy · Recovery Required/);
+  assert.match(ui,/Credential Lifecycle Required/);
+  assert.match(ui,/Recovery Credential/);
+  assert.match(ui,/Periksa Credential/);
   assert.match(ui,/Ajukan Limit ke Controller/);
   assert.match(ui,/Approve Limit/);
   assert.match(api,/MERCHANT_CREDENTIAL_REQUIRED/);
