@@ -6,7 +6,11 @@ import { canonicalBankCode, encryptAccountNumber, sha256Hex } from './payment-in
 import { revealEmployeeBankAccount } from './_employee-bank-security.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import { canonicalSourceType, disbursementIdentity, intentFromSource, publicDisbursementRequest } from './disbursement-request-core.js';
-import { resolveProviderChannel } from './provider-channel-router.js';
+import { resolveProviderChannel, validateProviderChannelSnapshot } from './provider-channel-router.js';
+import { actorFraudDecision, paymentLimitDecision } from './_fraud-controls.js';
+import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
+import { readProviderFundingState } from './e2pay-disbursement-limit-core.js';
+import { roleCanAction } from '../../shared/authority-matrix.js';
 
 const METHODS='GET, POST, OPTIONS';
 const SOURCE_READY_PI=new Set(['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT']);
@@ -118,9 +122,49 @@ export async function onRequest({request,env}){
     return secureJson({ok:true,requests:rows.map((row)=>publicDisbursementRequest(row,[]))},200,request,env,METHODS);
   }
 
-  if(!ensureRequestPermission(actor)) return secureJson({error:'Permission disbursement:request diperlukan',code:'DISBURSEMENT_REQUEST_PERMISSION_REQUIRED'},403,request,env,METHODS);
   const body=await request.json().catch(()=>null);
   const action=String(body?.action||'CREATE').toUpperCase();
+
+
+  if(action==='APPROVE_REQUEST' || action==='REJECT_REQUEST'){
+    if(!roleCanAction(actor.role,'disbursement.approve')) return secureJson({error:'Hanya Payroll Controller yang dapat approve/reject Disbursement Request',code:'DISBURSEMENT_APPROVE_PERMISSION_REQUIRED'},403,request,env,METHODS);
+    const id=clean(body?.id,140);
+    const current=await d1First(env.DB,'SELECT * FROM disbursement_requests WHERE id=? AND org_id=? LIMIT 1',[id,organizationId]);
+    if(!current) return secureJson({error:'Disbursement Request tidak ditemukan'},404,request,env,METHODS);
+    if(action==='REJECT_REQUEST'){
+      if(current.status==='REJECTED') return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id),idempotentReplay:true},200,request,env,METHODS);
+      if(current.status!=='PENDING_APPROVAL') return secureJson({error:'Disbursement Request tidak menunggu approval',code:'DISBURSEMENT_NOT_PENDING_APPROVAL'},409,request,env,METHODS);
+      const reason=clean(body?.reason,500);
+      if(reason.length<10) return secureJson({error:'Alasan reject minimal 10 karakter'},422,request,env,METHODS);
+      await d1Batch(env.DB,[
+        {statement:`UPDATE disbursement_requests SET status='REJECTED',rejection_reason=?,updated_by_user_id=?,updated_by_email=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='PENDING_APPROVAL'`,bindings:[reason,actor.id||null,actor.email,id,organizationId]},
+        audit(organizationId,actor,'DISBURSEMENT_REQUEST_REJECTED',reason,id),
+      ]);
+      return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id)},200,request,env,METHODS);
+    }
+    if(current.status==='APPROVED') return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id),idempotentReplay:true},200,request,env,METHODS);
+    if(current.status!=='PENDING_APPROVAL') return secureJson({error:'Disbursement Request tidak menunggu approval',code:'DISBURSEMENT_NOT_PENDING_APPROVAL'},409,request,env,METHODS);
+    if(String(current.requested_by_user_id||'')===String(actor.id||'')) return secureJson({error:'Maker tidak dapat approve request yang sama',code:'DISBURSEMENT_MAKER_CHECKER_VIOLATION'},409,request,env,METHODS);
+    const routeValidation=await validateProviderChannelSnapshot(env.DB,current);
+    if(!routeValidation.ok) return secureJson({error:'Provider channel snapshot tidak lagi valid untuk approval',code:routeValidation.code},409,request,env,METHODS);
+    const account=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider=? AND environment=? AND status='ACTIVE' LIMIT 1`,[current.provider_account_registry_id,organizationId,current.provider,current.provider_environment]);
+    if(!account||String(account.provider_sub_account_id)!==String(current.provider_sub_account_id_snapshot)) return secureJson({error:'Provider routing snapshot tidak cocok dengan account aktif',code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'},409,request,env,METHODS);
+    if(!providerAccountCredentialState(account).ready) return secureJson({error:'Credential provider belum READY',code:'PAYMENT_READINESS_CREDENTIAL_PENDING'},409,request,env,METHODS);
+    const actorFraud=await actorFraudDecision(env.DB,organizationId,actor,env);
+    if(actorFraud.blocked) return secureJson({error:'Approval disbursement diblokir kontrol fraud',code:actorFraud.code||'DISBURSEMENT_FRAUD_BLOCKED'},403,request,env,METHODS);
+    const risk=await paymentLimitDecision(env.DB,organizationId,{expected_total:Number(current.amount),recipient_count:Number(current.recipient_count)},{isNewExecution:false});
+    if(risk.blocked) return secureJson({error:'Approval disbursement diblokir security transaction limit',code:risk.code,risk},409,request,env,METHODS);
+    if(mfaEnforcementMode(env)==='ENFORCE'&&!hasRecentMfa(actor,risk.limits.stepUpWindowSeconds)) return secureJson({error:'Verifikasi MFA terbaru diperlukan sebelum approval disbursement.',code:'MFA_STEP_UP_REQUIRED',stepUpWindowSeconds:risk.limits.stepUpWindowSeconds},428,request,env,METHODS);
+    const funding=await readProviderFundingState(env.DB,organizationId,current.provider_account_registry_id,Number(current.amount),null,Date.now(),current.id);
+    if(!funding.ready) return secureJson({error:'Funding & approved disbursement limit belum siap untuk approval DR.',code:`E2PAY_FUNDING_${funding.state}`,funding},409,request,env,METHODS);
+    await d1Batch(env.DB,[
+      {statement:`UPDATE disbursement_requests SET status='APPROVED',approved_by_user_id=?,approved_by_email=?,approved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_by_user_id=?,updated_by_email=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='PENDING_APPROVAL'`,bindings:[actor.id||null,actor.email,actor.id||null,actor.email,id,organizationId]},
+      audit(organizationId,actor,'DISBURSEMENT_REQUEST_APPROVED',`amount=${current.amount} · recipients=${current.recipient_count} · channel=${routeValidation.snapshot.providerChannel} · funding=${funding.state} · mfa=${actor.mfaVerifiedAt?'verified':'audit'}`,id),
+    ]);
+    return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id),funding},200,request,env,METHODS);
+  }
+
+  if(!ensureRequestPermission(actor)) return secureJson({error:'Permission disbursement:request diperlukan',code:'DISBURSEMENT_REQUEST_PERMISSION_REQUIRED'},403,request,env,METHODS);
 
   if(action==='SUBMIT_REQUEST'){
     const id=clean(body?.id,140);
