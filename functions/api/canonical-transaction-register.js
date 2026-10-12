@@ -63,14 +63,34 @@ export async function onRequest({request,env}){
     const purpose=clean(url.searchParams.get('purpose'),30).toUpperCase();
     const status=clean(url.searchParams.get('status'),50).toUpperCase();
     const clientId=clean(url.searchParams.get('clientId'),140);
+    const projectId=clean(url.searchParams.get('projectId'),140);
+    const period=clean(url.searchParams.get('period'),10);
+    const query=clean(url.searchParams.get('query'),100);
+    const pageValue=Number(url.searchParams.get('page')||1);
+    const pageSizeValue=Number(url.searchParams.get('pageSize')||40);
+    if(!Number.isSafeInteger(pageValue)||pageValue<1||pageValue>10000||!Number.isSafeInteger(pageSizeValue)||pageSizeValue<1||pageSizeValue>100)
+      return secureJson({error:'Pagination tidak valid',code:'CANONICAL_REGISTER_PAGINATION_INVALID'},422,request,env,METHODS);
+    if(period&&!/^\d{4}-(0[1-9]|1[0-2])$/.test(period))
+      return secureJson({error:'Format periode wajib YYYY-MM',code:'CANONICAL_REGISTER_PERIOD_INVALID'},422,request,env,METHODS);
     const reconciliation=clean(url.searchParams.get('reconciliationStatus'),30).toUpperCase();
-    let where='org_id=?'; const bindings=[organizationId];
-    if(purpose){where+=' AND purpose=?';bindings.push(purpose);}
-    if(status){where+=' AND disbursement_status=?';bindings.push(status);}
-    if(clientId){where+=' AND client_id=?';bindings.push(clientId);}
-    if(reconciliation){where+=' AND COALESCE(reconciliation_status,\'NOT_RECONCILED\')=?';bindings.push(reconciliation);}
-    const rows=await d1All(env.DB,`SELECT * FROM canonical_transaction_register WHERE ${where} ORDER BY created_at DESC LIMIT 300`,bindings);
-    return secureJson({ok:true,transactions:rows.map(publicRegisterRow)},200,request,env,METHODS);
+    let where='ctr.org_id=?'; const bindings=[organizationId];
+    if(purpose){where+=' AND ctr.purpose=?';bindings.push(purpose);}
+    if(status){where+=' AND ctr.disbursement_status=?';bindings.push(status);}
+    if(clientId){where+=' AND ctr.client_id=?';bindings.push(clientId);}
+    if(projectId){where+=' AND ctr.project_id=?';bindings.push(projectId);}
+    if(reconciliation){where+=' AND COALESCE(ctr.reconciliation_status,\'NOT_RECONCILED\')=?';bindings.push(reconciliation);}
+    if(query){where+=' AND (ctr.client_reference LIKE ? OR ctr.source_document_id LIKE ?)';const pattern='%'+query.replace(/[\%_]/g,'')+'%';bindings.push(pattern,pattern);}
+    if(period){
+      where+=` AND ((ctr.source_document_type='PAYMENT_INSTRUCTION' AND EXISTS (
+        SELECT 1 FROM payment_instructions pi JOIN payroll_submissions ps ON ps.id=pi.submission_id AND ps.org_id=pi.org_id WHERE pi.id=ctr.source_document_id AND pi.org_id=ctr.org_id AND (ps.period=? OR ps.payment_period=?)))
+        OR (ctr.source_document_type='EWA_REQUEST' AND EXISTS (
+        SELECT 1 FROM ewa_requests er WHERE er.id=ctr.source_document_id AND er.org_id=ctr.org_id AND er.period=?)))`;
+      bindings.push(period,period,period);
+    }
+    const totalRow=await d1First(env.DB,`SELECT COUNT(*) AS total FROM canonical_transaction_register ctr WHERE ${where}`,bindings);
+    const total=Number(totalRow?.total||0);
+    const rows=await d1All(env.DB,`SELECT * FROM canonical_transaction_register ctr WHERE ${where} ORDER BY ctr.created_at DESC,ctr.disbursement_request_id DESC LIMIT ? OFFSET ?`,[...bindings,pageSizeValue,(pageValue-1)*pageSizeValue]);
+    return secureJson({ok:true,transactions:rows.map(publicRegisterRow),pagination:{page:pageValue,pageSize:pageSizeValue,total,totalPages:Math.max(1,Math.ceil(total/pageSizeValue)),hasNext:pageValue*pageSizeValue<total}},200,request,env,METHODS);
   }
 
   if(actor.role!=='PAYROLL_CONTROLLER'||!actor.permissions?.includes('reconciliation:write')) return secureJson({error:'Reconciliation membutuhkan Payroll Controller dan permission reconciliation:write',code:'CANONICAL_RECONCILIATION_PERMISSION_REQUIRED'},403,request,env,METHODS);

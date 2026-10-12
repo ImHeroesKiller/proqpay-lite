@@ -7,6 +7,8 @@ import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 import PaymentGatewayExecutionActions from '@/components/PaymentGatewayExecutionActions';
 import E2PayFundingLimitControl from '@/components/E2PayFundingLimitControl';
+import FundingReadinessSummary from '@/components/FundingReadinessSummary';
+import ProviderChannelControl from '@/components/ProviderChannelControl';
 import CanonicalTransactionRegister from '@/components/CanonicalTransactionRegister';
 import CanonicalDisbursementWorkspace from '@/components/CanonicalDisbursementWorkspace';
 import {canonicalNeedsAction,defaultPaymentPanel,paymentDecisionSummary,paymentPanel,type PaymentPanel} from '@/lib/payment-decision-workbench';
@@ -103,6 +105,7 @@ export default function OperatingWorkspace({
   const [canonicalDecisionRows,setCanonicalDecisionRows]=useState<Array<{status:string;projectId?:string|null;clientReference?:string;sourceDocumentId?:string}>>([]);
   const [canonicalDecisionKnown,setCanonicalDecisionKnown]=useState(false);
   const [canonicalDecisionRefresh,setCanonicalDecisionRefresh]=useState(0);
+  const [fundingPanel,setFundingPanel]=useState<'LIQUIDITY'|'CHANNEL'>('LIQUIDITY');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -457,6 +460,7 @@ export default function OperatingWorkspace({
               <div><span>PI approved / processing</span><strong>{paymentDecision.piApproved}</strong><small>Periksa strategi sebelum eksekusi</small></div>
               <div><span>Canonical DR membutuhkan aksi</span><strong>{canonicalDecisionKnown?canonicalDecisionActions:'—'}</strong><small>{canonicalDecisionKnown?'Dari register DR yang tersedia':'Status belum terverifikasi'}</small></div>
             </div>
+            <FundingReadinessSummary role={role} clientId={clientFilter} projectId={projectFilter} onOpen={()=>{setFundingPanel('LIQUIDITY');selectPaymentPanel('FUNDING');}} />
             <nav className="payment-decision-nav" aria-label="Fokus Payment Workbench">
               <button type="button" className={displayedPaymentPanel==='PI'?'active':''} aria-current={displayedPaymentPanel==='PI'?'page':undefined} onClick={()=>selectPaymentPanel('PI')}><strong>Payment Instructions</strong><small>{paymentDecision.primaryCount} perlu perhatian</small></button>
               <button type="button" className={displayedPaymentPanel==='DISBURSEMENT'?'active':''} aria-current={displayedPaymentPanel==='DISBURSEMENT'?'page':undefined} onClick={()=>selectPaymentPanel('DISBURSEMENT')}><strong>Canonical Disbursement</strong><small>{canonicalDecisionKnown?`${canonicalDecisionActions} tindakan · Submit / Approve / Execute`:'Verifikasi antrean DR'}</small></button>
@@ -465,12 +469,18 @@ export default function OperatingWorkspace({
             <div className="payment-decision-main" role="region" aria-label={displayedPaymentPanel==='PI'?'Payment Instruction Queue':displayedPaymentPanel==='DISBURSEMENT'?'Canonical Disbursement Queue':'Funding and Limit Control'}>
               {displayedPaymentPanel==='PI'?<Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} />:null}
               {displayedPaymentPanel==='DISBURSEMENT'?<CanonicalDisbursementWorkspace actor={actor} payrollSources={visibleInstructions} clientId={clientFilter} projectId={projectFilter} query={query} compact onChanged={()=>{void load();setCanonicalDecisionRefresh(v=>v+1);}} />:null}
-              {displayedPaymentPanel==='FUNDING'&&['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role)?<E2PayFundingLimitControl role={role} />:null}
+              {displayedPaymentPanel==='FUNDING'&&['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role)?<div className="funding-integrated-panel">
+                <div className="funding-integrated-tabs" role="group" aria-label="Funding and Provider Routing">
+                  <button className={fundingPanel==='LIQUIDITY'?'active':''} type="button" aria-pressed={fundingPanel==='LIQUIDITY'} onClick={()=>setFundingPanel('LIQUIDITY')}>Saldo & Disbursement Limit</button>
+                  <button className={fundingPanel==='CHANNEL'?'active':''} type="button" aria-pressed={fundingPanel==='CHANNEL'} onClick={()=>setFundingPanel('CHANNEL')}>Provider Channel Mapping</button>
+                </div>
+                {fundingPanel==='LIQUIDITY'?<E2PayFundingLimitControl role={role} />:<ProviderChannelControl role={role} />}
+              </div>:null}
             </div>
             <p className="payment-decision-footnote">Persetujuan final, execution, dan maker-checker tetap dikendalikan backend. Informasi funding harus diverifikasi sebelum pembayaran; membuka panel tidak melakukan transfer.</p>
           </section>:null}
           {mode === 'reconcile' && <Payments phase="reconcile" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isPaymentController} canReconcile={isPaymentController && Boolean(actor?.permissions?.includes('reconciliation:write'))} canApprove={false} gatewayCanView={false} period={periodFilter} act={act} />}
-          {mode === 'reconcile' && <CanonicalTransactionRegister actor={actor} clientId={filters?.clientId&&filters.clientId!=='ALL'?filters.clientId:''} />}
+          {mode === 'reconcile' && <CanonicalTransactionRegister actor={actor} clientId={clientFilter==='ALL'?'':clientFilter} projectId={projectFilter==='ALL'?'':projectFilter} period={periodFilter==='ALL'?'':periodFilter} query={query} />}
           {mode === 'billing' && actor && <BillingWorkspace
             actor={actor}
             focusSubmissionId={focusSubmissionId}
