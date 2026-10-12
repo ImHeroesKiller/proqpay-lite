@@ -66,9 +66,10 @@ jobs:
         run: |
           npx wrangler d1 execute proqpay-lite-production --remote --command="SELECT id,timestamp,username,role,action,detail,entity,entity_id,correlation_id,ip_hash,device_hash,security_context_json FROM audit_logs WHERE timestamp>=datetime('now','-8 days') AND timestamp<date('now') ORDER BY timestamp,id" --json > /tmp/audit-rows.json
           npx wrangler d1 execute proqpay-lite-production --remote --command="SELECT checkpoint_date,row_count,content_sha256 FROM security_audit_checkpoints WHERE checkpoint_date>=date('now','-8 days') AND checkpoint_date<date('now') ORDER BY checkpoint_date" --json > /tmp/audit-checkpoints.json
+          npx wrangler d1 execute proqpay-lite-production --remote --command="SELECT checkpoint_date,sealed_row_count,sealed_content_sha256,accepted_row_count,accepted_content_sha256,authorized_change_ref FROM security_audit_integrity_exceptions WHERE checkpoint_date>=date('now','-8 days') AND checkpoint_date<date('now') ORDER BY checkpoint_date" --json > /tmp/audit-exceptions.json
 
       - name: Verify history and build checkpoint
-        run: node scripts/security-audit-checkpoint.mjs /tmp/audit-rows.json /tmp/audit-checkpoints.json /tmp/proqpay-audit-integrity.json /tmp/proqpay-audit-checkpoint.sql
+        run: node scripts/security-audit-checkpoint.mjs /tmp/audit-rows.json /tmp/audit-checkpoints.json /tmp/audit-exceptions.json /tmp/proqpay-audit-integrity.json /tmp/proqpay-audit-checkpoint.sql
 
       - name: Seal or verify previous UTC day
         run: npx wrangler d1 execute proqpay-lite-production --remote --file=/tmp/proqpay-audit-checkpoint.sql
@@ -105,6 +106,20 @@ jobs:
               await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body,labels:['security']}).catch(async()=>{
                 await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body});
               });
+            }
+
+
+      - name: Close recovered audit-integrity incident
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title='SECURITY: audit integrity verification failed';
+            const {data}=await github.rest.issues.listForRepo({owner:context.repo.owner,repo:context.repo.repo,state:'open',per_page:100});
+            const existing=data.find((issue)=>issue.title===title);
+            if(existing){
+              await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,body:`Audit integrity recovered with verified evidence at ${new Date().toISOString()}. Historical exceptions, if any, are exact-match and recorded in security_audit_integrity_exceptions.`});
+              await github.rest.issues.update({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,state:'closed'});
             }
 
       - name: Send optional external integrity alert
