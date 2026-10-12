@@ -132,7 +132,7 @@ test('G0 D1 mirror sync fails closed on directory/state/service plan HTTP 500 ra
 });
 
 test('G0 cached operating API responses cannot be reused across role grants, organization or late in-flight requests',async()=>{
- const cached=await transpiled('src/lib/operating-model-api.ts',{'./security-step-up':{fetchWithSecurityStepUp:()=>{throw new Error('No mutation allowed')}}});
+ const cached=await transpiled('src/lib/operating-model-api.ts',{'./security-step-up':{fetchWithSecurityStepUp:()=>{throw new Error('No mutation allowed')}},'./api-client':{parseApiResponse:response=>response.json()}});
  const original=globalThis.fetch;
  const pending=[];
  let calls=0;
@@ -164,6 +164,6 @@ test('G0 /api/me supplies tenant identity for client cache and mirror scoping',a
  assert.match(code,/orgId: actor\.orgId \|\| null/);
  const cache=await src('src/lib/operating-model-api.ts');
  assert.match(cache,/cacheGeneration\+=1/);
- assert.match(cache,/generation===cacheGeneration/);
+ assert.match(cache,/generation!==cacheGeneration/);
  assert.match(cache,/orgId:actor\.orgId\|\|''/);
 });

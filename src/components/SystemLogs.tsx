@@ -1,6 +1,8 @@
 "use client";
+import {patchRoute} from "@/lib/route-state";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {isAbortedRequest,parseApiResponse} from "@/lib/api-client";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import {
   FilterBar as UiFilterBar,
@@ -100,6 +102,8 @@ function localToAudit(item: SystemLogEntry): AuditRow {
 }
 
 export default function SystemLogs() {
+  const loadGeneration=useRef(0);
+  const activeLoad=useRef<AbortController|null>(null);
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [localLogs, setLocalLogs] = useState<SystemLogEntry[]>([]);
   const [summary, setSummary] = useState<Summary>({
@@ -138,6 +142,11 @@ export default function SystemLogs() {
   }, []);
 
   const load = useCallback(async () => {
+    const generation=++loadGeneration.current;
+    activeLoad.current?.abort();
+    const controller=new AbortController();
+    activeLoad.current=controller;
+    const current=()=>loadGeneration.current===generation&&!controller.signal.aborted;
     if (source === "LOCAL_RUNTIME") {
       setLoading(false);
       setMessage("");
@@ -153,9 +162,9 @@ export default function SystemLogs() {
     if (to) params.set("to", to);
 
     try {
-      const response = await fetch(`/api/audit-logs?${params.toString()}`, { cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      const response = await fetch(`/api/audit-logs?${params.toString()}`, { cache: "no-store",signal:controller.signal });
+      const data = await parseApiResponse<any>(response);
+      if(!current())return;
       setRows(data.rows || []);
       setSummary({
         total: Number(data.summary?.total || 0),
@@ -182,14 +191,15 @@ export default function SystemLogs() {
         nextOffset: Number(data.page?.nextOffset || 0),
       });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Gagal memuat audit log");
+      if(current()&&!isAbortedRequest(error))setMessage(error instanceof Error ? error.message : "Gagal memuat audit log");
     } finally {
-      setLoading(false);
+      if(current())setLoading(false);
     }
   }, [qDebounced, source, level, from, to, offset, limit]);
 
   useEffect(() => {
     void load();
+    return ()=>{loadGeneration.current+=1;activeLoad.current?.abort();};
   }, [load]);
 
   useEffect(() => {
@@ -228,11 +238,7 @@ export default function SystemLogs() {
   const resetFilters = () => {
     setQ("");
     setTraceCorrelation("");
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("auditCorrelation");
-      window.history.replaceState(window.history.state, "", url);
-    }
+    patchRoute({auditCorrelation:null});
     setSource("");
     setLevel("");
     setFrom("");

@@ -47,8 +47,8 @@ test('P1.B payment workbench has exactly one visible PI, DR or Funding content s
  assert.match(source,/mode !== 'billing' && mode !== 'payments'/);
  assert.match(source,/mode!=='payments' \? <OperationalFocus/);
  assert.match(source,/const displayedPaymentPanel=activePaymentPanel\|\|defaultPaymentPanel/);
- assert.match(source,/window\.history\.replaceState/);
- assert.match(source,/window\.addEventListener\('popstate',onPop\)/);
+ assert.match(source,/patchRoute\(\{paymentPanel:next\}\)/);
+ assert.match(source,/subscribeRoute\(onRoute\)/);
 });
 
 test('P1.B Canonical workspace exposes action-first queue, monitoring toggle and immutable review',async()=>{
@@ -72,7 +72,7 @@ test('P1.B shared client/project/query filters reach DR while funding panel pres
  assert.match(workspace,/canonicalDecisionKnown\?canonicalDecisionActions:'—'/);
  assert.match(workspace,/setCanonicalDecisionKnown\(false\)/);
  assert.match(workspace,/response\.ok/);
- assert.match(funding,/url\.searchParams\.set\('fundingAccountId',id\)/);
+ assert.match(funding,/patchRoute\(\{fundingAccountId:id\}\)/);
  assert.match(funding,/Legacy · Recovery Required/);
 });
 
@@ -80,7 +80,7 @@ test('P1.B post-recovery and Hosted Payment return to the correct payment workbe
  const [navigation,checkout,page]=await Promise.all([read('src/lib/workspace-navigation.ts'),read('src/components/PaymentGatewayExecutionActions.tsx'),read('src/app/page.tsx')]);
  assert.match(navigation,/paymentPanel:'FUNDING'/);
  assert.match(checkout,/view=payments[^`]*paymentPanel=PI/);
- assert.match(page,/fundingAccountId','recoveryComplete','paymentPanel'/);
+ assert.match(page,/fundingAccountId:null,recoveryComplete:null,paymentPanel:null/);
 });
 
 test('P1.B mobile payment navigation retains compact legible buttons, no fixed-width panel or fake provider readiness',async()=>{

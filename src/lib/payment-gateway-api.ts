@@ -1,3 +1,4 @@
+import {parseApiResponse} from './api-client';
 import { fetchWithSecurityStepUp } from './security-step-up';
 export type PaymentGatewayReadiness = {
   configured: boolean;
@@ -141,11 +142,7 @@ export type HostedPaymentSession = {
   updated_at?: string;
 };
 
-async function parseResponse(response: Response) {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || data.message || `HTTP ${response.status}`);
-  return data;
-}
+const parseResponse=parseApiResponse;
 
 export async function getPaymentGatewayStatus(paymentInstructionId?: string, payrollPeriod?: string) {
   const params = new URLSearchParams();

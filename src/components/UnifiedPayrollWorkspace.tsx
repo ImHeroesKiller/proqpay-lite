@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import OperatingWorkspace, { type WorkspaceFilterState } from '@/components/OperatingWorkspace';
 import type {AppView} from '@/components/Sidebar';
-import {PAYROLL_STAGE_VIEW,PAYROLL_STAGE_URL,payrollStage,type PayrollStage} from '@/lib/workspace-navigation';
+import {PAYROLL_STAGE_VIEW,payrollStage,type PayrollStage} from '@/lib/workspace-navigation';
+import {routeValue,subscribeRoute,workspaceRouteFilters,patchWorkspaceFilters} from '@/lib/route-state';
 import { listAllOperatingSubmissions } from '@/lib/operating-model-api';
 
 type Stage = PayrollStage;
@@ -40,15 +41,7 @@ const stageMeta:Record<Stage,{step:string;title:string;description:string;url:st
 
 const stageFromUrl=payrollStage;
 
-function urlFilters():WorkspaceFilterState {
-  if (typeof window === 'undefined') return { clientId:'ALL', projectId:'ALL', query:'' };
-  const params=new URLSearchParams(window.location.search);
-  return {
-    clientId:params.get('clientId') || 'ALL',
-    projectId:params.get('projectId') || 'ALL',
-    query:params.get('q') || '',
-  };
-}
+function urlFilters():WorkspaceFilterState {return workspaceRouteFilters();}
 
 export default function UnifiedPayrollWorkspace({
   role,
@@ -57,64 +50,48 @@ export default function UnifiedPayrollWorkspace({
   initialStage='PAYROLL',
   onNavigate,
 }:Props) {
-  const initialUrlStage=typeof window==='undefined'?null:stageFromUrl(new URLSearchParams(window.location.search).get('stage'));
+  const initialUrlStage=typeof window==='undefined'?null:stageFromUrl(routeValue('stage'));
   const [stage,setStage]=useState<Stage>(initialUrlStage || initialStage);
   const [filters,setFilters]=useState<WorkspaceFilterState>(urlFilters);
   const [submissions,setSubmissions]=useState<any[]>([]);
+  const [submissionsReady,setSubmissionsReady]=useState(false);
 
   const canUpload=useMemo(()=>['SUPER_ADMIN','PAYROLL_PROCESSOR','CLIENT_USER'].includes(role),[role]);
   const isController=role==='PAYROLL_CONTROLLER';
 
   useEffect(()=>{
-    const fromUrl=stageFromUrl(new URLSearchParams(window.location.search).get('stage'));
+    const fromUrl=stageFromUrl(routeValue('stage'));
     setStage(fromUrl || initialStage);
   },[initialStage]);
 
   useEffect(()=>{
     let cancelled=false;
     void listAllOperatingSubmissions()
-      .then((result)=>{if(!cancelled)setSubmissions(result.submissions || []);})
-      .catch(()=>{if(!cancelled)setSubmissions([]);});
+      .then((result)=>{if(!cancelled){setSubmissions(result.submissions || []);setSubmissionsReady(true);}})
+      .catch(()=>{if(!cancelled)setSubmissionsReady(false);});
     return ()=>{cancelled=true;};
   },[]);
 
   useEffect(()=>{
-    const onPop=()=>{
-      const params=new URLSearchParams(window.location.search);
-      setStage(stageFromUrl(params.get('stage')) || initialStage);
-      setFilters({
-        clientId:params.get('clientId') || 'ALL',
-        projectId:params.get('projectId') || 'ALL',
-        query:params.get('q') || '',
-      });
+    const onRoute=()=>{
+      setStage(stageFromUrl(routeValue('stage')) || initialStage);
+      setFilters(workspaceRouteFilters());
     };
-    window.addEventListener('popstate',onPop);
-    return ()=>window.removeEventListener('popstate',onPop);
+    return subscribeRoute(onRoute);
   },[initialStage]);
 
   const changeStage=useCallback((next:Stage)=>{
     if(next===stage)return;
     // Parent is the single owner of route and sidebar state; do not pushState
     // only in the child while leaving the parent on an old view.
-    onNavigate(PAYROLL_STAGE_VIEW[next]);
-    const url=new URL(window.location.href);
-    url.searchParams.set('stage',PAYROLL_STAGE_URL[next]);
-    window.history.replaceState(window.history.state,'',url);
+    onNavigate(PAYROLL_STAGE_VIEW[next]); // parent updates URL, stage, sidebar and Back/Forward once
     setStage(next);
   },[onNavigate,stage]);
 
   const patchFilters=useCallback((patch:Partial<WorkspaceFilterState>)=>{
-    setFilters((current)=>{
-      const next={...current,...patch};
-      if (patch.clientId && patch.clientId !== current.clientId) next.projectId='ALL';
-      const url=new URL(window.location.href);
-      if(next.clientId==='ALL') url.searchParams.delete('clientId'); else url.searchParams.set('clientId',next.clientId);
-      if(next.projectId==='ALL') url.searchParams.delete('projectId'); else url.searchParams.set('projectId',next.projectId);
-      if(next.query.trim()) url.searchParams.set('q',next.query.trim()); else url.searchParams.delete('q');
-      window.history.replaceState(window.history.state,'',url);
-      return next;
-    });
-  },[]);
+    const next=patchWorkspaceFilters(filters,patch);
+    setFilters(next);
+  },[filters]);
 
   const scopedSubmissions=useMemo(
     ()=>submissions.filter((row)=>period==='ALL' || row.period===period || row.payment_period===period),
@@ -135,11 +112,13 @@ export default function UnifiedPayrollWorkspace({
   },[filterSubmissions,filters.clientId]);
 
   useEffect(()=>{
+    if(!submissionsReady)return;
     if(filters.clientId!=='ALL' && !clients.some(([id])=>id===filters.clientId)) patchFilters({clientId:'ALL',projectId:'ALL'});
-  },[clients,filters.clientId,patchFilters]);
+  },[clients,filters.clientId,patchFilters,submissionsReady]);
   useEffect(()=>{
+    if(!submissionsReady)return;
     if(filters.projectId!=='ALL' && !projects.some(([id])=>id===filters.projectId)) patchFilters({projectId:'ALL'});
-  },[projects,filters.projectId,patchFilters]);
+  },[projects,filters.projectId,patchFilters,submissionsReady]);
 
   return (
     <section className="unified-payroll-workspace">

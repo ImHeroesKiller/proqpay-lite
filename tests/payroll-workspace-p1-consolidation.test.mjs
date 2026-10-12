@@ -7,11 +7,12 @@ const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 test('P1 Payroll Workspace persists the business stage in URL and restores on browser history',async()=>{
   const source=await read('src/components/UnifiedPayrollWorkspace.tsx');
   assert.match(source,/stageFromUrl/);
-  assert.match(source,/url\.searchParams\.set\('stage',PAYROLL_STAGE_URL\[next\]\)/);
+  assert.match(source,/onNavigate\(PAYROLL_STAGE_VIEW\[next\]\)/); // G2: parent owns stage URL
   assert.match(source,/onNavigate\(PAYROLL_STAGE_VIEW\[next\]\)/);
-  assert.match(source,/window\.history\.replaceState/);
+  assert.match(source,/patchWorkspaceFilters\(filters,patch\)/);
   assert.doesNotMatch(source,/window\.history\.pushState/);
-  assert.match(source,/window\.addEventListener\('popstate'/);
+  assert.match(source,/onNavigate\(PAYROLL_STAGE_VIEW\[next\]\)/);
+  assert.match(source,/subscribeRoute\(onRoute\)/);
   assert.match(source,/step:'1'/);
   assert.match(source,/step:'2'/);
   assert.match(source,/step:'3'/);

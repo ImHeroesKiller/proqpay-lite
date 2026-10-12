@@ -1,3 +1,4 @@
+import {parseApiResponse} from './api-client';
 import type { IntegrationHealthState } from '@/lib/integration-health';
 
 export type ApiMonitorSummary = {
@@ -107,9 +108,7 @@ export async function getIntegrationMonitor(filters: MonitorFilters = {}, signal
     cache:'no-store',
     signal,
   });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || data.message || 'Monitoring endpoint gagal dimuat');
-  return data as IntegrationMonitorResponse;
+  return parseApiResponse<IntegrationMonitorResponse>(response);
 }
 
 export async function updateIntegrationAppStatus(appId: string, action: 'ACTIVATE' | 'DEACTIVATE' | 'REVOKE') {
@@ -118,7 +117,5 @@ export async function updateIntegrationAppStatus(appId: string, action: 'ACTIVAT
     headers:{ 'Content-Type':'application/json' },
     body:JSON.stringify({ appId, action }),
   });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || data.message || 'Status aplikasi gagal diubah');
-  return data as { ok:true; appId:string; previousStatus:string; status:string; correlationId?:string };
+  return parseApiResponse<{ ok:true; appId:string; previousStatus:string; status:string; correlationId?:string }>(response);
 }

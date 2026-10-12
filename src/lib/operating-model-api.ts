@@ -1,3 +1,4 @@
+import {parseApiResponse} from './api-client';
 import { fetchWithSecurityStepUp } from './security-step-up';
 import type { DashboardApiResponse } from './dashboard-types';
 import type { PaymentInstructionDetail } from './payment-instruction-ui';
@@ -24,14 +25,8 @@ const inflightRequests = new Map<string, Promise<unknown>>();
 let cacheActorNamespace = 'anonymous';
 let cacheGeneration=0;
 
-async function parseResponse<T=unknown>(response: Response):Promise<T> {
-  const data = await response.json().catch(() => ({})) as Record<string,unknown>;
-  if (!response.ok) {
-    const message = typeof data.error === 'string' ? data.error : typeof data.message === 'string' ? data.message : `HTTP ${response.status}`;
-    throw new Error(message);
-  }
-  return data as T;
-}
+// Compatibility alias for the canonical G2 API error/response contract.
+const parseResponse=parseApiResponse;
 
 function cacheKey(url:string){ return `${cacheActorNamespace}:${url}`; }
 
@@ -150,7 +145,8 @@ export function listOperatingDashboard(clientId?: string, period?: string):Promi
         truncated:false,
       },
     };
-    if(generation===cacheGeneration && aggregateKey===cacheKey(aggregateUrl))responseCache.set(aggregateKey,{data:result,expiresAt:Date.now()+CACHE_TTL_MS});
+    if(generation!==cacheGeneration || aggregateKey!==cacheKey(aggregateUrl))throw new Error('STALE_ACTOR_CONTEXT');
+    responseCache.set(aggregateKey,{data:result,expiresAt:Date.now()+CACHE_TTL_MS});
     return result;
   })().finally(()=>{if(inflightRequests.get(aggregateKey)===request)inflightRequests.delete(aggregateKey);});
 

@@ -24,7 +24,7 @@ test('cross-app P2: Integrations correlation opens unified Audit Logs with autom
   const api=await read('functions/api/audit-logs.js');
 
   assert.match(page,/function openAuditCorrelation/);
-  assert.match(page,/url\.searchParams\.set\('auditCorrelation', correlationId\)/);
+  assert.match(page,/patchRoute\(\{view:'logs',period,auditCorrelation:correlationId/);
   const router=await read('src/components/AppWorkspaceRouter.tsx');
   assert.match(page,/AppWorkspaceRouter[\s\S]*onOpenAuditCorrelation=\{openAuditCorrelation\}/);
   assert.match(router,/IntegrationsWorkspace[\s\S]*onOpenAuditCorrelation=\{props\.onOpenAuditCorrelation\}/);
@@ -33,7 +33,7 @@ test('cross-app P2: Integrations correlation opens unified Audit Logs with autom
   assert.match(activity,/Open Audit Logs/);
   assert.match(logs,/get\("auditCorrelation"\)/);
   assert.match(logs,/Correlation trace aktif/);
-  assert.match(logs,/url\.searchParams\.delete\("auditCorrelation"\)/);
+  assert.match(logs,/patchRoute\(\{auditCorrelation:null\}\)/);
   assert.match(api,/lower\(COALESCE\(correlation_id,''\)\) LIKE \?/);
 });
 

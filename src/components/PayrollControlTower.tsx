@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AppView } from './Sidebar';
+import {patchRoute} from '@/lib/route-state';
 import { formatIDR, formatIDRShort } from '@/lib/format';
 import { invalidateOperatingCache, listOperatingDashboard } from '@/lib/operating-model-api';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
@@ -199,11 +200,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   useEffect(()=>setPage((value)=>Math.min(value,pageCount)),[pageCount]);
   const reset=()=>{setClient('ALL');setStage('ALL');setTier('ALL');setQuery('');};
   const openContext=(view:AppView,submissionId?:string,businessStage?:string)=>{
-    const url=new URL(window.location.href);
-    if(submissionId) url.searchParams.set('submissionId',submissionId); else url.searchParams.delete('submissionId');
-    if(businessStage) url.searchParams.set('dashboardStage',businessStage); else url.searchParams.delete('dashboardStage');
-    if(period&&period!=='ALL') url.searchParams.set('payrollPeriod',period); else url.searchParams.delete('payrollPeriod');
-    window.history.replaceState({},'',url);
+    patchRoute({submissionId:submissionId||null,dashboardStage:businessStage||null,payrollPeriod:period&&period!=='ALL'?period:null});
     onNavigate(view);
   };
 

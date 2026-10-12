@@ -18,6 +18,7 @@ import { listOperatingDashboard, listOperatingPeriods, setOperatingCacheActor } 
 import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
 import AppFooter from '@/components/AppFooter';
 import {allowedPayrollView,normalizeInternalRoute,validAppView,PAYROLL_STAGE_URL,stageForView} from '@/lib/workspace-navigation';
+import {patchRoute,routeParams,subscribeRoute} from '@/lib/route-state';
 
 const IdaFab = dynamic(() => import('@/components/IdaFab'));
 const HelpModal = dynamic(() => import('@/components/HelpModal'));
@@ -102,12 +103,9 @@ export default function Home() {
         const route=normalizeInternalRoute(preferredView,params.get('stage'),['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(authenticatedActor.role));
         const safeView=allowedViews.includes(route.view)?route.view:'dashboard';
         setView(safeView);
-        const currentUrl=new URL(window.location.href);
-        currentUrl.searchParams.set('view',safeView);
-        if(safeView==='dashboard'&&preferredView!=='dashboard')for(const key of ['recoveryClientId','recoveryAccountId','recoveryReturnView','fundingAccountId','recoveryComplete'])currentUrl.searchParams.delete(key);
-        if(safeView===route.view&&route.stage)currentUrl.searchParams.set('stage',PAYROLL_STAGE_URL[route.stage]);
-        else currentUrl.searchParams.delete('stage');
-        window.history.replaceState(window.history.state,'',currentUrl);
+        const cleared=safeView==='dashboard'&&preferredView!=='dashboard'
+          ?{recoveryClientId:null,recoveryAccountId:null,recoveryReturnView:null,fundingAccountId:null,recoveryComplete:null}:{};
+        patchRoute({view:safeView,stage:safeView===route.view&&route.stage?PAYROLL_STAGE_URL[route.stage]:null,...cleared});
         setAuthRequired(false);
         setAuthChecked(true);
         void syncDatabaseFromCloudflare(data, { signal: controller.signal })
@@ -174,9 +172,7 @@ export default function Home() {
   function handlePeriodChange(p: string) {
     writeSystemLog('INFO', 'DASHBOARD', 'PERIOD_CHANGED', `Periode aktif diubah ke ${p}`);
     setPeriod(p);
-    const url = new URL(window.location.href);
-    url.searchParams.set('period', p);
-    window.history.replaceState({}, '', url);
+    patchRoute({period:p});
     if (!db) return;
     const next = { ...db, meta: { ...db.meta, currentPeriod: p } };
     saveDatabase(next);
@@ -194,49 +190,40 @@ export default function Home() {
     const normalizedView = actor ? normalizeViewForRole(actor.role,nextView) : nextView;
     const safeView = actor && allowedViewsForRole(actor.role).includes(normalizedView) ? normalizedView : 'dashboard';
     setView(safeView);
-    const url = new URL(window.location.href);
-    url.searchParams.set('view', safeView);
-    url.searchParams.set('period', period);
-    if (['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor?.role||'') && allowedPayrollView(safeView)) url.searchParams.set('stage',PAYROLL_STAGE_URL[stageForView(safeView)]);
-    else url.searchParams.delete('stage');
-    if (safeView!=='clients') for(const key of ['recoveryClientId','recoveryAccountId','recoveryReturnView'])url.searchParams.delete(key);
-    if (safeView!=='payments') for(const key of ['fundingAccountId','recoveryComplete','paymentPanel'])url.searchParams.delete(key);
-    if (safeView !== 'logs') url.searchParams.delete('auditCorrelation');
-    window.history.pushState({ view: safeView, period }, '', url);
+    patchRoute({view:safeView,period,
+      stage:['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor?.role||'')&&allowedPayrollView(safeView)?PAYROLL_STAGE_URL[stageForView(safeView)]:null,
+      ...safeView!=='clients'?{recoveryClientId:null,recoveryAccountId:null,recoveryReturnView:null}:{},
+      ...safeView!=='payments'?{fundingAccountId:null,recoveryComplete:null,paymentPanel:null}:{},
+      ...safeView!=='logs'?{auditCorrelation:null}:{},
+    },'push',{view:safeView,period});
   }
 
   function openAuditCorrelation(correlationId:string) {
     if (!correlationId || !actor || !roleCanAction(actor.role,'audit.view')) return;
     setView('logs');
-    const url = new URL(window.location.href);
-    url.searchParams.set('view', 'logs');
-    url.searchParams.set('period', period);
-    url.searchParams.set('auditCorrelation', correlationId);
-    window.history.pushState({ view:'logs', period, auditCorrelation:correlationId }, '', url);
+    patchRoute({view:'logs',period,auditCorrelation:correlationId,stage:null},'push',{view:'logs',period,auditCorrelation:correlationId});
   }
 
   useEffect(() => {
     if (!actor) return;
     const onPopState = () => {
-      const params = new URLSearchParams(window.location.search);
+      const params = routeParams();
       const requestedView=validAppView(params.get('view'))||'dashboard';
       const normalizedView=normalizeViewForRole(actor.role,requestedView);
       const route=normalizeInternalRoute(normalizedView,params.get('stage'),['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role));
       const safeView=allowedViewsForRole(actor.role).includes(route.view)?route.view:'dashboard';
-      const url=new URL(window.location.href);
-      url.searchParams.set('view',safeView);
-      if(safeView===route.view&&route.stage)url.searchParams.set('stage',PAYROLL_STAGE_URL[route.stage]);
-      else url.searchParams.delete('stage');
-      if(safeView==='dashboard'&&requestedView!=='dashboard')for(const key of ['recoveryClientId','recoveryAccountId','recoveryReturnView','fundingAccountId','recoveryComplete'])url.searchParams.delete(key);
-      window.history.replaceState(window.history.state,'',url);
+      // Coerce disallowed stages/views into the canonical URL. The route
+      // helper only dispatches an event when the URL actually changes.
+      patchRoute({view:safeView,stage:safeView===route.view&&route.stage?PAYROLL_STAGE_URL[route.stage]:null,
+        ...safeView==='dashboard'&&requestedView!=='dashboard'?{recoveryClientId:null,recoveryAccountId:null,recoveryReturnView:null,fundingAccountId:null,recoveryComplete:null}:{},
+      });
       const requestedPeriod = params.get('period');
       setView(safeView);
       if (requestedPeriod) setPeriod(requestedPeriod);
       setSettingsOpen(false);
       setMobileNavOpen(false);
     };
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
+    return subscribeRoute(onPopState);
   }, [actor]);
 
   if (mounted && authChecked && authRequired) return <LoginScreen />;

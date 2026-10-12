@@ -41,8 +41,8 @@ test('Data Intake uses client-side Link and preserves global payroll period in b
   assert.match(intake,/\?view=\$\{view\}&period=/);
   assert.match(intake,/\?view=operations&period=/);
   assert.match(home,/params\.get\('period'\)/);
-  assert.match(home,/url\.searchParams\.set\('period', p\)/);
-  assert.match(home,/url\.searchParams\.set\('period', period\)/);
+  assert.match(home,/patchRoute\(\{period:p\}\)/);
+  assert.match(home,/patchRoute\(\{view:safeView,period,/);
 });
 
 test('Header client scope uses canonical D1 dashboard summary instead of local company count', async()=>{
@@ -92,9 +92,9 @@ test('Footer and System Health share one cached health source without duplicate 
 
 test('Sidebar navigation participates in browser history and restores view on back-forward', async()=>{
   const home=await read('src/app/page.tsx');
-  assert.match(home,/window\.history\.pushState\(\{ view: safeView, period \}/);
-  assert.match(home,/window\.addEventListener\('popstate', onPopState\)/);
-  assert.match(home,/window\.removeEventListener\('popstate', onPopState\)/);
+  assert.match(home,/\},'push',\{view:safeView,period\}\)/);
+  assert.match(home,/subscribeRoute\(onPopState\)/);
+  assert.match(home,/return subscribeRoute\(onPopState\)/);
   assert.match(home,/setView\(safeView\)/);
   assert.match(home,/if \(requestedPeriod\) setPeriod\(requestedPeriod\)/);
 });
