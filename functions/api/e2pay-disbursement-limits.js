@@ -123,8 +123,10 @@ export async function onRequest({request,env}){
       }
 
       const requests=await d1All(env.DB,`SELECT dlr.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name,
-          COALESCE((SELECT SUM(CASE WHEN u.status='CONSUMED' THEN u.consumed_amount WHEN u.status='RESERVED' THEN u.reserved_amount ELSE 0 END)
-            FROM e2pay_disbursement_limit_usage u WHERE u.limit_request_id=dlr.id AND u.status IN ('RESERVED','CONSUMED')),0) AS committed_amount
+          (COALESCE((SELECT SUM(CASE WHEN u.status='CONSUMED' THEN u.consumed_amount WHEN u.status='RESERVED' THEN u.reserved_amount ELSE 0 END)
+            FROM e2pay_disbursement_limit_usage u WHERE u.limit_request_id=dlr.id AND u.status IN ('RESERVED','CONSUMED')),0)
+          +COALESCE((SELECT SUM(CASE WHEN u.status='CONSUMED' THEN u.consumed_amount WHEN u.status='RESERVED' THEN u.reserved_amount ELSE 0 END)
+            FROM e2pay_disbursement_request_limit_usage u WHERE u.limit_request_id=dlr.id AND u.status IN ('RESERVED','CONSUMED')),0)) AS committed_amount
         FROM e2pay_disbursement_limit_requests dlr
         JOIN clients c ON c.id=dlr.client_id
         LEFT JOIN projects p ON p.id=dlr.project_id

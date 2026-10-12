@@ -11,6 +11,7 @@ import { actorFraudDecision, paymentLimitDecision } from './_fraud-controls.js';
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import { readProviderFundingState } from './e2pay-disbursement-limit-core.js';
 import { roleCanAction } from '../../shared/authority-matrix.js';
+import { legacyGatewayForPi, LEGACY_FINANCIAL_PRESENT } from './_payment-source-guard.js';
 
 const METHODS='GET, POST, OPTIONS';
 const SOURCE_READY_PI=new Set(['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT']);
@@ -101,7 +102,7 @@ async function ewaSource(db,org,sourceId,env){
 export async function onRequest({request,env}){
   if(request.method==='OPTIONS') return handlePreflight(request,env,METHODS);
   if(!['GET','POST'].includes(request.method)) return secureJson({error:'Method not allowed'},405,request,env,METHODS);
-  const authorization=await authorize(request,env,{mutating:request.method==='POST',methods:METHODS});
+  const authorization=await authorize(request,env,{roles:['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'],mutating:request.method==='POST',methods:METHODS});
   if(authorization.response) return authorization.response;
   const limited=await enforceRateLimit(request,env,authorization.actor,'disbursement-requests',METHODS);
   if(limited) return limited;
@@ -150,6 +151,8 @@ export async function onRequest({request,env}){
     if(current.status==='APPROVED') return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id),idempotentReplay:true},200,request,env,METHODS);
     if(current.status!=='PENDING_APPROVAL') return secureJson({error:'Disbursement Request tidak menunggu approval',code:'DISBURSEMENT_NOT_PENDING_APPROVAL'},409,request,env,METHODS);
     if(String(current.requested_by_user_id||'')===String(actor.id||'')) return secureJson({error:'Maker tidak dapat approve request yang sama',code:'DISBURSEMENT_MAKER_CHECKER_VIOLATION'},409,request,env,METHODS);
+    if(current.source_document_type==='PAYMENT_INSTRUCTION' && await legacyGatewayForPi(env.DB,organizationId,current.source_document_id))
+      return secureJson(LEGACY_FINANCIAL_PRESENT,409,request,env,METHODS);
     const routeValidation=await validateProviderChannelSnapshot(env.DB,current);
     if(!routeValidation.ok) return secureJson({error:'Provider channel snapshot tidak lagi valid untuk approval',code:routeValidation.code},409,request,env,METHODS);
     const account=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider=? AND environment=? AND status='ACTIVE' LIMIT 1`,[current.provider_account_registry_id,organizationId,current.provider,current.provider_environment]);
@@ -177,6 +180,8 @@ export async function onRequest({request,env}){
     if(!current) return secureJson({error:'Disbursement Request tidak ditemukan'},404,request,env,METHODS);
     if(current.status==='PENDING_APPROVAL') return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id),idempotentReplay:true},200,request,env,METHODS);
     if(current.status!=='READY') return secureJson({error:'Disbursement Request tidak berada pada status READY',code:'DISBURSEMENT_NOT_READY'},409,request,env,METHODS);
+    if(current.source_document_type==='PAYMENT_INSTRUCTION' && await legacyGatewayForPi(env.DB,organizationId,current.source_document_id))
+      return secureJson(LEGACY_FINANCIAL_PRESENT,409,request,env,METHODS);
     const route=await resolveProviderChannel(env.DB,{
       provider:current.provider,environment:current.provider_environment,purpose:current.purpose,
       destinationMode:current.destination_mode,beneficiaryType:current.beneficiary_type,
@@ -206,6 +211,9 @@ export async function onRequest({request,env}){
     if(existing.destination_mode!==destinationMode) return secureJson({error:'Source document sudah memiliki settlement strategy aktif yang berbeda',code:'DISBURSEMENT_SETTLEMENT_STRATEGY_LOCKED',request:publicDisbursementRequest(existing,[])},409,request,env,METHODS);
     return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,existing.id),idempotentReplay:true},200,request,env,METHODS);
   }
+
+  if(sourceDocumentType==='PAYMENT_INSTRUCTION' && await legacyGatewayForPi(env.DB,organizationId,sourceDocumentId))
+    return secureJson(LEGACY_FINANCIAL_PRESENT,409,request,env,METHODS);
 
   const source=sourceDocumentType==='PAYMENT_INSTRUCTION'
     ? await payrollSource(env.DB,organizationId,sourceDocumentId,destinationMode)

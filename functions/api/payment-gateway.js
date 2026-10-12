@@ -24,6 +24,7 @@ import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import { activeProviderAccount, liquidityState, validatePaymentProviderSnapshot } from './payment-provider-routing.js';
 import { scopedE2PayRuntimeEnv } from './payment-provider-account-credentials.js';
 import { consumeDisbursementLimit, readProviderFundingState, reserveDisbursementLimit } from './e2pay-disbursement-limit-core.js';
+import { canonicalDrForPi, CANONICAL_FINANCIAL_PRESENT } from './_payment-source-guard.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER'];
@@ -362,6 +363,8 @@ export async function onRequest(context) {
     const idempotencyKey = gatewayIdempotencyKey(payment);
     let transaction = await d1First(database, 'SELECT * FROM payment_gateway_transactions WHERE idempotency_key=? LIMIT 1', [idempotencyKey]);
     const financialAction = action === 'EXECUTE' || action === 'RETRY_FAILED';
+    if(financialAction && await canonicalDrForPi(database,organizationId,paymentInstructionId))
+      return secureJson(CANONICAL_FINANCIAL_PRESENT,409,request,env,METHODS);
     let providerAccount=null;
     let providerLiquidity=null;
     let providerFunding=null;

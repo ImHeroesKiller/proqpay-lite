@@ -63,9 +63,11 @@ export async function readProviderFundingState(database,organizationId,providerA
       : capacityForPayment<required?'LIMIT_INSUFFICIENT'
         :'AVAILABLE';
 
-  const executionReady=subLiquidity.ready&&limitState==='AVAILABLE';
-  const state=!subLiquidity.ready
-    ? 'SUBCLIENT_'+subLiquidity.state
+  // Approval and execution must fail closed when the parent liquidity snapshot is stale.
+  // Sub-client balance and approved limit are necessary but not sufficient.
+  const executionReady=parentState==='READY'&&subLiquidity.ready&&limitState==='AVAILABLE';
+  const state=parentState!=='READY' ? 'PARENT_'+parentState
+    : !subLiquidity.ready ? 'SUBCLIENT_'+subLiquidity.state
     : limitState;
 
   return {
