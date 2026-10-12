@@ -59,8 +59,13 @@ async function payrollSource(db,org,sourceId,destinationMode){
         bankCode:row.bank_code,bankName:row.bank_name,beneficiaryName:row.beneficiary_name,ciphertext:row.account_ciphertext,iv:row.account_iv,accountHash,last4:row.account_last4,beneficiaryHash,amount:Number(row.amount)};
     }));
   }else if(destinationMode==='CLIENT_ACCOUNT'){
-    const bank=await d1First(db,`SELECT * FROM client_bank_accounts WHERE org_id=? AND client_id=? AND purpose='PAYROLL_SETTLEMENT' AND status='VERIFIED' AND is_primary=1 LIMIT 1`,[org,pi.client_id]);
-    if(!bank) return {error:'Rekening perusahaan klien belum VERIFIED dan PRIMARY untuk payroll settlement',status:409,code:'CORPORATE_BENEFICIARY_REQUIRED'};
+    const bank=await d1First(db,`SELECT cba.* FROM client_bank_accounts cba
+      JOIN client_bank_account_change_requests cr ON cr.id=cba.source_change_request_id
+      WHERE cba.org_id=? AND cba.client_id=? AND cba.purpose='PAYROLL_SETTLEMENT'
+        AND cba.status='VERIFIED' AND cba.is_primary=1 AND cba.verification_version>0
+        AND cr.status='APPROVED' AND cr.client_id=cba.client_id AND cr.purpose=cba.purpose
+      LIMIT 1`,[org,pi.client_id]);
+    if(!bank) return {error:'Rekening perusahaan klien belum VERIFIED, governed, dan PRIMARY untuk payroll settlement',status:409,code:'CORPORATE_BENEFICIARY_REQUIRED'};
     const beneficiaryHash=await sha256Hex(JSON.stringify({clientId:pi.client_id,bankCode:bank.bank_code,accountHash:bank.account_number_hash,amount:Number(pi.expected_total)}));
     items=[{sequence:1,sourceItemType:'CORPORATE_SETTLEMENT',sourceItemId:bank.id,beneficiaryType:'CORPORATE',beneficiaryReference:pi.client_id,employeeId:null,clientBankAccountId:bank.id,
       bankCode:bank.bank_code,bankName:bank.bank_name,beneficiaryName:bank.account_name,ciphertext:bank.account_number_ciphertext,iv:bank.account_number_iv,accountHash:bank.account_number_hash,last4:bank.account_number_last4,beneficiaryHash,amount:Number(pi.expected_total)}];

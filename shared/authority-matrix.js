@@ -28,10 +28,10 @@ export const ROLE_PERMISSIONS = Object.freeze({
   ]),
   PAYROLL_PROCESSOR: Object.freeze([
     'read','employees:write','import:write','submission:write','exception:write',
-    'payroll:write','payment:prepare','disbursement-limit:request','disbursement:request','reconciliation:write','billing:prepare',
+    'payroll:write','payment:prepare','disbursement-limit:request','disbursement:request','corporate-beneficiary:request','reconciliation:write','billing:prepare',
   ]),
   PAYROLL_CONTROLLER: Object.freeze([
-    'read','approval:write','PAYMENT_APPROVER','payment:approve','disbursement-limit:approve','disbursement:approve',
+    'read','approval:write','PAYMENT_APPROVER','payment:approve','disbursement-limit:approve','disbursement:approve','corporate-beneficiary:approve',
     'reconciliation:write','billing:approve','ar:write',
   ]),
   CLIENT_USER: Object.freeze(['read']),
@@ -81,6 +81,8 @@ export const ACTION_RULES = Object.freeze({
   'disbursement-limit.approve': Object.freeze({ permission:'disbursement-limit:approve' }),
   'disbursement.request': Object.freeze({ permission:'disbursement:request' }),
   'disbursement.approve': Object.freeze({ permission:'disbursement:approve' }),
+  'corporate-beneficiary.request': Object.freeze({ permission:'corporate-beneficiary:request' }),
+  'corporate-beneficiary.approve': Object.freeze({ permission:'corporate-beneficiary:approve' }),
   'reconciliation.manage': Object.freeze({ permission:'reconciliation:write' }),
   'billing.prepare': Object.freeze({ permission:'billing:prepare' }),
   'billing.approve': Object.freeze({ permission:'billing:approve' }),
