@@ -36,6 +36,12 @@ export async function markCredentialFailure(database,session,actorEmail,errorCod
 }
 
 export function manualCredentialBindingAllowed(session){
-  if(!session) return true; // legacy account created before P5.7 durable provisioning
-  return String(session.credential_mode||'').toUpperCase()!=='SERVICE_MANAGED';
+  if(!session) return true; // pre-P5.7 account before durable migration
+  return String(session.credential_state||'').toUpperCase()==='LEGACY_MANUAL';
+}
+
+export function legacyCredentialRecoveryState(session,credentialReady=false){
+  if(credentialReady&&String(session?.credential_state||'').toUpperCase()==='HEALTHY') return 'READY';
+  if(!credentialReady&&String(session?.credential_state||'').toUpperCase()==='LEGACY_MANUAL') return 'LEGACY_CREDENTIAL_RECOVERY_REQUIRED';
+  return null;
 }

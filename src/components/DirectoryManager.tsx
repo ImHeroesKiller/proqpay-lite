@@ -235,7 +235,8 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   function renderE2PayMerchantCredential(account:E2PaySubAccount){
     if(account.status!=='ACTIVE'||account.provisioningState!=='PROVISIONED') return null;
     const lifecycle=account.provisioning?.credentialHealth;
-    const serviceManaged=Boolean(account.provisioning);
+    const legacyRecovery=account.provisioning?.legacyCompatibility==='LEGACY_CREDENTIAL_RECOVERY_REQUIRED'||account.provisioning?.credentialHealth?.state==='LEGACY_MANUAL';
+    const serviceManaged=Boolean(account.provisioning)&&!legacyRecovery;
     if(account.merchantCredential?.ready){
       const tone=lifecycle?.recoveryRequired?'warning':lifecycle?.degraded?'warning':'info';
       const title=lifecycle?.recoveryRequired?'Credential perlu recovery':lifecycle?.degraded?'Credential perlu diverifikasi ulang':'Credential dikelola otomatis';
@@ -251,8 +252,8 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
         <button type="button" className="btn btn-primary" disabled={e2payBusy} onClick={()=>void checkClientE2PayCredential(account)}>{e2payBusy?'Memeriksa…':'Periksa Ulang Credential'}</button>
       </div>;
     }
-    if(!canManageE2Pay) return <UiNotice tone="warning" title="Legacy credential recovery diperlukan">Hubungi Super Admin atau Payroll Processor untuk recovery account legacy.</UiNotice>;
-    return <><UiNotice tone="warning" title="Legacy credential recovery">Account ini dibuat sebelum automated credential lifecycle. Masukkan merchant login satu kali untuk migrasi; flow ini tidak digunakan untuk account P5.7 baru.</UiNotice>
+    if(!canManageE2Pay) return <UiNotice tone="warning" title="Legacy credential recovery diperlukan">Sub-account existing tetap dipertahankan. Hubungi Super Admin atau Payroll Processor untuk recovery credential satu kali.</UiNotice>;
+    return <><UiNotice tone="warning" title="Legacy credential recovery">Account ini dibuat sebelum automated credential lifecycle. Sub-account existing tidak akan dibuat ulang. Masukkan merchant login satu kali untuk recovery dan promosi ke lifecycle READY/HEALTHY.</UiNotice>
       <div className="directory-form-grid">
         <label>Username E2Pay<input value={e2payMerchantUsername} autoComplete="username" onChange={(event)=>setE2PayMerchantUsername(event.target.value)} /></label>
         <label>Password merchant<input type="password" autoComplete="current-password" value={e2payMerchantPassword} onChange={(event)=>setE2PayMerchantPassword(event.target.value)} /></label>
