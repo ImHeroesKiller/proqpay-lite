@@ -1,4 +1,5 @@
 'use client';
+import {patchRoute,routeValue,subscribeRoute} from '@/lib/route-state';
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -22,7 +23,8 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState('');
   const [message,setMessage]=useState('');
-  const [accountId,setAccountId]=useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('fundingAccountId')||'');
+  const [accountId,setAccountId]=useState(()=>typeof window==='undefined'?'':routeValue('fundingAccountId')||'');
+  useEffect(()=>subscribeRoute(()=>setAccountId(routeValue('fundingAccountId')||'')),[]);
   const [amount,setAmount]=useState('');
   const [reason,setReason]=useState('Limit operasional disbursement payroll');
 
@@ -37,7 +39,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
       setRequests(data.requests);
       setArchivedCount(data.archivedUatAccountCount||0);
       setAccountId(current=>data.funding.some(row=>row.providerAccountRegistryId===current)?current:(data.funding[0]?.providerAccountRegistryId||''));
-      const recoveryComplete=typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('recoveryComplete')==='1';
+      const recoveryComplete=typeof window!=='undefined'&&routeValue('recoveryComplete')==='1';
       setMessage(recoveryComplete?'Legacy credential berhasil direcovery. Balance awal sudah disinkronkan; funding account siap diverifikasi.':'');
     }catch(error){
       setMessage(error instanceof Error?error.message:'Funding & limit gagal dimuat');
@@ -90,7 +92,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
   const credentialRequired=Boolean(selected&&selected.provisioningState==='PROVISIONED'&&!selected.merchantCredential?.ready&&!legacyRecoveryRequired);
   const credentialBlocked=Boolean(legacyRecoveryRequired||credentialRequired);
   const canRecover=role==='SUPER_ADMIN'||role==='PAYROLL_PROCESSOR';
-  const recoveryHref=selected?`/?view=clients&recoveryClientId=${encodeURIComponent(selected.clientId)}&recoveryAccountId=${encodeURIComponent(selected.providerAccountRegistryId)}&recoveryReturnView=payments${typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('period')?'&period='+encodeURIComponent(new URLSearchParams(window.location.search).get('period')||''):''}`: '/?view=clients';
+  const recoveryHref=selected?`/?view=clients&recoveryClientId=${encodeURIComponent(selected.clientId)}&recoveryAccountId=${encodeURIComponent(selected.providerAccountRegistryId)}&recoveryReturnView=payments${typeof window!=='undefined'&&routeValue('period')?'&period='+encodeURIComponent(routeValue('period')||''):''}`: '/?view=clients';
   const messageIsError=/gagal|tidak|wajib|belum|insufficient|stale/i.test(message);
 
   // No heavyweight legacy recovery banner / empty gateway controls for UAT
@@ -137,7 +139,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
         </div>
         <label className="ui-form-field">
           <span>Sub-client / account</span>
-          <select value={accountId} onChange={(event)=>{const id=event.target.value;setAccountId(id);const url=new URL(window.location.href);url.searchParams.set('fundingAccountId',id);window.history.replaceState(window.history.state,'',url);}} disabled={loading||!funding.length}>
+          <select value={accountId} onChange={(event)=>{const id=event.target.value;setAccountId(id);patchRoute({fundingAccountId:id});}} disabled={loading||!funding.length}>
             {!funding.length?<option value="">Belum ada funding account</option>:null}
             {funding.map((row)=><option key={row.providerAccountRegistryId} value={row.providerAccountRegistryId}>
               {(row.clientName||row.clientCode||row.clientId)}{row.projectName?` · ${row.projectName}`:''} · {row.providerSubAccountIdMasked||'Sub-account'}

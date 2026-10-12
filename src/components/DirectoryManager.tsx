@@ -99,26 +99,36 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const detailDialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement|null>(null);
   const recoveryAutoOpenedRef = useRef(false);
+  const directoryGeneration=useRef(0);
+  const activeDirectoryRequest=useRef<AbortController|null>(null);
 
   const load = useCallback(async () => {
+    const generation=++directoryGeneration.current;
+    activeDirectoryRequest.current?.abort();
+    const controller=new AbortController();
+    activeDirectoryRequest.current=controller;
+    const current=()=>directoryGeneration.current===generation&&!controller.signal.aborted;
     setLoading(true);
     try {
-      const response = await fetch('/api/client-projects', { headers: { Accept: 'application/json' } });
+      const response = await fetch('/api/client-projects', { signal:controller.signal,headers: { Accept: 'application/json' } });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      if(!current())return;
       setClients(data.clients || []);
       setProjects(data.projects || []);
       setProjectsTruncated(Boolean(data.meta?.projectsTruncated));
       setMessageTone('info');
     } catch (error) {
-      setMessageTone('error');
-      setMessage(error instanceof Error ? error.message : 'Gagal memuat master data');
+      if(current()&&!(error instanceof Error&&error.name==='AbortError')){
+        setMessageTone('error');
+        setMessage(error instanceof Error ? error.message : 'Gagal memuat master data');
+      }
     } finally {
-      setLoading(false);
+      if(current())setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); return ()=>{directoryGeneration.current+=1;activeDirectoryRequest.current?.abort();}; }, [load]);
   const loadE2Pay=useCallback(async()=>{try{const result=await getE2PaySubAccounts('UAT');setE2PayAccounts(result.accounts);}catch{setE2PayAccounts([]);}finally{setE2PayAccountsLoaded(true);}},[]);
   const loadClientReadiness=useCallback(async()=>{try{const response=await fetch('/api/client-readiness',{headers:{Accept:'application/json'}});const data=await response.json().catch(()=>({}));if(response.ok)setClientReadiness(data.clients||[]);}catch{/* readiness is advisory; directory remains usable */}},[]);
   useEffect(()=>{void loadE2Pay();void loadClientReadiness();},[loadE2Pay,loadClientReadiness]);

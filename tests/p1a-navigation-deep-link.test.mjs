@@ -56,12 +56,12 @@ test('P1.A legacy Client recovery resolves only exact account and client; projec
 test('P1.A application parent owns stage navigation and browser Back/Forward restoration',async()=>{
  const [page,workspace,router]=await Promise.all([src('src/app/page.tsx'),src('src/components/UnifiedPayrollWorkspace.tsx'),src('src/components/AppWorkspaceRouter.tsx')]);
  assert.match(workspace,/onNavigate\(PAYROLL_STAGE_VIEW\[next\]\)/);
- assert.match(workspace,/window\.history\.replaceState\(window\.history\.state,'',url\)/);
+ assert.match(workspace,/patchWorkspaceFilters\(filters,patch\)/);
  assert.doesNotMatch(workspace,/window\.history\.pushState/);
  assert.match(router,/onNavigate=\{props\.onNavigate\}/);
- assert.match(page,/url\.searchParams\.set\('stage',PAYROLL_STAGE_URL\[stageForView\(safeView\)\]\)/);
- assert.match(page,/window\.history\.pushState/);
- assert.match(page,/window\.addEventListener\('popstate', onPopState\)/);
+ assert.match(page,/PAYROLL_STAGE_URL\[stageForView\(safeView\)\]/);
+ assert.match(page,/patchRoute\(\{view:safeView,period,/);
+ assert.match(page,/subscribeRoute\(onPopState\)/);
  assert.match(page,/normalizeInternalRoute\(normalizedView,params\.get\('stage'\)/);
 });
 

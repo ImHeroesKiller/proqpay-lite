@@ -1,4 +1,6 @@
 'use client';
+import {patchRoute,routeValue,subscribeRoute} from '@/lib/route-state';
+import {isAbortedRequest} from '@/lib/api-client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -83,6 +85,7 @@ export default function OperatingWorkspace({
   embedded?: boolean;
   gatewayCanView?: boolean;
 }) {
+  const requestGeneration=useRef(0);
   const [actor, setActor] = useState<Actor | null>(null);
   const [data, setData] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
@@ -91,7 +94,7 @@ export default function OperatingWorkspace({
   const [message, setMessage] = useState('');
   const [periodFilter, setPeriodFilter] = useState(()=>period && period !== 'ALL'
     ? period
-    : typeof window==='undefined'?'ALL':new URLSearchParams(window.location.search).get('payrollPeriod')||'ALL');
+    : typeof window==='undefined'?'ALL':routeValue('payrollPeriod')||'ALL');
   const [localClientFilter, setLocalClientFilter] = useState('ALL');
   const [localProjectFilter, setLocalProjectFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -99,16 +102,18 @@ export default function OperatingWorkspace({
   const clientFilter = filters?.clientId || localClientFilter;
   const projectFilter = filters?.projectId || localProjectFilter;
   const query = filters?.query ?? localQuery;
-  const [focusSubmissionId, setFocusSubmissionId] = useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('submissionId')||'');
-  const [dashboardStage, setDashboardStage] = useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('dashboardStage')||'');
+  const [focusSubmissionId, setFocusSubmissionId] = useState(()=>typeof window==='undefined'?'':routeValue('submissionId')||'');
+  const [dashboardStage, setDashboardStage] = useState(()=>typeof window==='undefined'?'':routeValue('dashboardStage')||'');
   const [createOpen, setCreateOpen] = useState(false);
-  const [activePaymentPanel,setActivePaymentPanel]=useState<PaymentPanel|null>(()=>typeof window==='undefined'?null:paymentPanel(new URLSearchParams(window.location.search).get('paymentPanel')));
+  const [activePaymentPanel,setActivePaymentPanel]=useState<PaymentPanel|null>(()=>typeof window==='undefined'?null:paymentPanel(routeValue('paymentPanel')));
   const [canonicalDecisionRows,setCanonicalDecisionRows]=useState<Array<{status:string;projectId?:string|null;clientReference?:string;sourceDocumentId?:string}>>([]);
   const [canonicalDecisionKnown,setCanonicalDecisionKnown]=useState(false);
   const [canonicalDecisionRefresh,setCanonicalDecisionRefresh]=useState(0);
   const [fundingPanel,setFundingPanel]=useState<'LIQUIDITY'|'CHANNEL'>('LIQUIDITY');
 
   const load = useCallback(async () => {
+    const generation=++requestGeneration.current;
+    const current=()=>requestGeneration.current===generation;
     setLoading(true);
     if(mode==='payments'||mode==='reconcile')setUatArchiveVerified(false);
     setMessage('');
@@ -116,9 +121,10 @@ export default function OperatingWorkspace({
       const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup','payment-instructions','exceptions']
         : mode === 'actions' ? ['submissions','exceptions']
         : mode === 'payments' || mode === 'reconcile' ? ['submissions','payment-instructions','payment-proofs','reconciliations'] : [];
-      const meResponse = await fetch('/api/me');
+      const meResponse = await fetch('/api/me',{cache:'no-store'});
       const me = await meResponse.json();
       if (!meResponse.ok) throw new Error(me.error || `HTTP ${meResponse.status}`);
+      if(!current())return;
       setActor(me.user || null);
       setOperatingCacheActor(me.user || null);
       // UAT-only administrative archive is not provider settlement; never let
@@ -127,6 +133,7 @@ export default function OperatingWorkspace({
         const archived=await fetch('/api/uat-administrative-archives',{cache:'no-store'});
         const archiveBody=await archived.json().catch(()=>({}));
         if(!archived.ok)throw new Error(archiveBody.error||`UAT archive HTTP ${archived.status}`);
+        if(!current())return;
         setUatClosedPiIds(new Set((archiveBody.records||[]).map((r:{sourceDocumentId:string})=>r.sourceDocumentId)));
         setUatArchiveVerified(true);
       } else {setUatClosedPiIds(new Set());setUatArchiveVerified(true);}
@@ -137,19 +144,23 @@ export default function OperatingWorkspace({
           : resource === 'payment-instructions' || resource === 'payment-proofs' || resource === 'reconciliations' ? listAllPaginatedOperatingResource(resource, clientId)
           : listOperatingResource(resource, clientId)
       )));
+      if(!current())return;
       const merged: Record<string, any[]> = {};
       results.forEach((result: any) => Object.entries(result).forEach(([key, value]) => {
         if (Array.isArray(value)) merged[key] = [...(merged[key] || []), ...value];
       }));
       setData(merged);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Gagal memuat workspace');
+      if(current()&&!isAbortedRequest(error)) {
+        setMessage(error instanceof Error ? error.message : 'Gagal memuat workspace');
+        if(mode==='payments'||mode==='reconcile')setUatArchiveVerified(false);
+      }
     } finally {
-      setLoading(false);
+      if(current())setLoading(false);
     }
   }, [mode]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); return ()=>{requestGeneration.current+=1;}; }, [load]);
   useEffect(() => {
     if (period) setPeriodFilter(period);
   }, [period]);
@@ -253,9 +264,10 @@ export default function OperatingWorkspace({
       .then(async response=>{
         const body=await response.json().catch(()=>({}));
         if(!response.ok)throw new Error(body.error||`HTTP ${response.status}`);
+        if(controller.signal.aborted)return;
         setCanonicalDecisionRows(Array.isArray(body.requests)?body.requests:[]);
         setCanonicalDecisionKnown(true);
-      }).catch(error=>{if(error?.name!=='AbortError'){setCanonicalDecisionKnown(false);setCanonicalDecisionRows([]);}});
+      }).catch(error=>{if(!controller.signal.aborted&&!isAbortedRequest(error)){setCanonicalDecisionKnown(false);setCanonicalDecisionRows([]);}});
     return ()=>controller.abort();
   },[mode,actor?.role,clientFilter,canonicalDecisionRefresh]);
   const canonicalDecisionActions=useMemo(()=>canonicalDecisionRows.filter(row=>(projectFilter==='ALL'||row.projectId===projectFilter)
@@ -265,15 +277,12 @@ export default function OperatingWorkspace({
   const displayedPaymentPanel=activePaymentPanel||defaultPaymentPanel(visibleInstructions,actor?.role||'UNKNOWN');
   const selectPaymentPanel=(next:PaymentPanel)=>{
     setActivePaymentPanel(next);
-    const url=new URL(window.location.href);
-    url.searchParams.set('paymentPanel',next);
-    window.history.replaceState(window.history.state,'',url);
+    patchRoute({paymentPanel:next});
   };
   useEffect(()=>{
     if(mode!=='payments')return;
-    const onPop=()=>setActivePaymentPanel(paymentPanel(new URLSearchParams(window.location.search).get('paymentPanel')));
-    window.addEventListener('popstate',onPop);
-    return ()=>window.removeEventListener('popstate',onPop);
+    const onRoute=()=>setActivePaymentPanel(paymentPanel(routeValue('paymentPanel')));
+    return subscribeRoute(onRoute);
   },[mode]);
   const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
 
@@ -378,11 +387,7 @@ export default function OperatingWorkspace({
   } as Record<WorkspaceMode, typeof baseProfile>)[mode] : baseProfile;
   function clearDashboardFocus(){
     setFocusSubmissionId(''); setDashboardStage('');
-    const url=new URL(window.location.href);
-    url.searchParams.delete('submissionId');
-    url.searchParams.delete('dashboardStage');
-    url.searchParams.delete('payrollPeriod');
-    window.history.replaceState({},'',url);
+    patchRoute({submissionId:null,dashboardStage:null,payrollPeriod:null});
   }
 
   const statusOptions = mode === 'payments' || mode === 'reconcile'
