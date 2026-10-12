@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile} from 'node:fs/promises';
@@ -83,7 +84,7 @@ test('P1.B post-recovery and Hosted Payment return to the correct payment workbe
 });
 
 test('P1.B mobile payment navigation retains compact legible buttons, no fixed-width panel or fake provider readiness',async()=>{
- const [css,workspace]=await Promise.all([read('src/app/globals.css'),read('src/components/UnifiedPayrollWorkspace.tsx')]);
+ const [css,workspace]=await Promise.all([readGlobalCss(),read('src/components/UnifiedPayrollWorkspace.tsx')]);
  assert.match(css,/\.payment-decision-nav\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
  assert.match(css,/@media\(max-width:760px\)/);
  assert.match(css,/\.canonical-queue-switch/);

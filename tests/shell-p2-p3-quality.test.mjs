@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -64,7 +65,7 @@ test('Settings is exposed as a dialog utility instead of a route-like navigation
 test('Shell has a compact utility footer with environment, version, health, sync and support', async()=>{
   const footer=await read('src/components/AppFooter.tsx');
   const page=await read('src/app/page.tsx');
-  const css=await read('src/app/globals.css');
+  const css=await readGlobalCss();
   assert.match(page,/import AppFooter/);
   assert.match(page,/<AppFooter/);
   assert.match(footer,/<footer className="app-footer"/);

@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile} from 'node:fs/promises';
@@ -29,7 +30,7 @@ test('P5.8.6 Payment Instructions has compact filters, inline decisions, flat PI
 });
 
 test('P5.8.6 mobile and desktop CSS scope prevents cardless styling leaking into other workspaces',async()=>{
- const css=await read('src/app/globals.css');
+ const css=await readGlobalCss();
  for(const scope of ['.directory-inline-stats','.directory-filter-compact','.directory-master-flat','.payroll-stage-nav-compact','.payroll-shared-filter-payments','.operations-control-bar-payments','.payment-decision-inline','.payment-decision-nav-compact','.payment-instruction-table-flat'])assert.ok(css.includes(scope),scope);
  assert.match(css,/@media\(max-width:700px\)/);
  assert.match(css,/@media\(max-width:430px\)/);

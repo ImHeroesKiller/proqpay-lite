@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -27,7 +28,7 @@ test('Pay Runs P3 uses business-friendly source and run-type labels',async()=>{
 
 test('Pay Runs P3 adds responsive mobile payroll cards',async()=>{
   const ui=await read('src/components/OperatingWorkspace.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(ui,/pay-run-mobile-list/);
   assert.match(ui,/pay-run-mobile-card/);
   assert.match(ui,/pay-run-mobile-metrics/);
@@ -62,7 +63,7 @@ test('Pay Runs P3 preserves P1 and P2 hardening controls',async()=>{
 });
 
 test('Pay Runs P3 styling covers summary tabs review hero and mobile cards',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/Pay Runs P3/);
   assert.match(css,/\.pay-run-p3-summary/);
   assert.match(css,/\.pay-run-group-tabs/);

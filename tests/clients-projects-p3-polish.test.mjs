@@ -1,3 +1,4 @@
+import {readGlobalCss, readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -37,14 +38,14 @@ test('Clients & Projects P3 reduces row density with metadata chips',async()=>{
 
 test('Clients & Projects P3 adds detail hierarchy and mobile ergonomics',async()=>{
   const ui=await read('src/components/DirectoryManager.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(ui,/directory-detail-hero/);
   assert.match(css,/Clients & Projects P3/);
   assert.match(css,/\.directory-form-card/);
   assert.match(css,/\.directory-code-field code/);
   assert.match(css,/\.directory-detail-hero/);
   assert.match(css,/\.directory-modal-actions \{[\s\S]*position:sticky/);
-  const globals=await read('src/app/globals.css');
+  const globals=await readGlobalCss();
   assert.match(globals,/Clients & Projects — robust master workspace/);
   assert.match(globals,/\.directory-entity-card\{/);
 });

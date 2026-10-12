@@ -1,0 +1,273 @@
+
+
+/* Dashboard audit hardening — context focus and complete dark appearance */
+.dashboard-focus-banner {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin:14px 0 0;
+  padding:9px 12px;
+  border:1px solid var(--border-strong);
+  border-radius:10px;
+  color:var(--text2);
+  background:var(--accent-soft);
+  font-size:10px;
+}
+.dashboard-focus-banner button {
+  border:0;
+  color:var(--accent);
+  background:transparent;
+  font:700 10px inherit;
+  cursor:pointer;
+}
+
+.theme-dark .app-header,
+.theme-dark .header-period,
+.theme-dark .header-search>button,
+.theme-dark .header-alerts>button,
+.theme-dark .header-icon-button,
+.theme-dark .header-account>button,
+.theme-dark .header-popover,
+.theme-dark .control-bar,
+.theme-dark .portfolio-snapshot,
+.theme-dark .pipeline-panel,
+.theme-dark .pipeline-grid>button,
+.theme-dark .control-kpi {
+  color:var(--text);
+  border-color:var(--border);
+  background:color-mix(in srgb,var(--bg-surface) 94%,var(--accent) 6%);
+  box-shadow:var(--shadow-xs);
+}
+.theme-dark .app-header,
+.theme-dark .header-popover,
+.theme-dark .control-bar {
+  backdrop-filter:blur(18px) saturate(125%);
+}
+.theme-dark .control-bar select,
+.theme-dark .control-bar input,
+.theme-dark .search-popover input {
+  color:var(--text);
+  background:var(--bg-subtle);
+}
+.theme-dark .control-kpi {
+  background:linear-gradient(145deg,var(--bg-surface),color-mix(in srgb,var(--bg-surface) 88%,var(--kpi) 12%));
+}
+.theme-dark .control-kpi-icon {
+  color:var(--kpi);
+  border-color:color-mix(in srgb,var(--kpi) 28%,var(--border));
+  background:color-mix(in srgb,var(--bg-surface) 82%,var(--kpi) 18%);
+  box-shadow:none;
+}
+.theme-dark .portfolio-snapshot {
+  box-shadow:inset 0 1px color-mix(in srgb,var(--border) 70%,transparent);
+}
+.theme-dark .pipeline-panel::before {
+  opacity:.22;
+}
+.theme-dark .pipeline-grid>button:hover,
+.theme-dark .header-period:hover,
+.theme-dark .header-search>button:hover,
+.theme-dark .header-alerts>button:hover,
+.theme-dark .header-icon-button:hover,
+.theme-dark .header-account>button:hover {
+  color:var(--text)!important;
+  background:var(--surface-hover);
+}
+.theme-dark .pipeline-grid>button>span {
+  border-color:color-mix(in srgb,var(--accent) 42%,var(--border));
+}
+.theme-dark .dashboard-focus-banner {
+  color:var(--text2);
+  border-color:var(--border-strong);
+  background:color-mix(in srgb,var(--bg-surface) 82%,var(--accent) 18%);
+}
+
+
+/* Dashboard P3 quality hardening */
+.visually-hidden {
+  position:absolute !important;
+  width:1px !important;
+  height:1px !important;
+  padding:0 !important;
+  margin:-1px !important;
+  overflow:hidden !important;
+  clip:rect(0,0,0,0) !important;
+  white-space:nowrap !important;
+  border:0 !important;
+}
+
+@media (max-width:760px) {
+  .portfolio-table-wrap:has(.dashboard-responsive-table) {
+    overflow:visible;
+    border:0;
+    background:transparent;
+    box-shadow:none;
+  }
+
+  .dashboard-responsive-table {
+    width:100%;
+    min-width:0 !important;
+    border-collapse:separate;
+    border-spacing:0 10px;
+  }
+
+  .dashboard-responsive-table thead {
+    position:absolute;
+    width:1px;
+    height:1px;
+    padding:0;
+    margin:-1px;
+    overflow:hidden;
+    clip:rect(0,0,0,0);
+    white-space:nowrap;
+    border:0;
+  }
+
+  .dashboard-responsive-table tbody,
+  .dashboard-responsive-table tr,
+  .dashboard-responsive-table td {
+    display:block;
+    width:100%;
+  }
+
+  .dashboard-responsive-table tr {
+    overflow:hidden;
+    border:1px solid var(--border);
+    border-radius:14px;
+    background:var(--bg-surface);
+    box-shadow:var(--shadow-xs);
+  }
+
+  .dashboard-responsive-table td {
+    display:grid;
+    grid-template-columns:minmax(88px,.72fr) minmax(0,1.28fr);
+    gap:10px;
+    align-items:start;
+    padding:10px 12px;
+    border-bottom:1px solid var(--border-soft);
+    text-align:right;
+  }
+
+  .dashboard-responsive-table td:last-child {
+    border-bottom:0;
+  }
+
+  .dashboard-responsive-table td::before {
+    content:attr(data-label);
+    color:var(--text3);
+    font-size:9px;
+    font-weight:750;
+    letter-spacing:.035em;
+    text-align:left;
+    text-transform:uppercase;
+  }
+
+  .dashboard-responsive-table td > strong,
+  .dashboard-responsive-table td > small,
+  .dashboard-responsive-table td > span,
+  .dashboard-responsive-table td > button {
+    justify-self:end;
+    max-width:100%;
+  }
+
+  .dashboard-responsive-table td > small {
+    grid-column:2;
+  }
+
+  .dashboard-responsive-table td > button {
+    min-height:36px;
+  }
+
+  .theme-dark .dashboard-responsive-table tr {
+    border-color:var(--border);
+    background:var(--bg-surface);
+  }
+}
+
+
+/* Dashboard P3 readability and density polish — 2026-09-24 */
+.control-panel-title > small,
+.control-kpi small,
+.action-list small,
+.deadline-list small,
+.portfolio-table,
+.portfolio-table td small,
+.control-pagination,
+.pipeline-grid > button > em,
+.pipeline-stage-hint,
+.pipeline-stage-hint b {
+  font-size: 10px;
+}
+
+.control-panel-title span,
+.control-kpi .control-kpi-label,
+.portfolio-snapshot,
+.portfolio-snapshot b,
+.portfolio-snapshot span,
+.portfolio-table th {
+  font-size: 9px;
+}
+
+.action-list > button,
+.deadline-list > button {
+  min-height: 48px;
+}
+
+.action-list small,
+.deadline-list small {
+  line-height: 1.45;
+}
+
+.portfolio-table th {
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+
+.portfolio-table td {
+  padding: 11px 12px;
+  line-height: 1.4;
+}
+
+.control-empty {
+  display: grid;
+  min-height: 92px;
+  place-items: center;
+  padding: 22px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb,var(--bg-subtle) 78%,transparent);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.control-refresh:disabled {
+  cursor: progress;
+  opacity: .72;
+}
+
+.control-pagination .btn {
+  min-width: 36px;
+  min-height: 36px;
+}
+
+@media (max-width:760px) {
+  .control-panel-title > small,
+  .control-kpi small,
+  .action-list small,
+  .deadline-list small,
+  .control-pagination,
+  .pipeline-grid > button > em,
+  .pipeline-stage-hint,
+  .pipeline-stage-hint b {
+    font-size: 10px;
+  }
+
+  .dashboard-responsive-table td::before {
+    font-size: 9.5px;
+  }
+
+  .dashboard-responsive-table td {
+    padding: 11px 12px;
+  }
+}

@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -8,7 +9,7 @@ test('Advance Salary visible redesign has a distinct control-center hierarchy',a
   const ui=await read('src/components/EwaInbox.tsx');
   const css=await read('src/app/employee-services.css');
   const unified=await read('src/components/ui/UnifiedSystem.tsx');
-  const globalCss=await read('src/app/globals.css');
+  const globalCss=await readGlobalCss();
   assert.match(ui,/Advance Salary Control Center/);
   assert.match(ui,/UiWorkspaceHeader/);
   assert.match(ui,/UiMetricGrid/);

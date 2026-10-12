@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -13,7 +14,7 @@ test('Reports P2 UX: report types expose semantic tabs',async()=>{
 
 test('Reports P2 UX: KPI cards provide operational context and semantic tone',async()=>{
   const reports=await read('src/components/ReportsWorkspace.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(reports,/Settlement selesai tanpa konflik sumber/);
   assert.match(reports,/Exception, bukti pending, atau konflik settlement/);
   assert.match(reports,/tone=\{paymentFollowUp\?'warning':'success'\}/);
@@ -31,7 +32,7 @@ test('Reports P2 UX: pagination exposes visible range and first-last navigation'
 });
 
 test('Reports P2 UX: filter sticky spacing and mobile pagination are hardened',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/\.report-filter \{\s*top:8px;/);
   assert.match(css,/\.dashboard-list-pagination \{[\s\S]*justify-content:space-between/);
   assert.match(css,/@media \(max-width:760px\)[\s\S]*\.dashboard-list-pagination[\s\S]*flex-direction:column/);

@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -69,7 +70,7 @@ test('Data Readiness P1 removes Controller exception mutation affordances',async
 });
 
 test('Data Readiness P1 styles evidence-based resolution responsively',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/Data Readiness P1/);
   assert.match(css,/\.readiness-evidence-panel/);
   assert.match(css,/\.readiness-evidence-grid/);

@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -77,7 +78,7 @@ test('Pay Runs P2 review modal supports Escape focus trap restore and scroll loc
 });
 
 test('Pay Runs P2 includes responsive styling for edit and action workflows',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/Pay Runs P2/);
   assert.match(css,/\.pay-run-action-composer/);
   assert.match(css,/\.pay-run-edit-modal/);

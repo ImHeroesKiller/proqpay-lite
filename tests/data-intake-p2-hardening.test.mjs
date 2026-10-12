@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -68,7 +69,7 @@ test('Data Intake P2 missing transfer requires and applies an active target proj
 });
 
 test('Data Intake P2 adds responsive diagnostics and change-review styling',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/Data Intake P2/);
   assert.match(css,/\.intake-diagnostics-grid/);
   assert.match(css,/\.intake-change-fields/);

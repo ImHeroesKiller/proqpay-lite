@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 const read=(path)=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
 test('P3 unified visual system centralizes semantic polish tokens',async()=>{
-  const css=await read('src/app/globals.css');
+  const css=await readGlobalCss();
   assert.match(css,/P3 Unified Visual Polish & Maintainability/);
   for(const token of ['--success-strong','--warning-strong','--danger-strong','--ui-density-row','--ui-control-height']){
     assert.match(css,new RegExp(token));
@@ -29,7 +30,7 @@ test('P3 keeps priority workspace layout styling out of Portal Settings and boun
 });
 
 test('P3 shared visual semantics replace hard-coded status colors in unified components',async()=>{
-  const css=await read('src/app/globals.css');
+  const css=await readGlobalCss();
   assert.match(css,/\.ui-status-success\{color:var\(--success-strong\)/);
   assert.match(css,/\.ui-status-warning\{color:var\(--warning-strong\)/);
   assert.match(css,/\.ui-status-danger\{color:var\(--danger-strong\)/);

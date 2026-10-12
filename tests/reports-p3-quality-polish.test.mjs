@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -40,7 +41,7 @@ test('Reports P3: operational copy is normalized for Indonesian users',async()=>
 });
 
 test('Reports P3: desktop report tables use bounded scroll and sticky dense headers',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/Reports UI — consolidated final layout/);
   assert.match(css,/\.report-table-wrap \{[\s\S]*max-height:min\(64vh,760px\)[\s\S]*overflow:auto !important/);
   assert.match(css,/\.report-table th \{[\s\S]*position:sticky[\s\S]*top:0/);
@@ -48,7 +49,7 @@ test('Reports P3: desktop report tables use bounded scroll and sticky dense head
 });
 
 test('Reports P3: final report polish is consolidated and retains mobile cards',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.equal((css.match(/Reports UI — consolidated final layout/g)||[]).length,1);
   assert.doesNotMatch(css,/Reports P2 — operational UX hardening/);
   assert.match(css,/@media \(max-width:760px\)[\s\S]*\.report-desktop-table \{[\s\S]*display:none/);

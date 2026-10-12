@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -12,7 +13,7 @@ test('Data Intake P3 marks all workflow steps complete after confirmation',async
 
 test('Data Intake P3 adds sticky payroll scope summary and control equation',async()=>{
   const ui=await read('src/app/data-intake/page.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(ui,/intake-scope-summary/);
   assert.match(ui,/Control total payroll/);
   assert.match(ui,/Gross/);
@@ -50,7 +51,7 @@ test('Data Intake P3 shows readiness before final confirmation',async()=>{
 });
 
 test('Data Intake P3 mobile review remains compact and touch friendly',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/Data Intake P3/);
   assert.match(css,/\.intake-review-toolbar[\s\S]*overflow-x:auto/);
   assert.match(css,/\.intake-missing-row[\s\S]*grid-template-columns:1fr !important/);

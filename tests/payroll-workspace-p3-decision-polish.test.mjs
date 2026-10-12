@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -39,7 +40,7 @@ test('P3 provides retryable error state and non-jumping loading skeleton',async(
 test('P3 makes workspace copy role-aware and mobile stage navigation compact',async()=>{
   const [workspace,css]=await Promise.all([
     read('src/components/UnifiedPayrollWorkspace.tsx'),
-    read('src/app/globals.css'),
+    readGlobalCss(),
   ]);
   assert.match(workspace,/isController\?'Selesaikan keputusan payroll/);
   assert.match(css,/payroll-stage-nav\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
