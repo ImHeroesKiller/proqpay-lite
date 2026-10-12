@@ -8,12 +8,8 @@ import { activateE2PaySubAccount, bindE2PaySubAccountCredential, checkE2PayCrede
 import CorporateBeneficiaryPanel from '@/components/CorporateBeneficiaryPanel';
 import {
   DataTableState as UiDataTableState,
-  FilterBar as UiFilterBar,
-  MetricCard as UiMetricCard,
-  MetricGrid as UiMetricGrid,
   Notice as UiNotice,
   Pagination as UiPagination,
-  SectionCard as UiSectionCard,
   StatusBadge as UiStatusBadge,
   Tabs as UiTabs,
 } from '@/components/ui/UnifiedSystem';
@@ -399,22 +395,18 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
         </div>
       </div>
 
-      <UiMetricGrid>
-        <UiMetricCard label="Klien aktif" value={activeClients} note={`${visibleClients.length} total klien`} tone="accent" />
-        <UiMetricCard label="Project aktif" value={activeProjects} note={`${visibleProjects.length} total project`} />
-        <UiMetricCard label="Karyawan terhubung" value={totalEmployees.toLocaleString('id-ID')} note="berdasarkan master klien" />
-        <UiMetricCard label="Akun klien" value={assignedAccounts} note="scope akun terpasang" />
-      </UiMetricGrid>
+      <div className="directory-inline-stats" aria-label="Ringkasan master data">
+        <span><strong>{activeClients}</strong> klien aktif</span>
+        <span><strong>{activeProjects}</strong> project aktif</span>
+        <span><strong>{totalEmployees.toLocaleString('id-ID')}</strong> karyawan</span>
+        <span><strong>{assignedAccounts}</strong> akun klien</span>
+      </div>
 
       {message ? <UiNotice tone={messageTone} title={messageTone==='error'?'Master data bermasalah':messageTone==='success'?'Perubahan tersimpan':'Informasi'}>{message}</UiNotice> : null}
       {projectsTruncated ? <UiNotice tone="warning" title="Daftar project dibatasi">API mengembalikan maksimal 500 project. Gunakan filter klien atau pencarian untuk mempersempit data.</UiNotice> : null}
 
-      <UiFilterBar
-        title="Cari & filter master data"
-        detail={activeDirectoryTab==='clients'?'Filter berlaku pada daftar klien aktif.':'Filter berlaku pada daftar project aktif.'}
-        action={<button type="button" className="btn" disabled={!query&&statusFilter==='ALL'&&projectClientFilter==='ALL'} onClick={()=>{setQuery('');setStatusFilter('ALL');setProjectClientFilter('ALL');}}>Reset filter</button>}
-        className="directory-filter-bar"
-      >
+      <div className="directory-filter-bar directory-filter-compact" role="search" aria-label="Filter klien dan project">
+        <div className="ui-filter-grid">
         <label>
           <span>Cari</span>
           <input type="search" value={query} onChange={(event)=>setQuery(event.target.value)} placeholder={activeDirectoryTab==='clients'?'Nama klien, PIC, industri, NPWP…':'Nama project, klien, layanan, tier…'} />
@@ -435,18 +427,19 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
             <option value="ALL">Semua klien</option>
             {visibleClients.map((client)=><option key={client.id} value={client.id}>{client.name}</option>)}
           </select>
-        </label> : <div className="directory-filter-context"><span>Mode</span><strong>Master Klien</strong><small>{filteredClients.length} data sesuai filter</small></div>}
-      </UiFilterBar>
+        </label> : null}
+          <button type="button" className="btn directory-filter-reset" disabled={!query&&statusFilter==='ALL'&&projectClientFilter==='ALL'} onClick={()=>{setQuery('');setStatusFilter('ALL');setProjectClientFilter('ALL');}}>Reset</button>
+        </div>
+      </div>
 
-      <UiSectionCard
-        className="directory-master-card"
-        title="Master Data"
-        detail="Kelola profil klien dan project dalam satu workspace dengan konteks yang tetap jelas."
-        action={<UiTabs ariaLabel="Jenis master data" value={activeDirectoryTab} onChange={(value)=>setActiveDirectoryTab(value as 'clients'|'projects')} items={[
-          {value:'clients',label:`Klien · ${filteredClients.length}`},
-          {value:'projects',label:`Project · ${filteredProjects.length}`},
-        ]} />}
-      >
+      <section className="directory-master-card directory-master-flat" aria-label="Daftar master klien dan project">
+        <div className="directory-master-toolbar">
+          <strong>Daftar master data</strong>
+          <UiTabs ariaLabel="Jenis master data" value={activeDirectoryTab} onChange={(value)=>setActiveDirectoryTab(value as 'clients'|'projects')} items={[
+            {value:'clients',label:`Klien · ${filteredClients.length}`},
+            {value:'projects',label:`Project · ${filteredProjects.length}`},
+          ]} />
+        </div>
         <UiDataTableState
           loading={loading}
           empty={!loading && (activeDirectoryTab==='clients' ? filteredClients.length===0 : filteredProjects.length===0)}
@@ -528,7 +521,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
             onNext={()=>setProjectPage((value)=>Math.min(projectPageCount,value+1))}
           />
         </> : null}
-      </UiSectionCard>
+      </section>
       {mode ? createPortal(<div className="directory-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMode(null); }}>
         <div ref={dialogRef} className="directory-modal" role="dialog" aria-modal="true" aria-label={`${editingId ? 'Kelola' : 'Tambah'} ${mode}`}>
           <div className="directory-modal-title"><div><span>MASTER DATA</span><h3>{editingId ? 'Kelola' : 'Tambah'} {mode === 'client' ? 'Klien' : 'Project'}</h3></div><button type="button" aria-label="Tutup" onClick={() => setMode(null)}>✕</button></div>

@@ -156,7 +156,7 @@ export default function UnifiedPayrollWorkspace({
         ) : null}
       </header>
 
-      <nav className="payroll-stage-nav" aria-label="Tahap payroll">
+      <nav className={`payroll-stage-nav${stage==='PAYMENT'?' payroll-stage-nav-compact':''}`} aria-label="Tahap payroll">
         {(Object.keys(stageMeta) as Stage[]).map((key)=>{
           const meta=stageMeta[key];
           return (
@@ -174,7 +174,7 @@ export default function UnifiedPayrollWorkspace({
         })}
       </nav>
 
-      <div className="payroll-shared-filter card" aria-label="Filter Payroll Workspace">
+      <div className={`payroll-shared-filter${stage==='PAYMENT'?' payroll-shared-filter-payments':' card'}`} aria-label="Filter Payroll Workspace">
         <label><span>Periode</span><strong>{period}</strong></label>
         <label><span>Klien</span><select value={filters.clientId} onChange={(event)=>patchFilters({clientId:event.target.value})}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
         <label><span>Project</span><select value={filters.projectId} disabled={!projects.length} onChange={(event)=>patchFilters({projectId:event.target.value})}><option value="ALL">Semua project</option>{projects.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
