@@ -71,10 +71,13 @@ export async function paymentLimitDecision(database, organizationId, payment, { 
   const daily = await d1First(database, `SELECT
       COALESCE(SUM(amount),0) AS amount,
       COUNT(*) AS executions
-    FROM payment_gateway_transactions
-    WHERE org_id=?
-      AND datetime(created_at)>=datetime('now','start of day')
-      AND status IN ('CREATED','PENDING','PROCESSING','SUCCEEDED')`, [organizationId]);
+    FROM (
+      SELECT amount,created_at,status FROM payment_gateway_transactions WHERE org_id=?
+      UNION ALL
+      SELECT amount,created_at,status FROM disbursement_executions WHERE org_id=?
+    ) x
+    WHERE datetime(created_at)>=datetime('now','start of day')
+      AND status IN ('CREATED','PENDING','PROCESSING','SUCCEEDED','RECONCILIATION_REQUIRED')`, [organizationId,organizationId]);
   const dailyAmount = Number(daily?.amount || 0);
   const dailyExecutions = Number(daily?.executions || 0);
   const projectedAmount = dailyAmount + (isNewExecution ? amount : 0);

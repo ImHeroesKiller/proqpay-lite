@@ -63,3 +63,24 @@ export async function resolveProviderChannel(database,input={}){
   if(computedHash!==mapping.config_hash) return {ok:false,code:'PROVIDER_CHANNEL_CONFIG_INTEGRITY_FAILED'};
   return {ok:true,mapping,snapshot};
 }
+
+export async function validateProviderChannelSnapshot(database,requestRow){
+  if(!requestRow?.provider_channel_mapping_id||!requestRow?.provider_channel_snapshot) return {ok:false,code:'PROVIDER_CHANNEL_SNAPSHOT_REQUIRED'};
+  let snapshot;
+  try{ snapshot=JSON.parse(String(requestRow.provider_channel_snapshot)); }catch{ return {ok:false,code:'PROVIDER_CHANNEL_SNAPSHOT_INVALID'}; }
+  const mapping=await d1First(database,'SELECT * FROM provider_channel_mappings WHERE id=? LIMIT 1',[requestRow.provider_channel_mapping_id]);
+  if(!mapping) return {ok:false,code:'PROVIDER_CHANNEL_MAPPING_NOT_FOUND'};
+  if(String(mapping.mapping_status)!=='ACTIVE') return {ok:false,code:'PROVIDER_CHANNEL_MAPPING_INACTIVE'};
+  const current=providerChannelSnapshot(mapping);
+  if(current.provider!==String(requestRow.provider||'').toUpperCase()
+    || current.environment!==String(requestRow.provider_environment||'').toUpperCase()
+    || current.intentKey!==providerChannelKey({purpose:requestRow.purpose,destination_mode:requestRow.destination_mode,beneficiary_type:requestRow.beneficiary_type})
+    || current.configHash!==snapshot.configHash
+    || current.providerChannel!==snapshot.providerChannel
+    || current.contractVersion!==snapshot.contractVersion){
+    return {ok:false,code:'PROVIDER_CHANNEL_SNAPSHOT_MISMATCH'};
+  }
+  const computedHash=await providerChannelConfigHash({providerChannel:mapping.provider_channel,contractVersion:mapping.contract_version,metadata:JSON.parse(String(mapping.config_json||'{}'))});
+  if(computedHash!==mapping.config_hash||computedHash!==snapshot.configHash) return {ok:false,code:'PROVIDER_CHANNEL_CONFIG_INTEGRITY_FAILED'};
+  return {ok:true,mapping,snapshot:current};
+}

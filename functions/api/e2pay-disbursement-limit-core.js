@@ -8,7 +8,7 @@ function ageMs(value,nowMs=Date.now()){
   return Number.isFinite(valueMs)?nowMs-valueMs:Number.POSITIVE_INFINITY;
 }
 
-export async function readProviderFundingState(database,organizationId,providerAccountRegistryId,requiredAmount=0,paymentInstructionId=null,nowMs=Date.now()){
+export async function readProviderFundingState(database,organizationId,providerAccountRegistryId,requiredAmount=0,paymentInstructionId=null,nowMs=Date.now(),disbursementRequestId=null){
   const required=Math.max(0,Number(requiredAmount||0));
   const account=await d1First(database,`SELECT * FROM payment_provider_accounts
     WHERE id=? AND org_id=? AND provider='E2PAY' LIMIT 1`,[providerAccountRegistryId,organizationId]);
@@ -38,14 +38,20 @@ export async function readProviderFundingState(database,organizationId,providerA
   let committedAmount=0;
   let currentCommittedAmount=0;
   if(activeLimit){
-    const usage=await d1First(database,`SELECT
+    const legacyUsage=await d1First(database,`SELECT
       COALESCE(SUM(CASE WHEN status='CONSUMED' THEN consumed_amount WHEN status='RESERVED' THEN reserved_amount ELSE 0 END),0) AS committed_amount,
       COALESCE(SUM(CASE WHEN payment_instruction_id=? AND status IN ('RESERVED','CONSUMED')
         THEN CASE WHEN status='CONSUMED' THEN consumed_amount ELSE reserved_amount END ELSE 0 END),0) AS current_committed_amount
       FROM e2pay_disbursement_limit_usage WHERE limit_request_id=?`,
       [paymentInstructionId||'',activeLimit.id]);
-    committedAmount=Number(usage?.committed_amount||0);
-    currentCommittedAmount=Number(usage?.current_committed_amount||0);
+    const drUsage=await d1First(database,`SELECT
+      COALESCE(SUM(CASE WHEN status='CONSUMED' THEN consumed_amount WHEN status='RESERVED' THEN reserved_amount ELSE 0 END),0) AS committed_amount,
+      COALESCE(SUM(CASE WHEN disbursement_request_id=? AND status IN ('RESERVED','CONSUMED')
+        THEN CASE WHEN status='CONSUMED' THEN consumed_amount ELSE reserved_amount END ELSE 0 END),0) AS current_committed_amount
+      FROM e2pay_disbursement_request_limit_usage WHERE limit_request_id=?`,
+      [disbursementRequestId||'',activeLimit.id]);
+    committedAmount=Number(legacyUsage?.committed_amount||0)+Number(drUsage?.committed_amount||0);
+    currentCommittedAmount=Number(legacyUsage?.current_committed_amount||0)+Number(drUsage?.current_committed_amount||0);
   }
 
   const approvedAmount=Number(activeLimit?.approved_amount||0);
@@ -172,4 +178,52 @@ export async function releaseDisbursementLimit(database,paymentInstructionId,rea
       release_reason=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
     WHERE payment_instruction_id=? AND status='RESERVED'`,
     [String(reason||'PAYMENT_NOT_EXECUTED').slice(0,200),paymentInstructionId]);
+}
+
+export async function reserveDisbursementRequestLimit(database,{organizationId,providerAccountRegistryId,disbursementRequestId,amount}){
+  const required=Math.max(0,Number(amount||0));
+  if(!required) return {ok:false,code:'E2PAY_LIMIT_AMOUNT_INVALID'};
+
+  const existing=await d1First(database,`SELECT * FROM e2pay_disbursement_request_limit_usage WHERE disbursement_request_id=? LIMIT 1`,[disbursementRequestId]);
+  if(existing){
+    if(['RESERVED','CONSUMED'].includes(String(existing.status||''))) return {ok:true,idempotent:true,usage:existing};
+    return {ok:false,code:'E2PAY_LIMIT_USAGE_RELEASED'};
+  }
+  const active=await d1First(database,`SELECT * FROM e2pay_disbursement_limit_requests
+    WHERE org_id=? AND provider_account_registry_id=? AND status='ACTIVE'
+      AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
+    ORDER BY approved_at DESC,created_at DESC LIMIT 1`,[organizationId,providerAccountRegistryId]);
+  if(!active) return {ok:false,code:'E2PAY_DISBURSEMENT_LIMIT_REQUIRED'};
+
+  const legacy=await d1First(database,`SELECT COALESCE(SUM(CASE WHEN status='CONSUMED' THEN consumed_amount WHEN status='RESERVED' THEN reserved_amount ELSE 0 END),0) AS amount
+    FROM e2pay_disbursement_limit_usage WHERE limit_request_id=? AND status IN ('RESERVED','CONSUMED')`,[active.id]);
+  const canonical=await d1First(database,`SELECT COALESCE(SUM(CASE WHEN status='CONSUMED' THEN consumed_amount WHEN status='RESERVED' THEN reserved_amount ELSE 0 END),0) AS amount
+    FROM e2pay_disbursement_request_limit_usage WHERE limit_request_id=? AND status IN ('RESERVED','CONSUMED')`,[active.id]);
+  const remaining=Number(active.approved_amount||0)-Number(legacy?.amount||0)-Number(canonical?.amount||0);
+  if(remaining<required) return {ok:false,code:'E2PAY_DISBURSEMENT_LIMIT_INSUFFICIENT'};
+
+  const id='DRLU-'+crypto.randomUUID();
+  const result=await d1Run(database,`INSERT INTO e2pay_disbursement_request_limit_usage
+    (id,org_id,limit_request_id,provider_account_registry_id,disbursement_request_id,reserved_amount,status)
+    SELECT ?,?,?,?,?,?,'RESERVED' WHERE (
+      SELECT COALESCE(approved_amount,0)
+        - COALESCE((SELECT SUM(CASE WHEN u.status='CONSUMED' THEN u.consumed_amount WHEN u.status='RESERVED' THEN u.reserved_amount ELSE 0 END) FROM e2pay_disbursement_limit_usage u WHERE u.limit_request_id=e2pay_disbursement_limit_requests.id AND u.status IN ('RESERVED','CONSUMED')),0)
+        - COALESCE((SELECT SUM(CASE WHEN d.status='CONSUMED' THEN d.consumed_amount WHEN d.status='RESERVED' THEN d.reserved_amount ELSE 0 END) FROM e2pay_disbursement_request_limit_usage d WHERE d.limit_request_id=e2pay_disbursement_limit_requests.id AND d.status IN ('RESERVED','CONSUMED')),0)
+      FROM e2pay_disbursement_limit_requests WHERE id=? AND status='ACTIVE' AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
+    ) >= ?`,[id,organizationId,active.id,providerAccountRegistryId,disbursementRequestId,required,active.id,required]);
+  if(Number(result?.meta?.changes||0)!==1) return {ok:false,code:'E2PAY_DISBURSEMENT_LIMIT_INSUFFICIENT'};
+  return {ok:true,idempotent:false,usage:await d1First(database,'SELECT * FROM e2pay_disbursement_request_limit_usage WHERE id=?',[id]),limit:active};
+}
+
+export async function consumeDisbursementRequestLimit(database,disbursementRequestId,amount){
+  const value=Math.max(0,Number(amount||0));
+  await d1Run(database,`UPDATE e2pay_disbursement_request_limit_usage
+    SET status='CONSUMED',consumed_amount=CASE WHEN ?>0 THEN ? ELSE reserved_amount END,consumed_at=COALESCE(consumed_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE disbursement_request_id=? AND status='RESERVED'`,[value,value,disbursementRequestId]);
+}
+
+export async function releaseDisbursementRequestLimit(database,disbursementRequestId,reason='DISBURSEMENT_NOT_EXECUTED'){
+  await d1Run(database,`UPDATE e2pay_disbursement_request_limit_usage
+    SET status='RELEASED',released_at=COALESCE(released_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')),release_reason=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE disbursement_request_id=? AND status='RESERVED'`,[String(reason||'DISBURSEMENT_NOT_EXECUTED').slice(0,200),disbursementRequestId]);
 }
