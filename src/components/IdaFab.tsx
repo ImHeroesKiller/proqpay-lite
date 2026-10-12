@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { loadDatabase, saveDatabase } from '@/lib/database';
+import { loadDatabase, saveDatabase, databaseActorScope } from '@/lib/database';
 import {
   handleIdaIntent,
   type PendingApprovalPreview,
@@ -16,7 +16,7 @@ import { getIdaSessionId } from '@/lib/session';
 import type { ParsedEmployee } from '@/lib/excel-iap';
 import { validatePayrollIndonesia, formatValidationMarkdown } from '@/lib/payroll-validate';
 import { loadSettings, onSettingsChange } from '@/lib/app-settings';
-import { persistBusinessState, syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
+import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
 import { writeSystemLog } from '@/lib/system-log';
 import type { IdaRole, SharedContext } from '@/lib/ida-os/contracts';
 
@@ -253,6 +253,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
 
   useEffect(() => {
     const localDb = loadDatabase();
+    const actorScope=databaseActorScope();
     setDb(localDb);
     setSessionId(getIdaSessionId());
     const st = loadSettings();
@@ -303,7 +304,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
     syncDatabaseFromCloudflare(localDb, { signal: controller.signal })
       .then((result) => {
         if (!result.synced) return;
-        saveDatabase(result.db);
+        if(!saveDatabase(result.db,actorScope))return;
         setDb(result.db);
         emitDbChange();
         writeSystemLog('SUCCESS', 'DATABASE', 'D1_SYNC_COMPLETED', `${result.count} karyawan tersinkron`);
@@ -487,6 +488,8 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       await pushIda('Import belum dapat dijalankan karena service tier klien belum ditentukan. Ketik **tier 1**, **tier 2**, atau **tier 3**.');
       return;
     }
+    const operationScope=databaseActorScope();
+    if(!operationScope)return;
     setBusy(true);
     setCotLive(['Menyimpan data…', 'Memperbarui ringkasan…']);
     try {
@@ -510,7 +513,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         ...synced.db,
         meta: { ...synced.db.meta },
       };
-      saveDatabase(newDb);
+      if(!saveDatabase(newDb,operationScope))return;
       setDb(newDb);
       emitDbChange();
       setPendingRows(null);
@@ -565,6 +568,8 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
   async function send(messageOverride?: string) {
     const userMsg = (messageOverride ?? input).trim();
     if (!userMsg || !db || busy || typing) return;
+    const operationScope=databaseActorScope();
+    if(!operationScope)return;
     writeSystemLog('INFO', 'IDA', 'MESSAGE_RECEIVED', 'Permintaan pengguna diterima', { characters: userMsg.length });
     setMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
     setInput('');
@@ -597,14 +602,9 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           setPendingApprovalPreview(null);
           writeSystemLog('SUCCESS', 'PAYROLL', 'APPROVAL_PLAN_EXECUTED', `Plan ${result.approvalPlanExecuted} dieksekusi`);
         }
-        if (result.dbChanged && result.newDb) {
-          setDb(result.newDb);
-          emitDbChange();
-          try {
-            await persistBusinessState(result.newDb);
-          } catch {
-            reply += renderMarkdown('\n\n_Data tersimpan di perangkat, tetapi sinkronisasi server belum berhasil._');
-          }
+        if (result.dbChanged || result.newDb || result.payrollPlanExecuted || result.approvalPlanExecuted) {
+          writeSystemLog('ERROR','SECURITY','IDA_LEGACY_MUTATION_REJECTED','Mutasi ke database lokal ditolak');
+          return renderMarkdown('Aksi finansial lokal ditolak. Gunakan **Pay Runs / Payment Instructions / Billing & AR**. Tidak ada perubahan data.');
         }
         return reply;
       }
@@ -674,7 +674,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         }
         const deletedName = pendingClientDelete.name;
         const synced = await syncDatabaseFromCloudflare(db, { requireData: true });
-        saveDatabase(synced.db);
+        if(!saveDatabase(synced.db,operationScope))return;
         setDb(synced.db);
         emitDbChange();
         setPendingClientDelete(null);
@@ -725,7 +725,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           return;
         }
         const synced = await syncDatabaseFromCloudflare(db, { requireData: true });
-        saveDatabase(synced.db);
+        if(!saveDatabase(synced.db,operationScope))return;
         setDb(synced.db);
         emitDbChange();
         setPendingFullReset(false);
@@ -830,7 +830,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           return;
         }
         const synced = await syncDatabaseFromCloudflare(db, { requireData: true });
-        saveDatabase(synced.db);
+        if(!saveDatabase(synced.db,operationScope))return;
         setDb(synced.db);
         emitDbChange();
         setPendingEmailFill(null);
@@ -977,12 +977,10 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
         confirmedPayrollPlanId: pendingPayrollPreview?.planId,
         confirmedApprovalPlanId: pendingApprovalPreview?.planId,
       });
-      if (result.dbChanged && result.newDb) {
-        setDb(result.newDb);
-        emitDbChange();
-        persistBusinessState(result.newDb).catch(() => {
-          // Mirror lokal tetap tersedia bila koneksi server terputus.
-        });
+      if(result.dbChanged || result.newDb){
+        writeSystemLog('ERROR','SECURITY','IDA_LEGACY_MUTATION_REJECTED','Mutasi ke database lokal ditolak');
+        await pushIda('Aksi finansial lokal ditolak. Gunakan **Pay Runs / Payment Instructions / Billing & AR**.',true);
+        return;
       }
       await pushIda(result.reply, false);
     } finally {

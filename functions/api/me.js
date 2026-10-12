@@ -40,6 +40,7 @@ export async function onRequest({ request, env }) {
       authMode: effectiveAuthMode,
       user: {
         id: actor.id,
+        orgId: actor.orgId || null,
         name: actor.name || String(actor.email || '').split('@')[0],
         email: actor.email,
         role: actor.role,

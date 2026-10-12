@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { loadDatabase, saveDatabase } from '@/lib/database';
+import { loadDatabase, saveDatabase, databaseActorScope } from '@/lib/database';
 import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
 import { writeSystemLog } from '@/lib/system-log';
 
@@ -17,11 +17,12 @@ export function useVisibilityAwareCanonicalRefresh(
     const refreshWhenVisible = () => {
       if (document.visibilityState !== 'visible') return;
       lastRunAt = Date.now();
+      const scope=databaseActorScope();
+      if(!scope)return;
       const current = loadDatabase();
       void syncDatabaseFromCloudflare(current)
         .then(({ db:canonical }) => {
-          saveDatabase(canonical);
-          onDatabase(canonical);
+          if(saveDatabase(canonical,scope))onDatabase(canonical);
         })
         .catch(() => writeSystemLog('WARN','DATABASE','AUTO_REFRESH_FAILED','Refresh otomatis gagal'));
     };

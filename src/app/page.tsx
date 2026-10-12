@@ -5,14 +5,15 @@ import dynamic from 'next/dynamic';
 import AppWorkspaceRouter from '@/components/AppWorkspaceRouter';
 import { useVisibilityAwareCanonicalRefresh } from '@/hooks/useVisibilityAwareCanonicalRefresh';
 import { roleCanAction } from '../../shared/authority-matrix.js';
-import { loadDatabase, saveDatabase } from '@/lib/database';
+import { loadDatabase, saveDatabase, setDatabaseActor, clearDatabaseMirror, databaseActorScope } from '@/lib/database';
 import { onDbChange } from '@/lib/events';
 import { loadSettings, onSettingsChange, type AppSettings } from '@/lib/app-settings';
 import Sidebar, { allowedViewsForRole, type AppView } from '@/components/Sidebar';
 import AppHeader from '@/components/AppHeader';
 import SystemHealthBubble from '@/components/SystemHealthBubble';
-import { writeSystemLog } from '@/lib/system-log';
+import { writeSystemLog, clearSystemLogs } from '@/lib/system-log';
 import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
+import { clearIdaSessionId } from '@/lib/session';
 import { listOperatingDashboard, listOperatingPeriods, setOperatingCacheActor } from '@/lib/operating-model-api';
 import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
 import AppFooter from '@/components/AppFooter';
@@ -21,7 +22,7 @@ import {allowedPayrollView,normalizeInternalRoute,validAppView,PAYROLL_STAGE_URL
 const IdaFab = dynamic(() => import('@/components/IdaFab'));
 const HelpModal = dynamic(() => import('@/components/HelpModal'));
 
-type Actor = { id: string; name?: string; email: string; role: string; permissions: string[]; mustChangePassword?: boolean; clientIds?: string[] | null; projectIds?: string[] | null; authMode?: string };
+type Actor = { id: string; orgId?:string|null; name?: string; email: string; role: string; permissions: string[]; mustChangePassword?: boolean; clientIds?: string[] | null; projectIds?: string[] | null; authMode?: string };
 
 function normalizeViewForRole(role:string, view:AppView):AppView {
   if ((view as string) === 'portalAudit') return 'logs';
@@ -68,14 +69,21 @@ export default function Home() {
           setAuthRequired(true);
           setActor(null);
           setOperatingCacheActor(null);
+          clearDatabaseMirror();
+          clearIdaSessionId();
+          clearSystemLogs();
+          setDb(null);
           return;
         }
         const authenticatedActor = { ...(result.user || {}), authMode: result.authMode || 'origin' };
+        setDatabaseActor(authenticatedActor);
+        const authenticatedScope=databaseActorScope();
         setActor(authenticatedActor);
         setOperatingCacheActor(authenticatedActor);
         const periodScopes:[string|undefined] = [undefined];
         void Promise.all(periodScopes.map((clientId:string|undefined)=>listOperatingPeriods(clientId)))
           .then((results)=>{
+            if(databaseActorScope()!==authenticatedScope)return;
             const merged=[...new Set(results.flatMap((result:any)=>Array.isArray(result.periods)?result.periods:[]))]
               .map(String).sort((a,b)=>b.localeCompare(a));
             setCanonicalPeriods(merged);
@@ -104,8 +112,7 @@ export default function Home() {
         setAuthChecked(true);
         void syncDatabaseFromCloudflare(data, { signal: controller.signal })
           .then(({ db: canonical }) => {
-            saveDatabase(canonical);
-            setDb(canonical);
+            if(saveDatabase(canonical,authenticatedScope))setDb(canonical);
           })
           .catch((error) => {
             if (error?.name !== 'AbortError') writeSystemLog('WARN', 'DATABASE', 'BACKGROUND_SYNC_FAILED', 'Sinkronisasi data latar belakang gagal');
@@ -113,6 +120,11 @@ export default function Home() {
       })
       .catch((error) => {
         if (error?.name !== 'AbortError') {
+          clearDatabaseMirror();
+          clearIdaSessionId();
+          clearSystemLogs();
+          setOperatingCacheActor(null);
+          setDb(null);
           setInitError(error instanceof Error ? error.message : 'Layanan aplikasi tidak dapat dijangkau');
           writeSystemLog('WARN', 'SECURITY', 'USER_CONTEXT_FAILED', 'Gagal memuat role pengguna');
         }
@@ -157,7 +169,7 @@ export default function Home() {
 
 
   const updateCanonicalDatabase = useCallback((next:unknown) => setDb(next), []);
-  useVisibilityAwareCanonicalRefresh(settings?.autoRefreshMinutes || 0, updateCanonicalDatabase);
+  useVisibilityAwareCanonicalRefresh(actor?settings?.autoRefreshMinutes || 0:0, updateCanonicalDatabase);
 
   function handlePeriodChange(p: string) {
     writeSystemLog('INFO', 'DASHBOARD', 'PERIOD_CHANGED', `Periode aktif diubah ke ${p}`);
@@ -173,9 +185,9 @@ export default function Home() {
 
   async function refreshCanonical() {
     if (!db) return;
+    const scope=databaseActorScope();
     const result = await syncDatabaseFromCloudflare(db, { requireData: true });
-    saveDatabase(result.db);
-    setDb(result.db);
+    if(saveDatabase(result.db,scope))setDb(result.db);
   }
 
   function navigate(nextView: AppView) {

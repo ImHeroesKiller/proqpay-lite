@@ -1,4 +1,8 @@
 "use client";
+import { setOperatingCacheActor } from '@/lib/operating-model-api';
+import { clearSystemLogs } from '@/lib/system-log';
+import { clearDatabaseMirror } from '@/lib/database';
+import { clearIdaSessionId } from '@/lib/session';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChangePasswordModal } from "@/components/AuthViews";
@@ -218,6 +222,10 @@ export default function AppHeader({
     alerts.invoiceApprovals;
   async function logout() {
     setAccountOpen(false);
+    clearDatabaseMirror();
+    clearIdaSessionId();
+    clearSystemLogs();
+    setOperatingCacheActor(null);
     if (actor.authMode === "access") {
       window.location.replace("/cdn-cgi/access/logout");
       return;

@@ -1,9 +1,4 @@
-import {
-  generatePayroll,
-  generateInvoice,
-  saveDatabase,
-  UMR_2025,
-} from './database';
+import { generatePayroll, UMR_2025 } from './database';
 import { formatIDR, formatIDRShort } from './format';
 import { calcMargin, formatMarginReply } from './margin';
 import { renderMarkdown } from './markdown';
@@ -15,17 +10,9 @@ import { buildSharedContext, orchestrateRequest } from './ida-os/orchestrator';
 import { executeReadOnlyPlan } from './ida-os/read-workers';
 import type { SharedContext } from './ida-os/contracts';
 import { writeSystemLog } from './system-log';
-import {
-  buildPayrollBreakdown,
-  buildPayrollPreview,
-  type PayrollPreview,
-} from './ida-os/payroll-preview';
+import { buildPayrollBreakdown, type PayrollPreview } from './ida-os/payroll-preview';
 import { payrollEmployeeRows, payrollReadiness, rankPayrollEmployees } from './ida-os/payroll-query';
-import {
-  applyApproval,
-  buildApprovalPreview,
-  type ApprovalPreview,
-} from './ida-os/approval-preview';
+import type { ApprovalPreview } from './ida-os/approval-preview';
 
 export type PendingPayrollPreview = PayrollPreview;
 export type PendingApprovalPreview = ApprovalPreview;
@@ -47,17 +34,17 @@ function payrollOf(db: any, period?: string) {
 function nextStep(db: any) {
   const period = periodOf(db);
   const pay = payrollOf(db, period);
-  if (!pay) return `Periode **${period}**: ketik **hitung payroll** (atau **validasi** dulu).`;
+  if (!pay) return `Periode **${period}**: buka **Pay Runs** untuk membuat payroll melalui workflow canonical, atau gunakan **validasi** untuk pemeriksaan data.`;
   switch (pay.status) {
     case 'DRAFT':
     case 'CALCULATED':
       return `Payroll **${period}** status **${pay.status}**. Lanjut: **ajukan approval**.`;
     case 'APPROVED':
-      return `Payroll **APPROVED**. Lanjut: **validasi** lalu **buat payment instruction**.`;
+      return `Payroll **APPROVED**. Lanjutkan **Payment Instructions** melalui workflow canonical.`;
     case 'PAYMENT_INSTRUCTION':
-      return `Payment instruction sudah ada. Lanjut: **tandai paid** / **unduh payment csv** / **buat invoice**.`;
+      return `Payment Instruction sudah ada. Pantau approval, disbursement, dan reconciliation melalui **Payment Instructions**.`;
     case 'PAID':
-      return `Payroll **PAID**. Cek **margin** / **buat invoice** / **outstanding**.`;
+      return `Payroll **PAID**. Cek **Billing & AR** untuk penerbitan invoice dan piutang.`;
     default:
       return `Status payroll: **${pay.status}**. Ketik **help**.`;
   }
@@ -67,7 +54,7 @@ export function handleIdaIntent(
   text: string,
   db: any,
   contextOverrides: Partial<SharedContext> = {},
-  workflow: IdaWorkflowContext = {}
+  _workflow: IdaWorkflowContext = {}
 ): {
   reply: string;
   dbChanged?: boolean;
@@ -111,7 +98,7 @@ export function handleIdaIntent(
     return {
       reply: renderMarkdown(
         `**Alur singkat**\n` +
-          `0 validasi → 1 hitung payroll → 2 ajukan approval → 3 payment instruction → 4 unduh csv → 5 tandai paid → 6 buat invoice → 7 margin\n\n` +
+          `0 Data Intake → 1 Validasi → 2 Pay Runs → 3 Approval → 4 Payment Instruction → 5 Disbursement → 6 Reconciliation → 7 Billing & AR\n\n` +
           `Lain: daftar karyawan · UMR · BPJS · provinsi [lokasi]\n\n${nextStep(db)}`
       ),
     };
@@ -391,143 +378,16 @@ export function handleIdaIntent(
     };
   }
 
-  if (
-    /\b(hitung|buat|generate|calculate)\b.*\b(payroll|gaji)\b/.test(t) ||
-    /\bpayroll\b.*\b(hitung|buat|generate)\b/.test(t) ||
-    /^konfirmasi payroll\b/.test(t)
-  ) {
-    const period = periodOf(db);
-    const existing = payrollOf(db, period);
-    const report = validatePayrollIndonesia(db, { period });
-    if (existing && !['DRAFT'].includes(existing.status) && existing.summary?.totalNet) {
-      return {
-        reply: renderMarkdown(
-          `Payroll **${period}** sudah ada (**${existing.status}**), net **${formatIDR(existing.summary?.totalNet)}**. ${nextStep(db)}`
-        ),
-      };
-    }
-    const payroll = generatePayroll(db, period);
-    const expectedConfirmation = `konfirmasi payroll ${workflow.confirmedPayrollPlanId || ''}`.trim();
-    const isConfirmed =
-      Boolean(workflow.confirmedPayrollPlanId) &&
-      t === expectedConfirmation.toLowerCase();
-    if (!isConfirmed) {
-      const preview = buildPayrollPreview(payroll, report.errorCount, orchestration.plan.id);
-      return {
-        reply: renderMarkdown(
-          `**Preview payroll ${period} — belum disimpan**\n\n` +
-            `- Karyawan terdampak: **${preview.employeeCount}**\n` +
-            `- Total gross: **${formatIDR(preview.totalGross)}**\n` +
-            `- Total potongan: **${formatIDR(preview.totalDeduction)}**\n` +
-            `- Total net: **${formatIDR(preview.totalNet)}**\n` +
-            `- Validasi: **${preview.validationErrors} error**\n\n` +
-            `Formula: net = gross − potongan. Sumber: data karyawan, kompensasi, dan payroll setup pada database.\n\n` +
-            `Ketik persis **konfirmasi payroll ${preview.planId}** untuk menyimpan, atau **batal**.`
-        ),
-        pendingPayrollPreview: preview,
-      };
-    }
-    payroll.status = 'CALCULATED';
-    const newDb = { ...db, payrolls: [...(db.payrolls || [])] };
-    const idx = newDb.payrolls.findIndex((p: any) => p.period === period);
-    if (idx >= 0) newDb.payrolls[idx] = payroll;
-    else newDb.payrolls.push(payroll);
-    newDb.auditLogs = [
-      ...(newDb.auditLogs || []),
-      {
-        id: `LOG${Date.now()}`,
-        timestamp: Date.now(),
-        user: 'IDA',
-        role: 'AI',
-        action: 'PAYROLL_CALCULATED',
-        detail: `Payroll ${period} · plan ${workflow.confirmedPayrollPlanId}`,
-        entity: 'Payroll',
-        entityId: payroll.id,
-      },
-    ];
-    saveDatabase(newDb);
-    let msg = `Payroll **${period}** beres — ${payroll.summary.employeeCount} org, net **${formatIDR(payroll.summary.totalNet)}** (${report.errorCount} error validasi).`;
-    if (!report.ok) msg += ` Payment akan diblokir sampai data dibenerin — ketik **validasi**.`;
-    else msg += ` Lanjut **ajukan approval**.`;
-    return {
-      reply: renderMarkdown(msg),
-      dbChanged: true,
-      newDb,
-      payrollPlanExecuted: workflow.confirmedPayrollPlanId || undefined,
-    };
+  // G0: IDA is read-only for financial workflow mutations. The canonical
+  // server endpoints enforce maker-checker, MFA, immutable PI and audit.
+  if (/\b(hitung|buat|generate|calculate)\b.*\b(payroll|gaji)\b/.test(t)
+    || /\bpayroll\b.*\b(hitung|buat|generate)\b/.test(t)
+    || /^konfirmasi payroll\b/.test(t)) {
+    return {reply:renderMarkdown('IDA tidak membuat atau menyimpan payroll secara lokal. Gunakan **Pay Runs** untuk kalkulasi dan approval melalui backend canonical. Tidak ada perubahan data.')};
   }
-
-  if (/\b(ajukan approval|approve|approved|setujui|disetujui|approval)\b/.test(t)) {
-    const period = periodOf(db);
-    const payroll = payrollOf(db, period);
-    if (!payroll) return { reply: renderMarkdown(`Belum ada payroll ${period}. **hitung payroll** dulu.`) };
-    if (['APPROVED', 'PAID', 'PAYMENT_INSTRUCTION'].includes(payroll.status)) {
-      return { reply: renderMarkdown(`Sudah **${payroll.status}**.`) };
-    }
-    if (payroll.status !== 'CALCULATED') {
-      return { reply: renderMarkdown(`Status **${payroll.status}** — perlu CALCULATED dulu.`) };
-    }
-    const report = validatePayrollIndonesia(db, { period });
-    const actorRole = String(contextOverrides.currentRole || 'CLIENT_USER');
-    const actorEmail = String(contextOverrides.currentUser?.email || 'unknown@local');
-    if (!['SUPER_ADMIN', 'PAYROLL_CONTROLLER'].includes(actorRole)) {
-      return {
-        reply: renderMarkdown(
-          `Role **${actorRole}** tidak berwenang menyetujui payroll. Payroll Processor dapat menyiapkan preview, tetapi eksekusi approval hanya untuk **SUPER_ADMIN** atau **PAYROLL_CONTROLLER**.`
-        ),
-      };
-    }
-    const expectedConfirmation = `konfirmasi approval ${workflow.confirmedApprovalPlanId || ''}`.trim();
-    const isConfirmed = Boolean(workflow.confirmedApprovalPlanId) && t === expectedConfirmation.toLowerCase();
-    const preview = buildApprovalPreview(
-      payroll,
-      report.errorCount,
-      workflow.confirmedApprovalPlanId || orchestration.plan.id,
-      {
-      email: actorEmail,
-      role: actorRole,
-      }
-    );
-    if (!isConfirmed) {
-      return {
-        reply: renderMarkdown(
-          `**Preview approval payroll ${period} — belum dieksekusi**\n\n` +
-            `- Status: **${preview.currentStatus} → ${preview.nextStatus}**\n` +
-            `- Karyawan terdampak: **${preview.employeeCount}**\n` +
-            `- Total net: **${formatIDR(preview.totalNet)}**\n` +
-            `- Error validasi: **${preview.validationErrors}**\n` +
-            `- Approver: **${preview.actorEmail}** (${preview.actorRole})\n\n` +
-            (preview.validationErrors
-              ? `Approval dapat dicatat, tetapi payment instruction tetap diblokir sampai ${preview.validationErrors} error diselesaikan.\n\n`
-              : '') +
-            `Ketik persis **konfirmasi approval ${preview.planId}** untuk mengeksekusi, atau **batal**.`
-        ),
-        pendingApprovalPreview: preview,
-      };
-    }
-    let applied;
-    try {
-      applied = applyApproval(db, preview);
-    } catch (error) {
-      return { reply: renderMarkdown(String((error as Error).message)) };
-    }
-    const newDb = applied.db;
-    if (applied.alreadyApplied) {
-      return {
-        reply: renderMarkdown(`Payroll **${period}** sudah APPROVED. Tidak ada approval duplikat yang dibuat.`),
-        approvalPlanExecuted: workflow.confirmedApprovalPlanId || undefined,
-      };
-    }
-    saveDatabase(newDb);
-    let msg = `**${period}** sudah APPROVED.`;
-    if (!report.ok) msg += ` Approval tercatat, tetapi payment instruction tetap diblokir karena masih ada ${report.errorCount} error validasi. Ketik **validasi** untuk detail.`;
-    else msg += ` Lanjut **buat payment instruction**.`;
-    return {
-      reply: renderMarkdown(msg),
-      dbChanged: true,
-      newDb,
-      approvalPlanExecuted: workflow.confirmedApprovalPlanId || undefined,
-    };
+  if (/\b(ajukan approval|approve|approved|setujui|disetujui|approval)\b/.test(t)
+    || /^konfirmasi approval\b/.test(t)) {
+    return {reply:renderMarkdown('Approval payroll hanya melalui **Pay Runs / Payment Instructions** sesuai hak akses dan maker-checker. IDA tidak mengeksekusi approval lokal. Tidak ada status yang diubah.')};
   }
 
   if (/\b(payment instruction|instruksi pembayaran|buat payment|payment csv|csv payment|tandai paid|mark paid|sudah dibayar|konfirmasi bayar|set paid)\b/.test(t)
@@ -535,68 +395,8 @@ export function handleIdaIntent(
     return { reply: renderMarkdown('Payment Instruction kini hanya menggunakan workflow canonical pada **Payroll Operations → Payment & Rekonsiliasi**. Pembuatan PI, file bank, bukti, dan perubahan status tidak lagi dilakukan oleh penyimpanan lokal IDA.') };
   }
 
-  if (/\b(buat invoice|generate invoice|terbit invoice|invoice)\b/.test(t)) {
-    const period = periodOf(db);
-    const payroll = payrollOf(db, period);
-    if (!payroll) return { reply: renderMarkdown('Invoice butuh payroll dulu.') };
-    if (!payroll.details?.length) payroll.details = generatePayroll(db, period).details;
-    const companies = db.companies || [];
-    const newInvoices = [...(db.invoices || [])];
-    const created: string[] = [];
-    companies.forEach((c: any) => {
-      const exists = newInvoices.find((inv: any) => inv.company === c.name && inv.period === period);
-      if (exists) {
-        created.push(`${c.name}: ${exists.id} (sudah ada)`);
-        return;
-      }
-      const inv = generateInvoice(
-        { ...db, invoices: newInvoices, payrolls: db.payrolls.map((p: any) => (p.period === period ? payroll : p)) },
-        c.name,
-        period,
-        billing
-      );
-      if (!inv) return;
-      if ('error' in inv) {
-        created.push(`${c.name}: ${inv.error}`);
-        return;
-      }
-      inv.status = 'SENT';
-      newInvoices.push(inv);
-      created.push(`${c.name}: **${inv.id}** ${formatIDR(inv.totalAmount)}`);
-    });
-    const newAr = [...(db.arMonitor || [])];
-    newInvoices
-      .filter((inv: any) => inv.period === period && inv.status !== 'PAID')
-      .forEach((inv: any) => {
-        if (newAr.some((a: any) => a.invoiceId === inv.id)) return;
-        newAr.push({
-          id: `AR-${inv.id}`,
-          company: inv.company,
-          invoiceId: inv.id,
-          amount: inv.totalAmount,
-          status: 'OUTSTANDING',
-          dueDate: Date.now() + 14 * 86400000,
-          daysOverdue: 0,
-          type: 'SERVICE',
-          notes: period,
-        });
-      });
-    const newDb = {
-      ...db,
-      payrolls: db.payrolls.map((p: any) => (p.period === period ? payroll : p)),
-      invoices: newInvoices,
-      arMonitor: newAr,
-      auditLogs: [
-        ...(db.auditLogs || []),
-        { id: `LOG${Date.now()}`, timestamp: Date.now(), user: 'IDA', role: 'AI', action: 'INVOICE_GENERATED', detail: period, entity: 'Invoice', entityId: created.join(', ').slice(0, 500) },
-      ],
-    };
-    saveDatabase(newDb);
-    return {
-      reply: renderMarkdown(`Invoice **${period}**:\n` + created.map((x) => `- ${x}`).join('\n')),
-      dbChanged: true,
-      newDb,
-    };
+  if (/\b(buat invoice|generate invoice|terbit invoice|invoice|tagihan)\b/.test(t)) {
+    return {reply:renderMarkdown('Penerbitan invoice hanya melalui **Billing & AR** di backend canonical. IDA tidak membuat invoice atau piutang lokal. Tidak ada perubahan data.')};
   }
 
   if (/\b(outstanding|ar |piutang|tagihan belum)\b/.test(t)) {
