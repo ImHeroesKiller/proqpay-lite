@@ -45,7 +45,7 @@ async function op(DB,actor,body){
   return {response,payload:await response.clone().json()};
 }
 
-test('Final integrated Employee Services UAT: ESS submission -> approval -> disbursement -> payroll deduction -> PI -> reconciliation -> REPAID',async()=>{
+test('Final integrated Employee Services UAT: ESS approval -> historical paid EWA -> payroll deduction -> PI -> reconciliation -> REPAID',async()=>{
   const DB=new D1Mock();
 
   DB.sqlite.exec(`
@@ -130,16 +130,24 @@ test('Final integrated Employee Services UAT: ESS submission -> approval -> disb
     env:{DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'},
   });
   assert.equal(response.status,409);
-  assert.equal((await response.json()).code,'EWA_SOD_REQUIRED');
+  assert.equal((await response.json()).code,'EWA_CANONICAL_EXECUTION_REQUIRED');
 
   response=await adminEwa({
     request:request('/api/ewa',{method:'POST',headers:{Cookie:disburserCookie},body:JSON.stringify({id:submitted.id,action:'DISBURSE',source:'BANK_TRANSFER',reference:'UAT-FINAL-001',transactionDate:paymentDate})}),
     env:{DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'},
   });
-  assert.equal(response.status,200,await response.clone().text());
+  // New disbursement must not be recorded outside Controller-operated Canonical DR.
+  assert.equal(response.status,409,await response.clone().text());
+  assert.equal((await response.json()).code,'EWA_CANONICAL_EXECUTION_REQUIRED');
+  assert.equal(DB.sqlite.prepare('SELECT status FROM ewa_requests WHERE id=?').get(submitted.id).status,'APPROVED');
+  // Only simulate a previously paid legacy EWA in the isolated D1 fixture,
+  // preserving historical repayment coverage without calling any financial API.
+  DB.sqlite.prepare(`UPDATE ewa_requests SET status='DISBURSED',disbursement_source='LEGACY_HISTORY',
+    disbursement_reference='UAT-HISTORICAL-SETTLED',disbursement_transaction_date=?,disbursed_by='LEGACY_MIGRATION'
+    WHERE id=?`).run(paymentDate,submitted.id);
   const disbursed=DB.sqlite.prepare('SELECT * FROM ewa_requests WHERE id=?').get(submitted.id);
   assert.equal(disbursed.status,'DISBURSED');
-  assert.equal(disbursed.disbursement_reference,'UAT-FINAL-001');
+  assert.equal(disbursed.disbursement_reference,'UAT-HISTORICAL-SETTLED');
 
   const processor={id:'USR-PROC',email:'processor.final@proqpay.test',role:'PAYROLL_PROCESSOR',permissions:['submission:write','payroll:write','payment:prepare']};
   const controller={id:'USR-CTRL',email:'controller.final@proqpay.test',role:'PAYROLL_CONTROLLER',permissions:['payment:approve','reconciliation:write']};
@@ -212,7 +220,7 @@ test('Final integrated Employee Services UAT: ESS submission -> approval -> disb
   const auditActions=DB.sqlite.prepare("SELECT action FROM audit_logs WHERE entity='ewa_request' AND entity_id=? ORDER BY rowid").all(submitted.id).map((row)=>row.action);
   assert.ok(auditActions.includes('EWA_SUBMITTED'));
   assert.ok(auditActions.includes('EWA_APPROVED'));
-  assert.ok(auditActions.includes('EWA_DISBURSED'));
+  assert.ok(!auditActions.includes('EWA_DISBURSED'),'legacy fixture seed must not mimic live provider execution');
   assert.ok(auditActions.includes('EWA_REPAID_RECONCILED'));
 
   const after=await employeeEwa({

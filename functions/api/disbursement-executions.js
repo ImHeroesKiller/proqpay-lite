@@ -10,6 +10,7 @@ import { recordFraudIncident } from './_fraud-incidents.js';
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import { decryptAccountNumber, sha256Hex } from './payment-instruction-core.js';
 import { roleHasCapability } from '../../shared/authority-matrix.js';
+import { legacyGatewayForPi, LEGACY_FINANCIAL_PRESENT } from './_payment-source-guard.js';
 
 const METHODS='GET, POST, OPTIONS';
 function orgId(env,actor){ return String(actor?.orgId||env.DEFAULT_ORG_ID||'ORG-OTSINDO'); }
@@ -41,7 +42,7 @@ async function releaseLock(database,id,token){
 export async function onRequest({request,env}){
   if(request.method==='OPTIONS') return handlePreflight(request,env,METHODS);
   if(!['GET','POST'].includes(request.method)) return secureJson({error:'Method not allowed'},405,request,env,METHODS);
-  const authorization=await authorize(request,env,{mutating:request.method==='POST',methods:METHODS});
+  const authorization=await authorize(request,env,{roles:['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'],mutating:request.method==='POST',methods:METHODS});
   if(authorization.response) return authorization.response;
   const limited=await enforceRateLimit(request,env,authorization.actor,'disbursement-executions',METHODS);
   if(limited) return limited;
@@ -68,6 +69,8 @@ export async function onRequest({request,env}){
   try{
     const dr=await d1First(env.DB,'SELECT * FROM disbursement_requests WHERE id=? AND org_id=? LIMIT 1',[drId,organizationId]);
     if(!dr) return secureJson({error:'Disbursement Request tidak ditemukan'},404,request,env,METHODS);
+    if(dr.source_document_type==='PAYMENT_INSTRUCTION' && await legacyGatewayForPi(env.DB,organizationId,dr.source_document_id))
+      return secureJson(LEGACY_FINANCIAL_PRESENT,409,request,env,METHODS);
     let execution=await loadExecution(env.DB,organizationId,drId);
     if(execution?.status==='SUCCEEDED') return secureJson({ok:true,execution:safeExecution(execution),idempotentReplay:true},200,request,env,METHODS);
     if(execution?.status==='RECONCILIATION_REQUIRED'||dr.status==='RECONCILIATION_REQUIRED') return secureJson({error:'Status provider belum final. Reconciliation wajib sebelum tindakan berikutnya.',code:'E2PAY_RECONCILIATION_REQUIRED',execution:safeExecution(execution)},409,request,env,METHODS);

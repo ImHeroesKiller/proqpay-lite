@@ -1,5 +1,6 @@
 import { d1All, d1First, d1Run, hasD1 } from './_d1.js';
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
+import { canonicalDrForEwa } from './_payment-source-guard.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const OPS = new Set(['SUPER_ADMIN']);
@@ -112,6 +113,7 @@ export async function onRequest({ request, env }) {
     let body;
     try { body = await request.json(); } catch { return respond({ error: 'Invalid JSON' }, 400); }
     const action = String(body.action || '').toUpperCase();
+    if(action==='DISBURSE') return respond({error:'Pencairan EWA via bukti manual dinonaktifkan. Jalur disbursement wajib memakai Canonical DR, persetujuan dan eksekusi Payroll Controller, serta reconciliation provider.',code:'EWA_CANONICAL_EXECUTION_REQUIRED'},409);
     const requestId = String(body.id || body.requestId || '').trim();
     if (!requestId) return respond({ error: 'id wajib' }, 422);
     const current = await d1First(env.DB, 'SELECT * FROM ewa_requests WHERE id=? AND org_id=? LIMIT 1', [requestId, organizationId]);
@@ -144,6 +146,14 @@ export async function onRequest({ request, env }) {
         [note || null, actorId, requestId, organizationId],
       );
     } else if (action === 'DISBURSE' && current.status === 'APPROVED') {
+      // Legacy proof-only disbursement is never allowed to bypass a canonical E2Pay
+      // financial execution (nor to mark an integrated EWA paid without provider evidence).
+      const canonical=await canonicalDrForEwa(env.DB,organizationId,requestId);
+      if(canonical) return respond({error:'EWA sudah memakai Canonical Disbursement Request. Reconcile transaksi provider sebelum mengubah status pembayaran.',code:'EWA_CANONICAL_DISBURSEMENT_REQUIRED'},409);
+      const providerAccount=await d1First(env.DB,`SELECT id FROM payment_provider_accounts
+        WHERE org_id=? AND client_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' AND status='ACTIVE' LIMIT 1`,
+        [organizationId,current.client_id]);
+      if(providerAccount) return respond({error:'EWA dengan sub-account E2Pay aktif wajib dicairkan lewat Canonical DR oleh Payroll Controller; pencatatan manual DISBURSED ditolak.',code:'EWA_PROVIDER_EXECUTION_REQUIRED'},409);
       if (String(current.approved_by || '').trim().toLowerCase() === actorId.toLowerCase()) {
         return respond({ error: 'Maker-checker: approver tidak boleh sekaligus mencairkan advance', code: 'EWA_SOD_REQUIRED' }, 409);
       }

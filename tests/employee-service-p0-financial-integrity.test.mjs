@@ -51,7 +51,7 @@ async function opsCookie(DB,email){
   return response.headers.get('set-cookie').split(';')[0];
 }
 
-test('Employee Services P0: EWA disbursement requires maker-checker and transaction evidence',async()=>{
+test('Employee Services P0: legacy EWA manual disbursement stays blocked until canonical Controller execution',async()=>{
   const DB=new D1Mock(); await seed(DB);
   DB.sqlite.prepare(`INSERT INTO ewa_requests
     (id,org_id,client_id,employee_id,period,amount,fee,repayment,status,plafond_snapshot,days_worked_snapshot,tenure_months_snapshot,destination_bank_name,destination_account_last4)
@@ -69,20 +69,21 @@ test('Employee Services P0: EWA disbursement requires maker-checker and transact
     id:'EWA-P0',action:'DISBURSE',source:'BANK_TRANSFER',reference:'REF-1',transactionDate:'2026-09-25',
   })}),env});
   assert.equal(sameActor.status,409);
-  assert.equal((await sameActor.json()).code,'EWA_SOD_REQUIRED');
+  assert.equal((await sameActor.json()).code,'EWA_CANONICAL_EXECUTION_REQUIRED');
 
   const missingEvidence=await ewaOps({request:request('/api/ewa',{method:'POST',headers:{Cookie:cookieB},body:JSON.stringify({id:'EWA-P0',action:'DISBURSE'})}),env});
-  assert.equal(missingEvidence.status,422);
-  assert.equal((await missingEvidence.json()).code,'EWA_DISBURSEMENT_EVIDENCE_REQUIRED');
+  assert.equal(missingEvidence.status,409);
+  assert.equal((await missingEvidence.json()).code,'EWA_CANONICAL_EXECUTION_REQUIRED');
 
   const disburse=await ewaOps({request:request('/api/ewa',{method:'POST',headers:{Cookie:cookieB},body:JSON.stringify({
     id:'EWA-P0',action:'DISBURSE',source:'BANK_TRANSFER',reference:'REF-P0-001',transactionDate:'2026-09-25',
   })}),env});
-  assert.equal(disburse.status,200,await disburse.clone().text());
-  const row=(await disburse.json()).request;
-  assert.equal(row.status,'DISBURSED');
-  assert.equal(row.disbursed_by,'ewa.b@proqpay.test');
-  assert.equal(row.disbursement_reference,'REF-P0-001');
+  assert.equal(disburse.status,409,await disburse.clone().text());
+  assert.equal((await disburse.json()).code,'EWA_CANONICAL_EXECUTION_REQUIRED');
+  const row=DB.sqlite.prepare("SELECT * FROM ewa_requests WHERE id='EWA-P0'").get();
+  assert.equal(row.status,'APPROVED');
+  assert.equal(row.disbursed_by,null);
+  assert.equal(row.disbursement_reference,null);
 
   const manualRepay=await ewaOps({request:request('/api/ewa',{method:'POST',headers:{Cookie:cookieB},body:JSON.stringify({id:'EWA-P0',action:'REPAY'})}),env});
   assert.equal(manualRepay.status,409);

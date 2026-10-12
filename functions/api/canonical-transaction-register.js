@@ -47,7 +47,7 @@ async function releaseLock(database,id,token){await d1Run(database,`UPDATE disbu
 export async function onRequest({request,env}){
   if(request.method==='OPTIONS') return handlePreflight(request,env,METHODS);
   if(!['GET','POST'].includes(request.method)) return secureJson({error:'Method not allowed'},405,request,env,METHODS);
-  const authorization=await authorize(request,env,{mutating:request.method==='POST',methods:METHODS});
+  const authorization=await authorize(request,env,{roles:['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'],mutating:request.method==='POST',methods:METHODS});
   if(authorization.response) return authorization.response;
   const limited=await enforceRateLimit(request,env,authorization.actor,'canonical-transaction-register',METHODS);
   if(limited) return limited;
