@@ -11,10 +11,10 @@ export const ROLE_VIEWS = Object.freeze({
     'employees','clients','reports','logs','ewa','portalSettings',
   ]),
   PAYROLL_PROCESSOR: Object.freeze([
-    'dashboard','operations','exceptions','payments','billing','employees','clients','reports',
+    'dashboard','operations','exceptions','payments','billing','employees','clients','reports','ewa',
   ]),
   PAYROLL_CONTROLLER: Object.freeze([
-    'dashboard','operations','exceptions','payments','billing','reports',
+    'dashboard','operations','exceptions','payments','billing','reports','ewa',
   ]),
   CLIENT_USER: Object.freeze(['dashboard','operations','reports']),
 });

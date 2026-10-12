@@ -8,6 +8,7 @@ import BillingWorkspace from '@/components/BillingWorkspace';
 import PaymentGatewayExecutionActions from '@/components/PaymentGatewayExecutionActions';
 import E2PayFundingLimitControl from '@/components/E2PayFundingLimitControl';
 import CanonicalTransactionRegister from '@/components/CanonicalTransactionRegister';
+import CanonicalDisbursementWorkspace from '@/components/CanonicalDisbursementWorkspace';
 import { PaymentEvidenceRegister, PaymentReconciliationControl } from '@/components/PaymentEvidenceReconciliation';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
@@ -409,6 +410,7 @@ export default function OperatingWorkspace({
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} payRuns={visibleSubmissions} role={role} canResolve={isProcessor || isClient} act={act} />}
           {mode === 'payments' && ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role) ? <E2PayFundingLimitControl role={role} /> : null}
+          {mode === 'payments' && <CanonicalDisbursementWorkspace actor={actor} payrollSources={visibleInstructions} clientId={clientFilter} projectId={projectFilter} onChanged={()=>void load()} />}
           {mode === 'payments' && <Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} />}
           {mode === 'reconcile' && <Payments phase="reconcile" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isPaymentController} canReconcile={isPaymentController && Boolean(actor?.permissions?.includes('reconciliation:write'))} canApprove={false} gatewayCanView={false} period={periodFilter} act={act} />}
           {mode === 'reconcile' && <CanonicalTransactionRegister actor={actor} clientId={filters?.clientId&&filters.clientId!=='ALL'?filters.clientId:''} />}
@@ -956,6 +958,7 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
   const [detailPage, setDetailPage] = useState(1);
   const [liquiditySyncing,setLiquiditySyncing]=useState(false);
   const [liquidityError,setLiquidityError]=useState('');
+  const [executionStrategy,setExecutionStrategy]=useState<'checking'|'canonical'|'legacy'|'error'>('checking');
   const detailLines = useMemo<PaymentInstructionLine[]>(() => detail?.lines || [], [detail]);
   const bankSummaries = useMemo(() => summarizePaymentBanks(detailLines), [detailLines]);
   const filteredDetailLines = useMemo(() => filterPaymentInstructionLines(detailLines,detailQuery,detailBank), [detailLines, detailBank, detailQuery]);
@@ -972,7 +975,19 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
   }, [detail]);
   async function openDetail(id:string) {
     setDetailLoading(true); setDetailError(''); setLiquidityError(''); setApprovalConfirmed(false); setDetailQuery(''); setDetailBank('ALL'); setDetailPage(1);
-    try { setDetail(await getPaymentInstructionDetail(id)); }
+    setExecutionStrategy('checking');
+    try {
+      const fresh=await getPaymentInstructionDetail(id);
+      setDetail(fresh);
+      if(phase==='payment' && gatewayCanView){
+        try{
+          const response=await fetch(`/api/disbursement-requests?sourceDocumentType=PAYMENT_INSTRUCTION&sourceDocumentId=${encodeURIComponent(id)}`,{cache:'no-store'});
+          if(!response.ok)throw new Error('Canonical strategy lookup failed');
+          const result=await response.json();
+          setExecutionStrategy(result.requests?.length?'canonical':'legacy');
+        }catch{setExecutionStrategy('error');}
+      }
+    }
     catch (error) { setDetailError(error instanceof Error ? error.message : 'Detail PI gagal dimuat'); }
     finally { setDetailLoading(false); }
   }
@@ -1088,7 +1103,8 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
           {detail.paymentInstruction.status==='PAYMENT_APPROVAL_PENDING'&&role==='PAYROLL_CONTROLLER'&&String(detail.paymentInstruction.provider).toUpperCase()==='E2PAY'?<div><strong>Pre-approval balance check</strong><span><button type="button" className="btn" disabled={liquiditySyncing} onClick={()=>void refreshLiquidity(detail)}>{liquiditySyncing?'Menyinkronkan…':'Sync Balance E2Pay'}</button></span></div>:null}
         </section>:<section className="app-notice-bubble app-notice-error" role="alert"><strong>Provider routing snapshot belum tersedia</strong><span>PI legacy harus diregenerasi sebelum approval/payment execution.</span></section>}
         {detail.paymentInstruction.rejection_reason ? <section className={`app-notice-bubble ${detail.paymentInstruction.status==='REVISION_REQUIRED'?'app-notice-error':'app-notice-info'}`} role="status"><strong>{detail.paymentInstruction.status==='REVISION_REQUIRED'?'PI dikembalikan untuk revisi':'Riwayat reject sebelumnya'}</strong><span>{detail.paymentInstruction.rejection_reason} · {detail.paymentInstruction.rejected_by || 'Payroll Controller'}</span></section> : null}
-        {phase==='payment' && gatewayCanView && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(detail.paymentInstruction.status) ? <section className="pi-gateway-section" aria-label="Payment execution">
+        {phase==='payment' && gatewayCanView && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(detail.paymentInstruction.status) && executionStrategy!=='legacy' ? <div className="app-notice-bubble app-notice-info" role="status"><strong>{executionStrategy==='canonical'?'Canonical Disbursement Request aktif':'Verifikasi jalur pembayaran diperlukan'}</strong><span>{executionStrategy==='canonical'?'Gunakan Canonical Disbursement Control di atas; eksekusi gateway legacy tidak berlaku untuk PI ini.':'Jalur eksekusi belum dapat diverifikasi. Pembayaran melalui gateway legacy tidak ditampilkan sampai status berhasil dimuat.'}</span></div> : null}
+        {phase==='payment' && gatewayCanView && executionStrategy==='legacy' && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(detail.paymentInstruction.status) ? <section className="pi-gateway-section" aria-label="Payment execution">
           <div className="pi-section-heading"><div><span>PAYMENT EXECUTION</span><h4>Gateway & provider status</h4></div><small>Terikat ke PI dan periode {period}</small></div>
           <PaymentGatewayExecutionActions
             paymentInstructionId={detail.paymentInstruction.id}

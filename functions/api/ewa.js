@@ -15,7 +15,7 @@ export async function onRequest({ request, env }) {
     return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
   }
   const authorization = await authorize(request, env, {
-    roles: [...OPS],
+    roles: ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'],
     mutating: request.method === 'POST',
     methods: METHODS,
   });
@@ -27,6 +27,7 @@ export async function onRequest({ request, env }) {
 
   const actor = authorization.actor;
   const organizationId = orgId(env, actor);
+  if(request.method==='POST'&&!OPS.has(actor.role)) return respond({error:'Persetujuan pengajuan EWA hanya tersedia untuk admin; disbursement dilakukan melalui Canonical DR oleh Processor/Controller.',code:'EWA_MANAGE_PERMISSION_REQUIRED'},403);
 
   try {
     if (request.method === 'GET') {

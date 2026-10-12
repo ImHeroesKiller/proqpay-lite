@@ -4,18 +4,19 @@ import { readFile } from 'node:fs/promises';
 
 const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
-test('Employee Services UI P1: Advance Salary uses structured payout dialog and simplified filters',async()=>{
+test('Employee Services UI P1: Advance Salary uses canonical payout workspace and simplified filters',async()=>{
   const inbox=await read('src/components/EwaInbox.tsx');
-  const dialog=await read('src/components/employee-services/DisbursementDialog.tsx');
+  const canonical=await read('src/components/CanonicalDisbursementWorkspace.tsx');
   const styles=await read('src/app/employee-services.css');
   assert.doesNotMatch(inbox,/window\.prompt/);
-  assert.match(inbox,/DisbursementDialog/);
+  assert.match(inbox,/CanonicalDisbursementWorkspace/);
+  assert.doesNotMatch(inbox,/DisbursementDialog/);
   assert.match(inbox,/aria-label="Filter status"/);
   assert.match(inbox,/es-sticky-left/);
   assert.match(styles,/position:sticky/);
-  assert.match(dialog,/Konfirmasi pencairan/);
-  assert.match(dialog,/Rekening tujuan/);
-  assert.match(dialog,/Referensi transaksi/);
+  assert.match(canonical,/Review snapshot/);
+  assert.match(canonical,/Process Payment/);
+  assert.match(canonical,/Reconcile/);
 });
 
 test('Employee Services UI P1: Advance detail uses a side drawer dialog',async()=>{
