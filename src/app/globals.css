@@ -3054,3 +3054,50 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   .workspace-skeleton-grid{grid-template-columns:1fr 1fr 1fr}
 }
 @media(prefers-reduced-motion:reduce){.workspace-skeleton-line,.workspace-skeleton-grid i,.workspace-skeleton-table b{animation:none}}
+
+/* P1.B — one decision-led payment workspace; secondary controls never precede
+   the actionable PI/DR queue. All surfaces inherit semantic theme variables. */
+.payment-decision-workbench{display:grid;gap:12px;min-width:0}
+.payment-decision-intro{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.payment-decision-intro h2{font-size:clamp(17px,2vw,21px);margin:4px 0 3px;color:var(--text)}
+.payment-decision-intro p{color:var(--text3);font-size:11.5px;line-height:1.55;margin:0;max-width:640px}
+.payment-decision-role{display:inline-flex;align-items:center;min-height:29px;padding:6px 10px;border:1px solid var(--border);background:var(--bg-subtle);border-radius:var(--r-pill);color:var(--text2);font-size:10px;font-weight:700;white-space:normal}
+.payment-decision-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.payment-decision-metrics>div{min-width:0;display:grid;align-content:center;gap:4px;padding:13px 15px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--r-md)}
+.payment-decision-metrics span{color:var(--text3);font-size:10px;font-weight:700}
+.payment-decision-metrics strong{color:var(--text);font-size:20px;line-height:1.2;font-variant-numeric:tabular-nums}
+.payment-decision-metrics small{color:var(--text3);font-size:10px}
+.payment-decision-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;border:1px solid var(--border);border-radius:var(--r-lg);background:var(--bg-surface);padding:5px}
+.payment-decision-nav button{display:grid;align-content:center;min-width:0;gap:4px;text-align:left;min-height:63px;padding:10px 12px;border:1px solid transparent;border-radius:var(--r-md);background:transparent;color:var(--text2);cursor:pointer}
+.payment-decision-nav button:hover{background:var(--bg-subtle)}
+.payment-decision-nav button.active{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 26%,transparent);color:var(--text)}
+.payment-decision-nav button strong{font-size:11px;line-height:1.35}
+.payment-decision-nav button small{font-size:9.5px;color:var(--text3);line-height:1.4}
+.payment-decision-nav button:focus-visible,.canonical-queue-switch button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.payment-decision-main{display:grid;gap:12px;min-width:0}
+.payment-decision-main>.card,.payment-decision-main>.ui-section-card{margin-top:0}
+.payment-decision-footnote{margin:0;color:var(--text3);font-size:10.5px;line-height:1.5}
+.canonical-disbursement-workspace{display:grid;gap:13px;min-width:0;padding:15px}
+.canonical-disbursement-heading{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px}
+.canonical-disbursement-heading h3{font-size:14px;margin:4px 0 3px;color:var(--text)}
+.canonical-disbursement-heading small{color:var(--text3);font-size:10.5px;line-height:1.45}
+.canonical-queue-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-subtle);color:var(--text2);font-size:10px}
+.canonical-queue-bar>span strong{font-size:14px;color:var(--text);font-variant-numeric:tabular-nums}
+.canonical-queue-switch{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap}
+.canonical-queue-switch button{border:1px solid transparent;border-radius:var(--r-sm);background:transparent;padding:7px 9px;color:var(--text2);font-size:10px;cursor:pointer}
+.canonical-queue-switch button.active{border-color:var(--border);background:var(--bg-surface);color:var(--text);font-weight:700}
+@media(max-width:760px){
+  .payment-decision-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .payment-decision-metrics>div{padding:9px}
+  .payment-decision-metrics strong{font-size:16px}
+  .payment-decision-metrics small{display:none}
+  .payment-decision-nav{grid-template-columns:1fr 1fr 1fr;gap:3px;padding:3px}
+  .payment-decision-nav button{min-height:58px;padding:8px;gap:3px}
+  .payment-decision-nav button strong{font-size:10px}
+  .payment-decision-nav button small{font-size:8.5px}
+  .canonical-queue-switch{margin-left:0;width:100%}
+  .canonical-disbursement-workspace{padding:11px}
+}
+@media(max-width:420px){.payment-decision-metrics span{font-size:9px}.payment-decision-nav button strong{font-size:9px}.payment-decision-nav button small{font-size:8px}}
+
+.payment-stage-safety-note{margin:0;color:var(--text3);font-size:10.5px;line-height:1.5}

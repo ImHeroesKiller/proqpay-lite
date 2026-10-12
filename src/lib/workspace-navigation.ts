@@ -29,7 +29,7 @@ export function normalizeInternalRoute(view:AppView,stageValue:string|null,inter
   return {view:PAYROLL_STAGE_VIEW[stage],stage};
 }
 export function recoveryReturnUrl(accountId:string,period:string|null):string {
-  const params=new URLSearchParams({view:'payments',stage:'payment',fundingAccountId:accountId,recoveryComplete:'1'});
+  const params=new URLSearchParams({view:'payments',stage:'payment',paymentPanel:'FUNDING',fundingAccountId:accountId,recoveryComplete:'1'});
   if(period)params.set('period',period);
   return `/?${params.toString()}`;
 }

@@ -32,6 +32,7 @@ test('P1.A exact recovery URL preserves account and period and returns to active
  const url=new URL(recoveryReturnUrl('REG-0190','2026-09'),'https://proqpay.test');
  assert.equal(url.searchParams.get('view'),'payments');
  assert.equal(url.searchParams.get('stage'),'payment');
+ assert.equal(url.searchParams.get('paymentPanel'),'FUNDING');
  assert.equal(url.searchParams.get('fundingAccountId'),'REG-0190');
  assert.equal(url.searchParams.get('recoveryComplete'),'1');
  assert.equal(url.searchParams.get('period'),'2026-09');

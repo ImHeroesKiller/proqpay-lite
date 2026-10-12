@@ -207,13 +207,7 @@ export default function UnifiedPayrollWorkspace({
 
       {stage==='PAYMENT' ? (
         <div className="unified-payroll-stage">
-          <div className="workflow-shortcut card">
-            <div>
-              <span>2 · APPROVAL & PAYMENT</span>
-              <strong>{isController?'Review PI, approve, lalu Process Payment':'Prepare PI dan submit ke Payroll Controller'}</strong>
-              <small>PI dan gateway sekarang berada dalam satu payment surface; final execution hanya Payroll Controller.</small>
-            </div>
-          </div>
+          <p className="payment-stage-safety-note">Satu workspace untuk PI, Canonical DR, dan Funding. Maker menyiapkan; final execution hanya Payroll Controller.</p>
           <OperatingWorkspace mode="payments" period={period} filters={filters} embedded gatewayCanView={gatewayCanView} />
         </div>
       ) : null}

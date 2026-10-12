@@ -188,7 +188,7 @@ export default function Home() {
     if (['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor?.role||'') && allowedPayrollView(safeView)) url.searchParams.set('stage',PAYROLL_STAGE_URL[stageForView(safeView)]);
     else url.searchParams.delete('stage');
     if (safeView!=='clients') for(const key of ['recoveryClientId','recoveryAccountId','recoveryReturnView'])url.searchParams.delete(key);
-    if (safeView!=='payments') for(const key of ['fundingAccountId','recoveryComplete'])url.searchParams.delete(key);
+    if (safeView!=='payments') for(const key of ['fundingAccountId','recoveryComplete','paymentPanel'])url.searchParams.delete(key);
     if (safeView !== 'logs') url.searchParams.delete('auditCorrelation');
     window.history.pushState({ view: safeView, period }, '', url);
   }

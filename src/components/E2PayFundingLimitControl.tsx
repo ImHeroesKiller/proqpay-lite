@@ -125,7 +125,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
         </div>
         <label className="ui-form-field">
           <span>Sub-client / account</span>
-          <select value={accountId} onChange={(event)=>setAccountId(event.target.value)} disabled={loading||!funding.length}>
+          <select value={accountId} onChange={(event)=>{const id=event.target.value;setAccountId(id);const url=new URL(window.location.href);url.searchParams.set('fundingAccountId',id);window.history.replaceState(window.history.state,'',url);}} disabled={loading||!funding.length}>
             {!funding.length?<option value="">Belum ada funding account</option>:null}
             {funding.map((row)=><option key={row.providerAccountRegistryId} value={row.providerAccountRegistryId}>
               {(row.clientName||row.clientCode||row.clientId)}{row.projectName?` · ${row.projectName}`:''} · {row.providerSubAccountIdMasked||'Sub-account'}

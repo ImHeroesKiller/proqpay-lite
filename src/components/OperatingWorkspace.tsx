@@ -9,6 +9,7 @@ import PaymentGatewayExecutionActions from '@/components/PaymentGatewayExecution
 import E2PayFundingLimitControl from '@/components/E2PayFundingLimitControl';
 import CanonicalTransactionRegister from '@/components/CanonicalTransactionRegister';
 import CanonicalDisbursementWorkspace from '@/components/CanonicalDisbursementWorkspace';
+import {canonicalNeedsAction,defaultPaymentPanel,paymentDecisionSummary,paymentPanel,type PaymentPanel} from '@/lib/payment-decision-workbench';
 import { PaymentEvidenceRegister, PaymentReconciliationControl } from '@/components/PaymentEvidenceReconciliation';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
@@ -98,6 +99,10 @@ export default function OperatingWorkspace({
   const [focusSubmissionId, setFocusSubmissionId] = useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('submissionId')||'');
   const [dashboardStage, setDashboardStage] = useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('dashboardStage')||'');
   const [createOpen, setCreateOpen] = useState(false);
+  const [activePaymentPanel,setActivePaymentPanel]=useState<PaymentPanel|null>(()=>typeof window==='undefined'?null:paymentPanel(new URLSearchParams(window.location.search).get('paymentPanel')));
+  const [canonicalDecisionRows,setCanonicalDecisionRows]=useState<Array<{status:string;projectId?:string|null;clientReference?:string;sourceDocumentId?:string}>>([]);
+  const [canonicalDecisionKnown,setCanonicalDecisionKnown]=useState(false);
+  const [canonicalDecisionRefresh,setCanonicalDecisionRefresh]=useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -223,6 +228,38 @@ export default function OperatingWorkspace({
     const queryMatches = !query.trim() || [row.document_no,row.client_name,row.project_name,row.status].join(' ').toLowerCase().includes(query.trim().toLowerCase());
     return inRoleQueue && clientMatches && projectMatches && statusMatches && queryMatches;
   }), [data.paymentInstructions, periodFilter, clientFilter, projectFilter, statusFilter, query, focusSubmissionId]);
+  useEffect(()=>{
+    if(mode!=='payments'||!['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor?.role||''))return;
+    const controller=new AbortController();
+    setCanonicalDecisionKnown(false);
+    const params=new URLSearchParams();
+    if(clientFilter!=='ALL')params.set('clientId',clientFilter);
+    void fetch(`/api/disbursement-requests?${params}`,{cache:'no-store',signal:controller.signal,headers:{Accept:'application/json'}})
+      .then(async response=>{
+        const body=await response.json().catch(()=>({}));
+        if(!response.ok)throw new Error(body.error||`HTTP ${response.status}`);
+        setCanonicalDecisionRows(Array.isArray(body.requests)?body.requests:[]);
+        setCanonicalDecisionKnown(true);
+      }).catch(error=>{if(error?.name!=='AbortError'){setCanonicalDecisionKnown(false);setCanonicalDecisionRows([]);}});
+    return ()=>controller.abort();
+  },[mode,actor?.role,clientFilter,canonicalDecisionRefresh]);
+  const canonicalDecisionActions=useMemo(()=>canonicalDecisionRows.filter(row=>(projectFilter==='ALL'||row.projectId===projectFilter)
+    &&(!query.trim()||[row.clientReference,row.sourceDocumentId,row.status].join(' ').toLowerCase().includes(query.trim().toLowerCase()))
+    &&canonicalNeedsAction(row.status,actor?.role||'UNKNOWN')).length,[canonicalDecisionRows,projectFilter,query,actor?.role]);
+  const paymentDecision=useMemo(()=>paymentDecisionSummary(visibleInstructions,actor?.role||'UNKNOWN'),[visibleInstructions,actor?.role]);
+  const displayedPaymentPanel=activePaymentPanel||defaultPaymentPanel(visibleInstructions,actor?.role||'UNKNOWN');
+  const selectPaymentPanel=(next:PaymentPanel)=>{
+    setActivePaymentPanel(next);
+    const url=new URL(window.location.href);
+    url.searchParams.set('paymentPanel',next);
+    window.history.replaceState(window.history.state,'',url);
+  };
+  useEffect(()=>{
+    if(mode!=='payments')return;
+    const onPop=()=>setActivePaymentPanel(paymentPanel(new URLSearchParams(window.location.search).get('paymentPanel')));
+    window.addEventListener('popstate',onPop);
+    return ()=>window.removeEventListener('popstate',onPop);
+  },[mode]);
   const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
 
   const visibleExceptions = useMemo(() => (data.exceptions || []).filter((row) => visibleSubmissionIds.has(row.submission_id)), [data.exceptions, visibleSubmissionIds]);
@@ -360,7 +397,7 @@ export default function OperatingWorkspace({
         {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setLocalQuery(event.target.value)} placeholder={profile.search} /></label>:null}
       </div> : null}
 
-      {mode !== 'billing' ? <div className={`operations-summary-grid${simplifiedInternal?' operations-summary-decision':''}`}>
+      {mode !== 'billing' && mode !== 'payments' ? <div className={`operations-summary-grid${simplifiedInternal?' operations-summary-decision':''}`}>
         {mode === 'payruns' ? clientExperience ? <>
           <div><span>Payroll</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
           <div><span>Needs attention</span><strong>{clientCorrections.length}</strong><small>Perlu koreksi atau konfirmasi</small></div>
@@ -401,7 +438,7 @@ export default function OperatingWorkspace({
         </>}
       </div> : null}
 
-      {simplifiedInternal && operationalFocus ? <OperationalFocus {...operationalFocus} /> : null}
+      {simplifiedInternal && operationalFocus && mode!=='payments' ? <OperationalFocus {...operationalFocus} /> : null}
 
       {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message)?<button type="button" className="btn btn-quiet" onClick={()=>void load()}>Coba lagi</button>:null}<button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
       {loading ? <WorkspaceLoading /> : (
@@ -409,9 +446,29 @@ export default function OperatingWorkspace({
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} payRuns={visibleSubmissions} role={role} canResolve={isProcessor || isClient} act={act} />}
-          {mode === 'payments' && ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role) ? <E2PayFundingLimitControl role={role} /> : null}
-          {mode === 'payments' && <CanonicalDisbursementWorkspace actor={actor} payrollSources={visibleInstructions} clientId={clientFilter} projectId={projectFilter} onChanged={()=>void load()} />}
-          {mode === 'payments' && <Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} />}
+          {mode === 'payments' ? <section className="payment-decision-workbench" aria-label="Unified Payment Workbench">
+            <header className="payment-decision-intro">
+              <div><span className="page-eyebrow">DECISION-CENTRIC PAYMENT CONTROL</span><h2>Payment Workbench</h2><p>{isPaymentController?'Tinjau instruksi, putuskan approval, lalu jalankan pembayaran yang disetujui.':'Siapkan instruksi dan disbursement request untuk keputusan Payroll Controller.'}</p></div>
+              <span className="payment-decision-role">{role==='PAYROLL_CONTROLLER'?'Controller · Final approval':role==='PAYROLL_PROCESSOR'?'Processor · Maker':'Monitoring · Read-only'}</span>
+            </header>
+            <div className="payment-decision-metrics" aria-label="Ringkasan keputusan pembayaran">
+              <div><span>{paymentDecision.primaryLabel}</span><strong>{paymentDecision.primaryCount}</strong><small>{isPaymentController?'Approval / pembayaran menunggu Controller':role==='PAYROLL_PROCESSOR'?'Siap submit / revisi':'Memerlukan tindak lanjut'}</small></div>
+              <div><span>Menunggu approval PI</span><strong>{paymentDecision.piAwaitingApproval}</strong><small>Maker → Controller</small></div>
+              <div><span>PI approved / processing</span><strong>{paymentDecision.piApproved}</strong><small>Periksa strategi sebelum eksekusi</small></div>
+              <div><span>Canonical DR membutuhkan aksi</span><strong>{canonicalDecisionKnown?canonicalDecisionActions:'—'}</strong><small>{canonicalDecisionKnown?'Dari register DR yang tersedia':'Status belum terverifikasi'}</small></div>
+            </div>
+            <nav className="payment-decision-nav" aria-label="Fokus Payment Workbench">
+              <button type="button" className={displayedPaymentPanel==='PI'?'active':''} aria-current={displayedPaymentPanel==='PI'?'page':undefined} onClick={()=>selectPaymentPanel('PI')}><strong>Payment Instructions</strong><small>{paymentDecision.primaryCount} perlu perhatian</small></button>
+              <button type="button" className={displayedPaymentPanel==='DISBURSEMENT'?'active':''} aria-current={displayedPaymentPanel==='DISBURSEMENT'?'page':undefined} onClick={()=>selectPaymentPanel('DISBURSEMENT')}><strong>Canonical Disbursement</strong><small>{canonicalDecisionKnown?`${canonicalDecisionActions} tindakan · Submit / Approve / Execute`:'Verifikasi antrean DR'}</small></button>
+              <button type="button" className={displayedPaymentPanel==='FUNDING'?'active':''} aria-current={displayedPaymentPanel==='FUNDING'?'page':undefined} onClick={()=>selectPaymentPanel('FUNDING')}><strong>Funding & Limit</strong><small>Liquidity · Request · Approval</small></button>
+            </nav>
+            <div className="payment-decision-main" role="region" aria-label={displayedPaymentPanel==='PI'?'Payment Instruction Queue':displayedPaymentPanel==='DISBURSEMENT'?'Canonical Disbursement Queue':'Funding and Limit Control'}>
+              {displayedPaymentPanel==='PI'?<Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} />:null}
+              {displayedPaymentPanel==='DISBURSEMENT'?<CanonicalDisbursementWorkspace actor={actor} payrollSources={visibleInstructions} clientId={clientFilter} projectId={projectFilter} query={query} compact onChanged={()=>{void load();setCanonicalDecisionRefresh(v=>v+1);}} />:null}
+              {displayedPaymentPanel==='FUNDING'&&['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role)?<E2PayFundingLimitControl role={role} />:null}
+            </div>
+            <p className="payment-decision-footnote">Persetujuan final, execution, dan maker-checker tetap dikendalikan backend. Informasi funding harus diverifikasi sebelum pembayaran; membuka panel tidak melakukan transfer.</p>
+          </section>:null}
           {mode === 'reconcile' && <Payments phase="reconcile" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isPaymentController} canReconcile={isPaymentController && Boolean(actor?.permissions?.includes('reconciliation:write'))} canApprove={false} gatewayCanView={false} period={periodFilter} act={act} />}
           {mode === 'reconcile' && <CanonicalTransactionRegister actor={actor} clientId={filters?.clientId&&filters.clientId!=='ALL'?filters.clientId:''} />}
           {mode === 'billing' && actor && <BillingWorkspace
