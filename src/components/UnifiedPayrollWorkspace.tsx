@@ -3,15 +3,18 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import OperatingWorkspace, { type WorkspaceFilterState } from '@/components/OperatingWorkspace';
+import type {AppView} from '@/components/Sidebar';
+import {PAYROLL_STAGE_VIEW,PAYROLL_STAGE_URL,payrollStage,type PayrollStage} from '@/lib/workspace-navigation';
 import { listAllOperatingSubmissions } from '@/lib/operating-model-api';
 
-type Stage = 'PAYROLL' | 'PAYMENT' | 'CLOSE';
+type Stage = PayrollStage;
 
 type Props = {
   role:string;
   period:string;
   gatewayCanView:boolean;
   initialStage?:Stage;
+  onNavigate:(view:AppView)=>void;
 };
 
 const stageMeta:Record<Stage,{step:string;title:string;description:string;url:string}> = {
@@ -35,12 +38,7 @@ const stageMeta:Record<Stage,{step:string;title:string;description:string;url:st
   },
 };
 
-function stageFromUrl(value:string|null):Stage|null {
-  if (value === 'payroll') return 'PAYROLL';
-  if (value === 'payment') return 'PAYMENT';
-  if (value === 'close') return 'CLOSE';
-  return null;
-}
+const stageFromUrl=payrollStage;
 
 function urlFilters():WorkspaceFilterState {
   if (typeof window === 'undefined') return { clientId:'ALL', projectId:'ALL', query:'' };
@@ -57,6 +55,7 @@ export default function UnifiedPayrollWorkspace({
   period,
   gatewayCanView,
   initialStage='PAYROLL',
+  onNavigate,
 }:Props) {
   const initialUrlStage=typeof window==='undefined'?null:stageFromUrl(new URLSearchParams(window.location.search).get('stage'));
   const [stage,setStage]=useState<Stage>(initialUrlStage || initialStage);
@@ -94,13 +93,15 @@ export default function UnifiedPayrollWorkspace({
   },[initialStage]);
 
   const changeStage=useCallback((next:Stage)=>{
-    setStage(next);
+    if(next===stage)return;
+    // Parent is the single owner of route and sidebar state; do not pushState
+    // only in the child while leaving the parent on an old view.
+    onNavigate(PAYROLL_STAGE_VIEW[next]);
     const url=new URL(window.location.href);
-    url.searchParams.set('view','operations');
-    url.searchParams.set('period',period);
-    url.searchParams.set('stage',stageMeta[next].url);
-    window.history.pushState({view:'operations',period,stage:stageMeta[next].url},'',url);
-  },[period]);
+    url.searchParams.set('stage',PAYROLL_STAGE_URL[next]);
+    window.history.replaceState(window.history.state,'',url);
+    setStage(next);
+  },[onNavigate,stage]);
 
   const patchFilters=useCallback((patch:Partial<WorkspaceFilterState>)=>{
     setFilters((current)=>{

@@ -7,8 +7,10 @@ const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 test('P1 Payroll Workspace persists the business stage in URL and restores on browser history',async()=>{
   const source=await read('src/components/UnifiedPayrollWorkspace.tsx');
   assert.match(source,/stageFromUrl/);
-  assert.match(source,/url\.searchParams\.set\('stage',stageMeta\[next\]\.url\)/);
-  assert.match(source,/window\.history\.pushState/);
+  assert.match(source,/url\.searchParams\.set\('stage',PAYROLL_STAGE_URL\[next\]\)/);
+  assert.match(source,/onNavigate\(PAYROLL_STAGE_VIEW\[next\]\)/);
+  assert.match(source,/window\.history\.replaceState/);
+  assert.doesNotMatch(source,/window\.history\.pushState/);
   assert.match(source,/window\.addEventListener\('popstate'/);
   assert.match(source,/step:'1'/);
   assert.match(source,/step:'2'/);
@@ -60,6 +62,6 @@ test('P1 keeps period context on every E2Pay continuation and returns hosted flo
   const source=await read('src/components/PaymentGatewayExecutionActions.tsx');
   const seamlessCalls=[...source.matchAll(/executeSeamlessPayment\(paymentInstructionId, 'BANK_TRANSFER', expectedPeriod\)/g)];
   assert.ok(seamlessCalls.length>=2,'initial and continuation calls must both include expectedPeriod');
-  assert.match(source,/view=operations/);
+  assert.match(source,/view=payments/);
   assert.match(source,/stage=payment/);
 });

@@ -16,6 +16,7 @@ import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
 import { listOperatingDashboard, listOperatingPeriods, setOperatingCacheActor } from '@/lib/operating-model-api';
 import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
 import AppFooter from '@/components/AppFooter';
+import {allowedPayrollView,normalizeInternalRoute,validAppView,PAYROLL_STAGE_URL,stageForView} from '@/lib/workspace-navigation';
 
 const IdaFab = dynamic(() => import('@/components/IdaFab'));
 const HelpModal = dynamic(() => import('@/components/HelpModal'));
@@ -55,7 +56,7 @@ export default function Home() {
     const data = loadDatabase();
     const st = loadSettings();
     const params = new URLSearchParams(window.location.search);
-    const requestedView = params.get('view') as AppView | null;
+    const requestedView = validAppView(params.get('view'));
     const requestedPeriod = params.get('period');
     setDb(data);
     setSettings(st);
@@ -89,8 +90,16 @@ export default function Home() {
           })
           .catch(()=>setCanonicalPeriods([]));
         const allowedViews = allowedViewsForRole(authenticatedActor.role);
-        const preferredView = normalizeViewForRole(authenticatedActor.role, (requestedView || st.defaultView) as AppView);
-        setView(allowedViews.includes(preferredView) ? preferredView : 'dashboard');
+        const preferredView = normalizeViewForRole(authenticatedActor.role,requestedView||validAppView(st.defaultView)||'dashboard');
+        const route=normalizeInternalRoute(preferredView,params.get('stage'),['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(authenticatedActor.role));
+        const safeView=allowedViews.includes(route.view)?route.view:'dashboard';
+        setView(safeView);
+        const currentUrl=new URL(window.location.href);
+        currentUrl.searchParams.set('view',safeView);
+        if(safeView==='dashboard'&&preferredView!=='dashboard')for(const key of ['recoveryClientId','recoveryAccountId','recoveryReturnView','fundingAccountId','recoveryComplete'])currentUrl.searchParams.delete(key);
+        if(safeView===route.view&&route.stage)currentUrl.searchParams.set('stage',PAYROLL_STAGE_URL[route.stage]);
+        else currentUrl.searchParams.delete('stage');
+        window.history.replaceState(window.history.state,'',currentUrl);
         setAuthRequired(false);
         setAuthChecked(true);
         void syncDatabaseFromCloudflare(data, { signal: controller.signal })
@@ -176,6 +185,10 @@ export default function Home() {
     const url = new URL(window.location.href);
     url.searchParams.set('view', safeView);
     url.searchParams.set('period', period);
+    if (['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor?.role||'') && allowedPayrollView(safeView)) url.searchParams.set('stage',PAYROLL_STAGE_URL[stageForView(safeView)]);
+    else url.searchParams.delete('stage');
+    if (safeView!=='clients') for(const key of ['recoveryClientId','recoveryAccountId','recoveryReturnView'])url.searchParams.delete(key);
+    if (safeView!=='payments') for(const key of ['fundingAccountId','recoveryComplete'])url.searchParams.delete(key);
     if (safeView !== 'logs') url.searchParams.delete('auditCorrelation');
     window.history.pushState({ view: safeView, period }, '', url);
   }
@@ -194,9 +207,16 @@ export default function Home() {
     if (!actor) return;
     const onPopState = () => {
       const params = new URLSearchParams(window.location.search);
-      const requestedView = (params.get('view') || 'dashboard') as AppView;
-      const normalizedView = normalizeViewForRole(actor.role, requestedView);
-      const safeView = allowedViewsForRole(actor.role).includes(normalizedView) ? normalizedView : 'dashboard';
+      const requestedView=validAppView(params.get('view'))||'dashboard';
+      const normalizedView=normalizeViewForRole(actor.role,requestedView);
+      const route=normalizeInternalRoute(normalizedView,params.get('stage'),['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role));
+      const safeView=allowedViewsForRole(actor.role).includes(route.view)?route.view:'dashboard';
+      const url=new URL(window.location.href);
+      url.searchParams.set('view',safeView);
+      if(safeView===route.view&&route.stage)url.searchParams.set('stage',PAYROLL_STAGE_URL[route.stage]);
+      else url.searchParams.delete('stage');
+      if(safeView==='dashboard'&&requestedView!=='dashboard')for(const key of ['recoveryClientId','recoveryAccountId','recoveryReturnView','fundingAccountId','recoveryComplete'])url.searchParams.delete(key);
+      window.history.replaceState(window.history.state,'',url);
       const requestedPeriod = params.get('period');
       setView(safeView);
       if (requestedPeriod) setPeriod(requestedPeriod);
