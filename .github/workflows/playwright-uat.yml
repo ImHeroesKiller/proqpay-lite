@@ -174,10 +174,16 @@ jobs:
             printf '%s\n' "- Commit: $GITHUB_SHA"
             printf '%s\n' "- Credentials mode: $UAT_CREDENTIALS_ENABLED"
             printf '%s\n' "- Result: ${{ steps.playwright.outcome }}"
+            if [[ "$UAT_CREDENTIALS_ENABLED" == "true" ]]; then
+              echo "- Sensitive Playwright artifacts: intentionally disabled."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Playwright evidence
-        if: always()
+        # Authenticated browser traces, DOM snapshots and HTML reporters can expose
+        # password inputs, MFA challenges, session cookies or beneficiary PII.
+        # Export only when no UAT credentials were ever provided to the runner.
+        if: always() && env.UAT_CREDENTIALS_ENABLED != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-uat-${{ github.run_id }}
