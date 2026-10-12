@@ -1,0 +1,39 @@
+name: P5.8.2 Legacy PI Readiness Read-Only
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  precheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE || 'proqpay-lite-production' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verify D1-only credentials
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" && test -n "${CLOUDFLARE_API_TOKEN:-}"
+          npx wrangler whoami >/dev/null
+      - name: Inspect production PI readiness aggregates, no writes
+        run: |
+          set -euo pipefail
+          for part in a b; do
+            npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --json --command "$(sed '/^--/d' ops/p582-pi-readiness-${part}.sql)" > "/tmp/p582-${part}.json"
+          done
+          node scripts/p582-validate-readiness.mjs /tmp/p582-a.json /tmp/p582-b.json /tmp/p582-safe.json
+      - name: Publish aggregate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p582-readiness-${{ github.run_id }}
+          path: /tmp/p582-safe.json
+          retention-days: 14
+          if-no-files-found: error

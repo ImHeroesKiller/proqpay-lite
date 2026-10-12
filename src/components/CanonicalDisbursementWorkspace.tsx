@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import {canonicalActionRank,canonicalNeedsAction} from '@/lib/payment-decision-workbench';
+import LegacyPIReadinessPanel from '@/components/LegacyPIReadinessPanel';
 
 type Actor={role:string;email?:string;permissions?:string[]};
 type Source={id:string;client_id?:string;client_name?:string;project_id?:string;document_no?:string;expected_total?:number;status?:string;payroll_period?:string;payment_period?:string};
@@ -103,6 +104,7 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
       {sourceType!=='EWA_REQUEST'?<label style={{flex:'1 1 210px'}}>Tujuan pembayaran<select value={destination} disabled={Boolean(existingForSource)} onChange={e=>setDestination(e.target.value as typeof destination)}><option value="DIRECT_EMPLOYEE">Ke rekening karyawan</option><option value="CLIENT_ACCOUNT">Ke rekening perusahaan klien</option></select></label>:null}
       <button type="button" className="btn btn-primary" disabled={!sourceId||Boolean(busy)||Boolean(existingForSource)} onClick={()=>void create()}>{existingForSource?'DR sudah dibuat':'Buat Canonical DR'}</button>
     </div>:null}
+    {sourceType!=='EWA_REQUEST'?<LegacyPIReadinessPanel role={actor?.role||''} clientId={clientId} sourceId={sourceType==='PAYMENT_INSTRUCTION'?focusSourceId:''}/>:null}
     {notice?<div className={`app-notice-bubble ${/gagal|tidak|blocked|wajib|invalid|mismatch|belum|ditolak/i.test(notice)?'app-notice-error':'app-notice-info'}`} role="status"><span>{notice}</span></div>:null}
     {loading?<p>Memuat Canonical DR…</p>:shown.length?<div className="ui-table-wrap"><table className="ui-data-table"><thead><tr><th>Source & Reference</th><th>Intent</th><th>Nominal</th><th>Status</th><th>Next action</th></tr></thead><tbody>{shown.map(row=><tr key={row.id}>
       <td><strong>{row.clientReference}</strong><small style={{display:'block'}}>{row.sourceDocumentType==='EWA_REQUEST'?'EWA':'PI'} · {row.sourceDocumentId}</small><small>{row.provider} {row.providerSubAccountIdMasked}</small></td>
