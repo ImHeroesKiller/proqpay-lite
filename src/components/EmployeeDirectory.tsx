@@ -3,6 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import EmployeeCredentialsPanel from '@/components/EmployeeCredentialsPanel';
+import {WorkspaceTitle} from '@/components/layout/WorkspacePrimitives';
 import EmployeeDetailDrawer from '@/components/EmployeeDetailDrawer';
 import { EmptyState as UiEmptyState, Pagination as UiPagination } from '@/components/ui/UnifiedSystem';
 import {
@@ -94,11 +95,7 @@ export default function EmployeeDirectory({
   return(
     <section className="employee-directory">
       <div className="page-heading employee-page-heading">
-        <div>
-          <span className="page-eyebrow">People operations</span>
-          <h1>Data Karyawan</h1>
-          <p>Telusuri profil, penempatan, kontrak, payroll, dan kelengkapan administrasi.</p>
-        </div>
+        <WorkspaceTitle eyebrow="People operations" title="Data Karyawan" description="Telusuri profil, penempatan, kontrak, payroll, dan kelengkapan administrasi." />
         <div className="employee-page-actions">
           <EmployeeCredentialsPanel actor={actor}/>
           <span className="role-access-chip">Akses: {actor?.role?.replaceAll('_',' ')||'CLIENT USER'}</span>

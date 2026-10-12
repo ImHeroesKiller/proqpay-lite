@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -260,6 +260,10 @@ export function Tabs({
   );
 }
 
+// Explicit LIFO stack keeps keyboard handlers focused on the topmost modal.
+// Billing and Employee Services share this shell; no body-level focus leak.
+const activeModalStack:HTMLElement[]=[];
+
 export function ModalShell({
   title,
   children,
@@ -271,32 +275,64 @@ export function ModalShell({
   onClose: () => void;
   className?: string;
 }) {
+  const headingId=useId();
+  const dialogRef=useRef<HTMLElement|null>(null);
+  const onCloseRef=useRef(onClose);
+  useEffect(()=>{onCloseRef.current=onClose;},[onClose]);
   useEffect(() => {
-    if (typeof document === "undefined") return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+    if(typeof document==='undefined')return;
+    const dialog=dialogRef.current;
+    if(!dialog)return;
+    const previouslyFocused=document.activeElement instanceof HTMLElement?document.activeElement:null;
+    const previousOverflow=document.body.style.overflow;
+    activeModalStack.push(dialog);
+    document.body.style.overflow='hidden';
+    const focusables=()=>[...dialog.querySelectorAll<HTMLElement>(
+      'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+    )].filter(item=>item.getClientRects().length>0 && item.getAttribute('aria-hidden')!=='true');
+    (focusables()[0]||dialog).focus();
+    const onKeyDown=(event:KeyboardEvent)=>{
+      if(activeModalStack.at(-1)!==dialog)return;
+      if(event.key==='Escape'){
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if(event.key!=='Tab')return;
+      const elements=focusables();
+      if(!elements.length){event.preventDefault();dialog.focus();return;}
+      const first=elements[0],last=elements[elements.length-1];
+      if(event.shiftKey && (document.activeElement===first||!dialog.contains(document.activeElement))){
+        event.preventDefault();last.focus();
+      }else if(!event.shiftKey && (document.activeElement===last||!dialog.contains(document.activeElement))){
+        event.preventDefault();first.focus();
+      }
     };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
+    document.addEventListener('keydown',onKeyDown);
+    return ()=>{
+      document.removeEventListener('keydown',onKeyDown);
+      const index=activeModalStack.lastIndexOf(dialog);
+      if(index>=0)activeModalStack.splice(index,1);
+      document.body.style.overflow=previousOverflow;
+      if(previouslyFocused?.isConnected)previouslyFocused.focus();
     };
-  }, [onClose]);
+  },[]);
 
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div className="ui-modal-backdrop" onMouseDown={onClose}>
+    <div className="ui-modal-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget&&activeModalStack.at(-1)===dialogRef.current)onCloseRef.current();}}>
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         className={`card ui-modal ${className}`.trim()}
         role="dialog"
         aria-modal="true"
-        aria-label={typeof title === "string" ? title : undefined}
+        aria-labelledby={headingId}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="ui-modal-head">
-          <h2>{title}</h2>
+          <h2 id={headingId}>{title}</h2>
           <button type="button" className="btn" aria-label="Tutup dialog" onClick={onClose}>✕</button>
         </div>
         {children}

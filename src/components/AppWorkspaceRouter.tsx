@@ -3,6 +3,8 @@
 import dynamic from 'next/dynamic';
 import { useState } from 'react';
 import ModuleErrorBoundary from '@/components/ModuleErrorBoundary';
+import {WorkspaceFrame} from '@/components/layout/WorkspacePrimitives';
+import {LoadingState} from '@/components/ui/UnifiedSystem';
 import type { AppView } from '@/components/Sidebar';
 import type { AppSettings } from '@/lib/app-settings';
 import type { EmployeeRecord } from '@/lib/employee-ui';
@@ -53,7 +55,7 @@ export default function AppWorkspaceRouter(props:Props) {
   const [retryKey,setRetryKey]=useState(0);
   const { view,actor,period,db,settings,gatewayCanView,integrationsCanManage }=props;
 
-  return <div key={view} className="app-view-transition" style={{maxWidth:1180,margin:'0 auto'}}>
+  return <WorkspaceFrame key={view}>
     <ModuleErrorBoundary moduleName={view} resetKey={`${view}:${retryKey}`} onRetry={() => setRetryKey((value)=>value+1)}>
       {view === 'dashboard' && (
         actor.role === 'CLIENT_USER'
@@ -101,7 +103,7 @@ export default function AppWorkspaceRouter(props:Props) {
           : <ReportsWorkspace />
       )}
     </ModuleErrorBoundary>
-  </div>;
+  </WorkspaceFrame>;
 }
 
 const PayrollControlTower = dynamic(() => import('@/components/PayrollControlTower'), { loading:() => <ViewLoading /> });
@@ -115,5 +117,5 @@ function PayrollControlTowerAdapter({ actor, period, onNavigate }:{
 }
 
 function ViewLoading() {
-  return <div className="card control-loading" role="status">Menyiapkan modul…</div>;
+  return <div role="status" className="control-loading"><LoadingState title="Menyiapkan modul…" /></div>;
 }

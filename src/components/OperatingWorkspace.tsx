@@ -1,5 +1,6 @@
 'use client';
 import {patchRoute,routeValue,subscribeRoute} from '@/lib/route-state';
+import {WorkspaceTitle,InlineSummary} from '@/components/layout/WorkspacePrimitives';
 import {isAbortedRequest} from '@/lib/api-client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -399,12 +400,11 @@ export default function OperatingWorkspace({
   return (
     <section>
       {!embedded ? <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div>
-          <span className="workspace-eyebrow">{profile.eyebrow}</span>
-          <h2 style={{ fontSize: 22, fontWeight: 720, margin: '4px 0 0' }}>{profile.title}</h2>
-          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>{profile.description}</p>
-        </div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&clientExperience?<a className="btn btn-primary" href="/data-intake">Kirim data payroll</a>:mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}{!clientExperience&&mode!=='payments'?<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div>:null}</div>
+        <WorkspaceTitle level="h2" eyebrow={profile.eyebrow} eyebrowClassName="workspace-eyebrow"
+          title={profile.title} description={profile.description}
+          titleStyle={{fontSize:22,fontWeight:720,margin:'4px 0 0'}}
+          descriptionStyle={{color:'var(--text3)',fontSize:13,marginTop:5}} />
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&clientExperience?<a className="btn btn-primary" href="/data-intake">Kirim data payroll</a>:mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}{!clientExperience&&mode!=='payments'?<span className="role-access-chip" aria-label="Role aktif"><strong>{actor?.email || 'Memuat pengguna…'}</strong> · {role.replaceAll('_', ' ')}</span>:null}</div>
       </div> : null}
 
       {(focusSubmissionId||dashboardStage) && mode!=='billing' ? <div className="dashboard-focus-banner" role="status"><span>Dashboard focus · {focusSubmissionId || dashboardStage}</span><button type="button" onClick={clearDashboardFocus}>Tampilkan semua</button></div> : null}
@@ -472,12 +472,13 @@ export default function OperatingWorkspace({
               <div><span className="page-eyebrow">DECISION-CENTRIC PAYMENT CONTROL</span><h2>Payment Workbench</h2><p>{isPaymentController?'Tinjau instruksi, putuskan approval, lalu jalankan pembayaran yang disetujui.':'Siapkan instruksi dan disbursement request untuk keputusan Payroll Controller.'}</p></div>
               <span className="payment-decision-role">{role==='PAYROLL_CONTROLLER'?'Controller · Final approval':role==='PAYROLL_PROCESSOR'?'Processor · Maker':'Monitoring · Read-only'}</span>
             </header>
-            <div className="payment-decision-metrics payment-decision-inline" aria-label="Ringkasan keputusan pembayaran">
-              <div><span>{paymentDecision.primaryLabel}</span><strong>{paymentDecision.primaryCount}</strong><small>{isPaymentController?'Approval / pembayaran menunggu Controller':role==='PAYROLL_PROCESSOR'?'Siap submit / revisi':'Memerlukan tindak lanjut'}</small></div>
-              <div><span>Menunggu approval PI</span><strong>{paymentDecision.piAwaitingApproval}</strong><small>Maker → Controller</small></div>
-              <div><span>PI approved / processing</span><strong>{paymentDecision.piApproved}</strong><small>Periksa strategi sebelum eksekusi</small></div>
-              <div><span>Canonical DR membutuhkan aksi</span><strong>{canonicalDecisionKnown?canonicalDecisionActions:'—'}</strong><small>{canonicalDecisionKnown?'Dari register DR yang tersedia':'Status belum terverifikasi'}</small></div>
-            </div>
+            <InlineSummary variant="decision" className="payment-decision-metrics payment-decision-inline"
+              label="Ringkasan keputusan pembayaran" items={[
+                {label:paymentDecision.primaryLabel,value:paymentDecision.primaryCount,note:isPaymentController?'Approval / pembayaran menunggu Controller':role==='PAYROLL_PROCESSOR'?'Siap submit / revisi':'Memerlukan tindak lanjut'},
+                {label:'Menunggu approval PI',value:paymentDecision.piAwaitingApproval,note:'Maker → Controller'},
+                {label:'PI approved / processing',value:paymentDecision.piApproved,note:'Periksa strategi sebelum eksekusi'},
+                {label:'Canonical DR membutuhkan aksi',value:canonicalDecisionKnown?canonicalDecisionActions:'—',note:canonicalDecisionKnown?'Dari register DR yang tersedia':'Status belum terverifikasi'},
+              ]} />
             <nav className="payment-decision-nav payment-decision-nav-compact" aria-label="Fokus Payment Workbench">
               <button type="button" className={displayedPaymentPanel==='PI'?'active':''} aria-current={displayedPaymentPanel==='PI'?'page':undefined} onClick={()=>selectPaymentPanel('PI')}><strong>Payment Instructions</strong><small>{paymentDecision.primaryCount} perlu perhatian</small></button>
               <button type="button" className={displayedPaymentPanel==='DISBURSEMENT'?'active':''} aria-current={displayedPaymentPanel==='DISBURSEMENT'?'page':undefined} onClick={()=>selectPaymentPanel('DISBURSEMENT')}><strong>Canonical Disbursement</strong><small>{canonicalDecisionKnown?`${canonicalDecisionActions} tindakan · Submit / Approve / Execute`:'Verifikasi antrean DR'}</small></button>
