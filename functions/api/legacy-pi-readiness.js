@@ -47,10 +47,10 @@ async function inspectPi(db,org,pi,destinationMode){
       WHERE cba.org_id=? AND cba.client_id=? AND cba.purpose='PAYROLL_SETTLEMENT'
       AND cba.status='VERIFIED' AND cba.is_primary=1 AND cba.verification_version>0
       AND cr.status='APPROVED' AND cr.client_id=cba.client_id AND cr.purpose=cba.purpose LIMIT 1`,[org,pi.client_id]);
-    beneficiaryReady=Boolean(corporate&&expected>0);
-    if(!beneficiaryReady)issues.push('CORPORATE_BENEFICIARY_NOT_GOVERNED');
+    beneficiaryReady=Boolean(corporate&&snapshotValid);
+    if(!corporate)issues.push('CORPORATE_BENEFICIARY_NOT_GOVERNED');
   }
-  const canCreate=SOURCE_STATES.has(status)&&!Number(gateway?.n)&&!Number(canonical?.n)&&beneficiaryReady&&bound&&credentialHealthy&&!issues.includes('PI_APPROVAL_HASH_NOT_VERIFIED');
+  const canCreate=SOURCE_STATES.has(status)&&!Number(gateway?.n)&&!Number(canonical?.n)&&snapshotValid&&beneficiaryReady&&bound&&credentialHealthy&&!issues.includes('PI_APPROVAL_HASH_NOT_VERIFIED');
   let channel={ready:false,code:'CHANNEL_PENDING_PI_BINDING'};
   if(bound){
     const route=await resolveProviderChannel(db,{provider:'E2PAY',environment:account.environment,purpose:'PAYROLL',destinationMode,beneficiaryType:destinationMode==='CLIENT_ACCOUNT'?'CORPORATE':'EMPLOYEE'});

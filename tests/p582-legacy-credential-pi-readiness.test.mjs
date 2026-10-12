@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {D1Mock} from './helpers/d1-mock.mjs';
 import {createSession} from '../functions/api/_account-auth.js';
 import {onRequest as readiness} from '../functions/api/legacy-pi-readiness.js';
+import {onRequest as disbursementApi} from '../functions/api/disbursement-requests.js';
 const source=async p=>readFile(new URL('../'+p,import.meta.url),'utf8');
 function fixture({invalidSnapshot=false}={}){
  const DB=new D1Mock();DB.sqlite.exec(`
@@ -73,6 +74,54 @@ test('P5.8.2 invalid snapshot and provider account mismatches are always blocked
  assert.ok(pi.blockingCodes.includes('PI_IMMUTABLE_SNAPSHOT_INVALID'));
  assert.ok(pi.blockingCodes.includes('PI_PROVIDER_SNAPSHOT_NOT_BOUND'));
 });
+test('P5.8.2 corporate beneficiary cannot override an invalid immutable PI snapshot',async()=>{
+ const {DB,env}=fixture({invalidSnapshot:true});
+ // Align the provider account to the PI in the fixture, without altering PI's immutable snapshot.
+ DB.sqlite.exec(`UPDATE payment_provider_accounts SET provider_sub_account_id='WRONG',
+ metadata_json='{"merchantCredential":{"ciphertext":"encrypted-placeholder","iv":"iv-placeholder","version":1}}'
+ WHERE id='PPA-P582';
+ UPDATE provider_provisioning_sessions SET credential_state='HEALTHY',credential_version=1,state='READY' WHERE id='PPS-P582';
+ INSERT INTO client_bank_account_change_requests(id,org_id,client_id,action,reason,status,requested_by_email)
+ VALUES('CR-P582','ORG-P582','C-P582','CREATE_PRIMARY','UAT governed primary','APPROVED','maker@p582.test');
+ INSERT INTO client_bank_accounts(id,org_id,client_id,bank_code,bank_name,account_name,
+ account_number_ciphertext,account_number_iv,account_number_hash,account_number_last4,
+ purpose,status,is_primary,verified_by_email,verified_at,created_by_email,source_change_request_id,
+ last_change_request_id,verification_version)
+ VALUES('BA-P582','ORG-P582','C-P582','BCA','BCA','PT Client Test',
+ 'encrypted-placeholder','iv-placeholder','hash-placeholder','1234',
+ 'PAYROLL_SETTLEMENT','VERIFIED',1,'controller@p582.test','2026-10-12','maker@p582.test',
+ 'CR-P582','CR-P582',1);`);
+ const session=await createSession(DB,'U-P582',env);
+ const response=await call(env,session.token,'/api/legacy-pi-readiness?id=PI-P582&destinationMode=CLIENT_ACCOUNT');
+ assert.equal(response.status,200,JSON.stringify(response.data));
+ const record=response.data.records[0];
+ assert.equal(record.providerBound,true);
+ assert.equal(record.credentialReady,true);
+ assert.equal(record.snapshotValid,false);
+ assert.equal(record.beneficiaryReady,false,'Governed corporate bank does not repair an invalid source PI');
+ assert.equal(record.canCreateCanonicalDr,false);
+ assert.ok(record.blockingCodes.includes('PI_IMMUTABLE_SNAPSHOT_INVALID'));
+ assert.equal(record.executionAuthorized,false);
+ assert.equal(DB.sqlite.prepare('SELECT COUNT(*) AS n FROM disbursement_requests').get().n,0);
+});
+
+test('P5.8.2 canonical DR backend rejects invalid PI snapshot for corporate strategy as well',async()=>{
+ const {DB,env}=fixture({invalidSnapshot:true});
+ // The actual financial endpoint must enforce the same source invariant as the read-only precheck.
+ DB.sqlite.exec(`UPDATE payment_provider_accounts SET provider_sub_account_id='WRONG',
+ metadata_json='{"merchantCredential":{"ciphertext":"encrypted-placeholder","iv":"iv-placeholder","version":1}}'
+ WHERE id='PPA-P582';`);
+ const session=await createSession(DB,'U-P582',env);
+ const request=new Request('https://proqpay.test/api/disbursement-requests',{method:'POST',
+  headers:{Cookie:`proqpay_session=${session.token}`,Origin:'https://proqpay.test','Content-Type':'application/json'},
+  body:JSON.stringify({action:'CREATE',sourceDocumentType:'PAYMENT_INSTRUCTION',sourceDocumentId:'PI-P582',destinationMode:'CLIENT_ACCOUNT'})});
+ const response=await disbursementApi({request,env});
+ const data=await response.json();
+ assert.equal(response.status,409,JSON.stringify(data));
+ assert.equal(data.code,'DISBURSEMENT_PI_TOTAL_MISMATCH');
+ assert.equal(DB.sqlite.prepare('SELECT COUNT(*) AS n FROM disbursement_requests').get().n,0);
+});
+
 test('P5.8.2 read-only endpoint enforces roles and rejects POST',async()=>{
  const {DB,env}=fixture();const client=await createSession(DB,'X-P582',env);
  assert.equal((await call(env,client.token)).status,403);
