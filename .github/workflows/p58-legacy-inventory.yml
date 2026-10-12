@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --json --command "$(cat ops/p58-legacy-inventory.sql)" > /tmp/p58-raw.json 2> /tmp/p58-error.log
+          npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --json --command "$(sed '/^--/d' ops/p58-legacy-inventory.sql)" > /tmp/p58-raw.json 2> /tmp/p58-error.log
           command_status=$?
           set -e
           if [ "$command_status" -ne 0 ]; then
