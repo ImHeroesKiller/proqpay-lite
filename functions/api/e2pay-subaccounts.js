@@ -5,7 +5,7 @@ import { e2payAuthorize, e2payHostAuthorize, e2payMerchantAccount, e2payRegister
 import { liquidityState } from './payment-provider-routing.js';
 import { decryptProviderProvisioningSecret, encryptProviderAccountCredential, encryptProviderProvisioningSecret, mergeProviderAccountMetadata, providerAccountCredentialState, scopedE2PayRuntimeEnv } from './payment-provider-account-credentials.js';
 import { composeProvisioningToken, generateManagedMerchantPassword, provisioningDisplayState } from './e2pay-provisioning-orchestrator.js';
-import { credentialHealthState, manualCredentialBindingAllowed, markCredentialFailure, markCredentialHealthy } from './e2pay-credential-lifecycle.js';
+import { credentialHealthState, legacyCredentialRecoveryState, manualCredentialBindingAllowed, markCredentialFailure, markCredentialHealthy } from './e2pay-credential-lifecycle.js';
 
 const METHODS='GET, POST, OPTIONS';
 const READ_ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -53,6 +53,7 @@ function publicRow(row,requiredAmount=0){
     provisioning:{
       state:orchestrationState,
       credentialMode:'SERVICE_MANAGED',
+      legacyCompatibility:legacyCredentialRecoveryState({credential_state:row.provisioning_credential_state},merchantCredential.ready),
       phoneLast4:meta?.phoneLast4||null,
       lastErrorCode:row.provisioning_session_error_code||null,
       lastErrorMessage:row.provisioning_session_error_message||null,
@@ -521,11 +522,17 @@ export async function onRequest({request,env}){
       if(!parentSourceId) return secureJson({error:'Parent source E2Pay belum dikonfigurasi.',code:'E2PAY_PARENT_SOURCE_REQUIRED',stage:'SUBACCOUNT_CREDENTIAL_VALIDATE'},409,request,env,METHODS);
       const metadataJson=mergeProviderAccountMetadata(current,{merchantCredential,parentSourceId,credentialValidatedAt:new Date().toISOString()});
       const balance=Number(merchantAccount?.balance||0);
-      await d1Batch(env.DB,[
+      const recoveryOperations=[
         {statement:`UPDATE payment_provider_accounts SET metadata_json=?,provider_account_id=?,account_name=COALESCE(?,account_name),balance=?,available_balance=?,last_balance_sync_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_provisioning_error_code=NULL,last_provisioning_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,
           bindings:[metadataJson,providerAccountId,clean(merchantAccount?.accountName,200)||null,balance,balance,actor.email,id,organizationId]},
-        audit(organizationId,actor,'E2PAY_SUBACCOUNT_CREDENTIAL_BOUND',id,`environment=${current.environment} · accountLast4=${providerAccountId.slice(-4)} · credential=SCOPED_ENCRYPTED · balance=${balance}`,requestId),
-      ]);
+      ];
+      if(credentialSession){
+        recoveryOperations.push({statement:`UPDATE provider_provisioning_sessions SET state='READY',credential_state='HEALTHY',credential_version=CASE WHEN credential_version<1 THEN 1 ELSE credential_version+1 END,credential_last_validated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),credential_failure_count=0,credential_last_error_code=NULL,credential_last_error_at=NULL,provider_account_id=?,ready_at=COALESCE(ready_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')),last_error_code=NULL,last_error_message=NULL,updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=?`,bindings:[providerAccountId,actor.email,credentialSession.id,organizationId]});
+        recoveryOperations.push({statement:`UPDATE legacy_compatibility_records SET compatibility_status='RESOLVED',resolved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),resolved_by=?,last_detected_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE org_id=? AND resource_type='PROVIDER_ACCOUNT' AND resource_id=? AND classification='LEGACY_CREDENTIAL_RECOVERY_REQUIRED'`,bindings:[actor.email,organizationId,id]});
+        recoveryOperations.push(audit(organizationId,actor,'E2PAY_LEGACY_CREDENTIAL_RECOVERED',id,`existingSubAccountPreserved=true · accountLast4=${providerAccountId.slice(-4)} · lifecycle=READY_HEALTHY`,requestId));
+      }
+      recoveryOperations.push(audit(organizationId,actor,'E2PAY_SUBACCOUNT_CREDENTIAL_BOUND',id,`environment=${current.environment} · accountLast4=${providerAccountId.slice(-4)} · credential=SCOPED_ENCRYPTED · balance=${balance}`,requestId));
+      await d1Batch(env.DB,recoveryOperations);
       const row=await d1First(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name
         FROM payment_provider_accounts ppa LEFT JOIN clients c ON c.id=ppa.client_id LEFT JOIN projects p ON p.id=ppa.project_id WHERE ppa.id=? LIMIT 1`,[id]);
       return secureJson({ok:true,account:publicRow(row),credentialValidated:true,correlationId:requestId},200,request,env,METHODS);

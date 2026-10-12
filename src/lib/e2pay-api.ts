@@ -164,7 +164,7 @@ export type E2PaySubAccount = {
   readiness?:{ready:boolean;reason:string};
   merchantCredential?:{ready:boolean;version:number|null;updatedAt?:string|null};
   parentSourceId?:string|null;
-  provisioning?:{state:string;credentialMode:'SERVICE_MANAGED';phoneLast4?:string|null;lastErrorCode?:string|null;lastErrorMessage?:string|null;updatedAt?:string|null;credentialHealth?:{state:string;healthy:boolean;degraded:boolean;recoveryRequired:boolean;version:number;failureCount:number;lastValidatedAt?:string|null;lastErrorCode?:string|null;lastErrorAt?:string|null}};
+  provisioning?:{state:string;credentialMode:'SERVICE_MANAGED';legacyCompatibility?:string|null;phoneLast4?:string|null;lastErrorCode?:string|null;lastErrorMessage?:string|null;updatedAt?:string|null;credentialHealth?:{state:string;healthy:boolean;degraded:boolean;recoveryRequired:boolean;version:number;failureCount:number;lastValidatedAt?:string|null;lastErrorCode?:string|null;lastErrorAt?:string|null}};
   balance:number|null;
   availableBalance:number|null;
   lastBalanceSyncAt?:string|null;

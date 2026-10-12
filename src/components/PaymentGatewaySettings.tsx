@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import LegacyCompatibilityPanel from '@/components/LegacyCompatibilityPanel';
 
 type CredentialSummary = {
   stored: Record<string, boolean>;
@@ -324,6 +325,8 @@ export default function PaymentGatewaySettings() {
       </button>
       {form.provider === 'E2PAY' && !executionReady ? <small style={{ color:'var(--text3)' }}>Aktivasi dikunci sampai Test Connection menyatakan profile execution-ready.</small> : null}
     </div> : null}
+
+    <LegacyCompatibilityPanel />
 
     <div style={{ borderTop:'1px solid var(--border-soft)', paddingTop:12, color:'var(--text3)', fontSize:11.5, lineHeight:1.6 }}>
       Credential disimpan terenkripsi di server. Password merchant dinormalisasi menjadi MD5 uppercase di backend dan tidak dikirim kembali ke browser. Funding bank dipakai hanya sebagai petunjuk bank tujuan VA untuk Top Up Wallet dan harus mengikuti informasi resmi dari E2Pay. Test Connection tidak menyimpan source account atau mengubah runtime; source account baru dipersist saat aktivasi eksplisit berhasil.
