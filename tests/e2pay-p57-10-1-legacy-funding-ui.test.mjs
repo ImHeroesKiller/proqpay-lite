@@ -32,12 +32,12 @@ test('P5.7.10.1 Payment Instructions distinguishes legacy recovery from normal s
 test('P5.7.10.1 recovery CTA deep-links exact client/account and returns to funding account',()=>{
   assert.match(fundingUi,/recoveryClientId=\$\{encodeURIComponent\(selected\.clientId\)\}/);
   assert.match(fundingUi,/recoveryAccountId=\$\{encodeURIComponent\(selected\.providerAccountRegistryId\)\}/);
-  assert.match(fundingUi,/recoveryReturnView=payment-instructions/);
+  assert.match(fundingUi,/recoveryReturnView=payments/);
   assert.match(directory,/params\.get\('recoveryClientId'\)/);
   assert.match(directory,/recoveryAutoOpenedRef/);
   assert.match(directory,/params\.get\('recoveryAccountId'\)===account\.id/);
-  assert.match(directory,/view=payment-instructions&fundingAccountId=/);
-  assert.match(directory,/recoveryComplete=1/);
+  assert.match(directory,/recoveryReturnUrl\(account\.id,params\.get\('period'\)\)/);
+  assert.match(fundingUi,/recoveryComplete/);
 });
 
 test('P5.7.10.1 successful return preserves account selection and explains initial balance sync',()=>{

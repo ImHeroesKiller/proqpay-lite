@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {recoveryReturnUrl,resolveRecoveryTarget} from '@/lib/workspace-navigation';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { activateE2PaySubAccount, bindE2PaySubAccountCredential, checkE2PayCredentialHealth, getE2PaySubAccounts, registerE2PaySubAccount, syncE2PaySubAccountBalance, type E2PaySubAccount } from '@/lib/e2pay-api';
@@ -90,6 +91,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const [originalProjectClientId,setOriginalProjectClientId] = useState('');
   const [detail,setDetail] = useState<{type:'client'|'project';item:Client|Project}|null>(null);
   const [e2payAccounts,setE2PayAccounts]=useState<E2PaySubAccount[]>([]);
+  const [e2payAccountsLoaded,setE2PayAccountsLoaded]=useState(false);
   const [clientReadiness,setClientReadiness]=useState<ClientReadiness[]>([]);
   const [e2payPhone,setE2PayPhone]=useState('');
   const [e2payEmail,setE2PayEmail]=useState('');
@@ -121,17 +123,30 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-  const loadE2Pay=useCallback(async()=>{try{const result=await getE2PaySubAccounts('UAT');setE2PayAccounts(result.accounts);}catch{/* payment integration may be unavailable while master data remains usable */}},[]);
+  const loadE2Pay=useCallback(async()=>{try{const result=await getE2PaySubAccounts('UAT');setE2PayAccounts(result.accounts);}catch{setE2PayAccounts([]);}finally{setE2PayAccountsLoaded(true);}},[]);
   const loadClientReadiness=useCallback(async()=>{try{const response=await fetch('/api/client-readiness',{headers:{Accept:'application/json'}});const data=await response.json().catch(()=>({}));if(response.ok)setClientReadiness(data.clients||[]);}catch{/* readiness is advisory; directory remains usable */}},[]);
   useEffect(()=>{void loadE2Pay();void loadClientReadiness();},[loadE2Pay,loadClientReadiness]);
   useEffect(()=>{
-    if(typeof window==='undefined'||loading||detail||recoveryAutoOpenedRef.current) return;
+    if(typeof window==='undefined'||loading||!e2payAccountsLoaded||detail||recoveryAutoOpenedRef.current)return;
     const params=new URLSearchParams(window.location.search);
     const recoveryClientId=params.get('recoveryClientId');
-    if(!recoveryClientId) return;
-    const target=clients.find((client)=>client.id===recoveryClientId);
-    if(target){recoveryAutoOpenedRef.current=true;setActiveDirectoryTab('clients');setDetail({type:'client',item:target});}
-  },[clients,loading,detail]);
+    const recoveryAccountId=params.get('recoveryAccountId');
+    if(!recoveryClientId||!recoveryAccountId)return;
+    // A client id is not sufficient: project override accounts must open the
+    // exact project where their scoped credential form is displayed.
+    const result=resolveRecoveryTarget(recoveryClientId,recoveryAccountId,e2payAccounts,clients,projects);
+    if('error' in result){
+      if(result.error==='CLIENT_NOT_FOUND')return;
+      setMessageTone('error');
+      setMessage(result.error==='ACCOUNT_NOT_FOUND'
+        ? 'Account recovery tidak ditemukan pada client dan environment ini. Periksa kembali sumber Payment Instructions.'
+        : 'Project override E2Pay tidak tersedia dalam master data ini. Recovery diblokir untuk mencegah salah account.');
+      return;
+    }
+    recoveryAutoOpenedRef.current=true;
+    setActiveDirectoryTab(result.kind==='project'?'projects':'clients');
+    setDetail({type:result.kind,item:result.target});
+  },[clients,projects,e2payAccounts,e2payAccountsLoaded,loading,detail]);
 
   async function submit() {
     if (!mode) return;
@@ -228,8 +243,8 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
       await Promise.all([loadE2Pay(),loadClientReadiness()]);
       if(typeof window!=='undefined'){
         const params=new URLSearchParams(window.location.search);
-        if(params.get('recoveryAccountId')===account.id&&params.get('recoveryReturnView')==='payment-instructions'){
-          window.location.assign(`/?view=payment-instructions&fundingAccountId=${encodeURIComponent(account.id)}&recoveryComplete=1`);
+        if(params.get('recoveryAccountId')===account.id&&['payments','payment-instructions'].includes(params.get('recoveryReturnView')||'')){
+          window.location.assign(recoveryReturnUrl(account.id,params.get('period')));
         }
       }
     }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Validasi credential sub-client gagal');}
@@ -542,6 +557,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
         </div>
       </div>, document.body) : null}
       {detail ? createPortal(<div className="directory-modal-backdrop" role="presentation" onMouseDown={(event)=>{if(event.target===event.currentTarget)setDetail(null);}}><div ref={detailDialogRef} className="directory-modal directory-detail-modal" role="dialog" aria-modal="true" aria-label={`Detail ${detail.type}`}><div className="directory-modal-title"><div><span>MASTER DATA</span><h3>{detail.item.name}</h3></div><button type="button" aria-label="Tutup detail" onClick={()=>setDetail(null)}>✕</button></div><DirectoryDetail detail={detail} />
+      {(()=>{const params=typeof window==='undefined'?null:new URLSearchParams(window.location.search);const requested=params?.get('recoveryAccountId');const account=e2payAccounts.find(row=>row.id===requested);return requested&&account&&account.clientId===(detail.type==='client'?(detail.item as Client).id:(detail.item as Project).client_id)?<div className="app-notice-bubble app-notice-info" role="status"><strong>Recovery account terpilih · {account.providerSubAccountIdMasked||'E2Pay'}</strong><span>{account.projectId?'Project Override':'Client Sub-account'} · Credential untuk account yang dipilih dari Funding Control.</span></div>:null;})()}
       {detail.type==='client'?<>{(()=>{const client=detail.item as Client;const item=clientReadiness.find((row)=>row.clientId===client.id);if(!item)return null;const r=item.readiness;return <section className="directory-form-card"><div className="directory-form-card-title"><span>RDY</span><div><strong>Operational Readiness</strong><small>Provider payment berjalan async dan tidak memblokir setup payroll/EWA.</small></div></div><div className="directory-detail-grid"><div><span>Client Setup</span><strong>{r.client.state}</strong></div><div><span>Employees</span><strong>{r.employees.state} · {r.employees.count}</strong></div><div><span>Payroll</span><strong>{r.payroll.state}</strong></div><div><span>EWA</span><strong>{r.ewa.state}</strong></div><div><span>Payment</span><strong>{r.payment.state}</strong></div><div><span>Overall</span><strong>{r.overall.operationalReady?'Operational Ready':'Blocked'} · {r.overall.paymentReady?'Payment Ready':'Payment Pending'}</strong></div></div>{!r.payment.ready?<UiNotice tone="info" title="Payment setup berjalan async">Client, employee, payroll calculation, dan konfigurasi EWA tetap dapat dilanjutkan. Funding, limit, dan payment submission menunggu Payment Readiness menjadi READY.</UiNotice>:null}</section>;})()}<section className="directory-form-card"><div className="directory-form-card-title"><span>PAY</span><div><strong>Payment & Disbursement</strong><small>E2Pay sub-client mengikuti master klien dan digunakan sebagai sumber routing pembayaran.</small></div></div>
         {(()=>{const client=detail.item as Client;const account=e2payAccounts.find((row)=>row.clientId===client.id&&!row.projectId);if(!account)return canManageE2Pay?renderE2PayRegistrationForm(client):<p className="directory-hint">Sub-client E2Pay belum terdaftar. Hubungi Super Admin atau Payroll Processor.</p>;return <><div className="directory-detail-grid"><div><span>Gateway</span><strong>E2Pay</strong></div><div><span>Status</span><strong>{account.status}</strong></div><div><span>Provisioning</span><strong>{account.provisioningState||'NOT_STARTED'}</strong></div><div><span>Readiness</span><strong>{account.readiness?.ready?'Ready':'Blocked'}</strong></div><div><span>Sub-client</span><strong>{account.providerSubAccountIdMasked||'Menunggu provisioning'}</strong></div><div><span>Environment</span><strong>{account.environment}</strong></div><div><span>Credential lifecycle</span><strong>{account.provisioning?.credentialHealth?.state||(account.merchantCredential?.ready?'HEALTHY':'LEGACY')}</strong></div><div><span>Parent E2Pay</span><strong>{account.parentSourceId||'Belum tervalidasi'}</strong></div><div><span>Available balance</span><strong>{account.availableBalance===null?'Belum sync':`Rp ${Number(account.availableBalance).toLocaleString('id-ID')}`}</strong></div></div>{account.provisioningState==='FAILED'?<><UiNotice tone="error" title="Provisioning gagal">{account.lastProvisioningErrorMessage||'Registrasi belum berhasil.'}</UiNotice>{renderE2PayRegistrationForm(client,undefined,'Coba registrasi ulang')}</>:account.provisioningState==='PENDING_CONFIRMATION'?renderE2PayPendingConfirmation(account,client):renderE2PayMerchantCredential(account)}</>;})()}
       </section><CorporateBeneficiaryPanel clientId={(detail.item as Client).id} clientName={(detail.item as Client).name} actor={actor}/></>:null}

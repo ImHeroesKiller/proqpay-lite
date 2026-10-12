@@ -87,7 +87,8 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
   const legacyRecoveryRequired=Boolean(selected&&(selected.legacyCompatibility==='LEGACY_CREDENTIAL_RECOVERY_REQUIRED'||selected.credentialHealth?.state==='LEGACY_MANUAL'||selected.accountReadiness?.reason==='LEGACY_CREDENTIAL_RECOVERY_REQUIRED'));
   const credentialRequired=Boolean(selected&&selected.provisioningState==='PROVISIONED'&&!selected.merchantCredential?.ready&&!legacyRecoveryRequired);
   const credentialBlocked=Boolean(legacyRecoveryRequired||credentialRequired);
-  const recoveryHref=selected?`/?view=clients&recoveryClientId=${encodeURIComponent(selected.clientId)}&recoveryAccountId=${encodeURIComponent(selected.providerAccountRegistryId)}&recoveryReturnView=payment-instructions`: '/?view=clients';
+  const canRecover=role==='SUPER_ADMIN'||role==='PAYROLL_PROCESSOR';
+  const recoveryHref=selected?`/?view=clients&recoveryClientId=${encodeURIComponent(selected.clientId)}&recoveryAccountId=${encodeURIComponent(selected.providerAccountRegistryId)}&recoveryReturnView=payments${typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('period')?'&period='+encodeURIComponent(new URLSearchParams(window.location.search).get('period')||''):''}`: '/?view=clients';
   const messageIsError=/gagal|tidak|wajib|belum|insufficient|stale/i.test(message);
 
   return <section className="card ui-section-card">
@@ -142,13 +143,13 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
           <strong>Legacy E2Pay account · credential recovery diperlukan</strong>
           <span>Account {selected?.providerSubAccountIdMasked||''} adalah sub-account existing yang dipertahankan. Recovery merchant credential dilakukan satu kali tanpa membuat merchant/sub-account baru. Setelah valid, lifecycle otomatis menjadi READY / HEALTHY dan balance awal disinkronkan.</span>
         </div>
-        <Link className="btn btn-primary" href={recoveryHref}>Recovery Credential</Link>
+        {canRecover?<Link className="btn btn-primary" href={recoveryHref}>Recovery Credential</Link>:<span className="ui-status-badge ui-status-warning">Minta Payroll Processor melakukan recovery</span>}
       </div>:credentialRequired?<div className="card ui-section-card ui-notice ui-notice-warning" role="status">
         <div>
           <strong>Credential lifecycle belum READY</strong>
           <span>Account {selected?.providerSubAccountIdMasked||''} memakai lifecycle service-managed. Buka master Client untuk pemeriksaan credential; manual credential binding tidak digunakan untuk account P5.7 baru.</span>
         </div>
-        <Link className="btn btn-primary" href={recoveryHref}>Periksa Credential</Link>
+        {canRecover?<Link className="btn btn-primary" href={recoveryHref}>Periksa Credential</Link>:<span className="ui-status-badge ui-status-warning">Minta Payroll Processor memeriksa credential</span>}
       </div>:null}
 
       {selected?<div className="ui-metric-grid">

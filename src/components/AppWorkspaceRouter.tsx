@@ -80,6 +80,7 @@ export default function AppWorkspaceRouter(props:Props) {
         <UnifiedPayrollWorkspace
           role={actor.role}
           period={period}
+          onNavigate={props.onNavigate}
           gatewayCanView={gatewayCanView}
           initialStage={view === 'payments' ? 'PAYMENT' : view === 'billing' ? 'CLOSE' : 'PAYROLL'}
         />
