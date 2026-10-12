@@ -3147,3 +3147,20 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .financial-history-selector button.active{background:var(--accent-soft);color:var(--text);border-color:color-mix(in srgb,var(--accent) 45%,var(--border));font-weight:750}
 .legacy-transaction-history{display:grid;gap:12px;min-width:0;padding:14px}
 @media(max-width:760px){.legacy-transaction-history{padding:10px}.financial-history-selector button{flex:1}}
+
+/* P5.8.2 safe, non-executable PI readiness review within canonical workbench */
+.legacy-pi-readiness-panel{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--bg-surface);min-width:0}
+.legacy-pi-readiness-panel summary{padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;color:var(--text)}
+.legacy-pi-readiness-panel summary strong{font-size:11.5px}.legacy-pi-readiness-panel summary span{font-size:10px;color:var(--text3)}
+.legacy-pi-readiness-content{display:grid;gap:10px;padding:0 14px 14px}
+.legacy-pi-readiness-tools,.legacy-pi-readiness-footer,.legacy-pi-readiness-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.legacy-pi-readiness-tools label{display:grid;gap:3px;font-size:10px;color:var(--text2)}
+.legacy-pi-readiness-tools select{min-height:34px;border-radius:var(--r-sm);background:var(--bg-surface);border:1px solid var(--border);padding:6px;color:var(--text)}
+.legacy-pi-readiness-item{display:grid;gap:9px;border:1px solid var(--border);border-radius:var(--r-md);padding:12px;background:var(--bg-subtle)}
+.legacy-pi-readiness-heading>div{display:grid;gap:3px}.legacy-pi-readiness-heading small{font-size:10px;color:var(--text3)}
+.legacy-pi-readiness-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.legacy-pi-readiness-grid div{min-width:0;display:grid;gap:4px}.legacy-pi-readiness-grid span{font-size:9.5px;color:var(--text3)}
+.legacy-pi-readiness-grid strong{font-size:10px;color:var(--text);overflow-wrap:anywhere}
+.legacy-pi-blockers{padding-left:18px;font-size:10px;line-height:1.6;color:var(--text2);margin:0}
+.legacy-pi-readiness-footer{font-size:10px;color:var(--text3)}
+@media(max-width:650px){.legacy-pi-readiness-panel summary{padding:10px}.legacy-pi-readiness-content{padding:0 10px 10px}.legacy-pi-readiness-grid{grid-template-columns:1fr}}
