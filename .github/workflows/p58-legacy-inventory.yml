@@ -29,7 +29,14 @@ jobs:
       - name: Read-only aggregate inventory (NO mutation)
         run: |
           set -euo pipefail
-          npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --json --file=ops/p58-legacy-inventory.sql > /tmp/p58-raw.json
+          set +e
+          npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --json --command "$(cat ops/p58-legacy-inventory.sql)" > /tmp/p58-raw.json 2> /tmp/p58-error.log
+          command_status=$?
+          set -e
+          if [ "$command_status" -ne 0 ]; then
+            node scripts/p58-sanitize-d1-error.mjs /tmp/p58-error.log /tmp/p58-raw.json
+            exit "$command_status"
+          fi
           node scripts/p58-validate-inventory.mjs /tmp/p58-raw.json /tmp/p58-safe-report.json
       - name: Upload aggregated redacted evidence
         uses: actions/upload-artifact@v4
