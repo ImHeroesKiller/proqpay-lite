@@ -76,17 +76,23 @@ export async function syncDatabaseFromCloudflare(db: any, options: SyncOptions =
       method: 'GET',
       headers: { Accept: 'application/json' },
       signal: options.signal,
-    }).catch(() => null),
+    }),
     fetch('/api/operating-model?resource=service-plans', {
       method: 'GET',
       headers: { Accept: 'application/json' },
       signal: options.signal,
     }).catch(() => null),
   ]);
+  // A failed canonical source must not silently appear as a successful empty
+  // sync. /api/state is intentionally forbidden to CLIENT_USER (403) and
+  // service plans can also be unavailable by role; other failures are errors.
+  if(!directoryResponse.ok)throw new Error(`DIRECTORY_SYNC_FAILED: HTTP ${directoryResponse.status}`);
+  if(!stateResponse.ok && stateResponse.status!==403)throw new Error(`CANONICAL_STATE_SYNC_FAILED: HTTP ${stateResponse.status}`);
+  if(planResponse && !planResponse.ok && planResponse.status!==403)throw new Error(`SERVICE_PLAN_SYNC_FAILED: HTTP ${planResponse.status}`);
   const [stateData, directoryData, planData] = await Promise.all([
-    stateResponse.json().catch(() => ({})),
-    directoryResponse?.json().catch(() => ({})) || {},
-    planResponse?.json().catch(() => ({})) || {},
+    stateResponse.ok?stateResponse.json().catch(() => ({})):Promise.resolve({}),
+    directoryResponse.json(),
+    planResponse?.ok?planResponse.json().catch(() => ({})):Promise.resolve({}),
   ]);
   const directory = directoryData as any;
   const servicePlans = planResponse?.ok && Array.isArray((planData as any).servicePlans)
@@ -136,20 +142,8 @@ export async function syncDatabaseFromCloudflare(db: any, options: SyncOptions =
   return { db: nextDb, count: employees.length, synced: true };
 }
 
-export async function persistBusinessState(db: any) {
-  const state = {
-    payrolls: db.payrolls || [],
-    approvals: db.approvals || [],
-    invoices: db.invoices || [],
-    arMonitor: db.arMonitor || [],
-    auditLogs: db.auditLogs || [],
-  };
-  const response = await fetch('/api/state', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ state }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || data.message || `HTTP ${response.status}`);
-  return data;
+// G0: legacy business-state writes are disabled by /api/state (HTTP 410).
+// Reject immediately instead of claiming success for a browser-only mutation.
+export async function persistBusinessState(_db: any):Promise<never> {
+  throw new Error('LEGACY_STATE_WRITE_DISABLED: Use canonical payroll, PI and billing APIs');
 }

@@ -1,9 +1,49 @@
+import { clearIdaSessionId } from './session';
+import { clearSystemLogs } from './system-log';
 // ProQPay Lite — canonical client-side database mirror
 // Operational data is loaded from Cloudflare D1. This module contains only regulatory
 // reference data and an empty local cache for offline resilience.
 
 export const DB_KEY = "proqpay_db_v3";
-export const LEGACY_DB_KEYS = ["proqpay_db_v2"];
+export const LEGACY_DB_KEYS = ["proqpay_db_v2", "proqpay_db_v1"];
+
+// Sensitive payroll/employee mirrors must never survive a browser session.
+// Keep the D1-backed view only in the authenticated actor's JS memory.
+let memoryMirror: ReturnType<typeof seedDatabase> | null = null;
+let actorScope: string | null = null;
+let actorGeneration=0;
+
+function purgeLegacyBrowserMirrors() {
+  if (typeof window === 'undefined') return;
+  try {
+    for (const key of [DB_KEY, ...LEGACY_DB_KEYS]) window.localStorage.removeItem(key);
+  } catch { /* Storage can be disabled; fail closed to the empty mirror. */ }
+}
+
+// The generation prevents stale responses from a previous login of the SAME
+// account being accepted after logout/re-login.
+export function databaseActorScope() { return actorScope ? `${actorGeneration}:${actorScope}` : null; }
+
+export function setDatabaseActor(actor: { id?:string|null; role?:string|null; orgId?:string|null; clientIds?:string[]|null; projectIds?:string[]|null } | null) {
+  purgeLegacyBrowserMirrors();
+  const next=actor?.id&&actor?.role ? JSON.stringify({
+    id:actor.id,role:actor.role,orgId:actor.orgId||'',
+    clients:[...(actor.clientIds||[])].sort(),projects:[...(actor.projectIds||[])].sort(),
+  }) : null;
+  if(next===actorScope)return;
+  actorScope=next;
+  actorGeneration+=1;
+  memoryMirror=null; // Never reuse another user's financial data.
+  clearIdaSessionId();
+  clearSystemLogs();
+}
+
+export function clearDatabaseMirror() {
+  actorGeneration+=1;
+  actorScope=null;
+  memoryMirror=null;
+  purgeLegacyBrowserMirrors();
+}
 
 export const UMR_2025: Record<string, number> = {
   "DKI Jakarta": 5396761,
@@ -87,21 +127,18 @@ export function seedDatabase() {
 }
 
 export function loadDatabase() {
-  if (typeof window === "undefined") return seedDatabase();
-  try {
-    const data = localStorage.getItem(DB_KEY);
-    if (data) return { ...seedDatabase(), ...JSON.parse(data) };
-  } catch {}
-  LEGACY_DB_KEYS.forEach((key) => localStorage.removeItem(key));
-  const empty = seedDatabase();
-  saveDatabase(empty);
-  return empty;
+  purgeLegacyBrowserMirrors();
+  if (typeof window === 'undefined' || !actorScope || !memoryMirror) return seedDatabase();
+  return memoryMirror;
 }
 
-export function saveDatabase(db: any) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(DB_KEY, JSON.stringify(db));
-  LEGACY_DB_KEYS.forEach((key) => localStorage.removeItem(key));
+// async callers supply the captured actor scope, so results from a previous
+// login cannot overwrite the memory mirror after the user switches accounts.
+export function saveDatabase(db: any, expectedActorScope: string | null = databaseActorScope()): boolean {
+  purgeLegacyBrowserMirrors();
+  if (typeof window === 'undefined' || !actorScope || expectedActorScope!==databaseActorScope()) return false;
+  memoryMirror=db;
+  return true;
 }
 
 export function calcEmployeePayroll(

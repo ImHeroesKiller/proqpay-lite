@@ -13,15 +13,13 @@ export type SystemLogEntry = {
 const KEY = 'proqpay_system_logs_v1';
 const MAX_ENTRIES = 500;
 const EVENT = 'proqpay-system-log';
+let volatileLogs:SystemLogEntry[]=[];
+function purgeLegacyLogs(){if(typeof window==='undefined')return;try{window.localStorage.removeItem(KEY);}catch{/* storage unavailable */}}
 
 export function loadSystemLogs(): SystemLogEntry[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const value = JSON.parse(localStorage.getItem(KEY) || '[]');
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
-  }
+  purgeLegacyLogs();
+  if(typeof window==='undefined')return [];
+  return [...volatileLogs];
 }
 
 export function writeSystemLog(
@@ -42,13 +40,15 @@ export function writeSystemLog(
     ...(meta ? { meta } : {}),
   };
   const next = [...loadSystemLogs(), entry].slice(-MAX_ENTRIES);
-  localStorage.setItem(KEY, JSON.stringify(next));
+  volatileLogs=next;
+  purgeLegacyLogs();
   window.dispatchEvent(new CustomEvent(EVENT, { detail: entry }));
 }
 
 export function clearSystemLogs() {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(KEY);
+  volatileLogs=[];
+  purgeLegacyLogs();
   window.dispatchEvent(new CustomEvent(EVENT));
 }
 

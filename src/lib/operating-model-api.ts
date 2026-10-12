@@ -22,6 +22,7 @@ const CACHE_TTL_MS = 15_000;
 const responseCache = new Map<string, { expiresAt: number; data: unknown }>();
 const inflightRequests = new Map<string, Promise<unknown>>();
 let cacheActorNamespace = 'anonymous';
+let cacheGeneration=0;
 
 async function parseResponse<T=unknown>(response: Response):Promise<T> {
   const data = await response.json().catch(() => ({})) as Record<string,unknown>;
@@ -40,13 +41,15 @@ function cachedOperatingGet<T=unknown>(url: string):Promise<T> {
   if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.data as T);
   const pending = inflightRequests.get(key);
   if (pending) return pending as Promise<T>;
+  const generation=cacheGeneration;
   const request = fetch(url, { headers:{ Accept:'application/json' } })
     .then((response)=>parseResponse<T>(response))
     .then((data) => {
+      if(generation!==cacheGeneration || key!==cacheKey(url))throw new Error('STALE_ACTOR_CONTEXT');
       responseCache.set(key, { data, expiresAt:Date.now() + CACHE_TTL_MS });
       return data;
     })
-    .finally(() => inflightRequests.delete(key));
+    .finally(() => {if(inflightRequests.get(key)===request)inflightRequests.delete(key);});
   inflightRequests.set(key, request as Promise<unknown>);
   return request;
 }
@@ -119,6 +122,7 @@ export function listOperatingDashboard(clientId?: string, period?: string):Promi
   const pending = inflightRequests.get(aggregateKey);
   if (pending) return pending as Promise<DashboardApiResponse>;
 
+  const generation=cacheGeneration;
   const request:Promise<DashboardApiResponse> = (async()=>{
     const merged:Pick<DashboardApiResponse,'submissions'|'paymentInstructions'> = { submissions:[], paymentInstructions:[] };
     let offset = 0;
@@ -127,6 +131,7 @@ export function listOperatingDashboard(clientId?: string, period?: string):Promi
       const pageParams = new URLSearchParams(baseParams);
       if (offset) pageParams.set('offset', String(offset));
       const page = await cachedOperatingGet<DashboardApiResponse>(`/api/operating-model?${pageParams}`);
+      if(generation!==cacheGeneration)throw new Error('STALE_ACTOR_CONTEXT');
       if (!first) first = page;
       merged.submissions.push(...(page.submissions || []));
       merged.paymentInstructions.push(...(page.paymentInstructions || []));
@@ -145,9 +150,9 @@ export function listOperatingDashboard(clientId?: string, period?: string):Promi
         truncated:false,
       },
     };
-    responseCache.set(aggregateKey,{data:result,expiresAt:Date.now()+CACHE_TTL_MS});
+    if(generation===cacheGeneration && aggregateKey===cacheKey(aggregateUrl))responseCache.set(aggregateKey,{data:result,expiresAt:Date.now()+CACHE_TTL_MS});
     return result;
-  })().finally(()=>inflightRequests.delete(aggregateKey));
+  })().finally(()=>{if(inflightRequests.get(aggregateKey)===request)inflightRequests.delete(aggregateKey);});
 
   inflightRequests.set(aggregateKey,request as Promise<unknown>);
   return request;
@@ -158,15 +163,20 @@ export async function listOperatingPeriods(clientId?: string):Promise<{periods:s
   return { periods:Array.isArray(result.periods) ? result.periods.map(String) : [] };
 }
 
-export function setOperatingCacheActor(actor?:{id?:string|null;email?:string|null;role?:string|null}|null) {
-  const next = actor ? [actor.id||'',actor.email||'',actor.role||''].join('|') : 'anonymous';
+export function setOperatingCacheActor(actor?:{id?:string|null;email?:string|null;role?:string|null;orgId?:string|null;clientIds?:string[]|null;projectIds?:string[]|null}|null) {
+  const next = actor ? JSON.stringify({
+    id:actor.id||'',email:actor.email||'',role:actor.role||'',orgId:actor.orgId||'',
+    clients:[...(actor.clientIds||[])].sort(),projects:[...(actor.projectIds||[])].sort(),
+  }) : 'anonymous';
   if (next === cacheActorNamespace) return;
   cacheActorNamespace = next;
+  cacheGeneration+=1;
   responseCache.clear();
   inflightRequests.clear();
 }
 
 export function invalidateOperatingCache() {
+  cacheGeneration+=1;
   responseCache.clear();
   inflightRequests.clear();
   if (typeof window !== 'undefined') {
