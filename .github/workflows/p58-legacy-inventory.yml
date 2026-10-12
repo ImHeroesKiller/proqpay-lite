@@ -1,0 +1,40 @@
+name: P5.8 Read-Only Legacy Inventory
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE || 'proqpay-lite-production' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verify remote production access
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" && test -n "${CLOUDFLARE_API_TOKEN:-}"
+          npx wrangler whoami >/dev/null
+      - name: Read-only aggregate inventory (NO mutation)
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --json --file=ops/p58-legacy-inventory.sql > /tmp/p58-raw.json
+          node scripts/p58-validate-inventory.mjs /tmp/p58-raw.json /tmp/p58-safe-report.json
+      - name: Upload aggregated redacted evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p58-aggregate-inventory-${{ github.run_id }}
+          path: /tmp/p58-safe-report.json
+          if-no-files-found: error
+          retention-days: 14
