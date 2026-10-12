@@ -7,6 +7,7 @@ import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 import PaymentGatewayExecutionActions from '@/components/PaymentGatewayExecutionActions';
 import E2PayFundingLimitControl from '@/components/E2PayFundingLimitControl';
+import CanonicalTransactionRegister from '@/components/CanonicalTransactionRegister';
 import { PaymentEvidenceRegister, PaymentReconciliationControl } from '@/components/PaymentEvidenceReconciliation';
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
@@ -410,6 +411,7 @@ export default function OperatingWorkspace({
           {mode === 'payments' && ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role) ? <E2PayFundingLimitControl role={role} /> : null}
           {mode === 'payments' && <Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} />}
           {mode === 'reconcile' && <Payments phase="reconcile" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isPaymentController} canReconcile={isPaymentController && Boolean(actor?.permissions?.includes('reconciliation:write'))} canApprove={false} gatewayCanView={false} period={periodFilter} act={act} />}
+          {mode === 'reconcile' && <CanonicalTransactionRegister actor={actor} clientId={filters?.clientId&&filters.clientId!=='ALL'?filters.clientId:''} />}
           {mode === 'billing' && actor && <BillingWorkspace
             actor={actor}
             focusSubmissionId={focusSubmissionId}
