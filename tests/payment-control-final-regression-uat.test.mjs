@@ -81,7 +81,8 @@ test('final Payment Control UAT: page composes PI controls and gateway execution
   const evidence=await read('src/components/PaymentEvidenceReconciliation.tsx');
 
   assert.match(page,/AppWorkspaceRouter/);
-  assert.match(router,/view === 'payments'[\s\S]*OperatingWorkspace mode="payments"[\s\S]*PaymentGatewayPaymentPanel/);
+  assert.match(router,/view === 'payments'[\s\S]*OperatingWorkspace mode="payments"/);
+  assert.doesNotMatch(router,/PaymentGatewayPaymentPanel/); // P5.8.5: queue is no longer duplicated below unified Funding
   assert.match(page,/roleCanAction\(actor\.role,'payment\.prepare'\)/);
   assert.match(page,/roleCanAction\(actor\.role,'payment\.execute'\)/);
   assert.match(authority,/'payment\.execute'/);

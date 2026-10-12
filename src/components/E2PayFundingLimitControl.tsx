@@ -18,6 +18,7 @@ import {
 export default function E2PayFundingLimitControl({role}:{role:string}) {
   const [funding,setFunding]=useState<E2PayFundingState[]>([]);
   const [requests,setRequests]=useState<E2PayDisbursementLimitRequest[]>([]);
+  const [archivedCount,setArchivedCount]=useState(0);
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState('');
   const [message,setMessage]=useState('');
@@ -31,10 +32,11 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
   const load=useCallback(async()=>{
     setLoading(true);
     try{
-      const data=await getE2PayDisbursementLimits();
+      const data=await getE2PayDisbursementLimits({operationalOnly:true});
       setFunding(data.funding);
       setRequests(data.requests);
-      if(!accountId&&data.funding.length) setAccountId(data.funding[0].providerAccountRegistryId);
+      setArchivedCount(data.archivedUatAccountCount||0);
+      setAccountId(current=>data.funding.some(row=>row.providerAccountRegistryId===current)?current:(data.funding[0]?.providerAccountRegistryId||''));
       const recoveryComplete=typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('recoveryComplete')==='1';
       setMessage(recoveryComplete?'Legacy credential berhasil direcovery. Balance awal sudah disinkronkan; funding account siap diverifikasi.':'');
     }catch(error){
@@ -42,7 +44,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
     }finally{
       setLoading(false);
     }
-  },[accountId]);
+  },[]);
 
   useEffect(()=>{void load();},[load]);
 
@@ -90,6 +92,16 @@ export default function E2PayFundingLimitControl({role}:{role:string}) {
   const canRecover=role==='SUPER_ADMIN'||role==='PAYROLL_PROCESSOR';
   const recoveryHref=selected?`/?view=clients&recoveryClientId=${encodeURIComponent(selected.clientId)}&recoveryAccountId=${encodeURIComponent(selected.providerAccountRegistryId)}&recoveryReturnView=payments${typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('period')?'&period='+encodeURIComponent(new URLSearchParams(window.location.search).get('period')||''):''}`: '/?view=clients';
   const messageIsError=/gagal|tidak|wajib|belum|insufficient|stale/i.test(message);
+
+  // No heavyweight legacy recovery banner / empty gateway controls for UAT
+  // accounts already closed administratively. Keep all accounts in Settings.
+  if(!loading&&!funding.length&&!message&&pending.length===0&&active.length===0){
+    return <section className="card ui-section-card funding-empty-operational" aria-label="Funding operasional">
+      <div><span className="workspace-eyebrow">FUNDING & LIMIT</span><h3>Tidak ada funding account operasional</h3>
+      <p>{archivedCount>0?'Sub-account UAT lama sudah diarsipkan dari antrean aktif.':'Belum ada sub-account yang siap dikelola.'} Data dan histori tetap tersedia di pengaturan.</p></div>
+      <Link className="btn" href="/?view=clients">Kelola sub-client</Link>
+    </section>;
+  }
 
   return <section className="card ui-section-card">
     <div className="ui-section-card-head">

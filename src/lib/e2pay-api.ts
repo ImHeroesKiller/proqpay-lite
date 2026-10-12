@@ -338,14 +338,16 @@ export type E2PayDisbursementLimitRequest = {
   expiresAt?:string|null;
 };
 
-export async function getE2PayDisbursementLimits(filters:{providerAccountRegistryId?:string;requiredAmount?:number}={}){
+export async function getE2PayDisbursementLimits(filters:{providerAccountRegistryId?:string;requiredAmount?:number;operationalOnly?:boolean}={}){
   const params=new URLSearchParams();
   if(filters.providerAccountRegistryId) params.set('providerAccountRegistryId',filters.providerAccountRegistryId);
   if(filters.requiredAmount) params.set('requiredAmount',String(filters.requiredAmount));
+  if(filters.operationalOnly) params.set('operationalOnly','1');
   return parse(await fetch('/api/e2pay-disbursement-limits?'+params.toString(),{headers:{Accept:'application/json'},cache:'no-store'})) as Promise<{
     ok:true;
     funding:E2PayFundingState[];
     requests:E2PayDisbursementLimitRequest[];
+    archivedUatAccountCount?:number;
     authority:{canRequest:boolean;canApprove:boolean;canMonitor:boolean};
     correlationId?:string;
   }>;

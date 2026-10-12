@@ -3184,3 +3184,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .gateway-archive-disclosure>summary{cursor:pointer;font-size:11px;color:var(--text3);font-weight:600}
 .gateway-archive-disclosure[open]>summary{margin-bottom:10px}
 .uat-archive-history{display:grid;gap:8px;min-width:0}.uat-archive-history>p{font-size:10px;color:var(--text3);margin:0;line-height:1.6}
+
+/* Archived UAT accounts are absent from operational funding only, not from audit. */
+.funding-empty-operational{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;padding:18px 22px}
+.funding-empty-operational>div{display:grid;gap:5px;max-width:640px}
+.funding-empty-operational h3{margin:0;font-size:15px}
+.funding-empty-operational p{margin:0;color:var(--text3);font-size:11px;line-height:1.6}

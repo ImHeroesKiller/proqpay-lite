@@ -3,6 +3,7 @@ import { d1All, d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { readProviderFundingState } from './e2pay-disbursement-limit-core.js';
 import { providerAccountCredentialState } from './payment-provider-account-credentials.js';
 import { credentialHealthState, legacyCredentialRecoveryState } from './e2pay-credential-lifecycle.js';
+import { archivedUatFundingAccountIds } from './_uat-operational-funding.js';
 
 const METHODS='GET, POST, OPTIONS';
 const ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -74,6 +75,8 @@ export async function onRequest({request,env}){
       const url=new URL(request.url);
       const accountId=clean(url.searchParams.get('providerAccountRegistryId'),120);
       const requiredAmount=Math.max(0,Number(url.searchParams.get('requiredAmount')||0)||0);
+      const operationalOnly=url.searchParams.get('operationalOnly')==='1';
+      const archivedIds=operationalOnly?await archivedUatFundingAccountIds(env.DB,organizationId):new Set();
 
       const accounts=await d1All(env.DB,`SELECT ppa.*,c.code AS client_code,c.name AS client_name,p.code AS project_code,p.name AS project_name,
           pps.state AS provisioning_session_state,pps.credential_state AS provisioning_credential_state,
@@ -90,6 +93,7 @@ export async function onRequest({request,env}){
 
       const funding=[];
       for(const account of accounts){
+        if(archivedIds.has(account.id))continue; // UAT-only archive, no live financial work
         const state=await readProviderFundingState(env.DB,organizationId,account.id,requiredAmount);
         const merchantCredential=providerAccountCredentialState(account);
         const provisioned=account.status==='ACTIVE'&&Boolean(account.provider_sub_account_id)&&String(account.provisioning_state||'PROVISIONED')==='PROVISIONED';
@@ -137,7 +141,8 @@ export async function onRequest({request,env}){
       return secureJson({
         ok:true,
         funding,
-        requests:requests.map((row)=>({
+        archivedUatAccountCount:archivedIds.size,
+        requests:requests.filter(row=>!archivedIds.has(row.provider_account_registry_id)).map((row)=>({
           id:row.id,
           providerAccountRegistryId:row.provider_account_registry_id,
           clientId:row.client_id,

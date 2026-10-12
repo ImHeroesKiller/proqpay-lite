@@ -1,0 +1,36 @@
+name: P5.8.5 Archived UAT Funding Visibility (Read-Only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE || 'proqpay-lite-production' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verify read-only D1 access
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" && test -n "${CLOUDFLARE_API_TOKEN:-}"
+          npx wrangler whoami >/dev/null
+      - name: Check UAT funding visibility, source safety, and no replay
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute "$D1_DATABASE_NAME" --remote --json --command "$(sed '/^--/d' ops/p585-uat-funding-visibility.sql)" > /tmp/p585-raw.json
+          node scripts/p585-validate-visibility.mjs /tmp/p585-raw.json /tmp/p585-report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p585-uat-funding-visibility-${{ github.run_id }}
+          path: /tmp/p585-report.json
+          retention-days: 14
+          if-no-files-found: error
