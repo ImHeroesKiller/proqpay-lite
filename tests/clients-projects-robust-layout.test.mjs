@@ -7,7 +7,7 @@ const read=(path)=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
 test('Clients & Projects keeps the existing page title while adopting robust shared layout',async()=>{
   const source=await read('src/components/DirectoryManager.tsx');
-  assert.match(source,/<h2>Klien & Project<\/h2>/);
+  assert.match(source,/<WorkspaceTitle level="h2" title="Klien & Project"/);
   assert.match(source,/directory-inline-stats/);
   assert.doesNotMatch(source,/UiMetricGrid|UiMetricCard/);
   assert.match(source,/directory-filter-compact/);

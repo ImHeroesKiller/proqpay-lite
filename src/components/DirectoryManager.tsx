@@ -1,5 +1,6 @@
 'use client';
 
+import {WorkspaceTitle,CompactFilterSurface,InlineSummary} from '@/components/layout/WorkspacePrimitives';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {recoveryReturnUrl,resolveRecoveryTarget} from '@/lib/workspace-navigation';
 import { createPortal } from 'react-dom';
@@ -395,28 +396,24 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   return (
     <section className="directory-workspace">
       <div className="directory-header">
-        <div>
-          <h2>Klien & Project</h2>
-          <p>Identitas, relasi akun, dan konteks layanan dalam satu master data.</p>
-        </div>
+        <WorkspaceTitle level="h2" title="Klien & Project" description="Identitas, relasi akun, dan konteks layanan dalam satu master data." />
         <div className="directory-header-actions">
           {canCreateClient ? <button type="button" className="btn" onClick={() => { setEditingId(''); setForm(EMPTY_FORM); setMode('client'); }}>+ Tambah Klien</button> : null}
           {canCreateProject ? <button type="button" className="btn btn-primary" onClick={() => { setEditingId(''); setForm(EMPTY_FORM); setMode('project'); }}>+ Tambah Project</button> : null}
         </div>
       </div>
 
-      <div className="directory-inline-stats" aria-label="Ringkasan master data">
-        <span><strong>{activeClients}</strong> klien aktif</span>
-        <span><strong>{activeProjects}</strong> project aktif</span>
-        <span><strong>{totalEmployees.toLocaleString('id-ID')}</strong> karyawan</span>
-        <span><strong>{assignedAccounts}</strong> akun klien</span>
-      </div>
+      <InlineSummary className="directory-inline-stats" label="Ringkasan master data" items={[
+        {value:activeClients,label:'klien aktif'},
+        {value:activeProjects,label:'project aktif'},
+        {value:totalEmployees.toLocaleString('id-ID'),label:'karyawan'},
+        {value:assignedAccounts,label:'akun klien'},
+      ]} />
 
       {message ? <UiNotice tone={messageTone} title={messageTone==='error'?'Master data bermasalah':messageTone==='success'?'Perubahan tersimpan':'Informasi'}>{message}</UiNotice> : null}
       {projectsTruncated ? <UiNotice tone="warning" title="Daftar project dibatasi">API mengembalikan maksimal 500 project. Gunakan filter klien atau pencarian untuk mempersempit data.</UiNotice> : null}
 
-      <div className="directory-filter-bar directory-filter-compact" role="search" aria-label="Filter klien dan project">
-        <div className="ui-filter-grid">
+      <CompactFilterSurface className="directory-filter-bar directory-filter-compact" label="Filter klien dan project">
         <label>
           <span>Cari</span>
           <input type="search" value={query} onChange={(event)=>setQuery(event.target.value)} placeholder={activeDirectoryTab==='clients'?'Nama klien, PIC, industri, NPWP…':'Nama project, klien, layanan, tier…'} />
@@ -439,8 +436,7 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
           </select>
         </label> : null}
           <button type="button" className="btn directory-filter-reset" disabled={!query&&statusFilter==='ALL'&&projectClientFilter==='ALL'} onClick={()=>{setQuery('');setStatusFilter('ALL');setProjectClientFilter('ALL');}}>Reset</button>
-        </div>
-      </div>
+      </CompactFilterSurface>
 
       <section className="directory-master-card directory-master-flat" aria-label="Daftar master klien dan project">
         <div className="directory-master-toolbar">

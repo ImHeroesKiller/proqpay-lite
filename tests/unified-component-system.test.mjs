@@ -7,7 +7,7 @@ const read=(path)=>fs.readFile(new URL('../'+path,import.meta.url),'utf8');
 test('P1 unified component system is shared by priority workspaces',async()=>{
   const [ui,billing,portal,audit,ewa,state,dialog,lifecycle]=await Promise.all([
     read('src/components/ui/UnifiedSystem.tsx'),
-    read('src/components/BillingWorkspace.tsx'),
+    Promise.all([read('src/components/BillingWorkspace.tsx'),read('src/components/billing/BillingViewPrimitives.tsx')]).then(a=>a.join('\n')),
     read('src/components/PortalSettings.tsx'),
     read('src/components/SystemLogs.tsx'),
     read('src/components/EwaInbox.tsx'),

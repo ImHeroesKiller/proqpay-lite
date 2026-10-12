@@ -6,7 +6,7 @@ const read=path=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
 test('P5.8.6 Clients & Projects flat master layout keeps all filters, tabs, actions and pagination',async()=>{
  const ui=await read('src/components/DirectoryManager.tsx');
- assert.match(ui,/<h2>Klien & Project<\/h2>/);
+ assert.match(ui,/<WorkspaceTitle level="h2" title="Klien & Project"/);
  assert.match(ui,/directory-inline-stats/);
  assert.match(ui,/directory-filter-compact/);
  assert.match(ui,/directory-master-flat/);

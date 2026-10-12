@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import {WorkspaceTitle} from '@/components/layout/WorkspacePrimitives';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import OperatingWorkspace, { type WorkspaceFilterState } from '@/components/OperatingWorkspace';
 import type {AppView} from '@/components/Sidebar';
@@ -123,11 +124,8 @@ export default function UnifiedPayrollWorkspace({
   return (
     <section className="unified-payroll-workspace">
       <header className="unified-payroll-head">
-        <div>
-          <span className="page-eyebrow">END-TO-END PAYROLL</span>
-          <h1>Payroll Workspace</h1>
-          <p>{isController?'Selesaikan keputusan payroll, payment, reconciliation, dan close dari satu workspace.':'Siapkan payroll, selesaikan exception, dan kirim Payment Instruction tanpa berpindah-pindah halaman.'}</p>
-        </div>
+        <WorkspaceTitle eyebrow="END-TO-END PAYROLL" title="Payroll Workspace"
+          description={isController?'Selesaikan keputusan payroll, payment, reconciliation, dan close dari satu workspace.':'Siapkan payroll, selesaikan exception, dan kirim Payment Instruction tanpa berpindah-pindah halaman.'} />
         {canUpload ? (
           <Link className="btn btn-primary" href={`/data-intake?period=${encodeURIComponent(period)}`}>
             Upload Payroll Data

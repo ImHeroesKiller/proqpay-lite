@@ -9,8 +9,8 @@ test('P2 unified operational primitives exist',async()=>{
   assert.match(ui,/export function ActionBar/);
   assert.match(ui,/export function Pagination/);
   assert.match(ui,/export function DataTableState/);
-  assert.match(ui,/event\.key === "Escape"/);
-  assert.match(ui,/document\.body\.style\.overflow = "hidden"/);
+  assert.match(ui,/event\.key===\'Escape\'/);
+  assert.match(ui,/document\.body\.style\.overflow=\'hidden\'/);
 });
 
 test('priority operational workspaces adopt shared UX primitives',async()=>{

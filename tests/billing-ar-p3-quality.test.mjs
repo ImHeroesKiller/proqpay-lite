@@ -36,12 +36,13 @@ test('Billing P3: workspace consumes typed helpers instead of duplicating contro
   assert.match(source,/billingPermission\(actor, "billing:approve"/);
   assert.match(source,/billingPermission\(actor, "ar:write"/);
   assert.match(source,/arControlSummary\(rows as ArRecord\[\]\)/);
-  assert.match(source,/const date = billingDateLabel/);
+  const primitives=await read('src/components/billing/BillingViewPrimitives.tsx');
+  assert.match(primitives,/const date = billingDateLabel/);
   assert.match(source,/billingModalTitle\(modal\.kind\)/);
 });
 
 test('Billing P3: dialog accessibility and mobile polish hooks are present',async()=>{
-  const workspace=await read('src/components/BillingWorkspace.tsx');
+  const workspace=(await Promise.all([read('src/components/BillingWorkspace.tsx'),read('src/components/billing/BillingViewPrimitives.tsx')])).join('\n');
   const css=await readPolishCss();
   const unified=await read('src/components/ui/UnifiedSystem.tsx');
   const globalCss=await readGlobalCss();
