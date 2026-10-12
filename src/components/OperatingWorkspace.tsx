@@ -399,12 +399,12 @@ export default function OperatingWorkspace({
           <h2 style={{ fontSize: 22, fontWeight: 720, margin: '4px 0 0' }}>{profile.title}</h2>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 5 }}>{profile.description}</p>
         </div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&clientExperience?<a className="btn btn-primary" href="/data-intake">Kirim data payroll</a>:mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}{!clientExperience?<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div>:null}</div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>{mode==='payruns'&&clientExperience?<a className="btn btn-primary" href="/data-intake">Kirim data payroll</a>:mode==='payruns'&&['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)?<button type="button" className="btn btn-primary" onClick={()=>setCreateOpen(true)}>+ Buat Pay Run</button>:null}{!clientExperience&&mode!=='payments'?<div className="card" style={{ padding: '8px 12px', fontSize: 12 }}><strong>{actor?.email || 'Memuat pengguna…'}</strong><span style={{ color: 'var(--text3)', marginLeft: 8 }}>{role.replaceAll('_', ' ')}</span></div>:null}</div>
       </div> : null}
 
       {(focusSubmissionId||dashboardStage) && mode!=='billing' ? <div className="dashboard-focus-banner" role="status"><span>Dashboard focus · {focusSubmissionId || dashboardStage}</span><button type="button" onClick={clearDashboardFocus}>Tampilkan semua</button></div> : null}
 
-      {!embedded && mode !== 'billing' ? <div className="operations-control-bar">
+      {!embedded && mode !== 'billing' ? <div className={`operations-control-bar${mode==='payments'?' operations-control-bar-payments':''}`}>
         <label><span>Periode</span><select value={periodFilter} disabled={Boolean(period && period !== 'ALL')} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{period && period !== 'ALL' && !periods.includes(period) ? <option value={period}>{period}</option> : null}{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label><span>Klien</span><select value={clientFilter} onChange={(event) => { setLocalClientFilter(event.target.value); setLocalProjectFilter('ALL'); }}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
         <label><span>Project</span><select value={projectFilter} onChange={(event)=>setLocalProjectFilter(event.target.value)}><option value="ALL">Semua project</option>{projects.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
@@ -467,13 +467,13 @@ export default function OperatingWorkspace({
               <div><span className="page-eyebrow">DECISION-CENTRIC PAYMENT CONTROL</span><h2>Payment Workbench</h2><p>{isPaymentController?'Tinjau instruksi, putuskan approval, lalu jalankan pembayaran yang disetujui.':'Siapkan instruksi dan disbursement request untuk keputusan Payroll Controller.'}</p></div>
               <span className="payment-decision-role">{role==='PAYROLL_CONTROLLER'?'Controller · Final approval':role==='PAYROLL_PROCESSOR'?'Processor · Maker':'Monitoring · Read-only'}</span>
             </header>
-            <div className="payment-decision-metrics" aria-label="Ringkasan keputusan pembayaran">
+            <div className="payment-decision-metrics payment-decision-inline" aria-label="Ringkasan keputusan pembayaran">
               <div><span>{paymentDecision.primaryLabel}</span><strong>{paymentDecision.primaryCount}</strong><small>{isPaymentController?'Approval / pembayaran menunggu Controller':role==='PAYROLL_PROCESSOR'?'Siap submit / revisi':'Memerlukan tindak lanjut'}</small></div>
               <div><span>Menunggu approval PI</span><strong>{paymentDecision.piAwaitingApproval}</strong><small>Maker → Controller</small></div>
               <div><span>PI approved / processing</span><strong>{paymentDecision.piApproved}</strong><small>Periksa strategi sebelum eksekusi</small></div>
               <div><span>Canonical DR membutuhkan aksi</span><strong>{canonicalDecisionKnown?canonicalDecisionActions:'—'}</strong><small>{canonicalDecisionKnown?'Dari register DR yang tersedia':'Status belum terverifikasi'}</small></div>
             </div>
-            <nav className="payment-decision-nav" aria-label="Fokus Payment Workbench">
+            <nav className="payment-decision-nav payment-decision-nav-compact" aria-label="Fokus Payment Workbench">
               <button type="button" className={displayedPaymentPanel==='PI'?'active':''} aria-current={displayedPaymentPanel==='PI'?'page':undefined} onClick={()=>selectPaymentPanel('PI')}><strong>Payment Instructions</strong><small>{paymentDecision.primaryCount} perlu perhatian</small></button>
               <button type="button" className={displayedPaymentPanel==='DISBURSEMENT'?'active':''} aria-current={displayedPaymentPanel==='DISBURSEMENT'?'page':undefined} onClick={()=>selectPaymentPanel('DISBURSEMENT')}><strong>Canonical Disbursement</strong><small>{canonicalDecisionKnown?`${canonicalDecisionActions} tindakan · Submit / Approve / Execute`:'Verifikasi antrean DR'}</small></button>
               <button type="button" className={displayedPaymentPanel==='FUNDING'?'active':''} aria-current={displayedPaymentPanel==='FUNDING'?'page':undefined} onClick={()=>selectPaymentPanel('FUNDING')}><strong>Funding & Limit</strong><small>Liquidity · Request · Approval</small></button>
@@ -1124,7 +1124,7 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
     || String(b.created_at||'').localeCompare(String(a.created_at||'')));
   if (!phaseInstructions.length) return <Empty title={phase==='payment'?'Belum ada payment yang perlu diproses':'Belum ada payment untuk direkonsiliasi'} detail={phase==='payment'?'PI akan muncul setelah payroll siap untuk approval/payment.':'Payment akan muncul setelah PI approved atau execution dimulai.'} />;
   return <div style={{ display:'grid', gap:16 }}>
-    <CardTable headers={['Instruction / Periode','Nilai','Status','Next action']} rows={phaseInstructions.map((r) => {
+    <CardTable flat={phase==='payment'} headers={['Instruction / Periode','Nilai','Status','Next action']} rows={phaseInstructions.map((r) => {
       let action: React.ReactNode = <span style={small}>Menunggu tahap berikutnya</span>;
       if (r.status === 'PAYMENT_INSTRUCTION_READY') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
         ? <span style={{display:'inline-flex',gap:8,flexWrap:'wrap'}}><button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button><button style={actionButton} onClick={() => void act({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:r.id,confirmation:'SUBMIT PI'},'PI dikirim ke Controller untuk approval')}>Submit PI</button></span>
@@ -1292,7 +1292,7 @@ function WorkspaceLoading() {
   </div>;
 }
 
-function CardTable({ headers, rows }: { headers:string[]; rows:React.ReactNode[][] }) { return <div className="card" style={{ overflowX:'auto' }}><table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}><thead><tr>{headers.map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i) => <tr key={i} style={{ borderBottom:'1px solid var(--border-soft)' }}>{row.map((cell,j) => <td key={j} style={td}>{cell}</td>)}</tr>)}</tbody></table></div>; }
+function CardTable({ headers, rows, flat=false }: { headers:string[]; rows:React.ReactNode[][]; flat?:boolean }) { return <div className={flat?'payment-instruction-table-flat':'card'} style={{ overflowX:'auto' }}><table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}><thead><tr>{headers.map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i) => <tr key={i} style={{ borderBottom:'1px solid var(--border-soft)' }}>{row.map((cell,j) => <td key={j} style={td}>{cell}</td>)}</tr>)}</tbody></table></div>; }
 function Empty({ title, detail }: { title:string; detail?:string }) { return <div className="card" style={{ padding:'34px 24px', textAlign:'center' }}><strong>{title}</strong>{detail && <p style={{ color:'var(--text3)', fontSize:13, margin:'8px auto 0', maxWidth:520 }}>{detail}</p>}</div>; }
 function Summary({ title,value,note }: { title:string; value:number; note:string }) { return <div className="card" style={{ padding:18 }}><span style={small}>{title}</span><div style={{ fontSize:26, fontWeight:750, margin:'6px 0' }}>{value}</div><span style={small}>{note}</span></div>; }
 function Badge({ text }: { text:string }) { return <span style={{ display:'inline-block', color:stateTone(text), background:`${stateTone(text)}14`, borderRadius:999, padding:'4px 9px', fontWeight:700, fontSize:10 }}>{text.replaceAll('_',' ')}</span>; }

@@ -6,9 +6,10 @@ const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
 test('Clients & Projects P3 replaces explanatory cards with operational summary metrics',async()=>{
   const ui=await read('src/components/DirectoryManager.tsx');
-  assert.match(ui,/UiMetricGrid/);
-  assert.match(ui,/Klien aktif/);
-  assert.match(ui,/Project aktif/);
+  assert.match(ui,/directory-inline-stats/);
+  assert.doesNotMatch(ui,/UiMetricGrid/);
+  assert.match(ui,/klien aktif/);
+  assert.match(ui,/project aktif/);
   assert.match(ui,/totalEmployees/);
   assert.match(ui,/assignedAccounts/);
   assert.doesNotMatch(ui,/1\. Klien/);

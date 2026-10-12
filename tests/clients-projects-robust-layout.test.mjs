@@ -7,10 +7,13 @@ const read=(path)=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 test('Clients & Projects keeps the existing page title while adopting robust shared layout',async()=>{
   const source=await read('src/components/DirectoryManager.tsx');
   assert.match(source,/<h2>Klien & Project<\/h2>/);
-  assert.match(source,/UiMetricGrid/);
-  assert.match(source,/UiFilterBar/);
+  assert.match(source,/directory-inline-stats/);
+  assert.doesNotMatch(source,/UiMetricGrid|UiMetricCard/);
+  assert.match(source,/directory-filter-compact/);
+  assert.doesNotMatch(source,/UiFilterBar/);
   assert.match(source,/UiTabs/);
-  assert.match(source,/UiSectionCard/);
+  assert.match(source,/directory-master-flat/);
+  assert.doesNotMatch(source,/UiSectionCard/);
   assert.match(source,/UiPagination/);
   assert.match(source,/UiDataTableState/);
   assert.match(source,/directory-entity-card/);

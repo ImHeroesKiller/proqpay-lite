@@ -3190,3 +3190,75 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .funding-empty-operational>div{display:grid;gap:5px;max-width:640px}
 .funding-empty-operational h3{margin:0;font-size:15px}
 .funding-empty-operational p{margin:0;color:var(--text3);font-size:11px;line-height:1.6}
+
+
+/* Flat, compact operational UI: Clients & Projects + Payment Instructions only. */
+.directory-workspace{gap:11px}
+.directory-inline-stats{display:flex;align-items:center;gap:0;flex-wrap:wrap;border-bottom:1px solid var(--border-soft);padding:1px 0 10px;color:var(--text3);font-size:10.5px}
+.directory-inline-stats span{display:inline-flex;gap:5px;align-items:baseline;min-height:20px;padding:0 15px;border-right:1px solid var(--border-soft)}
+.directory-inline-stats span:first-child{padding-left:0}.directory-inline-stats span:last-child{border:0}
+.directory-inline-stats strong{font-size:14px;color:var(--text);font-variant-numeric:tabular-nums}
+.directory-filter-compact{background:transparent;border:0;box-shadow:none;padding:0;min-width:0}
+.directory-filter-compact .ui-filter-grid{grid-template-columns:minmax(180px,1fr) minmax(115px,160px) minmax(150px,220px) auto;gap:8px;align-items:end}
+.directory-filter-compact:not(:has(.ui-filter-grid label:nth-of-type(3))) .ui-filter-grid{grid-template-columns:minmax(180px,1fr) minmax(115px,160px) auto}
+.directory-filter-compact .ui-filter-grid label{gap:3px;font-size:10px}
+.directory-filter-compact .ui-filter-grid label>span{font-size:9px}
+.directory-filter-compact .ui-filter-grid input,.directory-filter-compact .ui-filter-grid select{height:32px;min-height:32px;padding:5px 9px;border-radius:8px;font-size:11px}
+.directory-filter-compact .directory-filter-reset{height:32px;min-height:32px;justify-self:end;align-self:end;padding:5px 11px;font-size:10px}
+.directory-master-flat{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0;overflow:visible}
+.directory-master-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0 9px;border-bottom:1px solid var(--border)}
+.directory-master-toolbar>strong{font-size:12px;color:var(--text)}
+.directory-master-toolbar .ui-tabs{flex-shrink:0}
+.directory-master-flat .directory-list{gap:0;padding-top:0}
+.directory-master-flat .directory-entity-card{border:0;border-bottom:1px solid var(--border-soft);border-radius:0;background:transparent;box-shadow:none;padding:12px 2px;transform:none}
+.directory-master-flat .directory-entity-card:hover{border-color:var(--border-soft);background:var(--bg-subtle);box-shadow:none;transform:none}
+.directory-master-flat .directory-entity-card:focus-within{background:var(--bg-subtle)}
+.payroll-stage-nav-compact{gap:4px;padding:2px 0;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent;box-shadow:none;position:static}
+.payroll-stage-nav-compact button{padding:6px 8px;gap:7px;border-radius:7px}
+.payroll-stage-nav-compact button>b{min-width:24px;height:24px;border-radius:7px}
+.payroll-stage-nav-compact button.active{box-shadow:none}
+.payroll-stage-nav-compact button small{display:none}
+.payroll-shared-filter-payments{position:static;display:grid;grid-template-columns:minmax(95px,.5fr) minmax(115px,1fr) minmax(115px,1fr) minmax(150px,1.4fr);padding:2px 0 9px;border:0;border-bottom:1px solid var(--border-soft);border-radius:0;background:transparent;box-shadow:none;gap:8px}
+.payroll-shared-filter-payments label{gap:3px}.payroll-shared-filter-payments label>span{font-size:8px}
+.payroll-shared-filter-payments select,.payroll-shared-filter-payments input{height:32px;min-height:32px;border-radius:8px;padding:0 9px;font-size:10.5px}
+.payroll-shared-filter-payments strong{min-height:32px;border:0;padding:0;font-size:11px;background:transparent}
+.operations-control-bar-payments{grid-template-columns:repeat(4,minmax(115px,1fr)) minmax(145px,1.4fr);margin:9px 0 4px;padding:4px 0 9px;background:transparent;border:0;border-bottom:1px solid var(--border-soft);border-radius:0;gap:8px}
+.operations-control-bar-payments label{gap:3px;font-size:9px}
+.operations-control-bar-payments select,.operations-control-bar-payments input{height:32px;min-height:32px;padding:4px 8px;font-size:11px}
+.payment-decision-inline{display:flex;align-items:center;gap:0;flex-wrap:wrap;padding:3px 0 8px;border-bottom:1px solid var(--border-soft)}
+.payment-decision-inline>div{display:flex;align-items:baseline;gap:6px;padding:3px 13px;min-height:22px;background:transparent;border:0;border-right:1px solid var(--border-soft);border-radius:0}
+.payment-decision-inline>div:first-child{padding-left:0}.payment-decision-inline>div:last-child{border-right:0}
+.payment-decision-inline span{font-size:9.5px}.payment-decision-inline strong{font-size:14px}
+.payment-decision-inline small{display:none}
+.payment-decision-nav-compact{gap:3px;padding:0;border:0;border-bottom:1px solid var(--border);border-radius:0;background:transparent}
+.payment-decision-nav-compact button{min-height:38px;display:flex;align-items:center;justify-content:center;text-align:center;gap:7px;padding:8px 10px;border-radius:0;border:0;border-bottom:2px solid transparent}
+.payment-decision-nav-compact button.active{border:0;border-bottom:2px solid var(--accent);background:transparent;color:var(--text)}
+.payment-decision-nav-compact button small{font-size:9px}
+.payment-instruction-table-flat{overflow-x:auto;min-width:0;border:0;border-top:1px solid var(--border-soft);background:transparent;padding:0}
+@media(max-width:900px){
+  .directory-filter-compact .ui-filter-grid{grid-template-columns:minmax(0,1fr) minmax(110px,.5fr) minmax(140px,.75fr) auto}
+  .directory-filter-compact:not(:has(.ui-filter-grid label:nth-of-type(3))) .ui-filter-grid{grid-template-columns:minmax(0,1fr) minmax(110px,.5fr) auto}
+  .directory-filter-compact .ui-filter-grid>*:first-child{grid-column:auto}
+  .operations-control-bar-payments{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-width:700px){
+  .directory-inline-stats{gap:6px 0}.directory-inline-stats span{padding:0 10px}.directory-inline-stats span:nth-child(3){padding-left:0}
+  .directory-filter-compact .ui-filter-grid,.directory-filter-compact:not(:has(.ui-filter-grid label:nth-of-type(3))) .ui-filter-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .directory-filter-compact .ui-filter-grid>*:first-child{grid-column:1/-1}
+  .directory-filter-compact .directory-filter-reset{grid-column:2;justify-self:end}
+  .directory-master-toolbar{align-items:stretch;flex-direction:column}
+  .directory-master-toolbar .ui-tabs{display:grid;grid-template-columns:1fr 1fr;width:100%}
+  .directory-master-flat .directory-entity-card{padding:11px 0}
+  .payroll-stage-nav-compact{grid-template-columns:repeat(3,minmax(0,1fr));position:static}
+  .payroll-stage-nav-compact button{padding:7px 3px}
+  .payroll-shared-filter-payments{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .payroll-shared-filter-payments .payroll-shared-search{grid-column:1/-1}
+  .payment-decision-inline{gap:3px 0}
+  .payment-decision-inline>div{flex:1 1 45%;padding:3px 9px}
+  .payment-decision-inline>div:nth-child(odd){padding-left:0}
+  .payment-decision-inline>div:nth-child(2){border-right:0}
+  .payment-decision-nav-compact{grid-template-columns:repeat(3,minmax(0,1fr));padding:0}
+  .payment-decision-nav-compact button{min-height:40px;flex-direction:column;gap:2px;padding:6px 4px}
+  .payment-decision-nav-compact button small{display:none}
+}
+@media(max-width:430px){.directory-inline-stats span{width:50%;box-sizing:border-box;border:0}.directory-inline-stats span:nth-child(odd){padding-left:0}}

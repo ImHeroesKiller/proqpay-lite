@@ -29,7 +29,13 @@ test.describe('Clients & Projects robust layout',()=>{
     await openClientsProjects(page);
 
     await expect(page.getByRole('heading',{name:'Klien & Project',exact:true})).toBeVisible();
-    await expect(page.locator('.ui-metric-grid').first()).toBeVisible();
+    await expect(page.locator('.directory-inline-stats')).toBeVisible();
+    await expect(page.locator('.directory-master-flat')).toBeVisible();
+    await expect(page.locator('.directory-filter-compact')).toBeVisible();
+    const cardCount=await page.locator('.directory-workspace .ui-metric-card, .directory-master-flat.card, .directory-filter-compact.card').count();
+    expect(cardCount).toBe(0);
+    const filterHeight=await page.locator('.directory-filter-compact input[type=search]').evaluate(el=>Math.round(el.getBoundingClientRect().height));
+    expect(filterHeight).toBeLessThanOrEqual(34);
     await expect(page.locator('.directory-filter-bar')).toBeVisible();
     await expect(page.locator('.directory-master-card')).toBeVisible();
     await expect(page.getByRole('tab',{name:/Klien/}).first()).toBeVisible();
@@ -61,7 +67,7 @@ test.describe('Clients & Projects robust layout',()=>{
     const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(2);
 
-    const tabs=page.locator('.directory-master-card .ui-tabs');
+    const tabs=page.locator('.directory-master-flat .ui-tabs');
     await expect(tabs).toBeVisible();
   });
 });
