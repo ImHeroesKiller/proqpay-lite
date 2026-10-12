@@ -7,7 +7,6 @@ import { formatIDR } from '@/lib/format';
 import BillingWorkspace from '@/components/BillingWorkspace';
 import PaymentGatewayExecutionActions from '@/components/PaymentGatewayExecutionActions';
 import E2PayFundingLimitControl from '@/components/E2PayFundingLimitControl';
-import FundingReadinessSummary from '@/components/FundingReadinessSummary';
 import ProviderChannelControl from '@/components/ProviderChannelControl';
 import CanonicalTransactionRegister from '@/components/CanonicalTransactionRegister';
 import CanonicalDisbursementWorkspace from '@/components/CanonicalDisbursementWorkspace';
@@ -87,6 +86,8 @@ export default function OperatingWorkspace({
   const [actor, setActor] = useState<Actor | null>(null);
   const [data, setData] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
+  const [uatClosedPiIds,setUatClosedPiIds] = useState<Set<string>>(new Set());
+  const [uatArchiveVerified,setUatArchiveVerified] = useState(false);
   const [message, setMessage] = useState('');
   const [periodFilter, setPeriodFilter] = useState(()=>period && period !== 'ALL'
     ? period
@@ -109,6 +110,7 @@ export default function OperatingWorkspace({
 
   const load = useCallback(async () => {
     setLoading(true);
+    if(mode==='payments'||mode==='reconcile')setUatArchiveVerified(false);
     setMessage('');
     try {
       const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup','payment-instructions','exceptions']
@@ -119,6 +121,15 @@ export default function OperatingWorkspace({
       if (!meResponse.ok) throw new Error(me.error || `HTTP ${meResponse.status}`);
       setActor(me.user || null);
       setOperatingCacheActor(me.user || null);
+      // UAT-only administrative archive is not provider settlement; never let
+      // these sample PI rows show up as live payment/approval/DR work.
+      if (['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(me.user?.role||'') && (mode==='payments'||mode==='reconcile')) {
+        const archived=await fetch('/api/uat-administrative-archives',{cache:'no-store'});
+        const archiveBody=await archived.json().catch(()=>({}));
+        if(!archived.ok)throw new Error(archiveBody.error||`UAT archive HTTP ${archived.status}`);
+        setUatClosedPiIds(new Set((archiveBody.records||[]).map((r:{sourceDocumentId:string})=>r.sourceDocumentId)));
+        setUatArchiveVerified(true);
+      } else {setUatClosedPiIds(new Set());setUatArchiveVerified(true);}
       const clientIds = me.user?.role === 'CLIENT_USER' ? (me.user.clientIds || []) : [undefined];
       const results = await Promise.all(clientIds.flatMap((clientId: string | undefined) => resources.map((resource) =>
         resource === 'submissions' ? listAllOperatingSubmissions(clientId)
@@ -223,6 +234,7 @@ export default function OperatingWorkspace({
   }), [submissions, instructionBySubmission, periodFilter, clientFilter, projectFilter, statusFilter, query, simplifiedWorkspace, role, actor?.permissions, focusSubmissionId, dashboardStage]);
   const visibleSubmissionIds = useMemo(() => new Set(visibleSubmissions.map((row) => row.id)), [visibleSubmissions]);
   const visibleInstructions = useMemo(() => (data.paymentInstructions || []).filter((row) => {
+    if(uatClosedPiIds.has(row.id))return false;
     const inRoleQueue=includePaymentForWorkspace({role,row,period:periodFilter,focusSubmissionId});
     if(focusSubmissionId) return inRoleQueue;
     const clientMatches = clientFilter === 'ALL' || row.client_id === clientFilter;
@@ -230,7 +242,7 @@ export default function OperatingWorkspace({
     const statusMatches = statusFilter === 'ALL' || row.status === statusFilter;
     const queryMatches = !query.trim() || [row.document_no,row.client_name,row.project_name,row.status].join(' ').toLowerCase().includes(query.trim().toLowerCase());
     return inRoleQueue && clientMatches && projectMatches && statusMatches && queryMatches;
-  }), [data.paymentInstructions, periodFilter, clientFilter, projectFilter, statusFilter, query, focusSubmissionId]);
+  }), [data.paymentInstructions,uatClosedPiIds, periodFilter, clientFilter, projectFilter, statusFilter, query, focusSubmissionId]);
   useEffect(()=>{
     if(mode!=='payments'||!['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor?.role||''))return;
     const controller=new AbortController();
@@ -444,7 +456,8 @@ export default function OperatingWorkspace({
       {simplifiedInternal && operationalFocus && mode!=='payments' ? <OperationalFocus {...operationalFocus} /> : null}
 
       {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message)?<button type="button" className="btn btn-quiet" onClick={()=>void load()}>Coba lagi</button>:null}<button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
-      {loading ? <WorkspaceLoading /> : (
+      {loading ? <WorkspaceLoading /> : ((mode==='payments'||mode==='reconcile')&&!uatArchiveVerified)
+        ? <div role="alert" className="app-notice-bubble app-notice-error">Validasi arsip UAT belum tersedia. Antrean pembayaran ditutup sementara untuk mencegah pemrosesan ulang PI simulasi. Muat ulang setelah koneksi pulih.</div> : (
         <>
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
@@ -460,7 +473,6 @@ export default function OperatingWorkspace({
               <div><span>PI approved / processing</span><strong>{paymentDecision.piApproved}</strong><small>Periksa strategi sebelum eksekusi</small></div>
               <div><span>Canonical DR membutuhkan aksi</span><strong>{canonicalDecisionKnown?canonicalDecisionActions:'—'}</strong><small>{canonicalDecisionKnown?'Dari register DR yang tersedia':'Status belum terverifikasi'}</small></div>
             </div>
-            <FundingReadinessSummary role={role} clientId={clientFilter} projectId={projectFilter} onOpen={()=>{setFundingPanel('LIQUIDITY');selectPaymentPanel('FUNDING');}} />
             <nav className="payment-decision-nav" aria-label="Fokus Payment Workbench">
               <button type="button" className={displayedPaymentPanel==='PI'?'active':''} aria-current={displayedPaymentPanel==='PI'?'page':undefined} onClick={()=>selectPaymentPanel('PI')}><strong>Payment Instructions</strong><small>{paymentDecision.primaryCount} perlu perhatian</small></button>
               <button type="button" className={displayedPaymentPanel==='DISBURSEMENT'?'active':''} aria-current={displayedPaymentPanel==='DISBURSEMENT'?'page':undefined} onClick={()=>selectPaymentPanel('DISBURSEMENT')}><strong>Canonical Disbursement</strong><small>{canonicalDecisionKnown?`${canonicalDecisionActions} tindakan · Submit / Approve / Execute`:'Verifikasi antrean DR'}</small></button>

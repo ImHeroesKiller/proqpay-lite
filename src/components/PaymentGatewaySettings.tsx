@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import LegacyCompatibilityPanel from '@/components/LegacyCompatibilityPanel';
+import UatArchiveSummary from '@/components/UatArchiveSummary';
 
 type CredentialSummary = {
   stored: Record<string, boolean>;
@@ -70,6 +71,7 @@ export default function PaymentGatewaySettings() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [draftSaved, setDraftSaved] = useState(false);
+  const [archiveOpen,setArchiveOpen] = useState(false);
   const [executionReady, setExecutionReady] = useState(false);
   const [activationAcknowledged, setActivationAcknowledged] = useState(false);
   const [message, setMessage] = useState<{ type:'success' | 'error' | 'info'; text:string } | null>(null);
@@ -326,7 +328,10 @@ export default function PaymentGatewaySettings() {
       {form.provider === 'E2PAY' && !executionReady ? <small style={{ color:'var(--text3)' }}>Aktivasi dikunci sampai Test Connection menyatakan profile execution-ready.</small> : null}
     </div> : null}
 
-    <LegacyCompatibilityPanel />
+    <details className="gateway-archive-disclosure" onToggle={event=>setArchiveOpen(event.currentTarget.open)}>
+      <summary>Arsip UAT & diagnostik legacy</summary>
+      {archiveOpen?<><UatArchiveSummary /><LegacyCompatibilityPanel /></>:null}
+    </details>
 
     <div style={{ borderTop:'1px solid var(--border-soft)', paddingTop:12, color:'var(--text3)', fontSize:11.5, lineHeight:1.6 }}>
       Credential disimpan terenkripsi di server. Password merchant dinormalisasi menjadi MD5 uppercase di backend dan tidak dikirim kembali ke browser. Funding bank dipakai hanya sebagai petunjuk bank tujuan VA untuk Top Up Wallet dan harus mengikuti informasi resmi dari E2Pay. Test Connection tidak menyimpan source account atau mengubah runtime; source account baru dipersist saat aktivasi eksplisit berhasil.

@@ -134,7 +134,7 @@ test('P5.8.2 UI offers scoped recovery link without automatic transfer actions',
  const [ui,dr,api]=await Promise.all([source('src/components/LegacyPIReadinessPanel.tsx'),source('src/components/CanonicalDisbursementWorkspace.tsx'),source('functions/api/legacy-pi-readiness.js')]);
  assert.match(ui,/recoveryAccountId=\$\{encodeURIComponent\(row.providerAccountRegistryId\)\}/);
  assert.match(ui,/Periksa ulang kesiapan/);
- assert.match(dr,/LegacyPIReadinessPanel/);
+ assert.doesNotMatch(dr,/LegacyPIReadinessPanel/); // P5.8.4 retained as standalone diagnostic, removed from active payment screen
  assert.match(api,/providerExecutionAttempted:false/);
  assert.doesNotMatch(api,/INSERT INTO disbursement_requests|UPDATE payment_provider_accounts|action:'EXECUTE'/);
 });

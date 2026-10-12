@@ -121,7 +121,7 @@ test('P1.C UI integrates role-safe funding health, channel evidence control and 
  const [payment,channel,funding,reg,api,css]=await Promise.all([
   read('src/components/OperatingWorkspace.tsx'),read('src/components/ProviderChannelControl.tsx'),read('src/components/FundingReadinessSummary.tsx'),read('src/components/CanonicalTransactionRegister.tsx'),read('functions/api/canonical-transaction-register.js'),read('src/app/globals.css'),
  ]);
- assert.match(payment,/FundingReadinessSummary role=\{role\}/);
+ assert.doesNotMatch(payment,/FundingReadinessSummary role=\{role\}/); // P5.8.4 keeps funding inside its tab only
  assert.match(payment,/ProviderChannelControl role=\{role\}/);
  assert.match(payment,/projectId=\{projectFilter==='ALL'\?'':projectFilter\}/);
  assert.match(funding,/row.parent.ready/);

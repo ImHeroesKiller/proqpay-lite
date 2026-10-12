@@ -85,7 +85,7 @@ test('P5.8.3 migration is strictly UAT scoped and does not delete or alter crede
 test('P5.8.3 frontend renders clear data-only status without payment or reset action',async()=>{
  const ui=await readFileSync(new URL('../src/components/LegacyDataCutoverPanel.tsx',import.meta.url),'utf8');
  const main=await readFileSync(new URL('../src/components/CanonicalDisbursementWorkspace.tsx',import.meta.url),'utf8');
- assert.match(main,/LegacyDataCutoverPanel/);
+ assert.doesNotMatch(main,/LegacyDataCutoverPanel/); // P5.8.4 hides archived UAT technical widgets from payment screen
  assert.match(ui,/Tidak bisa transfer/);
  assert.match(ui,/credentialless/);
  assert.doesNotMatch(ui,/action:'EXECUTE'|action:'DELETE'|fetch\([^\n]*method:'POST'/);
