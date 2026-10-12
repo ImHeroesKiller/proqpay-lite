@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -24,7 +25,7 @@ test('dashboard tables are accessible and become stacked cards on mobile',async(
   const [tower,clientHome,css]=await Promise.all([
     read('src/components/PayrollControlTower.tsx'),
     read('src/components/ClientHome.tsx'),
-    read('src/app/polish.css'),
+    readPolishCss(),
   ]);
   for(const source of [tower,clientHome]){
     assert.match(source,/<caption className="visually-hidden">/);

@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -34,7 +35,7 @@ test('Data Readiness P3 uses business-friendly severity and status labels',async
 
 test('Data Readiness P3 adds mobile cards and contextual empty states',async()=>{
   const ui=await read('src/components/OperatingWorkspace.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(ui,/readiness-mobile-list/);
   assert.match(ui,/readiness-mobile-card/);
   assert.match(ui,/Data readiness bersih/);
@@ -64,7 +65,7 @@ test('Data Readiness P3 preserves P1 evidence decision and P2 timeline/composer'
 });
 
 test('Data Readiness P3 styles grouped filters, semantic pills and responsive decision views',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/Data Readiness P3/);
   assert.match(css,/\.readiness-group-tabs/);
   assert.match(css,/\.readiness-pill\.severity-critical/);

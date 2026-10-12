@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile} from 'node:fs/promises';
@@ -119,7 +120,7 @@ test('P1.C Provider Channels are read-only for Controller, and activation never 
 
 test('P1.C UI integrates role-safe funding health, channel evidence control and register pagination',async()=>{
  const [payment,channel,funding,reg,api,css]=await Promise.all([
-  read('src/components/OperatingWorkspace.tsx'),read('src/components/ProviderChannelControl.tsx'),read('src/components/FundingReadinessSummary.tsx'),read('src/components/CanonicalTransactionRegister.tsx'),read('functions/api/canonical-transaction-register.js'),read('src/app/globals.css'),
+  read('src/components/OperatingWorkspace.tsx'),read('src/components/ProviderChannelControl.tsx'),read('src/components/FundingReadinessSummary.tsx'),read('src/components/CanonicalTransactionRegister.tsx'),read('functions/api/canonical-transaction-register.js'),readGlobalCss(),
  ]);
  assert.doesNotMatch(payment,/FundingReadinessSummary role=\{role\}/); // P5.8.4 keeps funding inside its tab only
  assert.match(payment,/ProviderChannelControl role=\{role\}/);

@@ -24,7 +24,7 @@ if (/unparsable[^\n]*globals\.css/i.test(combined)) {
   throw new Error('globals.css tidak dapat diparse tetapi build mencoba tetap melanjutkan.');
 }
 if (bytes < 30_000) throw new Error(`CSS build terlalu kecil (${bytes} byte); kemungkinan design system hilang.`);
-for (const selector of ['.app-sidebar', '.operations-summary-grid', '.directory-modal']) {
+for (const selector of ['.app-sidebar', '.operations-summary-grid', '.directory-modal', '.login-shell', '.directory-filter-compact', '.payroll-stage-nav-compact', '.payment-decision-nav-compact']) {
   if (!combined.includes(selector)) throw new Error(`Selector kritis hilang dari CSS build: ${selector}`);
 }
 

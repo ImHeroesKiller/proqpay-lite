@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -48,7 +49,7 @@ test('Employees P3: detail drawer handles Escape, focus trap and keyboard row ac
 });
 
 test('Employees P3: responsive polish hooks cover drawer, structured admin form and credential confirmation',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/Employees UI — consolidated final layout/);
   assert.match(css,/\.employee-admin-form/);
   assert.match(css,/\.employee-confirm-backdrop/);

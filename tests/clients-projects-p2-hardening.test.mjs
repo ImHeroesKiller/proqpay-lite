@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -64,7 +65,7 @@ test('client logos use authenticated same-origin proxy',async()=>{
 });
 
 test('Clients & Projects P2 styles status and responsive directory controls',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/Clients & Projects P2/);
   assert.match(css,/\.directory-badge\.inactive/);
   assert.match(css,/\.directory-badge\.on-hold/);

@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -118,7 +119,7 @@ test('P2 Integrations UI exposes actionable health filtering recovery and mobile
   const panel = await readFile(new URL('../src/components/ApiEndpointMonitor.tsx', import.meta.url), 'utf8');
   const filter = await readFile(new URL('../src/components/integrations/IntegrationFilterBar.tsx', import.meta.url), 'utf8');
   const activity = await readFile(new URL('../src/components/integrations/IntegrationActivity.tsx', import.meta.url), 'utf8');
-  const styles = await readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8');
+  const styles = await readGlobalCss();
   assert.match(panel, /System health/);
   assert.match(panel, /Error rate 24h/);
   assert.match(panel, /Recovery guidance/);

@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -103,7 +104,7 @@ test('Final Reports UAT: client report scope cannot cross assigned client/projec
 
 test('Final Reports UAT: UI keeps all-page export, stale-response guard, retry and mobile/desktop parity',async()=>{
   const workspace=await read('src/components/ReportsWorkspace.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
 
   assert.match(workspace,/loadAllPayrollReport/);
   assert.match(workspace,/loadAllPaymentReports/);

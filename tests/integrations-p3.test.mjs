@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -45,7 +46,7 @@ test('P3 accessibility preserves labels live status captions and keyboard focus'
   const activity = await readFile(new URL('../src/components/integrations/IntegrationActivity.tsx', import.meta.url), 'utf8');
   const monitor = await readFile(new URL('../src/components/ApiEndpointMonitor.tsx', import.meta.url), 'utf8');
   const gateway = await readFile(new URL('../src/components/PaymentGatewayIntegrationPanel.tsx', import.meta.url), 'utf8');
-  const styles = await readFile(new URL('../src/app/globals.css', import.meta.url), 'utf8');
+  const styles = await readGlobalCss();
   assert.match(filter, /htmlFor="integration-search"/);
   assert.match(filter, /legend className="sr-only"/);
   assert.match(activity, /aria-label=.*correlation ID/);

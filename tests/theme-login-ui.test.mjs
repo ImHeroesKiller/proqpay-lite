@@ -1,9 +1,10 @@
+import {readGlobalCssSync, readPolishCssSync} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, statSync } from 'node:fs';
 
-const css = readFileSync('src/app/globals.css','utf8');
-const polish = readFileSync('src/app/polish.css','utf8');
+const css = readGlobalCssSync();
+const polish = readPolishCssSync();
 const auth = readFileSync('src/components/AuthViews.tsx','utf8');
 
 test('login page is professional, responsive, and uses a local optimized hero', () => {

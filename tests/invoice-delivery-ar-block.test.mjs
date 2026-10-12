@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -175,7 +176,7 @@ test('Print preview and PDF use the official ProQPay logo and icon assets',async
   const assets=await read('functions/api/proqpay-invoice-assets.js');
   const icon=await read('public/branding/proqpay-icon.svg');
   const logo=await read('public/branding/proqpay-logo.svg');
-  const css=await read('src/app/globals.css');
+  const css=await readGlobalCss();
 
   assert.match(ui,/PROQPAY_ICON_JPEG_BASE64/);
   assert.match(ui,/PROQPAY_LOGO_JPEG_BASE64/);
@@ -195,7 +196,7 @@ test('Print preview and PDF use the official ProQPay logo and icon assets',async
 
 test('Invoice P1 visual refinement keeps compact hierarchy and professional totals',async()=>{
   const ui=await read('src/components/BillingWorkspace.tsx');
-  const css=await read('src/app/globals.css');
+  const css=await readGlobalCss();
 
   assert.match(ui,/invoice-preview-items-head/);
   assert.match(ui,/UNIT PRICE/);

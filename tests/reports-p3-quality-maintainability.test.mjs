@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -39,7 +40,7 @@ test('Reports P3: CSV export no longer exposes raw database column names as head
 });
 
 test('Reports P3: report CSS is consolidated into one final quality layer',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.equal((css.match(/Reports UI — final consolidated quality layer/g)||[]).length,1);
   assert.doesNotMatch(css,/Reports P1 UI —/);
   assert.doesNotMatch(css,/Reports operational UX hardening/);
@@ -52,7 +53,7 @@ test('Reports P3: report CSS is consolidated into one final quality layer',async
 });
 
 test('Reports P3: loading polish respects reduced motion',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/@keyframes report-loading-shimmer/);
   assert.match(css,/@media \(prefers-reduced-motion:reduce\)[\s\S]*animation:none/);
 });

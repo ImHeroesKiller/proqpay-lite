@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -48,7 +49,7 @@ test('Reports P2: report errors have visible retry behavior',async()=>{
 
 test('Reports P2: payment and generic reports expose mobile card representations',async()=>{
   const source=await read('src/components/ReportsWorkspace.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.ok((source.match(/report-mobile-list/g)||[]).length>=2);
   assert.ok((source.match(/report-mobile-card/g)||[]).length>=2);
   assert.match(css,/\.report-mobile-list \{\s*display:none;/);
@@ -58,7 +59,7 @@ test('Reports P2: payment and generic reports expose mobile card representations
 
 test('Reports P2: report type navigation no longer relies on inline layout styles',async()=>{
   const source=await read('src/components/ReportsWorkspace.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(source,/className="report-type-tabs"/);
   assert.match(css,/\.report-type-tabs/);
   assert.doesNotMatch(source,/style=\{\{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14\}\}/);

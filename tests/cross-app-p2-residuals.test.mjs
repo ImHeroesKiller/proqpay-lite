@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -40,7 +41,7 @@ test('cross-app P2: major workspaces are isolated by retryable module error boun
   const page=await read('src/app/page.tsx');
   const router=await read('src/components/AppWorkspaceRouter.tsx');
   const boundary=await read('src/components/ModuleErrorBoundary.tsx');
-  const css=await read('src/app/globals.css');
+  const css=await readGlobalCss();
 
   assert.match(page,/AppWorkspaceRouter/);
   assert.match(router,/ModuleErrorBoundary/);

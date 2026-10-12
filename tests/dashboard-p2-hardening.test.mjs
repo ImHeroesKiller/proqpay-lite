@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -36,6 +37,6 @@ test('dashboard P2 removes redundant administrative command center from dashboar
 });
 
 test('dashboard P2 desktop pipeline is the canonical five-stage lifecycle',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/\.pipeline-grid \{[\s\S]*grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
 });

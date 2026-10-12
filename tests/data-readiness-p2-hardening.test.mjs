@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -68,7 +69,7 @@ test('Data Readiness P2 clamps and resets pagination safely',async()=>{
 });
 
 test('Data Readiness P2 styles filter timeline composer and mobile actions',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/Data Readiness P2/);
   assert.match(css,/\.readiness-filter-bar/);
   assert.match(css,/\.readiness-timeline/);

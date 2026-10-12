@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -23,7 +24,7 @@ test('Reports UI P1: filters have labels, reset behavior and accessible empty re
 
 test('Reports UI P1: audit tables use sticky identity and numeric alignment',async()=>{
   const reports=await read('src/components/ReportsWorkspace.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(reports,/report-sticky-col/);
   assert.match(reports,/report-num/);
   assert.match(css,/\.report-table \.report-sticky-col/);
@@ -33,7 +34,7 @@ test('Reports UI P1: audit tables use sticky identity and numeric alignment',asy
 
 test('Reports UI P1: mobile report cards preserve report-specific fields and expandable details',async()=>{
   const reports=await read('src/components/ReportsWorkspace.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(reports,/reportMobileFields\(type,columns\)/);
   assert.match(reports,/Lihat detail pembayaran/);
   assert.match(reports,/Lihat detail laporan/);

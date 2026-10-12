@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -132,7 +133,7 @@ test('dashboard UI contracts implement audited P1 and P2 fixes',async()=>{
     readFile(new URL('../src/components/BillingWorkspace.tsx',import.meta.url),'utf8'),
     readFile(new URL('../functions/api/billing.js',import.meta.url),'utf8'),
     readFile(new URL('../src/lib/operating-model-api.ts',import.meta.url),'utf8'),
-    readFile(new URL('../src/app/polish.css',import.meta.url),'utf8'),
+    readPolishCss(),
     readFile(new URL('../migrations/0031_dashboard_query_indexes.sql',import.meta.url),'utf8'),
   ]);
   assert.match(page,/listOperatingPeriods/);

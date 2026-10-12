@@ -1,3 +1,4 @@
+import {readGlobalCss, readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -19,7 +20,7 @@ test('Reports P3 quality: export and loading surfaces use reusable visual compon
   const workspace=await read('src/components/ReportsWorkspace.tsx');
   const icons=await read('src/components/Icons.tsx');
   const unified=await read('src/components/ui/UnifiedSystem.tsx');
-  const css=await read('src/app/globals.css');
+  const css=await readGlobalCss();
   assert.match(icons,/export function IconDownload/);
   assert.match(workspace,/IconDownload aria-hidden="true"/);
   assert.match(workspace,/UiDataTableState/);
@@ -29,7 +30,7 @@ test('Reports P3 quality: export and loading surfaces use reusable visual compon
 
 test('Reports P3 maintainability: client document invoices are typed and responsive',async()=>{
   const client=await read('src/components/ClientDocumentsWorkspace.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(client,/type ClientInvoice =/);
   assert.match(client,/useState<ClientInvoice\[\]>/);
   assert.doesNotMatch(client,/\bany\b/);

@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -34,7 +35,7 @@ test('Employees UI P1: ESS credential management is a secondary header action mo
 
 test('Employees UI P1: mobile uses employee cards instead of 940px desktop table',async()=>{
   const directory=await read('src/components/EmployeeDirectory.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(directory,/employee-mobile-list/);
   assert.match(directory,/employee-mobile-card/);
   assert.match(css,/@media \(max-width:760px\)[\s\S]*\.employee-table \{\s*display:none;/);

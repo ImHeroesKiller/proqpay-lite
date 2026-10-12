@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -20,7 +21,7 @@ test('dashboard P3 pagination controls have accessible names',async()=>{
 });
 
 test('dashboard P3 readability polish raises microcopy size and touch targets',async()=>{
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(css,/Dashboard P3 readability and density polish/);
   assert.match(css,/\.action-list > button,[\s\S]*min-height: 48px/);
   assert.match(css,/\.control-pagination \.btn \{[\s\S]*min-height: 36px/);

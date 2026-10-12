@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -208,7 +209,7 @@ test('Dashboard balance is an exclusive widget and integrations hide advanced de
   const dashboard=await read('src/components/PayrollControlTower.tsx');
   const consoleSource=await read('src/components/E2PayOperationsConsole.tsx');
   const gatewayPanel=await read('src/components/PaymentGatewayIntegrationPanel.tsx');
-  const css=await read('src/app/globals.css');
+  const css=await readGlobalCss();
 
   assert.match(dashboard,/gateway-balance-widget/);
   assert.match(dashboard,/dashboard-summary-layout/);

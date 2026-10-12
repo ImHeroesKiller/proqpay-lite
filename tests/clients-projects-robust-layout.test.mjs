@@ -1,3 +1,4 @@
+import {readGlobalCss} from './helpers/style-sources.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -22,7 +23,7 @@ test('Clients & Projects keeps the existing page title while adopting robust sha
 });
 
 test('Clients & Projects responsive layout is centralized in the design system CSS',async()=>{
-  const css=await read('src/app/globals.css');
+  const css=await readGlobalCss();
   assert.match(css,/Clients & Projects — robust master workspace/);
   assert.match(css,/\.directory-entity-card\{/);
   assert.match(css,/\.directory-filter-bar \.ui-filter-grid/);

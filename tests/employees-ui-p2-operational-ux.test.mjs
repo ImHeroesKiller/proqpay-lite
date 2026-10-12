@@ -1,3 +1,4 @@
+import {readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -16,7 +17,7 @@ test('Employees UI P2: toolbar uses compact search + explicit filter panel and r
 
 test('Employees UI P2: desktop table has stable columns and bounded vertical scroll with sticky header',async()=>{
   const directory=await read('src/components/EmployeeDirectory.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   assert.match(directory,/<colgroup>/);
   assert.match(directory,/employee-col-person/);
   assert.match(directory,/employee-col-salary/);

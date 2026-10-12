@@ -1,3 +1,4 @@
+import {readGlobalCss, readPolishCss} from './helpers/style-sources.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
@@ -41,9 +42,9 @@ test('Billing P3: workspace consumes typed helpers instead of duplicating contro
 
 test('Billing P3: dialog accessibility and mobile polish hooks are present',async()=>{
   const workspace=await read('src/components/BillingWorkspace.tsx');
-  const css=await read('src/app/polish.css');
+  const css=await readPolishCss();
   const unified=await read('src/components/ui/UnifiedSystem.tsx');
-  const globalCss=await read('src/app/globals.css');
+  const globalCss=await readGlobalCss();
   assert.match(workspace,/UiModalShell/);
   assert.match(workspace,/className="billing-modal"/);
   assert.match(workspace,/UiTabs/);
