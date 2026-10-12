@@ -3101,3 +3101,42 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 @media(max-width:420px){.payment-decision-metrics span{font-size:9px}.payment-decision-nav button strong{font-size:9px}.payment-decision-nav button small{font-size:8px}}
 
 .payment-stage-safety-note{margin:0;color:var(--text3);font-size:10.5px;line-height:1.5}
+
+/* P1.C: connected liquidity summary, provider channel governance, and paged register */
+.funding-readiness-summary,.provider-channel-control,.canonical-register-workspace{min-width:0}
+.funding-readiness-summary{display:grid;gap:10px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-lg);background:var(--bg-surface)}
+.funding-readiness-title,.provider-channel-head,.provider-channel-summary,.provider-channel-row,.canonical-register-pagination,.canonical-register-detail-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.funding-readiness-title>div:first-child,.provider-channel-head>div{display:grid;gap:3px;min-width:0}
+.funding-readiness-title strong{font-size:12px;color:var(--text)}
+.funding-readiness-title small,.funding-readiness-summary>small,.provider-channel-head p,.provider-channel-summary span,.provider-channel-row small,.provider-channel-footnote{font-size:10px;color:var(--text3);line-height:1.5}
+.funding-readiness-title>div:last-child{display:flex;gap:6px;flex-wrap:wrap}
+.funding-readiness-items{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}
+.funding-readiness-items>div{display:grid;gap:4px;padding:10px;border:1px solid var(--border);background:var(--bg-subtle);border-radius:var(--r-md);min-width:0}
+.funding-readiness-items span{font-size:10px;color:var(--text3)}
+.funding-readiness-items strong{font-size:15px;color:var(--text);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.funding-integrated-panel,.provider-channel-control,.provider-channel-list,.provider-channel-editor,.canonical-register-workspace,.canonical-register-detail{display:grid;gap:12px}
+.funding-integrated-tabs{display:flex;gap:6px;flex-wrap:wrap}
+.funding-integrated-tabs button{padding:9px 13px;border:1px solid var(--border);background:var(--bg-surface);color:var(--text2);border-radius:var(--r-md);cursor:pointer;font-size:11px}
+.funding-integrated-tabs button.active{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:var(--accent-soft);color:var(--text);font-weight:750}
+.provider-channel-control{padding:16px}
+.provider-channel-head h3{margin:0;font-size:16px;color:var(--text)}
+.provider-channel-head p{margin:0;max-width:680px}
+.provider-channel-head label{display:grid;gap:5px;font-size:10px;color:var(--text2)}
+.provider-channel-head select,.provider-channel-form input{width:100%;min-height:36px;border:1px solid var(--border);background:var(--bg-surface);border-radius:var(--r-sm);padding:8px;color:var(--text)}
+.provider-channel-summary{background:var(--bg-subtle);padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-md);font-size:11px}
+.provider-channel-row{padding:12px;border:1px solid var(--border);border-radius:var(--r-md)}
+.provider-channel-row>div{display:grid;gap:4px;min-width:160px;flex:1}
+.provider-channel-row strong{font-size:11px;color:var(--text)}
+.provider-channel-editor,.canonical-register-detail{padding:14px;border:1px solid var(--border);border-radius:var(--r-lg);background:var(--bg-subtle)}
+.provider-channel-editor>div:first-child{display:grid;gap:4px}
+.provider-channel-editor>div:first-child small{color:var(--text3);font-size:10px}
+.provider-channel-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.provider-channel-form label{display:grid;gap:5px;font-size:10px;font-weight:700;color:var(--text2)}
+.provider-channel-actions,.canonical-register-actions,.canonical-register-pagination>div{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.provider-channel-actions{justify-content:flex-end}
+.canonical-register-workspace{padding:14px}
+.canonical-register-pagination{font-size:11px;color:var(--text3)}
+.canonical-register-detail-heading>div{display:grid;gap:4px}
+.canonical-register-detail-heading small{font-size:10px;color:var(--text3)}
+.canonical-register-detail>strong{font-size:12px}
+@media(max-width:760px){.funding-readiness-items{grid-template-columns:repeat(2,minmax(0,1fr))}.provider-channel-form{grid-template-columns:1fr}.provider-channel-row{align-items:flex-start}.provider-channel-control,.canonical-register-workspace{padding:11px}.canonical-register-pagination{align-items:flex-start}}
