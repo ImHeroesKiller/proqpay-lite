@@ -76,3 +76,17 @@ jobs:
                 await github.rest.issues.create({owner:context.repo.owner,repo:context.repo.repo,title,body});
               });
             }
+
+
+      - name: Close recovered vulnerability issue
+        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title='SECURITY: dependency vulnerability requires remediation';
+            const {data}=await github.rest.issues.listForRepo({owner:context.repo.owner,repo:context.repo.repo,state:'open',per_page:100});
+            const existing=data.find((issue)=>issue.title===title);
+            if(existing){
+              await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,body:`Dependency security scan recovered at ${new Date().toISOString()}. Current High/Critical gate is passing.`});
+              await github.rest.issues.update({owner:context.repo.owner,repo:context.repo.repo,issue_number:existing.number,state:'closed'});
+            }

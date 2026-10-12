@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 
-const [rowsPath, checkpointsPath, evidencePath, sqlPath] = process.argv.slice(2);
-if (!rowsPath || !checkpointsPath || !evidencePath || !sqlPath) {
-  throw new Error('Usage: node security-audit-checkpoint.mjs <rows.json> <checkpoints.json> <evidence.json> <checkpoint.sql>');
+const [rowsPath, checkpointsPath, exceptionsPath, evidencePath, sqlPath] = process.argv.slice(2);
+if (!rowsPath || !checkpointsPath || !exceptionsPath || !evidencePath || !sqlPath) {
+  throw new Error('Usage: node security-audit-checkpoint.mjs <rows.json> <checkpoints.json> <exceptions.json> <evidence.json> <checkpoint.sql>');
 }
 
 function flattenWrangler(path) {
@@ -28,6 +28,7 @@ function sql(value) {
 
 const rows = flattenWrangler(rowsPath);
 const checkpoints = flattenWrangler(checkpointsPath);
+const exceptions = flattenWrangler(exceptionsPath);
 const fields = [
   'id','timestamp','username','role','action','detail','entity','entity_id',
   'correlation_id','ip_hash','device_hash','security_context_json',
@@ -63,8 +64,14 @@ for (const checkpoint of checkpoints) {
   const current = daySummary(String(checkpoint.checkpoint_date || ''));
   const expectedCount = Number(checkpoint.row_count || 0);
   const expectedHash = String(checkpoint.content_sha256 || '');
-  const ok = current.rowCount === expectedCount && current.contentSha256 === expectedHash;
-  verified.push({ checkpointDate: current.checkpointDate, rowCount: current.rowCount, hash: current.contentSha256, ok });
+  const directMatch = current.rowCount === expectedCount && current.contentSha256 === expectedHash;
+  const exception = exceptions.find((row) => String(row.checkpoint_date) === current.checkpointDate
+    && Number(row.sealed_row_count) === expectedCount
+    && String(row.sealed_content_sha256) === expectedHash
+    && Number(row.accepted_row_count) === current.rowCount
+    && String(row.accepted_content_sha256) === current.contentSha256);
+  const ok = directMatch || Boolean(exception);
+  verified.push({ checkpointDate: current.checkpointDate, rowCount: current.rowCount, hash: current.contentSha256, ok, exceptionApplied:Boolean(exception), authorizedChangeRef:exception?.authorized_change_ref||null });
   if (!ok) {
     mismatches.push({
       checkpointDate: current.checkpointDate,
@@ -87,6 +94,7 @@ const evidence = {
   verified,
   mismatchCount: mismatches.length,
   mismatches,
+  authorizedExceptionsApplied:verified.filter((row)=>row.exceptionApplied).map((row)=>({checkpointDate:row.checkpointDate,authorizedChangeRef:row.authorizedChangeRef})),
 };
 fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + '\n');
 

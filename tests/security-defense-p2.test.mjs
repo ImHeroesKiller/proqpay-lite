@@ -108,6 +108,7 @@ test('P2 audit checkpoint script creates non-sensitive SHA-256 evidence and seal
   const dir=await mkdtemp(path.join(tmpdir(),'proqpay-p2-'));
   const rowsPath=path.join(dir,'rows.json');
   const checkpointsPath=path.join(dir,'checkpoints.json');
+  const exceptionsPath=path.join(dir,'exceptions.json');
   const evidencePath=path.join(dir,'evidence.json');
   const sqlPath=path.join(dir,'checkpoint.sql');
   const yesterday=new Date(Date.now()-86_400_000).toISOString().slice(0,10);
@@ -117,8 +118,9 @@ test('P2 audit checkpoint script creates non-sensitive SHA-256 evidence and seal
     ip_hash:'hash-ip',device_hash:'hash-device',security_context_json:null,
   }]}]));
   await writeFile(checkpointsPath,JSON.stringify([{results:[]}]));
+  await writeFile(exceptionsPath,JSON.stringify([{results:[]}]));
   const scriptUrl=new URL('../scripts/security-audit-checkpoint.mjs',import.meta.url);
-  const run=spawnSync(process.execPath,[fileURLToPath(scriptUrl),rowsPath,checkpointsPath,evidencePath,sqlPath],{encoding:'utf8'});
+  const run=spawnSync(process.execPath,[fileURLToPath(scriptUrl),rowsPath,checkpointsPath,exceptionsPath,evidencePath,sqlPath],{encoding:'utf8'});
   assert.equal(run.status,0,run.stderr||run.stdout);
   const evidence=JSON.parse(await readFile(evidencePath,'utf8'));
   const sqlText=await readFile(sqlPath,'utf8');

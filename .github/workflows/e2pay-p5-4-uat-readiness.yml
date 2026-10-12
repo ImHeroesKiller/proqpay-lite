@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 10
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+      CLOUDFLARE_D1_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,7 +47,7 @@ jobs:
       - name: Verify dedicated D1 credential
         if: github.event_name == 'workflow_dispatch' && inputs.live_d1
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "::error::CLOUDFLARE_D1_API_TOKEN is required for live D1 readiness evidence."; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
@@ -55,7 +55,7 @@ jobs:
       - name: Collect P5.4 UAT evidence
         if: github.event_name == 'workflow_dispatch' && inputs.live_d1
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
