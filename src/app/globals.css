@@ -3178,3 +3178,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .legacy-data-cutover-record{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:10px;border:1px solid var(--border);border-radius:var(--r-md)}
 .legacy-data-cutover-record>div{display:grid;gap:4px}.legacy-data-cutover-record strong{font-size:11px}.legacy-data-cutover-record small{font-size:10px;color:var(--text3)}
 @media(max-width:600px){.legacy-data-cutover-summary{grid-template-columns:1fr}.legacy-data-cutover-body{padding:0 10px 10px}}
+
+/* UAT administrative closure: archive is behind disclosure, not in payment queue. */
+.gateway-archive-disclosure{border:1px solid var(--border);border-radius:var(--r-md);margin-top:10px;padding:10px 12px;background:var(--bg-surface)}
+.gateway-archive-disclosure>summary{cursor:pointer;font-size:11px;color:var(--text3);font-weight:600}
+.gateway-archive-disclosure[open]>summary{margin-bottom:10px}
+.uat-archive-history{display:grid;gap:8px;min-width:0}.uat-archive-history>p{font-size:10px;color:var(--text3);margin:0;line-height:1.6}

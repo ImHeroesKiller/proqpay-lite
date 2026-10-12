@@ -39,6 +39,8 @@ async function payrollSource(db,org,sourceId,destinationMode){
     FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
     WHERE pi.id=? AND pi.org_id=? LIMIT 1`,[sourceId,org]);
   if(!pi) return {error:'Payment Instruction tidak ditemukan',status:404,code:'DISBURSEMENT_SOURCE_NOT_FOUND'};
+  const uatArchive=await d1First(db,'SELECT id FROM uat_administrative_closures WHERE org_id=? AND source_document_id=? LIMIT 1',[org,pi.id]);
+  if(uatArchive)return {error:'PI UAT telah ditutup administratif, bukan settlement provider. Tidak boleh diproses ulang.',status:409,code:'UAT_ARCHIVED_SOURCE_NOT_EXECUTABLE'};
   if(!SOURCE_READY_PI.has(String(pi.status))) return {error:'PI belum berada pada tahap payment yang dapat dibuatkan Disbursement Request',status:409,code:'DISBURSEMENT_PI_NOT_READY'};
   if(!pi.provider_account_registry_id||!pi.provider_sub_account_id||String(pi.provider||'').toUpperCase()!=='E2PAY'){
     return {error:'Payment Readiness belum READY. Submit/bind routing PI ke E2Pay terlebih dahulu.',status:409,code:'PAYMENT_READINESS_PENDING'};

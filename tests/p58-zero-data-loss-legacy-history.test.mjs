@@ -90,7 +90,7 @@ test('P5.8 compatibility refresh handles LEGACY_MANUAL → HEALTHY → LEGACY_MA
 
 test('P5.8 historical UI uses unified register with distinct read-only lane',async()=>{
  const [history,reg,api]=await Promise.all([read('src/components/LegacyTransactionHistory.tsx'),read('src/components/CanonicalTransactionRegister.tsx'),read('functions/api/legacy-transaction-history.js')]);
- assert.match(reg,/Legacy History · Read Only/);
+ assert.match(reg,/Histori gateway lama \(arsip read-only\)/);
  assert.match(reg,/LegacyTransactionHistory/);
  assert.match(history,/Read Only · No Retry/);
  assert.match(history,/canRetry/); // expect false via DTO, no retry action in UI

@@ -16,14 +16,16 @@ async function inspectPi(db,org,pi,destinationMode){
   const issues=[];
   const status=clean(pi.status,60);
   if(!SOURCE_STATES.has(status))issues.push('PI_NOT_ELIGIBLE_STATUS');
-  const [gateway,canonical,lines,approvals]=await Promise.all([
+  const [gateway,canonical,lines,approvals,uatArchive]=await Promise.all([
     d1First(db,'SELECT COUNT(*) AS n FROM payment_gateway_transactions WHERE org_id=? AND payment_instruction_id=?',[org,pi.id]),
     d1First(db,"SELECT COUNT(*) AS n FROM disbursement_requests WHERE org_id=? AND source_document_type='PAYMENT_INSTRUCTION' AND source_document_id=?",[org,pi.id]),
     d1First(db,`SELECT COUNT(*) AS n,COALESCE(SUM(amount),0) AS total,
       SUM(CASE WHEN account_ciphertext IS NULL OR account_ciphertext='' OR account_iv IS NULL OR account_iv='' OR account_last4 IS NULL OR account_last4='' OR line_hash IS NULL OR line_hash='' OR bank_code IS NULL OR bank_code='' THEN 1 ELSE 0 END) AS bad_snapshot
       FROM payment_instruction_lines WHERE payment_instruction_id=?`,[pi.id]),
     d1First(db,"SELECT COUNT(*) AS n FROM payment_approvals WHERE payment_instruction_id=? AND status='APPROVED' AND action_hash=?",[pi.id,pi.content_hash||'']),
+    d1First(db,'SELECT COUNT(*) AS n FROM uat_administrative_closures WHERE org_id=? AND source_document_id=?',[org,pi.id]),
   ]);
+  if(Number(uatArchive?.n)>0)issues.push('UAT_ASSUMED_COMPLETE_NOT_PROVIDER_SETTLED');
   if(Number(gateway?.n)>0)issues.push('LEGACY_GATEWAY_EXISTS_NO_REPLAY');
   if(Number(canonical?.n)>0)issues.push('CANONICAL_DR_ALREADY_EXISTS');
   const expected=Number(pi.expected_total||0);
@@ -50,7 +52,7 @@ async function inspectPi(db,org,pi,destinationMode){
     beneficiaryReady=Boolean(corporate&&snapshotValid);
     if(!corporate)issues.push('CORPORATE_BENEFICIARY_NOT_GOVERNED');
   }
-  const canCreate=SOURCE_STATES.has(status)&&!Number(gateway?.n)&&!Number(canonical?.n)&&snapshotValid&&beneficiaryReady&&bound&&credentialHealthy&&!issues.includes('PI_APPROVAL_HASH_NOT_VERIFIED');
+  const canCreate=SOURCE_STATES.has(status)&&!Number(uatArchive?.n)&&!Number(gateway?.n)&&!Number(canonical?.n)&&snapshotValid&&beneficiaryReady&&bound&&credentialHealthy&&!issues.includes('PI_APPROVAL_HASH_NOT_VERIFIED');
   let channel={ready:false,code:'CHANNEL_PENDING_PI_BINDING'};
   if(bound){
     const route=await resolveProviderChannel(db,{provider:'E2PAY',environment:account.environment,purpose:'PAYROLL',destinationMode,beneficiaryType:destinationMode==='CLIENT_ACCOUNT'?'CORPORATE':'EMPLOYEE'});
@@ -63,7 +65,7 @@ async function inspectPi(db,org,pi,destinationMode){
     payrollPeriod:pi.payroll_period||null,status,amount:expected,recipientCount:Number(pi.recipient_count||0),
     destinationMode,providerEnvironment:account?.environment||pi.provider_environment||null,
     providerAccountRegistryId:bound?account.id:null,providerSubAccountIdMasked:bound?'••••'+String(account.provider_sub_account_id).slice(-4):null,
-    existingGatewayCount:Number(gateway?.n||0),existingDrCount:Number(canonical?.n||0),
+    administrativelyArchivedForUat:Number(uatArchive?.n)>0,existingGatewayCount:Number(gateway?.n||0),existingDrCount:Number(canonical?.n||0),
     snapshotValid,beneficiaryReady,providerBound:bound,credentialReady:credentialHealthy,
     credentialRecoveryRequired:session?.credential_state==='LEGACY_MANUAL',
     channel,liquidity:{ready:Boolean(funding?.ready),state:funding?.state||'PROVIDER_NOT_BOUND',
@@ -72,7 +74,8 @@ async function inspectPi(db,org,pi,destinationMode){
     canCreateCanonicalDr:canCreate,readyForControllerApproval:approvalReady,
     executionAuthorized:false,providerHistoryVerified:false,
     blockingCodes:issues,
-    nextAction:issues.includes('LEGACY_GATEWAY_EXISTS_NO_REPLAY')?'RECONCILE_LEGACY_NO_REPLAY'
+    nextAction:issues.includes('UAT_ASSUMED_COMPLETE_NOT_PROVIDER_SETTLED')?'VIEW_UAT_ADMINISTRATIVE_ARCHIVE'
+      :issues.includes('LEGACY_GATEWAY_EXISTS_NO_REPLAY')?'RECONCILE_LEGACY_NO_REPLAY'
       :issues.includes('CANONICAL_DR_ALREADY_EXISTS')?'OPEN_EXISTING_DR'
       :issues.includes('LEGACY_CREDENTIAL_RECOVERY_REQUIRED')?'RECOVER_EXISTING_CREDENTIAL'
       :!bound?'REVIEW_PI_PROVIDER_SNAPSHOT'
