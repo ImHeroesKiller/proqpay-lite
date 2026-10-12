@@ -17,7 +17,6 @@ const SystemLogs = dynamic(() => import('@/components/SystemLogs'), { loading:()
 const EwaInbox = dynamic(() => import('@/components/EwaInbox'), { loading:() => <ViewLoading /> });
 const PortalSettings = dynamic(() => import('@/components/PortalSettings'), { loading:() => <ViewLoading /> });
 const IntegrationsWorkspace = dynamic(() => import('@/components/IntegrationsWorkspace'), { loading:() => <ViewLoading /> });
-const PaymentGatewayPaymentPanel = dynamic(() => import('@/components/PaymentGatewayPaymentPanel'), { loading:() => <ViewLoading /> });
 const UnifiedPayrollWorkspace = dynamic(() => import('@/components/UnifiedPayrollWorkspace'), { loading:() => <ViewLoading /> });
 
 type Actor = {
@@ -87,10 +86,7 @@ export default function AppWorkspaceRouter(props:Props) {
       ) : null}
       {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'operations' && <OperatingWorkspace mode="payruns" period={period} />}
       {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'exceptions' && <OperatingWorkspace mode="actions" period={period} />}
-      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'payments' && <>
-        <OperatingWorkspace mode="payments" period={period} />
-        {gatewayCanView ? <PaymentGatewayPaymentPanel role={actor.role} period={period} /> : null}
-      </>}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'payments' && <OperatingWorkspace mode="payments" period={period} gatewayCanView={gatewayCanView} />}
       {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'billing' && <OperatingWorkspace mode="billing" period={period} />}
       {view === 'integrations' && <IntegrationsWorkspace
         canManage={integrationsCanManage}
