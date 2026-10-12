@@ -1,0 +1,13 @@
+-- Read-only independent SELECT queries: do not combine with UNION ALL (Cloudflare D1 bound).
+SELECT 'ORGANIZATIONS' AS metric,COUNT(*) AS records,0 AS amount_idr FROM organizations;
+SELECT 'CLIENTS' AS metric,COUNT(*) AS records,0 AS amount_idr FROM clients;
+SELECT 'PROJECTS' AS metric,COUNT(*) AS records,0 AS amount_idr FROM projects;
+SELECT 'EMPLOYEES' AS metric,COUNT(*) AS records,0 AS amount_idr FROM employees;
+SELECT 'PAYMENT_INSTRUCTIONS' AS metric,COUNT(*) AS records,COALESCE(SUM(expected_total),0) AS amount_idr FROM payment_instructions;
+SELECT 'GATEWAY_TRANSACTIONS' AS metric,COUNT(*) AS records,COALESCE(SUM(amount),0) AS amount_idr FROM payment_gateway_transactions;
+SELECT 'GATEWAY_ITEMS' AS metric,COUNT(*) AS records,COALESCE(SUM(amount),0) AS amount_idr FROM payment_gateway_items;
+SELECT 'GATEWAY_INFLIGHT' AS metric,COUNT(*) AS records,COALESCE(SUM(amount),0) AS amount_idr FROM payment_gateway_transactions WHERE status IN ('CREATED','PENDING','PROCESSING');
+SELECT 'GATEWAY_TERMINAL' AS metric,COUNT(*) AS records,COALESCE(SUM(amount),0) AS amount_idr FROM payment_gateway_transactions WHERE status NOT IN ('CREATED','PENDING','PROCESSING');
+SELECT 'PI_CANONICAL_ELIGIBLE_NO_FINANCIAL_ACTIVITY' AS metric,COUNT(*) AS records,COALESCE(SUM(pi.expected_total),0) AS amount_idr FROM payment_instructions pi WHERE pi.status IN ('PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT') AND NOT EXISTS (SELECT 1 FROM payment_gateway_transactions pgt WHERE pgt.org_id=pi.org_id AND pgt.payment_instruction_id=pi.id) AND NOT EXISTS (SELECT 1 FROM disbursement_requests dr WHERE dr.org_id=pi.org_id AND dr.source_document_type='PAYMENT_INSTRUCTION' AND dr.source_document_id=pi.id);
+SELECT 'PI_GATEWAY_AND_CANONICAL_COLLISIONS' AS metric,COUNT(*) AS records,COALESCE(SUM(pi.expected_total),0) AS amount_idr FROM payment_instructions pi WHERE EXISTS(SELECT 1 FROM payment_gateway_transactions pgt WHERE pgt.org_id=pi.org_id AND pgt.payment_instruction_id=pi.id) AND EXISTS(SELECT 1 FROM disbursement_requests dr WHERE dr.org_id=pi.org_id AND dr.source_document_type='PAYMENT_INSTRUCTION' AND dr.source_document_id=pi.id AND dr.status NOT IN ('REJECTED','CANCELLED'));
+SELECT 'PI_GATEWAY_NO_CANONICAL' AS metric,COUNT(*) AS records,COALESCE(SUM(pi.expected_total),0) AS amount_idr FROM payment_instructions pi WHERE EXISTS(SELECT 1 FROM payment_gateway_transactions pgt WHERE pgt.org_id=pi.org_id AND pgt.payment_instruction_id=pi.id) AND NOT EXISTS(SELECT 1 FROM disbursement_requests dr WHERE dr.org_id=pi.org_id AND dr.source_document_type='PAYMENT_INSTRUCTION' AND dr.source_document_id=pi.id);

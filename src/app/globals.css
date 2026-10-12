@@ -3140,3 +3140,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .canonical-register-detail-heading small{font-size:10px;color:var(--text3)}
 .canonical-register-detail>strong{font-size:12px}
 @media(max-width:760px){.funding-readiness-items{grid-template-columns:repeat(2,minmax(0,1fr))}.provider-channel-form{grid-template-columns:1fr}.provider-channel-row{align-items:flex-start}.provider-channel-control,.canonical-register-workspace{padding:11px}.canonical-register-pagination{align-items:flex-start}}
+
+/* P5.8 zero-replay historical register: a read-only lane inside the same workspace. */
+.financial-history-selector{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.financial-history-selector button{border:1px solid var(--border);border-radius:var(--r-md);padding:9px 13px;background:var(--bg-surface);color:var(--text2);font-size:11px;cursor:pointer}
+.financial-history-selector button.active{background:var(--accent-soft);color:var(--text);border-color:color-mix(in srgb,var(--accent) 45%,var(--border));font-weight:750}
+.legacy-transaction-history{display:grid;gap:12px;min-width:0;padding:14px}
+@media(max-width:760px){.legacy-transaction-history{padding:10px}.financial-history-selector button{flex:1}}

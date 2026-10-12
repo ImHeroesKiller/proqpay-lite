@@ -11,7 +11,12 @@ function safeRecord(row){let detail={};try{detail=JSON.parse(row.safe_detail_jso
 function upsertRecord({id,org,resourceType,resourceId,classification,status,strategy,detail,resolvedBy=null}){
   return {statement:`INSERT INTO legacy_compatibility_records(id,org_id,resource_type,resource_id,classification,compatibility_status,resolution_strategy,safe_detail_json,resolved_at,resolved_by)
     VALUES(?,?,?,?,?,?,?,?,CASE WHEN ?='RESOLVED' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE NULL END,?)
-    ON CONFLICT(org_id,resource_type,resource_id,classification) DO UPDATE SET
+    -- Classification is a state transition for the same resource, not a new
+    -- primary-key row. P5.7.9 used the resource-stable id but targeted the
+    -- classification UNIQUE key, colliding on the existing PRIMARY KEY when
+    -- LEGACY_MANUAL becomes HEALTHY (or gateway in-flight becomes terminal).
+    ON CONFLICT(id) DO UPDATE SET
+      classification=excluded.classification,
       compatibility_status=excluded.compatibility_status,resolution_strategy=excluded.resolution_strategy,safe_detail_json=excluded.safe_detail_json,
       last_detected_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),resolved_at=CASE WHEN excluded.compatibility_status='RESOLVED' THEN COALESCE(legacy_compatibility_records.resolved_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')) ELSE NULL END,
       resolved_by=CASE WHEN excluded.compatibility_status='RESOLVED' THEN COALESCE(excluded.resolved_by,legacy_compatibility_records.resolved_by) ELSE NULL END,

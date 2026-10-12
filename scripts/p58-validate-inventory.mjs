@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import {readFileSync,writeFileSync} from 'node:fs';
-const [source,output]=process.argv.slice(2);
-if(!source||!output)throw new Error('Usage: p58-validate-inventory.mjs <wrangler-json> <safe-report-json>');
-const parsed=JSON.parse(readFileSync(source,'utf8'));
-if(!Array.isArray(parsed)||parsed.length!==1||parsed[0]?.success!==true||!Array.isArray(parsed[0]?.results)){
+const [sourceA,sourceB,output]=process.argv.slice(2);
+if(!sourceA||!sourceB||!output)throw new Error('Usage: p58-validate-inventory.mjs <wrangler-a.json> <wrangler-b.json> <safe-report-json>');
+const payloads=[sourceA,sourceB].map(file=>JSON.parse(readFileSync(file,'utf8')));
+if(payloads.some(parsed=>!Array.isArray(parsed)||parsed.length!==12||parsed.some(block=>block?.success!==true||!Array.isArray(block?.results)||block.results.length!==1))){
  throw new Error('Production D1 inventory did not return successful structured results: FAIL CLOSED');
 }
 const keys=['ORGANIZATIONS','CLIENTS','PROJECTS','EMPLOYEES','PAYMENT_INSTRUCTIONS','GATEWAY_TRANSACTIONS','GATEWAY_ITEMS','GATEWAY_INFLIGHT','GATEWAY_TERMINAL','PI_CANONICAL_ELIGIBLE_NO_FINANCIAL_ACTIVITY','PI_GATEWAY_AND_CANONICAL_COLLISIONS','PI_GATEWAY_NO_CANONICAL','CANONICAL_REQUESTS','CANONICAL_EXECUTIONS','EWA_DISBURSED_OR_REPAID','EWA_CANDIDATE_APPROVED_WITHOUT_CANONICAL','E2PAY_SUBACCOUNTS','SUBACCOUNT_CREDENTIAL_MANUAL','SUBACCOUNT_CREDENTIAL_HEALTHY','LEGACY_COMPATIBILITY','LEGACY_RECOVERY_REQUIRED','LEGACY_RETAIN_ONLY','LIMIT_RESERVED_LEGACY','CORPORATE_PRIMARY_UNGOVERNED'];
-const records=parsed[0].results;
+const records=payloads.flatMap(parsed=>parsed.flatMap(block=>block.results));
 if(records.length!==keys.length||new Set(records.map(x=>x.metric)).size!==keys.length||keys.some(k=>!records.some(x=>x.metric===k)))throw new Error('Missing/duplicated inventory metrics: FAIL CLOSED');
 const metrics={};
 for(const row of records){
