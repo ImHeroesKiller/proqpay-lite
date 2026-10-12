@@ -6,7 +6,7 @@ const read=async path=>readFile(new URL('../'+path,import.meta.url),'utf8');
 test('P2 UAT runner disables browser traces, screenshots and video when secrets are provided',async()=>{
  const config=await read('playwright.uat.config.mjs');
  const workflow=await read('.github/workflows/playwright-uat.yml');
- assert.match(config,/credentialMode=process\.env\.UAT_CREDENTIALS_ENABLED==='true'/);
+ assert.match(config,/credentialMode=process\.env\.UAT_CREDENTIALS_ENABLED==='true'\|\|Boolean\(process\.env\.PROQPAY_UAT_PASSWORD\)/);
  for(const kind of ['trace','screenshot','video'])assert.match(config,new RegExp(`${kind}: credentialMode\\?'off'`));
  assert.match(workflow,/if: always\(\) && env\.UAT_CREDENTIALS_ENABLED != 'true'/);
  assert.match(workflow,/Sensitive Playwright artifacts: intentionally disabled/);

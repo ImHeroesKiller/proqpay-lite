@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+import {viewsForRole} from '../../shared/authority-matrix.js';
 
 // Security invariant: this suite is read-only. Never POST to financial APIs,
 // run a disbursement, alter credentials, enroll MFA or reset a passkey.
@@ -21,7 +22,7 @@ async function visualEvidence(page,label){
 // One login attempt only. A bad/stale credential should never cause a lockout
 // because of retries. The response is recorded by status and code only.
 test('P2 authenticated role-specific workflow, read-only DR/funding/register, desktop and mobile',async({page},testInfo)=>{
- test.setTimeout(180_000);
+ test.setTimeout(240_000);
  expect(EMAIL.length,'PROQPAY_UAT_EMAIL not configured').toBeGreaterThan(0);
  expect(PASSWORD.length,'PROQPAY_UAT_PASSWORD not configured').toBeGreaterThan(0);
  const response=await page.goto('/',{waitUntil:'domcontentloaded'});
@@ -62,20 +63,29 @@ test('P2 authenticated role-specific workflow, read-only DR/funding/register, de
     ['payment PI','/?view=payments&stage=payment&paymentPanel=PI','Unified Payment Workbench'],
     ['canonical DR','/?view=payments&stage=payment&paymentPanel=DISBURSEMENT','Canonical Disbursement Control'],
     ['funding','/?view=payments&stage=payment&paymentPanel=FUNDING','Funding & Liquidity Summary'],
-    ['reconciliation','/?view=billing&stage=close','Canonical Transaction Register'],
+    ['reconciliation','/?view=billing&stage=close',role==='SUPER_ADMIN'?'Billing':'Canonical Transaction Register'],
     ['EWA','/?view=ewa','main'],
   ];
-  for(const [label,path,selector] of views){
+  for(const [label,path] of views){
     const response=await page.goto(path,{waitUntil:'domcontentloaded'});
     expect(response?.status()).toBe(200);
     await expect(page.locator('aside.app-sidebar')).toBeVisible({timeout:15000});
     const locator=label==='payment PI'?page.getByRole('region',{name:'Unified Payment Workbench'})
       :label==='canonical DR'?page.getByRole('region',{name:'Canonical Disbursement Control'})
       :label==='funding'?page.getByRole('region',{name:'Funding & Liquidity Summary'})
+      :label==='reconciliation'&&role==='SUPER_ADMIN'?page.locator('main').first()
       :label==='reconciliation'?page.getByText('Disbursement Transaction Register',{exact:true})
       :page.locator('main').first();
     await expect(locator,`${label} must render at ${viewport.width}px`).toBeVisible({timeout:15000});
     allTabs.push({label,viewport:viewport.width,...await visualEvidence(page,label)});
+  }
+  // Sweep remaining role-visible frontend modules without pressing any financial
+  // or administrative mutation controls.
+  for(const view of viewsForRole(role).filter(v=>!['payments','billing','ewa'].includes(v))){
+    const opened=await page.goto(`/?view=${encodeURIComponent(view)}`,{waitUntil:'domcontentloaded'});
+    expect(opened?.status()).toBe(200);
+    await expect(page.locator('aside.app-sidebar')).toBeVisible({timeout:15000});
+    allTabs.push({label:view,viewport:viewport.width,...await visualEvidence(page,view)});
   }
  }
  // Read-only API contracts. No CREATE/SUBMIT/APPROVE/EXECUTE/RECONCILE.

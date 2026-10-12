@@ -45,7 +45,7 @@ test.describe('P2 production public/unauthenticated safety & visual',()=>{
      expect(metrics.loginWidth).toBeGreaterThan(150);
      expect(metrics.loginWidth).toBeLessThanOrEqual(metrics.viewport);
      expect(errors).toEqual([]);
-     await page.screenshot({path:`artifacts/p2-public-${viewport.width}.png`,fullPage:true});
+     await page.screenshot({path:`artifacts/test-results/p2-public-${viewport.width}.png`,fullPage:true});
    });
  }
 });
