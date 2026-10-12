@@ -47,12 +47,17 @@ async function payrollSource(db,org,sourceId,destinationMode){
   if(!account||String(account.provider_sub_account_id)!==String(pi.provider_sub_account_id)) return {error:'Snapshot provider PI tidak lagi cocok dengan registry aktif',status:409,code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'};
   if(!providerAccountCredentialState(account).ready) return {error:'Credential provider belum READY',status:409,code:'PAYMENT_READINESS_CREDENTIAL_PENDING'};
 
+  // Every settlement destination derives from the same immutable PI source.
+  // Corporate payment must not bypass missing/altered PI recipient totals.
+  const lines=await d1All(db,`SELECT * FROM payment_instruction_lines WHERE payment_instruction_id=? ORDER BY beneficiary_name,id`,[pi.id]);
+  if(lines.length!==Number(pi.recipient_count||0)) return {error:'Jumlah recipient PI tidak sesuai snapshot',status:409,code:'DISBURSEMENT_PI_RECIPIENT_MISMATCH'};
+  const total=lines.reduce((sum,row)=>sum+Number(row.amount||0),0);
+  if(total!==Number(pi.expected_total||0)) return {error:'Total PI tidak sesuai snapshot',status:409,code:'DISBURSEMENT_PI_TOTAL_MISMATCH'};
+  if(lines.some(row=>!row.account_ciphertext||!row.account_iv||!row.account_last4||!row.line_hash||!row.bank_code))
+    return {error:'Rekening/identitas penerima dalam snapshot PI tidak lengkap',status:409,code:'DISBURSEMENT_PI_IMMUTABLE_SNAPSHOT_INVALID'};
+
   let items=[];
   if(destinationMode==='DIRECT_EMPLOYEE'){
-    const lines=await d1All(db,`SELECT * FROM payment_instruction_lines WHERE payment_instruction_id=? ORDER BY beneficiary_name,id`,[pi.id]);
-    if(lines.length!==Number(pi.recipient_count||0)) return {error:'Jumlah recipient PI tidak sesuai snapshot',status:409,code:'DISBURSEMENT_PI_RECIPIENT_MISMATCH'};
-    const total=lines.reduce((sum,row)=>sum+Number(row.amount||0),0);
-    if(total!==Number(pi.expected_total||0)) return {error:'Total PI tidak sesuai snapshot',status:409,code:'DISBURSEMENT_PI_TOTAL_MISMATCH'};
     items=await Promise.all(lines.map(async(row,index)=>{
       const accountHash=await sha256Hex(`PI_ACCOUNT|${row.line_hash}`);
       const beneficiaryHash=await sha256Hex(JSON.stringify({employeeId:row.employee_id,name:row.beneficiary_name,bankCode:row.bank_code,last4:row.account_last4,amount:Number(row.amount),lineHash:row.line_hash}));
