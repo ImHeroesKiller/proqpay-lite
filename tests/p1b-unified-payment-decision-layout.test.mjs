@@ -72,8 +72,8 @@ test('P1.B shared client/project/query filters reach DR while funding panel pres
  assert.match(workspace,/canonicalDecisionKnown\?canonicalDecisionActions:'—'/);
  assert.match(workspace,/setCanonicalDecisionKnown\(false\)/);
  assert.match(workspace,/response\.ok/);
- assert.match(funding,/patchRoute\(\{fundingAccountId:id\}\)/);
- assert.match(funding,/Legacy · Recovery Required/);
+ assert.match(funding,/setClientId\(e\.target\.value\)/);
+ assert.match(funding,/Balance Master &amp; Limit Klien/);
 });
 
 test('P1.B post-recovery and Hosted Payment return to the correct payment workbench panel',async()=>{

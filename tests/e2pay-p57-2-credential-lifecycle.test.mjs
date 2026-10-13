@@ -63,10 +63,5 @@ test('P5.7.2 API health check validates scoped identity, audits success and neve
   assert.doesNotMatch(block,/UPDATE payment_provider_accounts SET metadata_json/);
 });
 
-test('P5.7.2 UI removes username/password from normal service-managed recovery path',()=>{
-  assert.match(ui,/Credential dikelola otomatis/);
-  assert.match(ui,/Periksa Ulang Credential/);
-  assert.match(ui,/Username\/password tidak perlu dan tidak boleh dimasukkan manual|Username, password merchant/);
-  assert.match(ui,/Legacy credential recovery/);
-  assert.match(ui,/Migrasikan Credential Legacy/);
-});
+test('GT5 Master flow removes scoped merchant credential inputs from directory',()=>{ assert.doesNotMatch(ui,/Migrasikan Credential Legacy|Username E2Pay/); });
+

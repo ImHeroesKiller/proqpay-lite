@@ -56,11 +56,9 @@ test('P5.5 payment execution, reconciliation and failed verification use scoped 
   assert.match(gateway,/E2PAY_SUBACCOUNT_CREDENTIAL_REQUIRED/);
 });
 
-test('P5.5/P5.7 client UI keeps scoped credential security while using automated lifecycle for new accounts',()=>{
-  assert.match(ui,/Sync Balance/);
-  assert.match(ui,/Periksa Ulang Credential/);
-  assert.match(ui,/Credential dikelola otomatis/);
-  assert.match(ui,/Legacy credential recovery/);
+test('GT5.1.2 client UI exposes one Master payment model without merchant password forms',()=>{
+  assert.match(ui,/Saldo E2Pay Master dikelola terpusat/);
+  assert.doesNotMatch(ui,/Periksa Ulang Credential|Migrasikan Credential Legacy|Register Project Override/);
 });
 
 

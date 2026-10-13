@@ -95,7 +95,16 @@ export async function onRequest({request,env}){
   if(authorization.response) return authorization.response;
   const limited=await enforceRateLimit(request,env,authorization.actor,'e2pay-subaccounts',METHODS);
   if(limited) return limited;
-  if(!hasD1(env)) return secureJson({error:'Cloudflare D1 binding unavailable',code:'D1_REQUIRED'},503,request,env,METHODS);
+  // GT5.1.2: submerchant provisioning is retired. Do not create, link,
+  // recover, confirm OTP, sync or mutate per-client merchant credentials.
+  // Keep authorization/rate-limits before the deprecation response.
+  return secureJson({
+    error:'Sub-account E2Pay sudah ditutup. Gunakan Master Account melalui Payment Instruction.',
+    code:'E2PAY_SUBACCOUNT_RETIRED',
+    activeFlow:'MASTER_ACCOUNT',
+  },410,request,env,METHODS);
+
+    if(!hasD1(env)) return secureJson({error:'Cloudflare D1 binding unavailable',code:'D1_REQUIRED'},503,request,env,METHODS);
 
   const actor=authorization.actor;
   const organizationId=orgId(env,actor);

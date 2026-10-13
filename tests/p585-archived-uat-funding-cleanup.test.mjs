@@ -94,8 +94,8 @@ test('P5.8.5 removes screenshot-identified duplicated gateway queue and stale fu
  const client=readFileSync(new URL('src/lib/e2pay-api.ts',root),'utf8');
  assert.doesNotMatch(router,/PaymentGatewayPaymentPanel/);
  assert.match(router,/gatewayCanView=\{gatewayCanView\}/);
- assert.match(ui,/getE2PayDisbursementLimits\(\{operationalOnly:true\}\)/);
- assert.match(ui,/setAccountId\(current=>data\.funding\.some/);
- assert.match(ui,/funding-empty-operational/);
+ assert.match(ui,/getE2PayDisbursementLimits\(\)/);
+ assert.match(ui,/Balance Master &amp; Limit Klien/);
+ assert.doesNotMatch(ui,/recoveryAccountId/);
  assert.match(client,/params\.set\('operationalOnly','1'\)/);
 });

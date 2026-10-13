@@ -353,7 +353,7 @@ export async function getE2PayDisbursementLimits(filters:{providerAccountRegistr
   }>;
 }
 
-export async function requestE2PayDisbursementLimit(input:{providerAccountRegistryId:string;amount:number;reason:string;expiresAt?:string}){
+export async function requestE2PayDisbursementLimit(input:{providerAccountRegistryId:string;clientId:string;projectId?:string;amount:number;reason:string;expiresAt?:string}){
   return parse(await fetch('/api/e2pay-disbursement-limits',{
     method:'POST',
     headers:{'Content-Type':'application/json'},

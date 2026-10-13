@@ -68,17 +68,8 @@ test('sub-account API distinguishes host auth from register request failures',()
   assert.doesNotMatch(api,/error\?\.httpStatus===401\|\|error\?\.httpStatus===403\?'HOST_AUTH'/);
 });
 
-test('registration challenge is persisted server-side while UI exposes only OTP activation',()=>{
-  assert.match(api,/provider_provisioning_sessions/);
-  assert.match(api,/provider_username/);
-  assert.match(api,/token_prefix/);
-  assert.match(client,/activateE2PaySubAccount/);
-  assert.match(ui,/Verifikasi OTP & Aktifkan/);
-  assert.match(ui,/Kirim ulang OTP aktivasi/);
-  assert.match(api,/encryptProviderProvisioningSecret/);
-  assert.match(api,/encryptProviderAccountCredential/);
-  assert.doesNotMatch(ui,/Password baru/);
-});
+test('GT5 submerchant API is retired after auth',()=>{ assert.match(api,/E2PAY_SUBACCOUNT_RETIRED/); });
+
 
 test('confirmation password policy fails before provider call',()=>{
   assert.match(api,/password\.length<6\|\|password\.length>12/);
@@ -86,14 +77,7 @@ test('confirmation password policy fails before provider call',()=>{
 });
 
 
-test('submerchant registration pairing contract is explicit for client and project routing',()=>{
-  assert.match(api,/pairing:\{/);
-  assert.match(api,/scope:projectId\?'PROJECT_OVERRIDE':'CLIENT'/);
-  assert.match(api,/stage:'REGISTRATION_CONFIG'/);
-  assert.match(client,/providerMessage/);
-  assert.match(client,/correlationId/);
-  assert.match(ui,/Host credential MSG digunakan otomatis/);
-});
+test('GT5 new accounts use single Master registry',()=>{ assert.match(api,/E2PAY_SUBACCOUNT_RETIRED/); });
 
 
 test('zero-friction activation composes provider token only in the backend',()=>{

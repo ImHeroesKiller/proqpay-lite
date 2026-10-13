@@ -2,10 +2,8 @@
 
 import {WorkspaceTitle,CompactFilterSurface,InlineSummary} from '@/components/layout/WorkspacePrimitives';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {recoveryReturnUrl,resolveRecoveryTarget} from '@/lib/workspace-navigation';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
-import { activateE2PaySubAccount, bindE2PaySubAccountCredential, checkE2PayCredentialHealth, getE2PaySubAccounts, registerE2PaySubAccount, syncE2PaySubAccountBalance, type E2PaySubAccount } from '@/lib/e2pay-api';
 import CorporateBeneficiaryPanel from '@/components/CorporateBeneficiaryPanel';
 import {
   DataTableState as UiDataTableState,
@@ -87,19 +85,10 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   const [projectsTruncated,setProjectsTruncated] = useState(false);
   const [originalProjectClientId,setOriginalProjectClientId] = useState('');
   const [detail,setDetail] = useState<{type:'client'|'project';item:Client|Project}|null>(null);
-  const [e2payAccounts,setE2PayAccounts]=useState<E2PaySubAccount[]>([]);
-  const [e2payAccountsLoaded,setE2PayAccountsLoaded]=useState(false);
   const [clientReadiness,setClientReadiness]=useState<ClientReadiness[]>([]);
-  const [e2payPhone,setE2PayPhone]=useState('');
-  const [e2payEmail,setE2PayEmail]=useState('');
-  const [e2payBusy,setE2PayBusy]=useState(false);
-  const [e2payOtp,setE2PayOtp]=useState('');
-  const [e2payMerchantUsername,setE2PayMerchantUsername]=useState('');
-  const [e2payMerchantPassword,setE2PayMerchantPassword]=useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
   const detailDialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement|null>(null);
-  const recoveryAutoOpenedRef = useRef(false);
   const directoryGeneration=useRef(0);
   const activeDirectoryRequest=useRef<AbortController|null>(null);
 
@@ -130,30 +119,8 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   }, []);
 
   useEffect(() => { void load(); return ()=>{directoryGeneration.current+=1;activeDirectoryRequest.current?.abort();}; }, [load]);
-  const loadE2Pay=useCallback(async()=>{try{const result=await getE2PaySubAccounts('UAT');setE2PayAccounts(result.accounts);}catch{setE2PayAccounts([]);}finally{setE2PayAccountsLoaded(true);}},[]);
   const loadClientReadiness=useCallback(async()=>{try{const response=await fetch('/api/client-readiness',{headers:{Accept:'application/json'}});const data=await response.json().catch(()=>({}));if(response.ok)setClientReadiness(data.clients||[]);}catch{/* readiness is advisory; directory remains usable */}},[]);
-  useEffect(()=>{void loadE2Pay();void loadClientReadiness();},[loadE2Pay,loadClientReadiness]);
-  useEffect(()=>{
-    if(typeof window==='undefined'||loading||!e2payAccountsLoaded||detail||recoveryAutoOpenedRef.current)return;
-    const params=new URLSearchParams(window.location.search);
-    const recoveryClientId=params.get('recoveryClientId');
-    const recoveryAccountId=params.get('recoveryAccountId');
-    if(!recoveryClientId||!recoveryAccountId)return;
-    // A client id is not sufficient: project override accounts must open the
-    // exact project where their scoped credential form is displayed.
-    const result=resolveRecoveryTarget(recoveryClientId,recoveryAccountId,e2payAccounts,clients,projects);
-    if('error' in result){
-      if(result.error==='CLIENT_NOT_FOUND')return;
-      setMessageTone('error');
-      setMessage(result.error==='ACCOUNT_NOT_FOUND'
-        ? 'Account recovery tidak ditemukan pada client dan environment ini. Periksa kembali sumber Payment Instructions.'
-        : 'Project override E2Pay tidak tersedia dalam master data ini. Recovery diblokir untuk mencegah salah account.');
-      return;
-    }
-    recoveryAutoOpenedRef.current=true;
-    setActiveDirectoryTab(result.kind==='project'?'projects':'clients');
-    setDetail({type:result.kind,item:result.target});
-  },[clients,projects,e2payAccounts,e2payAccountsLoaded,loading,detail]);
+  useEffect(()=>{void loadClientReadiness();},[loadClientReadiness]);
 
   async function submit() {
     if (!mode) return;
@@ -191,136 +158,6 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
   }
 
   const canCreateClient = actor?.permissions.includes('client:write') || false;
-  const canManageE2Pay = actor?.role==='SUPER_ADMIN'||actor?.role==='PAYROLL_PROCESSOR';
-  async function registerClientE2Pay(client:Client,project?:Project){
-    if(!e2payPhone.trim()) return;
-    setE2PayBusy(true);setMessage('');
-    try{
-      const result=await registerE2PaySubAccount({clientId:client.id,projectId:project?.id,environment:'UAT',phone:e2payPhone.trim(),email:e2payEmail.trim()||client.contact_email});
-      if(result.registration.state==='OTP_REQUIRED'){
-        setE2PayOtp('');
-        setMessageTone('success');
-        setMessage(`Registrasi ${client.name} diterima. OTP telah dikirim ke nomor ••••${result.registration.phoneLast4||''}; masukkan OTP untuk aktivasi.`);
-      }else{
-        setMessageTone('info');
-        setMessage('Account provider memerlukan review sebelum payment dapat diaktifkan.');
-      }
-      setE2PayPhone('');setE2PayEmail('');await Promise.all([loadE2Pay(),loadClientReadiness()]);
-    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Registrasi E2Pay gagal');}
-    finally{setE2PayBusy(false);}
-  }
-
-  async function confirmClientE2Pay(account:E2PaySubAccount){
-    if(!e2payOtp.trim()) return;
-    setE2PayBusy(true);setMessage('');
-    try{
-      await activateE2PaySubAccount({id:account.id,otp:e2payOtp.trim()});
-      setE2PayOtp('');
-      setMessageTone('success');
-      setMessage('E2Pay berhasil diaktifkan. Credential dikelola aman oleh ProQPay dan saldo awal sudah tersinkron.');
-      await Promise.all([loadE2Pay(),loadClientReadiness()]);
-    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Aktivasi E2Pay gagal');}
-    finally{setE2PayBusy(false);}
-  }
-
-  async function checkClientE2PayCredential(account:E2PaySubAccount){
-    setE2PayBusy(true);setMessage('');
-    try{
-      const result=await checkE2PayCredentialHealth(account.id);
-      setMessageTone('success');
-      setMessage(`Credential E2Pay terverifikasi: ${result.credentialHealth.state}.`);
-      await Promise.all([loadE2Pay(),loadClientReadiness()]);
-    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Pemeriksaan credential E2Pay gagal');}
-    finally{setE2PayBusy(false);}
-  }
-
-  async function bindClientE2PayCredential(account:E2PaySubAccount){
-    if(!e2payMerchantUsername.trim()||!e2payMerchantPassword) return;
-    setE2PayBusy(true);setMessage('');
-    try{
-      await bindE2PaySubAccountCredential({
-        id:account.id,
-        username:e2payMerchantUsername.trim(),
-        password:e2payMerchantPassword,
-      });
-      setE2PayMerchantUsername('');
-      setE2PayMerchantPassword('');
-      setMessageTone('success');
-      setMessage('Credential merchant sub-client berhasil divalidasi, dienkripsi, dan saldo awal tersinkron.');
-      await Promise.all([loadE2Pay(),loadClientReadiness()]);
-      if(typeof window!=='undefined'){
-        const params=new URLSearchParams(window.location.search);
-        if(params.get('recoveryAccountId')===account.id&&['payments','payment-instructions'].includes(params.get('recoveryReturnView')||'')){
-          window.location.assign(recoveryReturnUrl(account.id,params.get('period')));
-        }
-      }
-    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Validasi credential sub-client gagal');}
-    finally{setE2PayBusy(false);}
-  }
-
-  async function syncClientE2PayBalance(account:E2PaySubAccount){
-    setE2PayBusy(true);setMessage('');
-    try{
-      const result=await syncE2PaySubAccountBalance(account.id);
-      setMessageTone('success');
-      setMessage(`Saldo E2Pay sub-client tersinkron: Rp ${Number(result.account.availableBalance||0).toLocaleString('id-ID')}.`);
-      await Promise.all([loadE2Pay(),loadClientReadiness()]);
-    }catch(error){setMessageTone('error');setMessage(error instanceof Error?error.message:'Sync balance E2Pay gagal');}
-    finally{setE2PayBusy(false);}
-  }
-
-  function renderE2PayMerchantCredential(account:E2PaySubAccount){
-    if(account.status!=='ACTIVE'||account.provisioningState!=='PROVISIONED') return null;
-    const lifecycle=account.provisioning?.credentialHealth;
-    const legacyRecovery=account.provisioning?.legacyCompatibility==='LEGACY_CREDENTIAL_RECOVERY_REQUIRED'||account.provisioning?.credentialHealth?.state==='LEGACY_MANUAL';
-    const serviceManaged=Boolean(account.provisioning)&&!legacyRecovery;
-    if(account.merchantCredential?.ready){
-      const tone=lifecycle?.recoveryRequired?'warning':lifecycle?.degraded?'warning':'info';
-      const title=lifecycle?.recoveryRequired?'Credential perlu recovery':lifecycle?.degraded?'Credential perlu diverifikasi ulang':'Credential dikelola otomatis';
-      return <div className="directory-inline-actions">
-        <UiNotice tone={tone} title={title}>Credential sub-client disimpan terenkripsi untuk account {account.providerSubAccountIdMasked||'ini'}. Status lifecycle: <strong>{lifecycle?.state||'HEALTHY'}</strong>{lifecycle?.lastValidatedAt?` · terakhir tervalidasi ${new Date(lifecycle.lastValidatedAt).toLocaleString('id-ID')}`:''}.</UiNotice>
-        <button type="button" className="btn" disabled={e2payBusy} onClick={()=>void checkClientE2PayCredential(account)}>{e2payBusy?'Memeriksa…':'Periksa Ulang Credential'}</button>
-        <button type="button" className="btn" disabled={e2payBusy} onClick={()=>void syncClientE2PayBalance(account)}>{e2payBusy?'Menyinkronkan…':'Sync Balance'}</button>
-      </div>;
-    }
-    if(serviceManaged){
-      return <div className="directory-inline-actions">
-        <UiNotice tone="warning" title="Credential service-managed belum sehat">Account ini memakai lifecycle otomatis ProQPay. Username/password tidak perlu dan tidak boleh dimasukkan manual. Jalankan pemeriksaan untuk recovery-safe validation.</UiNotice>
-        <button type="button" className="btn btn-primary" disabled={e2payBusy} onClick={()=>void checkClientE2PayCredential(account)}>{e2payBusy?'Memeriksa…':'Periksa Ulang Credential'}</button>
-      </div>;
-    }
-    if(!canManageE2Pay) return <UiNotice tone="warning" title="Legacy credential recovery diperlukan">Sub-account existing tetap dipertahankan. Hubungi Super Admin atau Payroll Processor untuk recovery credential satu kali.</UiNotice>;
-    return <><UiNotice tone="warning" title="Legacy credential recovery">Account ini dibuat sebelum automated credential lifecycle. Sub-account existing tidak akan dibuat ulang. Masukkan merchant login satu kali untuk recovery dan promosi ke lifecycle READY/HEALTHY.</UiNotice>
-      <div className="directory-form-grid">
-        <label>Username E2Pay<input value={e2payMerchantUsername} autoComplete="username" onChange={(event)=>setE2PayMerchantUsername(event.target.value)} /></label>
-        <label>Password merchant<input type="password" autoComplete="current-password" value={e2payMerchantPassword} onChange={(event)=>setE2PayMerchantPassword(event.target.value)} /></label>
-      </div>
-      <button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payMerchantUsername.trim()||!e2payMerchantPassword} onClick={()=>void bindClientE2PayCredential(account)}>{e2payBusy?'Memvalidasi…':'Migrasikan Credential Legacy'}</button>
-    </>;
-  }
-
-  function renderE2PayRegistrationForm(client:Client,project?:Project,label?:string){
-    if(!canManageE2Pay) return null;
-    return <><UiNotice tone="info" title="Registrasi sub-merchant E2Pay">Host credential MSG digunakan otomatis. Setelah registrasi, user hanya perlu memasukkan OTP satu kali; credential merchant dibuat, dienkripsi, divalidasi, dan dikelola oleh backend ProQPay.</UiNotice><div className="directory-form-grid">
-      <label>Nomor HP {project?'override':'sub-client'}<input type="tel" value={e2payPhone} maxLength={40} placeholder="+62..." onChange={(event)=>setE2PayPhone(event.target.value)}/></label>
-      <label>Email {project?'override':'sub-client'}<input type="email" value={e2payEmail} maxLength={254} placeholder={client.contact_email||'ops@client.com'} onChange={(event)=>setE2PayEmail(event.target.value)}/></label>
-    </div><button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payPhone.trim()} onClick={()=>void registerClientE2Pay(client,project)}>{e2payBusy?'Mendaftarkan…':label||(project?'Register Project Override':'Register E2Pay Sub-Client')}</button></>;
-  }
-
-  function renderE2PayPendingConfirmation(account:E2PaySubAccount,client:Client,project?:Project){
-    if(!canManageE2Pay) return <UiNotice tone="warning" title="Menunggu konfirmasi E2Pay">OTP activation masih diperlukan. Hubungi Super Admin atau Payroll Processor untuk menyelesaikan aktivasi.</UiNotice>;
-    const state=account.provisioning?.state||'MANUAL_REVIEW';
-    const canResume=state==='OTP_REQUIRED'||state==='RETRYABLE_ERROR'||state==='ACTIVATING';
-    if(!canResume) return <><UiNotice tone="warning" title="Provisioning lama perlu diperbarui">Account ini dibuat sebelum zero-friction provisioning dan challenge aman tidak tersedia. Kirim ulang registration request; sub-account existing tidak akan diduplikasi.</UiNotice>{renderE2PayRegistrationForm(client,project,'Kirim ulang OTP aktivasi')}</>;
-    return <><UiNotice tone="warning" title="Verifikasi OTP E2Pay">Masukkan OTP yang dikirim ke nomor ••••{account.provisioning?.phoneLast4||'----'}. Username, password merchant, dan token prefix dikelola otomatis oleh ProQPay.</UiNotice>
-      <div className="directory-form-grid">
-        <label>OTP<input inputMode="numeric" autoComplete="one-time-code" value={e2payOtp} maxLength={20} placeholder="OTP dari E2Pay" onChange={(event)=>setE2PayOtp(event.target.value)}/></label>
-      </div>
-      <p className="directory-hint">Aktivasi bersifat resumable: jika koneksi provider terputus setelah OTP diterima, ProQPay akan melanjutkan session yang sama tanpa membuat merchant baru.</p>
-      <button type="button" className="btn btn-primary" disabled={e2payBusy||!e2payOtp.trim()} onClick={()=>void confirmClientE2Pay(account)}>{e2payBusy?'Mengaktifkan…':'Verifikasi OTP & Aktifkan'}</button>
-    </>;
-  }
-
   const canCreateProject = actor?.permissions.includes('project:write') || false;
   function editClient(client: Client) {
     setEditingId(client.id); setMode('client');
@@ -556,13 +393,9 @@ export default function DirectoryManager({ actor, onChanged, existingClients = [
         </div>
       </div>, document.body) : null}
       {detail ? createPortal(<div className="directory-modal-backdrop" role="presentation" onMouseDown={(event)=>{if(event.target===event.currentTarget)setDetail(null);}}><div ref={detailDialogRef} className="directory-modal directory-detail-modal" role="dialog" aria-modal="true" aria-label={`Detail ${detail.type}`}><div className="directory-modal-title"><div><span>MASTER DATA</span><h3>{detail.item.name}</h3></div><button type="button" aria-label="Tutup detail" onClick={()=>setDetail(null)}>✕</button></div><DirectoryDetail detail={detail} />
-      {(()=>{const params=typeof window==='undefined'?null:new URLSearchParams(window.location.search);const requested=params?.get('recoveryAccountId');const account=e2payAccounts.find(row=>row.id===requested);return requested&&account&&account.clientId===(detail.type==='client'?(detail.item as Client).id:(detail.item as Project).client_id)?<div className="app-notice-bubble app-notice-info" role="status"><strong>Recovery account terpilih · {account.providerSubAccountIdMasked||'E2Pay'}</strong><span>{account.projectId?'Project Override':'Client Sub-account'} · Credential untuk account yang dipilih dari Funding Control.</span></div>:null;})()}
-      {detail.type==='client'?<>{(()=>{const client=detail.item as Client;const item=clientReadiness.find((row)=>row.clientId===client.id);if(!item)return null;const r=item.readiness;return <section className="directory-form-card"><div className="directory-form-card-title"><span>RDY</span><div><strong>Operational Readiness</strong><small>Provider payment berjalan async dan tidak memblokir setup payroll/EWA.</small></div></div><div className="directory-detail-grid"><div><span>Client Setup</span><strong>{r.client.state}</strong></div><div><span>Employees</span><strong>{r.employees.state} · {r.employees.count}</strong></div><div><span>Payroll</span><strong>{r.payroll.state}</strong></div><div><span>EWA</span><strong>{r.ewa.state}</strong></div><div><span>Payment</span><strong>{r.payment.state}</strong></div><div><span>Overall</span><strong>{r.overall.operationalReady?'Operational Ready':'Blocked'} · {r.overall.paymentReady?'Payment Ready':'Payment Pending'}</strong></div></div>{!r.payment.ready?<UiNotice tone="info" title="Payment setup berjalan async">Client, employee, payroll calculation, dan konfigurasi EWA tetap dapat dilanjutkan. Funding, limit, dan payment submission menunggu Payment Readiness menjadi READY.</UiNotice>:null}</section>;})()}<section className="directory-form-card"><div className="directory-form-card-title"><span>PAY</span><div><strong>Payment & Disbursement</strong><small>E2Pay sub-client mengikuti master klien dan digunakan sebagai sumber routing pembayaran.</small></div></div>
-        {(()=>{const client=detail.item as Client;const account=e2payAccounts.find((row)=>row.clientId===client.id&&!row.projectId);if(!account)return canManageE2Pay?renderE2PayRegistrationForm(client):<p className="directory-hint">Sub-client E2Pay belum terdaftar. Hubungi Super Admin atau Payroll Processor.</p>;return <><div className="directory-detail-grid"><div><span>Gateway</span><strong>E2Pay</strong></div><div><span>Status</span><strong>{account.status}</strong></div><div><span>Provisioning</span><strong>{account.provisioningState||'NOT_STARTED'}</strong></div><div><span>Readiness</span><strong>{account.readiness?.ready?'Ready':'Blocked'}</strong></div><div><span>Sub-client</span><strong>{account.providerSubAccountIdMasked||'Menunggu provisioning'}</strong></div><div><span>Environment</span><strong>{account.environment}</strong></div><div><span>Credential lifecycle</span><strong>{account.provisioning?.credentialHealth?.state||(account.merchantCredential?.ready?'HEALTHY':'LEGACY')}</strong></div><div><span>Parent E2Pay</span><strong>{account.parentSourceId||'Belum tervalidasi'}</strong></div><div><span>Available balance</span><strong>{account.availableBalance===null?'Belum sync':`Rp ${Number(account.availableBalance).toLocaleString('id-ID')}`}</strong></div></div>{account.provisioningState==='FAILED'?<><UiNotice tone="error" title="Provisioning gagal">{account.lastProvisioningErrorMessage||'Registrasi belum berhasil.'}</UiNotice>{renderE2PayRegistrationForm(client,undefined,'Coba registrasi ulang')}</>:account.provisioningState==='PENDING_CONFIRMATION'?renderE2PayPendingConfirmation(account,client):renderE2PayMerchantCredential(account)}</>;})()}
-      </section><CorporateBeneficiaryPanel clientId={(detail.item as Client).id} clientName={(detail.item as Client).name} actor={actor}/></>:null}
-      {detail.type==='project'?<section className="directory-form-card"><div className="directory-form-card-title"><span>PAY</span><div><strong>Payment & Disbursement</strong><small>Project mewarisi E2Pay sub-client milik Client. Override hanya dibuat bila project membutuhkan account terpisah.</small></div></div>
-        {(()=>{const project=detail.item as Project;const override=e2payAccounts.find((row)=>row.projectId===project.id);const inherited=e2payAccounts.find((row)=>row.clientId===project.client_id&&!row.projectId);const account=override||inherited;const client=clients.find((row)=>row.id===project.client_id);if(!account)return canManageE2Pay&&client?<><p className="directory-hint">Client belum memiliki E2Pay account. Daftarkan di Client terlebih dahulu; project akan mewarisinya otomatis.</p></>:<p className="directory-hint">Belum ada routing pembayaran aktif.</p>;return <><div className="directory-detail-grid"><div><span>Routing</span><strong>{override?'Project Override':'Inherited from Client'}</strong></div><div><span>Status</span><strong>{account.status}</strong></div><div><span>Provisioning</span><strong>{account.provisioningState||'NOT_STARTED'}</strong></div><div><span>Readiness</span><strong>{account.readiness?.ready?'Ready':'Blocked'}</strong></div><div><span>Sub-client</span><strong>{account.providerSubAccountIdMasked||'Menunggu provisioning'}</strong></div><div><span>Environment</span><strong>{account.environment}</strong></div><div><span>Credential lifecycle</span><strong>{account.provisioning?.credentialHealth?.state||(account.merchantCredential?.ready?'HEALTHY':'LEGACY')}</strong></div><div><span>Available balance</span><strong>{account.availableBalance===null?'Belum sync':`Rp ${Number(account.availableBalance).toLocaleString('id-ID')}`}</strong></div></div>{override&&client&&account.provisioningState==='FAILED'?<><UiNotice tone="error" title="Provisioning override gagal">{account.lastProvisioningErrorMessage||'Registrasi override belum berhasil.'}</UiNotice>{renderE2PayRegistrationForm(client,project,'Coba registrasi override ulang')}</>:override&&client&&account.provisioningState==='PENDING_CONFIRMATION'?renderE2PayPendingConfirmation(account,client,project):override?renderE2PayMerchantCredential(account):!override&&canManageE2Pay&&client?<><details><summary>Buat Project Override</summary>{renderE2PayRegistrationForm(client,project)}</details>{renderE2PayMerchantCredential(account)}</>:renderE2PayMerchantCredential(account)}</>;})()}
-      </section>:null}
+
+      {detail.type==='client'?<>{(()=>{const client=detail.item as Client;const item=clientReadiness.find((row)=>row.clientId===client.id);if(!item)return null;const r=item.readiness;return <section className="directory-form-card"><div className="directory-form-card-title"><span>RDY</span><div><strong>Operational Readiness</strong><small>Provider payment berjalan async dan tidak memblokir setup payroll/EWA.</small></div></div><div className="directory-detail-grid"><div><span>Client Setup</span><strong>{r.client.state}</strong></div><div><span>Employees</span><strong>{r.employees.state} · {r.employees.count}</strong></div><div><span>Payroll</span><strong>{r.payroll.state}</strong></div><div><span>EWA</span><strong>{r.ewa.state}</strong></div><div><span>Payment</span><strong>{r.payment.state}</strong></div><div><span>Overall</span><strong>{r.overall.operationalReady?'Operational Ready':'Blocked'} · {r.overall.paymentReady?'Payment Ready':'Payment Pending'}</strong></div></div>{!r.payment.ready?<UiNotice tone="info" title="Payment setup berjalan async">Client, employee, payroll calculation, dan konfigurasi EWA tetap dapat dilanjutkan. Funding, limit, dan payment submission menunggu Payment Readiness menjadi READY.</UiNotice>:null}</section>;})()}<section className="directory-form-card"><div className="directory-form-card-title"><span>PAY</span><div><strong>Payment & Disbursement</strong><small>Saldo E2Pay Master dikelola terpusat; limit pembayaran tetap terpisah per klien.</small></div></div><UiNotice tone="info" title="Master E2Pay">Tidak diperlukan registrasi sub-client, OTP merchant, atau credential per klien. Payment Instruction diproses melalui Master Account setelah persetujuan Controller.</UiNotice></section><CorporateBeneficiaryPanel clientId={(detail.item as Client).id} clientName={(detail.item as Client).name} actor={actor}/></>:null}
+      {detail.type==='project'?<section className="directory-form-card"><div className="directory-form-card-title"><span>PAY</span><div><strong>Payment & Disbursement</strong><small>Project menggunakan Master Account E2Pay yang sama, dengan limit sesuai Client/Project.</small></div></div><UiNotice tone="info" title="Master Account Routing">Tidak ada project override atau credential merchant terpisah. Controller tetap menyetujui limit dan pembayaran.</UiNotice></section>:null}
       <div className="directory-modal-actions"><button type="button" className="btn" onClick={()=>setDetail(null)}>Tutup</button>{detail.type==='client'&&canCreateClient?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editClient(detail.item as Client);}}>Kelola</button>:detail.type==='project'&&canCreateProject&&(detail.item as Project).client_id?<button type="button" className="btn btn-primary" onClick={()=>{setDetail(null);editProject(detail.item as Project);}}>Kelola</button>:null}</div></div></div>,document.body):null}
     </section>
   );

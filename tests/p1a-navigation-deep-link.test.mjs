@@ -65,13 +65,5 @@ test('P1.A application parent owns stage navigation and browser Back/Forward res
  assert.match(page,/normalizeInternalRoute\(normalizedView,params\.get\('stage'\)/);
 });
 
-test('P1.A funding recovery link is role-safe and exact destination return is canonical',async()=>{
- const [funding,directory]=await Promise.all([src('src/components/E2PayFundingLimitControl.tsx'),src('src/components/DirectoryManager.tsx')]);
- assert.match(funding,/const canRecover=role==='SUPER_ADMIN'\|\|role==='PAYROLL_PROCESSOR'/);
- assert.match(funding,/canRecover\?<Link/);
- assert.match(funding,/recoveryAccountId=\$\{encodeURIComponent\(selected\.providerAccountRegistryId\)\}/);
- assert.match(funding,/recoveryReturnView=payments/);
- assert.match(directory,/resolveRecoveryTarget\(recoveryClientId,recoveryAccountId,e2payAccounts,clients,projects\)/);
- assert.match(directory,/recoveryReturnUrl\(account\.id,params\.get\('period'\)\)/);
- assert.doesNotMatch(directory,/window\.location\.assign\(`\/\?view=payment-instructions/);
-});
+test('GT5 retired credential recovery deep link is absent from Client UI',async()=>{ assert.doesNotMatch(await src('src/components/DirectoryManager.tsx'),/recoveryAccountId/); });
+

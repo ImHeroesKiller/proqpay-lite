@@ -5,6 +5,7 @@ import { providerAccountCredentialState } from './payment-provider-account-crede
 import { canonicalBankCode, encryptAccountNumber, sha256Hex } from './payment-instruction-core.js';
 import { revealEmployeeBankAccount } from './_employee-bank-security.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
+import { e2payReadiness, e2payExecutionContract } from './payment-gateway-e2pay.js';
 import { canonicalSourceType, disbursementIdentity, intentFromSource, publicDisbursementRequest } from './disbursement-request-core.js';
 import { resolveProviderChannel, validateProviderChannelSnapshot } from './provider-channel-router.js';
 import { actorFraudDecision, paymentLimitDecision } from './_fraud-controls.js';
@@ -34,7 +35,7 @@ async function existingForSource(db,org,sourceType,sourceId){
 }
 function ensureRequestPermission(actor){ return actor?.permissions?.includes('disbursement:request'); }
 
-async function payrollSource(db,org,sourceId,destinationMode){
+async function payrollSource(db,org,sourceId,destinationMode,env){
   const pi=await d1First(db,`SELECT pi.*,s.project_id,s.period AS payroll_period
     FROM payment_instructions pi JOIN payroll_submissions s ON s.id=pi.submission_id
     WHERE pi.id=? AND pi.org_id=? LIMIT 1`,[sourceId,org]);
@@ -42,12 +43,24 @@ async function payrollSource(db,org,sourceId,destinationMode){
   const uatArchive=await d1First(db,'SELECT id FROM uat_administrative_closures WHERE org_id=? AND source_document_id=? LIMIT 1',[org,pi.id]);
   if(uatArchive)return {error:'PI UAT telah ditutup administratif, bukan settlement provider. Tidak boleh diproses ulang.',status:409,code:'UAT_ARCHIVED_SOURCE_NOT_EXECUTABLE'};
   if(!SOURCE_READY_PI.has(String(pi.status))) return {error:'PI belum berada pada tahap payment yang dapat dibuatkan Disbursement Request',status:409,code:'DISBURSEMENT_PI_NOT_READY'};
-  if(!pi.provider_account_registry_id||!pi.provider_sub_account_id||String(pi.provider||'').toUpperCase()!=='E2PAY'){
+  if(!pi.provider_account_registry_id||String(pi.provider||'').toUpperCase()!=='E2PAY'){
     return {error:'Payment Readiness belum READY. Submit/bind routing PI ke E2Pay terlebih dahulu.',status:409,code:'PAYMENT_READINESS_PENDING'};
   }
   const account=await d1First(db,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider='E2PAY' AND status='ACTIVE' LIMIT 1`,[pi.provider_account_registry_id,org]);
-  if(!account||String(account.provider_sub_account_id)!==String(pi.provider_sub_account_id)) return {error:'Snapshot provider PI tidak lagi cocok dengan registry aktif',status:409,code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'};
-  if(!providerAccountCredentialState(account).ready) return {error:'Credential provider belum READY',status:409,code:'PAYMENT_READINESS_CREDENTIAL_PENDING'};
+  if(!account) return {error:'Provider account tidak ACTIVE',status:409,code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'};
+  if(account.account_scope==='MASTER'){
+    const runtime=await gatewayRuntimeEnv(db,env,org);
+    const contract=e2payExecutionContract(runtime,{accountId:account.provider_account_id});
+    if(!e2payReadiness(runtime).configured||!contract.valid||
+      String(runtime.E2PAY_ENV||'UAT').toUpperCase()!==String(pi.provider_environment||'').toUpperCase()||
+      String(pi.provider_sub_account_id||'')!=='')
+      return {error:'Master credential atau immutable provider routing belum valid',status:409,code:'MASTER_ROUTING_CONTRACT_NOT_READY'};
+  }else{
+    if(String(account.provider_sub_account_id)!==String(pi.provider_sub_account_id))
+      return {error:'Provider sub-account snapshot berbeda',status:409,code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'};
+    if(!providerAccountCredentialState(account).ready)
+      return {error:'Credential provider belum READY',status:409,code:'PAYMENT_READINESS_CREDENTIAL_PENDING'};
+  }
 
   // Every settlement destination derives from the same immutable PI source.
   // Corporate payment must not bypass missing/altered PI recipient totals.
@@ -90,7 +103,12 @@ async function ewaSource(db,org,sourceId,env){
   const runtime=await gatewayRuntimeEnv(db,env,org);
   const environment=String(runtime.E2PAY_ENV||'UAT').toUpperCase();
   const account=await activeProviderAccount(db,org,ewa.client_id,'E2PAY',environment,ewa.project_id||null);
-  if(!account?.provider_sub_account_id||!providerAccountCredentialState(account).ready) return {error:'Payment Readiness E2Pay client belum READY untuk EWA',status:409,code:'PAYMENT_READINESS_PENDING'};
+  if(!account) return {error:'Master account E2Pay belum tersedia',status:409,code:'PAYMENT_READINESS_PENDING'};
+  if(account.account_scope==='MASTER'){
+    if(!e2payReadiness(runtime).configured||!e2payExecutionContract(runtime,{accountId:account.provider_account_id}).valid)
+      return {error:'Master E2Pay credential belum READY',status:409,code:'MASTER_ROUTING_CONTRACT_NOT_READY'};
+  }else if(!account.provider_sub_account_id||!providerAccountCredentialState(account).ready)
+    return {error:'Payment Readiness E2Pay belum READY',status:409,code:'PAYMENT_READINESS_PENDING'};
   const bank=await d1First(db,`SELECT * FROM employee_bank_accounts WHERE employee_id=? AND is_primary=1 ORDER BY created_at DESC,id DESC LIMIT 1`,[ewa.employee_id]);
   if(!bank) return {error:'Rekening utama karyawan belum tersedia',status:409,code:'EMPLOYEE_BENEFICIARY_REQUIRED'};
   let digits='';
@@ -170,14 +188,25 @@ export async function onRequest({request,env}){
     const routeValidation=await validateProviderChannelSnapshot(env.DB,current);
     if(!routeValidation.ok) return secureJson({error:'Provider channel snapshot tidak lagi valid untuk approval',code:routeValidation.code},409,request,env,METHODS);
     const account=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider=? AND environment=? AND status='ACTIVE' LIMIT 1`,[current.provider_account_registry_id,organizationId,current.provider,current.provider_environment]);
-    if(!account||String(account.provider_sub_account_id)!==String(current.provider_sub_account_id_snapshot)) return secureJson({error:'Provider routing snapshot tidak cocok dengan account aktif',code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'},409,request,env,METHODS);
-    if(!providerAccountCredentialState(account).ready) return secureJson({error:'Credential provider belum READY',code:'PAYMENT_READINESS_CREDENTIAL_PENDING'},409,request,env,METHODS);
+    if(!account) return secureJson({error:'Provider routing snapshot tidak cocok',code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'},409,request,env,METHODS);
+    if(account.account_scope==='MASTER'){
+      const runtime=await gatewayRuntimeEnv(env.DB,env,organizationId);
+      const contract=e2payExecutionContract(runtime,{accountId:account.provider_account_id});
+      if(!e2payReadiness(runtime).configured||!contract.valid||String(account.provider_account_id)!==String(current.provider_sub_account_id_snapshot)||
+        String(current.provider_environment)!==String(runtime.E2PAY_ENV||'UAT'))
+        return secureJson({error:'Master routing snapshot/credential tidak valid',code:'MASTER_ROUTING_CONTRACT_NOT_READY'},409,request,env,METHODS);
+    }else{
+      if(String(account.provider_sub_account_id)!==String(current.provider_sub_account_id_snapshot))
+        return secureJson({error:'Sub-account routing snapshot berbeda',code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'},409,request,env,METHODS);
+      if(!providerAccountCredentialState(account).ready)
+        return secureJson({error:'Credential provider belum READY',code:'PAYMENT_READINESS_CREDENTIAL_PENDING'},409,request,env,METHODS);
+    }
     const actorFraud=await actorFraudDecision(env.DB,organizationId,actor,env);
     if(actorFraud.blocked) return secureJson({error:'Approval disbursement diblokir kontrol fraud',code:actorFraud.code||'DISBURSEMENT_FRAUD_BLOCKED'},403,request,env,METHODS);
     const risk=await paymentLimitDecision(env.DB,organizationId,{expected_total:Number(current.amount),recipient_count:Number(current.recipient_count)},{isNewExecution:false});
     if(risk.blocked) return secureJson({error:'Approval disbursement diblokir security transaction limit',code:risk.code,risk},409,request,env,METHODS);
     if(mfaEnforcementMode(env)==='ENFORCE'&&!hasRecentMfa(actor,risk.limits.stepUpWindowSeconds)) return secureJson({error:'Verifikasi MFA terbaru diperlukan sebelum approval disbursement.',code:'MFA_STEP_UP_REQUIRED',stepUpWindowSeconds:risk.limits.stepUpWindowSeconds},428,request,env,METHODS);
-    const funding=await readProviderFundingState(env.DB,organizationId,current.provider_account_registry_id,Number(current.amount),null,Date.now(),current.id);
+    const funding=await readProviderFundingState(env.DB,organizationId,current.provider_account_registry_id,Number(current.amount),null,Date.now(),current.id,current.client_id,current.project_id||null);
     if(!funding.ready) return secureJson({error:'Funding & approved disbursement limit belum siap untuk approval DR.',code:`E2PAY_FUNDING_${funding.state}`,funding},409,request,env,METHODS);
     await d1Batch(env.DB,[
       {statement:`UPDATE disbursement_requests SET status='APPROVED',approved_by_user_id=?,approved_by_email=?,approved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_by_user_id=?,updated_by_email=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='PENDING_APPROVAL'`,bindings:[actor.id||null,actor.email,actor.id||null,actor.email,id,organizationId]},
@@ -230,7 +259,7 @@ export async function onRequest({request,env}){
     return secureJson(LEGACY_FINANCIAL_PRESENT,409,request,env,METHODS);
 
   const source=sourceDocumentType==='PAYMENT_INSTRUCTION'
-    ? await payrollSource(env.DB,organizationId,sourceDocumentId,destinationMode)
+    ? await payrollSource(env.DB,organizationId,sourceDocumentId,destinationMode,env)
     : await ewaSource(env.DB,organizationId,sourceDocumentId,env);
   if(source.error) return secureJson({error:source.error,code:source.code},source.status||409,request,env,METHODS);
 
@@ -242,7 +271,7 @@ export async function onRequest({request,env}){
       purpose,destination_mode,beneficiary_type,source_document_type,source_document_id,amount,currency,recipient_count,
       client_reference,correlation_id,idempotency_key,routing_hash,status,created_by_user_id,created_by_email,updated_by_user_id,updated_by_email
     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'IDR',?,?,?,?,?,'READY',?,?,?,?)`,bindings:[
-      id,organizationId,source.clientId,source.projectId,source.provider,source.account.id,source.account.provider_sub_account_id,source.environment,
+      id,organizationId,source.clientId,source.projectId,source.provider,source.account.id,source.account.account_scope==='MASTER'?source.account.provider_account_id:source.account.provider_sub_account_id,source.environment,
       intent.purpose,intent.destinationMode,intent.beneficiaryType,sourceDocumentType,sourceDocumentId,source.amount,source.items.length,
       identity.clientReference,correlationId,identity.idempotencyKey,identity.routingHash,actor.id||null,actor.email,actor.id||null,actor.email,
     ]},

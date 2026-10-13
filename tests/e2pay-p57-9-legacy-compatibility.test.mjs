@@ -57,12 +57,5 @@ test('P5.7.9 flags deterministic orphan limit and legacy corporate beneficiary f
   assert.match(compatibilityApi,/REVERIFY_THROUGH_P5_7_7_MAKER_CHECKER/);
 });
 
-test('P5.7.9 UI makes legacy recovery explicit and shows closure dashboard',()=>{
-  assert.match(directory,/Sub-account existing tidak akan dibuat ulang/);
-  assert.match(directory,/promosi ke lifecycle READY\/HEALTHY/);
-  assert.match(settings,/P5\.7 Legacy Compatibility Closure/);
-  assert.match(settings,/Recovery Required/);
-  assert.match(settings,/Retain Legacy/);
-  assert.match(settings,/Canonical Eligible/);
-  assert.match(settings,/Refresh Legacy Audit/);
-});
+test('GT5 legacy recovery is not exposed in client directory',()=>{ assert.doesNotMatch(directory,/Migrasikan Credential Legacy|Legacy credential recovery/); });
+
