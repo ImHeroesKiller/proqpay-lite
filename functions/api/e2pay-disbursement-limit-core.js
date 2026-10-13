@@ -29,7 +29,13 @@ export async function readProviderFundingState(database,organizationId,providerA
     : parentAge<0||parentAge>PARENT_BALANCE_MAX_AGE_MS?'STALE'
       :'READY';
 
-  const subLiquidity=liquidityState(account,required,nowMs,PROVIDER_BALANCE_MAX_AGE_MS);
+  // Shared master liquidity: one provider balance for all clients. A client never owns
+  // a virtual duplicate of this balance. Reservation accounting remains mandatory.
+  const isMaster=account.account_scope==='MASTER';
+  const parentFresh=parentState==='READY' && Number.isFinite(parentBalance) && parentBalance>=0;
+  const subLiquidity=isMaster
+    ? {ready:parentFresh&&parentBalance>=required,state:!parentFresh?'PARENT_NOT_READY':parentBalance<required?'INSUFFICIENT':'FUNDED',availableBalance:parentFresh?parentBalance:null,ageMs:parentAge}
+    : liquidityState(account,required,nowMs,PROVIDER_BALANCE_MAX_AGE_MS);
 
   const activeLimit=await d1First(database,`SELECT * FROM e2pay_disbursement_limit_requests
     WHERE org_id=? AND provider_account_registry_id=? AND status='ACTIVE'
@@ -91,8 +97,8 @@ export async function readProviderFundingState(database,organizationId,providerA
       availableBalance:subLiquidity.availableBalance,
       checkedAt:account.last_balance_sync_at||null,
       ageMs:subLiquidity.ageMs??null,
-      accountId:account.id,
-      accountLast4:String(account.provider_sub_account_id||'').slice(-4)||null,
+      accountId:isMaster?null:account.id,
+      accountLast4:isMaster?null:String(account.provider_sub_account_id||'').slice(-4)||null,
     },
     limit:{
       ready:limitState==='AVAILABLE',
