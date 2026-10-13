@@ -1,6 +1,7 @@
 import { d1All, d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
+import { e2payExecutionContract, e2payReadiness } from './payment-gateway-e2pay.js';
 import { scopedE2PayRuntimeEnv, providerAccountCredentialState } from './payment-provider-account-credentials.js';
 import { validateProviderChannelSnapshot } from './provider-channel-router.js';
 import { executeCanonicalE2Pay } from './disbursement-execution-e2pay.js';
@@ -84,8 +85,21 @@ export async function onRequest({request,env}){
     const route=await validateProviderChannelSnapshot(env.DB,dr);
     if(!route.ok) return secureJson({error:'Provider channel snapshot tidak valid untuk execution',code:route.code},409,request,env,METHODS);
     const account=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider=? AND environment=? AND status='ACTIVE' LIMIT 1`,[dr.provider_account_registry_id,organizationId,dr.provider,dr.provider_environment]);
-    if(!account||String(account.provider_sub_account_id)!==String(dr.provider_sub_account_id_snapshot)) return secureJson({error:'Provider routing snapshot mismatch',code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'},409,request,env,METHODS);
-    if(!providerAccountCredentialState(account).ready) return secureJson({error:'Scoped credential provider belum READY',code:'PAYMENT_READINESS_CREDENTIAL_PENDING'},409,request,env,METHODS);
+    if(!account) return secureJson({error:'Provider registry tidak aktif',code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'},409,request,env,METHODS);
+    const isMaster=account.account_scope==='MASTER';
+    if(isMaster){
+      const runtime=await gatewayRuntimeEnv(env.DB,env,organizationId,dr.provider_environment);
+      if(!e2payReadiness(runtime).configured||
+        !e2payExecutionContract(runtime,{accountId:account.provider_account_id}).valid||
+        String(dr.provider_sub_account_id_snapshot)!==String(account.provider_account_id)||
+        String(runtime.E2PAY_ENV||'UAT')!==String(dr.provider_environment))
+        return secureJson({error:'Master identity/credential tidak cocok dengan immutable request.',code:'MASTER_ROUTING_CONTRACT_NOT_READY'},409,request,env,METHODS);
+    }else{
+      if(String(account.provider_sub_account_id)!==String(dr.provider_sub_account_id_snapshot))
+        return secureJson({error:'Provider routing snapshot mismatch',code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'},409,request,env,METHODS);
+      if(!providerAccountCredentialState(account).ready)
+        return secureJson({error:'Scoped credential provider belum READY',code:'PAYMENT_READINESS_CREDENTIAL_PENDING'},409,request,env,METHODS);
+    }
 
     const actorFraud=await actorFraudDecision(env.DB,organizationId,actor,env);
     if(actorFraud.blocked) return secureJson({error:'Execution diblokir kontrol fraud actor',code:actorFraud.code||'DISBURSEMENT_FRAUD_BLOCKED'},403,request,env,METHODS);
@@ -106,7 +120,7 @@ export async function onRequest({request,env}){
       return secureJson({error:'Disbursement diblokir karena rekening beneficiary berada pada fraud blocklist.',code:beneficiaryFraud.code,blockedBeneficiaries:beneficiaryFraud.matches.map(item=>({employeeId:item.employeeId,accountLast4:item.accountLast4}))},409,request,env,METHODS);
     }
 
-    const funding=await readProviderFundingState(env.DB,organizationId,dr.provider_account_registry_id,Number(dr.amount),null,Date.now(),dr.id);
+    const funding=await readProviderFundingState(env.DB,organizationId,dr.provider_account_registry_id,Number(dr.amount),null,Date.now(),dr.id,dr.client_id,dr.project_id||null);
     if(!funding.ready) return secureJson({error:'Funding/sub-client balance/approved limit belum siap untuk execution.',code:`E2PAY_FUNDING_${funding.state}`,funding},409,request,env,METHODS);
     const reservation=await reserveDisbursementRequestLimit(env.DB,{organizationId,providerAccountRegistryId:dr.provider_account_registry_id,disbursementRequestId:dr.id,amount:Number(dr.amount)});
     if(!reservation.ok) return secureJson({error:'Approved disbursement limit berubah atau tidak mencukupi saat reservation.',code:reservation.code,funding},409,request,env,METHODS);
@@ -130,9 +144,9 @@ export async function onRequest({request,env}){
     if(!lock) return secureJson({error:'Disbursement sedang diproses request lain',code:'DISBURSEMENT_EXECUTION_BUSY'},409,request,env,METHODS);
     try{
       const runtime=await gatewayRuntimeEnv(env.DB,env,organizationId,dr.provider_environment);
-      const routedEnv=await scopedE2PayRuntimeEnv(env.DB,runtime,account);
+      const routedEnv=isMaster?runtime:await scopedE2PayRuntimeEnv(env.DB,runtime,account);
       await d1Batch(env.DB,[{statement:`UPDATE disbursement_requests SET status='EXECUTING',execution_started_at=COALESCE(execution_started_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status IN ('APPROVED','PROCESSING','EXECUTING')`,bindings:[dr.id]}]);
-      const result=await executeCanonicalE2Pay({database:env.DB,env:routedEnv,execution,request:dr,requestItems,channelSnapshot,liquidityBalance:account.available_balance});
+      const result=await executeCanonicalE2Pay({database:env.DB,env:routedEnv,execution,request:dr,requestItems,channelSnapshot,liquidityBalance:isMaster?funding.parent.balance:account.available_balance});
       let nextDrStatus='PROCESSING';
       if(result.parentStatus==='SUCCEEDED') nextDrStatus='SETTLED';
       else if(result.parentStatus==='RECONCILIATION_REQUIRED') nextDrStatus='RECONCILIATION_REQUIRED';
