@@ -157,7 +157,7 @@ function timeoutMs(env) {
 // A copyable, *sanitized* representation of the outgoing provider request.
 // Never persist OAuth codes, tokens, merchant secrets, account numbers, PII or
 // free-form response bodies in audit_logs.
-const E2PAY_SECRET_KEY=/(secret|password|passwd|token|authorization|cookie|credential|api.?key|private.?key|client.?id|username|phone|email|address|account.?number|bank.?account|rekening|recipient|beneficiary|identity|nik|npwp|code|otp)/i;
+const E2PAY_SECRET_KEY=/(secret|password|passwd|token|authorization|cookie|credential|api.?key|private.?key|client.?id|username|phone|mobile|msisdn|email|address|account|bank|rekening|recipient|beneficiary|destination|identity|nik|npwp|birth|name|code|otp)/i;
 function auditSafe(value, depth=0){
   if(depth>7) return '[TRUNCATED]';
   if(Array.isArray(value)) return value.slice(0,30).map(item=>auditSafe(item,depth+1));
