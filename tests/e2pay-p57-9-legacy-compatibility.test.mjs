@@ -57,5 +57,5 @@ test('P5.7.9 flags deterministic orphan limit and legacy corporate beneficiary f
   assert.match(compatibilityApi,/REVERIFY_THROUGH_P5_7_7_MAKER_CHECKER/);
 });
 
-test('GT5 legacy recovery is not exposed in client directory',()=>{ assert.doesNotMatch(ui,/Migrasikan Credential Legacy|Legacy credential recovery/); });
+test('GT5 legacy recovery is not exposed in client directory',()=>{ assert.doesNotMatch(directory,/Migrasikan Credential Legacy|Legacy credential recovery/); });
 
