@@ -139,7 +139,7 @@ export default function EmployeeDirectory({
               <col className="employee-col-salary"/>
               <col className="employee-col-action"/>
             </colgroup>
-            <thead><tr><th>Karyawan</th><th>Penempatan</th><th>Status</th><th>Kontrak</th><th>Kelengkapan</th><th>Gaji pokok</th><th aria-label="Aksi"/></tr></thead>
+            <thead><tr><th>Karyawan</th><th>Penempatan</th><th>Status</th><th>Kontrak</th><th>Kelengkapan</th><th>Gaji pokok</th><th scope="col"><span className="visually-hidden">Aksi</span></th></tr></thead>
             <tbody>{visible.map((employee)=>{
               const issues=employeeIssues(employee);
               return <tr key={employee.id} onClick={()=>setSelected(employee)} tabIndex={0} onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' ') {event.preventDefault();setSelected(employee);}}}>

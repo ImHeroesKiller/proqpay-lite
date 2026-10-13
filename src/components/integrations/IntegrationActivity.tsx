@@ -40,7 +40,7 @@ export function IntegrationActivity({
         </tr>)}</tbody>
       </table>
     </div>
-    <div className="integration-events-mobile" aria-label="Aktivitas API eksternal">
+    <div className="integration-events-mobile" role="group" aria-label="Aktivitas API eksternal">
       {events.map((row, index) => <article key={row.created_at + row.app_id + index}>
         <div><strong>{row.method} {row.endpoint}</strong><span>HTTP {row.status_code}</span></div>
         <small>{row.app_name} · {row.event_type.replaceAll('_',' ')} · {row.duration_ms} ms</small>

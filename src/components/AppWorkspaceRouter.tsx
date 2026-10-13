@@ -55,7 +55,10 @@ export default function AppWorkspaceRouter(props:Props) {
   const [retryKey,setRetryKey]=useState(0);
   const { view,actor,period,db,settings,gatewayCanView,integrationsCanManage }=props;
 
+  const needsSemanticHeading=['clients','operations','exceptions','payments','billing','integrations','ewa','logs','portalSettings','reports'].includes(view);
   return <WorkspaceFrame key={view}>
+    {needsSemanticHeading?<h1 className="visually-hidden">{view==='clients'?'Klien & Project':view==='payments'?'Payment Instructions':view==='billing'?'Billing & AR':view}</h1>:null}
+    {view==='billing'?<h2 className="visually-hidden">Invoice, piutang, dan persetujuan pembayaran</h2>:null}
     <ModuleErrorBoundary moduleName={view} resetKey={`${view}:${retryKey}`} onRetry={() => setRetryKey((value)=>value+1)}>
       {view === 'dashboard' && (
         actor.role === 'CLIENT_USER'

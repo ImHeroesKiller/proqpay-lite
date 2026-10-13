@@ -1,0 +1,37 @@
+/* G4 — Accessibility contrast only. Keep visual geometry and brand surfaces.
+   Scope to light/contrast app shell; the dark palette has separate tokens. */
+.app-shell:not(.theme-dark) .sidebar-nav-active > span{color:#9c3d0b}
+.app-shell:not(.theme-dark) .ui-tabs button[role="tab"]{color:#4b5563}
+.app-shell:not(.theme-dark) .ui-tabs button[role="tab"][aria-selected="true"]{color:#9c3d0b}
+.app-shell:not(.theme-dark) .app-footer{color:#526078}
+.app-shell:not(.theme-dark) .app-footer button{color:#9c3d0b}
+.app-shell:not(.theme-dark) .gateway-balance-widget-head i.idle{color:#526078}
+/* Historical --text3 (#94a3b8) failed WCAG AA on white/pale surfaces.
+   Inherit an AA text-contrast tone without changing the accent fill/token. */
+.app-shell:not(.theme-dark){--text3:#526078}
+.app-shell:not(.theme-dark) .control-panel-title > div > span{color:#9c3d0b}
+.app-shell:not(.theme-dark) .client-documents-refresh > span{color:#9c3d0b}
+.app-shell:not(.theme-dark) .audit-health-strip strong.ok{color:#047857}
+.app-shell:not(.theme-dark) .workspace-eyebrow{color:#9c3d0b}
+/* Dark mode: active navigation retains a light badge surface, while legacy
+   Integrations cards use dark surfaces and must not hard-code dark ink. */
+.app-shell.theme-dark .sidebar-nav-active > span{color:#9c3d0b}
+.app-shell.theme-dark .integration-runtime-strip strong,
+.app-shell.theme-dark .integration-callbacks code,
+.app-shell.theme-dark .integration-health-banner strong,
+.app-shell.theme-dark .integration-endpoint-copy code,
+.app-shell.theme-dark .integration-panel-head strong{color:var(--text)}
+
+.app-shell.theme-dark .payment-decision-footnote{color:var(--text2)}
+
+.app-shell.theme-dark{background:var(--bg);color:var(--text);min-height:100vh}
+
+.app-shell.theme-dark .app-sidebar{background:var(--bg-surface);color:var(--text);border-color:var(--border)}
+.app-shell.theme-dark .sidebar-nav-active{background:var(--bg-subtle);color:var(--text)}
+.app-shell.theme-dark .sidebar-nav-active > span{color:var(--text)}
+/* The historical premium sidebar is delivered in a separate Next CSS chunk;
+   dark-only overrides win across chunk order without touching light visuals. */
+.app-shell.theme-dark .sidebar-nav-button{color:var(--text2)!important}
+.app-shell.theme-dark .sidebar-nav-active{background:var(--bg-subtle)!important;color:var(--text)!important}
+.app-shell.theme-dark .sidebar-nav-active > span{color:var(--text)!important}
+.app-shell.theme-dark .sidebar-label{color:var(--text2)!important}

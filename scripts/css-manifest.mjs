@@ -21,7 +21,8 @@ export const featureCss=[
   'src/app/audit-console.css',
   'src/app/e2pay-wallet.css',
 ];
-export const orderedGlobalCss=[...globalFoundationCss,...domainPolishCss,...featureCss];
+export const accessibilityCss=['src/app/styles/accessibility.css'];
+export const orderedGlobalCss=[...globalFoundationCss,...domainPolishCss,...featureCss,...accessibilityCss];
 export const originalLegacyHashes={
   global:'feb5cb820c57dc2a9297de582cfc0e92366cb4d6c989cb6f42d28b3de55e847a',
   polish:'4b3c8cf3de6c698bde2ff90c0ccd12b537dca63f39f32a4101e1a5a38f78d789',
