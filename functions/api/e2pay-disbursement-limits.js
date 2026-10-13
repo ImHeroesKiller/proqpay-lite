@@ -31,7 +31,7 @@ async function accountFor(database,organizationId,id){
     FROM payment_provider_accounts ppa
     LEFT JOIN clients c ON c.id=ppa.client_id
     LEFT JOIN projects p ON p.id=ppa.project_id
-    WHERE ppa.id=? AND ppa.org_id=? AND ppa.provider='E2PAY' AND ppa.account_scope='SUB_ACCOUNT' LIMIT 1`,
+    WHERE ppa.id=? AND ppa.org_id=? AND ppa.provider='E2PAY' AND ppa.account_scope IN ('SUB_ACCOUNT','MASTER') LIMIT 1`,
     [id,organizationId]);
 }
 
@@ -183,16 +183,30 @@ export async function onRequest({request,env}){
       }
       const providerAccountRegistryId=clean(body.providerAccountRegistryId,120);
       const amount=Math.trunc(Number(body.amount||0));
+      const scopedClientId=clean(body.clientId,120);
+      const scopedProjectId=clean(body.projectId,120)||null;
       const reason=clean(body.reason,500);
       const expiresAt=clean(body.expiresAt,80)||null;
       if(!providerAccountRegistryId||amount<=0) return secureJson({error:'providerAccountRegistryId dan amount wajib valid'},422,request,env,METHODS);
       if(reason.length<5) return secureJson({error:'Alasan limit minimal 5 karakter'},422,request,env,METHODS);
 
       const account=await accountFor(env.DB,organizationId,providerAccountRegistryId);
-      if(!account) return secureJson({error:'Sub-account E2Pay tidak ditemukan'},404,request,env,METHODS);
+      if(!account) return secureJson({error:'Akun E2Pay tidak ditemukan'},404,request,env,METHODS);
+      const master=account.account_scope==='MASTER';
+      if(master && !scopedClientId) return secureJson({error:'clientId wajib untuk alokasi Master',code:'MASTER_LIMIT_CLIENT_REQUIRED'},422,request,env,METHODS);
+      const clientId=master?scopedClientId:account.client_id;
+      const projectId=master?scopedProjectId:account.project_id||null;
+      if(master){
+        const client=await d1First(env.DB,'SELECT id FROM clients WHERE id=? AND org_id=?',[clientId,organizationId]);
+        if(!client) return secureJson({error:'Client tidak ditemukan',code:'MASTER_LIMIT_CLIENT_INVALID'},404,request,env,METHODS);
+        if(projectId){
+          const project=await d1First(env.DB,'SELECT id FROM projects WHERE id=? AND org_id=? AND client_id=?',[projectId,organizationId,clientId]);
+          if(!project) return secureJson({error:'Project tidak sesuai Client',code:'MASTER_LIMIT_PROJECT_INVALID'},422,request,env,METHODS);
+        }
+      }
       const duplicate=await d1First(env.DB,`SELECT id,status FROM e2pay_disbursement_limit_requests
-        WHERE org_id=? AND provider_account_registry_id=? AND status IN ('PENDING_APPROVAL','ACTIVE') LIMIT 1`,
-        [organizationId,providerAccountRegistryId]);
+        WHERE org_id=? AND provider_account_registry_id=? AND client_id=? AND (project_id IS ? OR project_id=?) AND status IN ('PENDING_APPROVAL','ACTIVE') LIMIT 1`,
+        [organizationId,providerAccountRegistryId,clientId,projectId,projectId]);
       if(duplicate) return secureJson({
         error:duplicate.status==='ACTIVE'?'Sub-client masih memiliki limit aktif.':'Sudah ada request limit yang menunggu Controller.',
         code:duplicate.status==='ACTIVE'?'E2PAY_ACTIVE_LIMIT_EXISTS':'E2PAY_LIMIT_REQUEST_PENDING',
@@ -209,9 +223,9 @@ export async function onRequest({request,env}){
           (id,org_id,provider_account_registry_id,client_id,project_id,environment,requested_amount,status,reason,
            requested_by_user_id,requested_by_email,expires_at)
           VALUES(?,?,?,?,?,?,?,'PENDING_APPROVAL',?,?,?,?)`,
-          bindings:[id,organizationId,account.id,account.client_id,account.project_id||null,account.environment,amount,reason,actor.id||null,actor.email,expiresAt]},
+          bindings:[id,organizationId,account.id,clientId,projectId,account.environment,amount,reason,actor.id||null,actor.email,expiresAt]},
         audit(organizationId,actor,'E2PAY_DISBURSEMENT_LIMIT_REQUESTED',id,
-          `client=${account.client_id} · project=${account.project_id||'CLIENT'} · amount=${amount}`,correlationId),
+          `client=${clientId} · project=${projectId||'CLIENT'} · amount=${amount}`,correlationId),
       ]);
       const row=await d1First(env.DB,'SELECT * FROM e2pay_disbursement_limit_requests WHERE id=?',[id]);
       return secureJson({ok:true,request:row,funding,correlationId},201,request,env,METHODS);
