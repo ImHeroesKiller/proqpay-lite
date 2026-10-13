@@ -17,7 +17,7 @@ test('master registry bootstrap requires provider identity plus recent MFA',()=>
 test('master limit is scoped to client and uses conditional global capacity update',()=>{
   assert.match(limit,/MASTER_LIMIT_CLIENT_REQUIRED/);
   assert.match(limit,/MASTER_GLOBAL_CAPACITY_RECHECK_FAILED/);
-  assert.match(limit,/status='ACTIVE' AND client_id=\?/);
+  assert.match(limit,/provider_account_registry_id=\? AND client_id=\?/);
   assert.match(limit,/s\.balance >= \(/);
   assert.match(limit,/guarded\?\.meta\?\.changes/);
   assert.match(core,/MASTER_LIMIT_SOURCE_INVALID/);
