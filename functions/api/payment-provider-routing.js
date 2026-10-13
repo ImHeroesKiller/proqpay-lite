@@ -10,16 +10,8 @@ export async function activeProviderAccount(database,organizationId,clientId,pro
   const master=await d1First(database,`SELECT * FROM payment_provider_accounts
     WHERE org_id=? AND provider=? AND environment=? AND account_scope='MASTER'
     ORDER BY created_at DESC LIMIT 1`,[organizationId,normalizedProvider,normalizedEnvironment]);
-  if(master) return master.status==='ACTIVE' ? master : null;
-  if(projectId){
-    const override=await d1First(database,`SELECT * FROM payment_provider_accounts
-      WHERE org_id=? AND client_id=? AND project_id=? AND provider=? AND environment=? AND account_scope='SUB_ACCOUNT' AND status='ACTIVE'
-      LIMIT 1`,[organizationId,clientId,projectId,normalizedProvider,normalizedEnvironment]);
-    if(override) return override;
-  }
-  return d1First(database,`SELECT * FROM payment_provider_accounts
-    WHERE org_id=? AND client_id=? AND project_id IS NULL AND provider=? AND environment=? AND account_scope='SUB_ACCOUNT' AND status='ACTIVE'
-    LIMIT 1`,[organizationId,clientId,normalizedProvider,normalizedEnvironment]);
+  return master?.status==='ACTIVE' ? master : null;
+
 }
 
 export function liquidityState(account,requiredAmount,nowMs=Date.now(),maxAgeMs=PROVIDER_BALANCE_MAX_AGE_MS){
