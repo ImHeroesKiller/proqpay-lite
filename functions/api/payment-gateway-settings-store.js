@@ -175,15 +175,27 @@ export async function activateGatewaySecureSettings(database, env, organizationI
   return persistGatewaySecureSettings(database, env, organizationId, actorEmail, input, true);
 }
 
+function attachE2PayAudit(runtime,database,organizationId){
+  if(!database || !organizationId) return runtime;
+  Object.defineProperty(runtime,'__e2payAudit',{enumerable:false,configurable:true,value:async(event)=>{
+    const payload=JSON.stringify(event);
+    await database.prepare(`INSERT INTO audit_logs
+      (id,org_id,username,role,action,detail,entity,entity_id,correlation_id)
+      VALUES (?,?,?,'SYSTEM','E2PAY_HTTP_REQUEST',?,'e2pay_http',?,?)`)
+      .bind(crypto.randomUUID(),organizationId,'E2PAY_GATEWAY',payload,event.requestId,event.requestId).run();
+  }});
+  return runtime;
+}
+
 export async function gatewayRuntimeEnv(database, env, organizationId, environmentOverride = null) {
   let stored;
   try {
     stored = await readGatewaySecureSettings(database, env, organizationId);
   } catch (error) {
-    if (/no such table: gateway_secure_settings/i.test(String(error?.message || error))) return env;
+    if (/no such table: gateway_secure_settings/i.test(String(error?.message || error))) return attachE2PayAudit(Object.create(env||null),database,organizationId);
     throw error;
   }
-  if (!stored?.exists) return env;
+  if (!stored?.exists) return attachE2PayAudit(Object.create(env||null),database,organizationId);
 
   const environment = normalizeEnvironment(environmentOverride, stored.environment);
   const credentials = stored.credentialProfiles?.[environment] || {};
@@ -207,7 +219,7 @@ export async function gatewayRuntimeEnv(database, env, organizationId, environme
     E2PAY_ACCOUNT_SRC:credential('accountSrc','E2PAY_ACCOUNT_SRC'),
     E2PAY_FUNDING_BANK:credential('fundingBank','E2PAY_FUNDING_BANK'),
   };
-  return Object.assign(Object.create(env || null), overrides);
+  return attachE2PayAudit(Object.assign(Object.create(env || null), overrides),database,organizationId);
 }
 
 function masked(value) {
