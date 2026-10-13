@@ -157,8 +157,38 @@ export async function onRequest({request,env}){
     if(request.method==='GET'){
       const url=new URL(request.url);
       const resource=String(url.searchParams.get('resource')||'overview').toLowerCase();
-      if(!['overview','account','catalog'].includes(resource) && !MANAGE_ROLES.includes(authorization.actor.role)){
+      if(!['overview','account','catalog','master-readiness'].includes(resource) && !MANAGE_ROLES.includes(authorization.actor.role)){
         return secureJson({error:'Resource E2Pay ini hanya tersedia untuk Super Admin'},403,request,env,METHODS);
+      }
+      if(resource==='master-readiness'){
+        // GT5.1: read-only master readiness. No sub-account registry dependency,
+        // provider request, financial operation, or database write.
+        const environment=String(runtimeEnv.E2PAY_ENV||'UAT');
+        const row=await snapshot(env.DB,organizationId,environment);
+        const credentialConfigured=Boolean(readiness.configured);
+        const refreshedAt=row?.refreshed_at||null;
+        const balanceFresh=Boolean(row && isFresh(refreshedAt) && row.balance!==null && Number.isFinite(Number(row.balance)));
+        const contract=e2payExecutionContract(runtimeEnv,{accountId:row?.account_id||''});
+        const verified=credentialConfigured && balanceFresh && contract.valid===true;
+        return secureJson({
+          ok:true,
+          mode:'MASTER_ACCOUNT',
+          environment,
+          ready:verified,
+          checks:{
+            credentialConfigured,
+            accountSnapshotPresent:Boolean(row),
+            balanceFresh,
+            executionContractValid:contract.valid===true,
+          },
+          balance:row?.balance===null||row?.balance===undefined?null:Number(row.balance),
+          refreshedAt,
+          reason:!credentialConfigured?'MASTER_CREDENTIAL_NOT_CONFIGURED':
+            !row?'MASTER_BALANCE_NOT_SYNCED':
+            !balanceFresh?'MASTER_BALANCE_STALE':
+            contract.valid!==true?'MASTER_EXECUTION_CONTRACT_INVALID':'READY',
+          correlationId,
+        },200,request,env,METHODS);
       }
       if(resource==='catalog') return secureJson({ok:true,catalog:CATALOG,environment:runtimeEnv.E2PAY_ENV||'UAT'},200,request,env,METHODS);
 
