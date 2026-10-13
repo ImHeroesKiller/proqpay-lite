@@ -185,7 +185,9 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
   const requestId=crypto.randomUUID();
   const started=Date.now();
   const audit={requestId,provider:'E2PAY',environment:String(env?.E2PAY_ENV||'UAT'),
-    method:String(init?.method||'GET').toUpperCase(),endpoint:path,requestJson:auditRequestBody(init),
+    method:String(init?.method||'GET').toUpperCase(),endpoint:String(path).split('?')[0],
+    queryParameters:String(path).includes('?')?auditSafe(Object.fromEntries(new URLSearchParams(String(path).split('?').slice(1).join('?')))):null,
+    requestJson:auditRequestBody(init),
     status:'UNKNOWN',httpStatus:null,durationMs:0};
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs(env));
