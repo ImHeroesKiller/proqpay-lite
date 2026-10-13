@@ -6,7 +6,7 @@ import {e2payHostAuthorize} from '../functions/api/payment-gateway-e2pay.js';
 
 test('E2Pay captures a redacted copyable request JSON in the existing audit table',async()=>{
  const calls=[];
- const db={prepare(sql){return {bind(...args){return {async run(){calls.push({sql,args});return {success:true};}};}};}};
+ const db={prepare(sql){return {bind(...args){return {async first(){return null;},async run(){calls.push({sql,args});return {success:true};}};}};}};
  const env={E2PAY_CLIENT_ID:'private-client-id',E2PAY_CLIENT_SECRET:'top-secret',E2PAY_ENV:'UAT'};
  const runtime=await gatewayRuntimeEnv(db,env,'ORG-A');
  const fetchImpl=async()=>new Response(JSON.stringify({access_token:'private-access-token',token_type:'Bearer'}),{status:200,headers:{'Content-Type':'application/json'}});
@@ -14,7 +14,7 @@ test('E2Pay captures a redacted copyable request JSON in the existing audit tabl
  assert.equal(result.accessToken,'private-access-token');
  const audit=calls.find(x=>x.sql.includes('INSERT INTO audit_logs'));
  assert.ok(audit,'audit row recorded');
- const payload=JSON.parse(audit.args[4]);
+ const payload=JSON.parse(audit.args[3]);
  assert.equal(payload.provider,'E2PAY');
  assert.equal(payload.status,'SUCCESS');
  assert.equal(payload.requestJson.client_secret,'[REDACTED]');
