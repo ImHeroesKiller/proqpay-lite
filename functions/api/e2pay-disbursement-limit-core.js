@@ -134,11 +134,18 @@ export async function reserveDisbursementLimit(database,{organizationId,provider
     return {ok:false,code:'E2PAY_LIMIT_USAGE_RELEASED'};
   }
 
+  const source=await d1First(database,`SELECT pi.client_id,s.project_id FROM payment_instructions pi
+    JOIN payroll_submissions s ON s.id=pi.submission_id
+    WHERE pi.id=? AND pi.org_id=? AND pi.provider_account_registry_id=?`,
+    [paymentInstructionId,organizationId,providerAccountRegistryId]);
+  if(!source) return {ok:false,code:'MASTER_LIMIT_SOURCE_INVALID'};
   const active=await d1First(database,`SELECT * FROM e2pay_disbursement_limit_requests
-    WHERE org_id=? AND provider_account_registry_id=? AND status='ACTIVE'
+    WHERE org_id=? AND provider_account_registry_id=? AND client_id=?
+      AND (project_id IS ? OR project_id=?)
+      AND status='ACTIVE'
       AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
     ORDER BY approved_at DESC,created_at DESC LIMIT 1`,
-    [organizationId,providerAccountRegistryId]);
+    [organizationId,providerAccountRegistryId,source.client_id,source.project_id||null,source.project_id||null]);
   if(!active) return {ok:false,code:'E2PAY_DISBURSEMENT_LIMIT_REQUIRED'};
 
   const id='DLU-'+crypto.randomUUID();
@@ -199,10 +206,17 @@ export async function reserveDisbursementRequestLimit(database,{organizationId,p
     if(['RESERVED','CONSUMED'].includes(String(existing.status||''))) return {ok:true,idempotent:true,usage:existing};
     return {ok:false,code:'E2PAY_LIMIT_USAGE_RELEASED'};
   }
+  const source=await d1First(database,`SELECT client_id,project_id FROM disbursement_requests
+    WHERE id=? AND org_id=? AND provider_account_registry_id=?`,
+    [disbursementRequestId,organizationId,providerAccountRegistryId]);
+  if(!source) return {ok:false,code:'MASTER_LIMIT_SOURCE_INVALID'};
   const active=await d1First(database,`SELECT * FROM e2pay_disbursement_limit_requests
-    WHERE org_id=? AND provider_account_registry_id=? AND status='ACTIVE'
+    WHERE org_id=? AND provider_account_registry_id=? AND client_id=?
+      AND (project_id IS ? OR project_id=?)
+      AND status='ACTIVE'
       AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
-    ORDER BY approved_at DESC,created_at DESC LIMIT 1`,[organizationId,providerAccountRegistryId]);
+    ORDER BY approved_at DESC,created_at DESC LIMIT 1`,
+    [organizationId,providerAccountRegistryId,source.client_id,source.project_id||null,source.project_id||null]);
   if(!active) return {ok:false,code:'E2PAY_DISBURSEMENT_LIMIT_REQUIRED'};
 
   const legacy=await d1First(database,`SELECT COALESCE(SUM(CASE WHEN status='CONSUMED' THEN consumed_amount WHEN status='RESERVED' THEN reserved_amount ELSE 0 END),0) AS amount
