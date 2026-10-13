@@ -5,6 +5,12 @@ export const PROVIDER_BALANCE_MAX_AGE_MS=5*60*1000;
 export async function activeProviderAccount(database,organizationId,clientId,provider,environment,projectId=null){
   const normalizedProvider=String(provider||'E2PAY').toUpperCase();
   const normalizedEnvironment=String(environment||'UAT').toUpperCase();
+  // GT5.1.1: prefer a single organization-owned MASTER registry account.
+  // Never silently fall back to a legacy sub-account if a MASTER row exists but is inactive.
+  const master=await d1First(database,`SELECT * FROM payment_provider_accounts
+    WHERE org_id=? AND provider=? AND environment=? AND account_scope='MASTER'
+    ORDER BY created_at DESC LIMIT 1`,[organizationId,normalizedProvider,normalizedEnvironment]);
+  if(master) return master.status==='ACTIVE' ? master : null;
   if(projectId){
     const override=await d1First(database,`SELECT * FROM payment_provider_accounts
       WHERE org_id=? AND client_id=? AND project_id=? AND provider=? AND environment=? AND account_scope='SUB_ACCOUNT' AND status='ACTIVE'
@@ -43,7 +49,8 @@ export function providerSnapshot(account){
     environment:account.environment,
     clientId:account.client_id,
     projectId:account.project_id||null,
-    subAccountLast4:String(account.provider_sub_account_id||'').slice(-4)||null,
+    accountScope:account.account_scope||'SUB_ACCOUNT',
+    subAccountLast4:account.account_scope==='MASTER'?null:String(account.provider_sub_account_id||'').slice(-4)||null,
     accountName:account.account_name||null,
     currency:account.currency||'IDR',
     capturedAt:new Date().toISOString(),
@@ -51,6 +58,15 @@ export function providerSnapshot(account){
 }
 
 export function validatePaymentProviderSnapshot(payment,account){
+  if(account?.account_scope==='MASTER'){
+    if(!payment?.provider_account_registry_id) return {ok:false,code:'PI_MASTER_SNAPSHOT_REQUIRED',error:'PI tidak memiliki immutable MASTER registry reference.'};
+    if(account.status!=='ACTIVE') return {ok:false,code:'PI_MASTER_ACCOUNT_INACTIVE',error:'Master account tidak ACTIVE.'};
+    if(String(payment.provider_account_registry_id)!==String(account.id)) return {ok:false,code:'PI_MASTER_REGISTRY_MISMATCH',error:'Master account registry berbeda dari snapshot PI.'};
+    if(String(payment.provider||'').toUpperCase()!==String(account.provider||'').toUpperCase()) return {ok:false,code:'PI_PROVIDER_MISMATCH',error:'Provider tidak cocok dengan snapshot PI.'};
+    if(String(payment.provider_environment||'').toUpperCase()!==String(account.environment||'').toUpperCase()) return {ok:false,code:'PI_PROVIDER_ENVIRONMENT_MISMATCH',error:'Environment tidak cocok dengan snapshot PI.'};
+    if(payment.provider_sub_account_id) return {ok:false,code:'PI_MASTER_SUBACCOUNT_FORBIDDEN',error:'MASTER PI tidak boleh memakai sub-account.'};
+    return {ok:true};
+  }
   if(!payment?.provider_account_registry_id||!payment?.provider_sub_account_id){
     return {ok:false,code:'PI_PROVIDER_SNAPSHOT_REQUIRED',error:'PI tidak memiliki immutable provider sub-account snapshot; regenerate PI diperlukan.'};
   }
