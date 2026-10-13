@@ -154,7 +154,39 @@ function timeoutMs(env) {
   return Math.max(3000, Math.min(60000, Math.floor(value)));
 }
 
+// A copyable, *sanitized* representation of the outgoing provider request.
+// Never persist OAuth codes, tokens, merchant secrets, account numbers, PII or
+// free-form response bodies in audit_logs.
+const E2PAY_SECRET_KEY=/(secret|password|passwd|token|authorization|cookie|credential|api.?key|private.?key|client.?id|username|phone|email|address|account.?number|bank.?account|rekening|recipient|beneficiary|identity|nik|npwp|code|otp)/i;
+function auditSafe(value, depth=0){
+  if(depth>7) return '[TRUNCATED]';
+  if(Array.isArray(value)) return value.slice(0,30).map(item=>auditSafe(item,depth+1));
+  if(value&&typeof value==='object'){
+    const out={};
+    for(const [key,item] of Object.entries(value).slice(0,70)){
+      out[key]=E2PAY_SECRET_KEY.test(key)?'[REDACTED]':auditSafe(item,depth+1);
+    }
+    return out;
+  }
+  if(typeof value==='string') return value.slice(0,600);
+  return value===undefined?null:value;
+}
+function auditRequestBody(init){
+  const raw=typeof init?.body==='string'?init.body:'';
+  if(!raw) return null;
+  try{
+    if(String(init?.headers?.['Content-Type']||'').includes('x-www-form-urlencoded'))
+      return auditSafe(Object.fromEntries(new URLSearchParams(raw)));
+    return auditSafe(JSON.parse(raw));
+  }catch{return '[NON_JSON_BODY_REDACTED]';}
+}
+
 async function requestJson(env, path, init = {}, fetchImpl = fetch) {
+  const requestId=crypto.randomUUID();
+  const started=Date.now();
+  const audit={requestId,provider:'E2PAY',environment:String(env?.E2PAY_ENV||'UAT'),
+    method:String(init?.method||'GET').toUpperCase(),endpoint:path,requestJson:auditRequestBody(init),
+    status:'UNKNOWN',httpStatus:null,durationMs:0};
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs(env));
   try {
@@ -163,6 +195,7 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
       headers: { Accept:'application/json', ...(init.headers || {}) },
       signal: controller.signal,
     });
+    audit.httpStatus=response.status;
     const text = await response.text();
     let body = {};
     if (text) {
@@ -191,13 +224,20 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
         response.status,
       );
     }
+    audit.status='SUCCESS';
     return body;
   } catch (error) {
+    audit.status='FAILED';
+    audit.errorCode=error?.code||error?.name||'E2PAY_REQUEST_ERROR';
     if (error?.name === 'AbortError') throw new E2PayRequestError('Request E2Pay timeout', 'E2PAY_TIMEOUT');
     if (error instanceof E2PayRequestError) throw error;
     throw new E2PayRequestError('Koneksi ke E2Pay gagal', 'E2PAY_NETWORK_ERROR');
   } finally {
     clearTimeout(timer);
+    audit.durationMs=Date.now()-started;
+    if(typeof env?.__e2payAudit==='function'){
+      try{await env.__e2payAudit(audit);}catch{/* Audit storage must not transform a completed provider call into a replayable payment failure. */}
+    }
   }
 }
 
