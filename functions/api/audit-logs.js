@@ -32,7 +32,7 @@ function unifiedSql() {
           WHEN action LIKE '%INVOICE%' OR action LIKE '%BILLING%' OR action LIKE '%AR_%' OR entity IN ('invoice','ar_monitor','ar_payment') THEN 'BILLING'
           WHEN action LIKE '%PAYROLL%' OR action LIKE '%SUBMISSION%' OR action LIKE '%PAY_RUN%' OR entity IN ('payroll_submission','payroll_run') THEN 'PAYROLL'
           WHEN action LIKE '%LOGIN%' OR action LIKE '%PASSWORD%' OR action LIKE '%CREDENTIAL%' THEN 'SECURITY'
-          WHEN action LIKE '%INTEGRATION%' OR action LIKE '%GATEWAY%' OR action LIKE '%API_%' THEN 'INTEGRATION'
+          WHEN action LIKE 'E2PAY_HTTP_%' OR action LIKE '%INTEGRATION%' OR action LIKE '%GATEWAY%' OR action LIKE '%API_%' THEN 'INTEGRATION'
           ELSE 'BUSINESS'
         END AS source,
         CASE
