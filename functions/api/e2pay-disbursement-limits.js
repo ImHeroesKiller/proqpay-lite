@@ -213,7 +213,7 @@ export async function onRequest({request,env}){
         limitRequestId:duplicate.id,
       },409,request,env,METHODS);
 
-      const funding=await readProviderFundingState(env.DB,organizationId,providerAccountRegistryId,amount);
+      const funding=await readProviderFundingState(env.DB,organizationId,providerAccountRegistryId,amount,null,Date.now(),null,clientId,projectId);
       const fundingError=assertFundingForLimit(funding,amount);
       if(fundingError) return secureJson({...fundingError,funding},fundingError.status,request,env,METHODS);
 
@@ -249,7 +249,7 @@ export async function onRequest({request,env}){
 
       const account=await accountFor(env.DB,organizationId,pending.provider_account_registry_id);
       if(!account || account.status!=='ACTIVE') return secureJson({error:'Provider account tidak ACTIVE',code:'MASTER_ACCOUNT_NOT_ACTIVE'},409,request,env,METHODS);
-      const funding=await readProviderFundingState(env.DB,organizationId,pending.provider_account_registry_id,Number(pending.requested_amount));
+      const funding=await readProviderFundingState(env.DB,organizationId,pending.provider_account_registry_id,Number(pending.requested_amount),null,Date.now(),null,pending.client_id,pending.project_id||null);
       const fundingError=assertFundingForLimit(funding,Number(pending.requested_amount));
       if(fundingError) return secureJson({...fundingError,funding},fundingError.status,request,env,METHODS);
 
