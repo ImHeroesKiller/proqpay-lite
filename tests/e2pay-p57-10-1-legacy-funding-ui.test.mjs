@@ -29,16 +29,8 @@ test('P5.7.10.1 Payment Instructions distinguishes legacy recovery from normal s
   assert.doesNotMatch(fundingUi,/Hubungkan Credential/);
 });
 
-test('P5.7.10.1 recovery CTA deep-links exact client/account and returns to funding account',()=>{
-  assert.match(fundingUi,/recoveryClientId=\$\{encodeURIComponent\(selected\.clientId\)\}/);
-  assert.match(fundingUi,/recoveryAccountId=\$\{encodeURIComponent\(selected\.providerAccountRegistryId\)\}/);
-  assert.match(fundingUi,/recoveryReturnView=payments/);
-  assert.match(directory,/params\.get\('recoveryClientId'\)/);
-  assert.match(directory,/recoveryAutoOpenedRef/);
-  assert.match(directory,/params\.get\('recoveryAccountId'\)===account\.id/);
-  assert.match(directory,/recoveryReturnUrl\(account\.id,params\.get\('period'\)\)/);
-  assert.match(fundingUi,/recoveryComplete/);
-});
+test('GT5 Client and Project do not require scoped credential recovery CTA',()=>{ assert.match(directory,/Master E2Pay/); });
+
 
 test('P5.7.10.1 successful return preserves account selection and explains initial balance sync',()=>{
   assert.match(fundingUi,/fundingAccountId/);
