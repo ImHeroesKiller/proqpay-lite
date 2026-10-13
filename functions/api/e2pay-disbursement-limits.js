@@ -87,7 +87,7 @@ export async function onRequest({request,env}){
         LEFT JOIN clients c ON c.id=ppa.client_id
         LEFT JOIN projects p ON p.id=ppa.project_id
         LEFT JOIN provider_provisioning_sessions pps ON pps.provider_account_registry_id=ppa.id
-        WHERE ppa.org_id=? AND ppa.provider='E2PAY' AND ppa.account_scope='SUB_ACCOUNT'
+        WHERE ppa.org_id=? AND ppa.provider='E2PAY' AND ppa.account_scope IN ('SUB_ACCOUNT','MASTER')
           AND ppa.status='ACTIVE' AND (?='' OR ppa.id=?)
         ORDER BY c.name,p.name,ppa.created_at`,[organizationId,accountId,accountId]);
 
@@ -95,8 +95,8 @@ export async function onRequest({request,env}){
       for(const account of accounts){
         if(archivedIds.has(account.id))continue; // UAT-only archive, no live financial work
         const state=await readProviderFundingState(env.DB,organizationId,account.id,requiredAmount);
-        const merchantCredential=providerAccountCredentialState(account);
-        const provisioned=account.status==='ACTIVE'&&Boolean(account.provider_sub_account_id)&&String(account.provisioning_state||'PROVISIONED')==='PROVISIONED';
+        const merchantCredential=account.account_scope==='MASTER' ? {ready:false,version:null,updatedAt:null,mode:'MASTER_GATEWAY_SETTINGS'} : providerAccountCredentialState(account);
+        const provisioned=account.account_scope==='MASTER' ? account.status==='ACTIVE' : account.status==='ACTIVE'&&Boolean(account.provider_sub_account_id)&&String(account.provisioning_state||'PROVISIONED')==='PROVISIONED';
         funding.push({
           providerAccountRegistryId:account.id,
           clientId:account.client_id,
@@ -119,8 +119,8 @@ export async function onRequest({request,env}){
             credential_last_error_at:account.provisioning_credential_last_error_at,
           }),
           accountReadiness:{
-            ready:provisioned&&merchantCredential.ready,
-            reason:!provisioned?'PROVISIONING_INCOMPLETE':!merchantCredential.ready&&String(account.provisioning_credential_state||'')==='LEGACY_MANUAL'?'LEGACY_CREDENTIAL_RECOVERY_REQUIRED':!merchantCredential.ready?'MERCHANT_CREDENTIAL_REQUIRED':'READY',
+            ready:account.account_scope==='MASTER'?state.parent.ready:provisioned&&merchantCredential.ready,
+            reason:account.account_scope==='MASTER'?(state.parent.ready?'MASTER_BALANCE_FRESH':'MASTER_BALANCE_NOT_READY'):!provisioned?'PROVISIONING_INCOMPLETE':!merchantCredential.ready&&String(account.provisioning_credential_state||'')==='LEGACY_MANUAL'?'LEGACY_CREDENTIAL_RECOVERY_REQUIRED':!merchantCredential.ready?'MERCHANT_CREDENTIAL_REQUIRED':'READY',
           },
           ...state,
         });
@@ -243,8 +243,9 @@ export async function onRequest({request,env}){
         return secureJson({error:'Maker tidak boleh approve request limit yang dibuat sendiri',code:'E2PAY_LIMIT_MAKER_CHECKER_VIOLATION'},409,request,env,METHODS);
       }
       const active=await d1First(env.DB,`SELECT id FROM e2pay_disbursement_limit_requests
-        WHERE org_id=? AND provider_account_registry_id=? AND status='ACTIVE' LIMIT 1`,
-        [organizationId,pending.provider_account_registry_id]);
+        WHERE org_id=? AND provider_account_registry_id=? AND client_id=?
+          AND (project_id IS ? OR project_id=?) AND status='ACTIVE' LIMIT 1`,
+        [organizationId,pending.provider_account_registry_id,pending.client_id,pending.project_id||null,pending.project_id||null]);
       if(active) return secureJson({error:'Sub-client masih memiliki limit aktif',code:'E2PAY_ACTIVE_LIMIT_EXISTS',limitRequestId:active.id},409,request,env,METHODS);
 
       const account=await accountFor(env.DB,organizationId,pending.provider_account_registry_id);
