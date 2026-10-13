@@ -72,7 +72,7 @@ test('P1.B shared client/project/query filters reach DR while funding panel pres
  assert.match(workspace,/canonicalDecisionKnown\?canonicalDecisionActions:'—'/);
  assert.match(workspace,/setCanonicalDecisionKnown\(false\)/);
  assert.match(workspace,/response\.ok/);
- assert.match(funding,/setClientId\(e=>e\.target\.value\)/);
+ assert.match(funding,/setClientId\(e\.target\.value\)/);
  assert.match(funding,/Balance Master &amp; Limit Klien/);
 });
 
