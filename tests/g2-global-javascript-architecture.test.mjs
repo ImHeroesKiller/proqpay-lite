@@ -113,7 +113,7 @@ test('G2 single URL contract and async loader safety are integrated in all finan
  assert.match(operations,/setUatArchiveVerified\(false\)/);
  assert.match(operations,/patchRoute\(\{paymentPanel:next\}\)/);
  assert.match(funding,/setClientId\(e\.target\.value\)/);
- assert.match(funding,/subscribeRoute\(\(\)=>setAccountId/);
+ assert.match(funding,/getE2PayDisbursementLimits\(\)/);
  assert.match(api,/const parseResponse=parseApiResponse/);
  assert.match(monitor,/parseApiResponse<IntegrationMonitorResponse>/);
  assert.match(gateway,/const parseResponse=parseApiResponse/);
