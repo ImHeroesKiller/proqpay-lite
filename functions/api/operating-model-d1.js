@@ -8,6 +8,7 @@ import { actorFraudDecision, paymentLimitDecision } from './_fraud-controls.js';
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import { revealEmployeeBankAccount } from './_employee-bank-security.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
+import { e2payExecutionContract, e2payReadiness } from './payment-gateway-e2pay.js';
 import { activeProviderAccount, liquidityState, providerSnapshot, validatePaymentProviderSnapshot } from './payment-provider-routing.js';
 import { readProviderFundingState } from './e2pay-disbursement-limit-core.js';
 import { providerAccountCredentialState } from './payment-provider-account-credentials.js';
@@ -351,7 +352,7 @@ async function readResource(database, params, actor, env, organizationId) {
     ]);
     const total = lines.reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const liveFunding=instruction.provider_account_registry_id
-      ? await readProviderFundingState(database,organizationId,instruction.provider_account_registry_id,Number(instruction.expected_total),instruction.id)
+      ? await readProviderFundingState(database,organizationId,instruction.provider_account_registry_id,Number(instruction.expected_total),instruction.id,Date.now(),null,instruction.client_id,instruction.project_id||null)
       : null;
     const expectedRecipients = Number(instruction.recipient_count || 0);
     const recipientBalanced = expectedRecipients === lines.length;
@@ -1423,7 +1424,7 @@ async function executeAction(database, body, actor, env, organizationId) {
       // P5.7.3: PI preparation is intentionally asynchronous from provider provisioning.
       // Missing/unfinished E2Pay routing does not block payroll snapshot creation; routing
       // is bound once at PI submission after Payment Readiness becomes READY.
-      if(providerAccount && !providerAccount.provider_sub_account_id) providerAccount=null;
+      if(providerAccount && !(providerAccount.account_scope==='MASTER'?providerAccount.provider_account_id:providerAccount.provider_sub_account_id)) providerAccount=null;
     }
     const billingSnapshot = JSON.stringify({
       method:String(billingProfile.billing_method || 'PER_EMPLOYEE'),
@@ -1477,7 +1478,7 @@ async function executeAction(database, body, actor, env, organizationId) {
           bindings: [id, organizationId, submission.client_id, submission.id, expectedTotal, actor.id, idempotencyKey,
             documentNo, contentHash, `${paymentPeriod}-01`, snapshotLines.length, billingSnapshot,
             providerAccount?.id||null,providerAccount?.provider||null,providerAccount?.environment||null,
-            providerAccount?.provider_sub_account_id||null,routingSnapshot?JSON.stringify(routingSnapshot):null,
+            providerAccount?.account_scope==='MASTER'?null:providerAccount?.provider_sub_account_id||null,routingSnapshot?JSON.stringify(routingSnapshot):null,
             providerAccount?.balance??null,providerAccount?.available_balance??null,providerAccount?.last_balance_sync_at||null] },
         ...lineInsertOperations(id, snapshotLines),
         { statement:`UPDATE payroll_submissions SET state='PAYMENT_INSTRUCTION_READY',updated_at=${NOW} WHERE id=?`,
@@ -1517,7 +1518,11 @@ async function executeAction(database, body, actor, env, organizationId) {
         const submission=await d1First(database,'SELECT project_id FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1',[payment.submission_id,organizationId]);
         const providerAccount=await activeProviderAccount(database,organizationId,payment.client_id,'E2PAY',providerEnvironment,submission?.project_id||null);
         const credential=providerAccountCredentialState(providerAccount||{});
-        if(!providerAccount?.provider_sub_account_id || !credential.ready){
+        const master=providerAccount?.account_scope==='MASTER';
+        const masterContract=master?e2payExecutionContract(gatewayEnv,{accountId:providerAccount.provider_account_id}):null;
+        if(!providerAccount || (master
+          ? (!providerAccount.provider_account_id || !e2payReadiness(gatewayEnv).configured || !masterContract.valid)
+          : (!providerAccount.provider_sub_account_id || !credential.ready))){
           return {status:409,data:{
             error:'Payroll sudah siap, tetapi Payment Readiness masih menunggu aktivasi E2Pay. PI tetap tersimpan dan dapat disubmit setelah provider READY.',
             code:'PAYMENT_READINESS_PENDING',
@@ -1527,8 +1532,8 @@ async function executeAction(database, body, actor, env, organizationId) {
         const routingSnapshot=providerSnapshot(providerAccount);
         await d1Batch(database,[
           {statement:`UPDATE payment_instructions SET provider_account_registry_id=?,provider=?,provider_environment=?,provider_sub_account_id=?,provider_account_snapshot=?,provider_balance_snapshot=?,provider_available_balance_snapshot=?,provider_balance_checked_at=?,updated_at=${NOW} WHERE id=? AND status='PAYMENT_INSTRUCTION_READY' AND provider_account_registry_id IS NULL`,
-            bindings:[providerAccount.id,providerAccount.provider,providerAccount.environment,providerAccount.provider_sub_account_id,JSON.stringify(routingSnapshot),providerAccount.balance??null,providerAccount.available_balance??null,providerAccount.last_balance_sync_at||null,payment.id]},
-          auditOperation(organizationId,actor,'PAYMENT_ROUTING_BOUND',`Provider routing bound asynchronously · ${providerAccount.provider} · accountLast4=${String(providerAccount.provider_sub_account_id).slice(-4)}`,'payment_instruction',payment.id),
+            bindings:[providerAccount.id,providerAccount.provider,providerAccount.environment,master?null:providerAccount.provider_sub_account_id,JSON.stringify(routingSnapshot),providerAccount.balance??null,providerAccount.available_balance??null,providerAccount.last_balance_sync_at||null,payment.id]},
+          auditOperation(organizationId,actor,'PAYMENT_ROUTING_BOUND',`Provider routing bound asynchronously · ${providerAccount.provider} · accountLast4=${String(master?providerAccount.provider_account_id:providerAccount.provider_sub_account_id).slice(-4)}`,'payment_instruction',payment.id),
         ]);
         paymentForSubmit=await d1First(database,'SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1',[payment.id,organizationId]);
       }
@@ -1732,7 +1737,9 @@ async function executeAction(database, body, actor, env, organizationId) {
     if(payment.provider==='E2PAY'){
       const routingValidation=validatePaymentProviderSnapshot(payment,approvalProviderAccount);
       if(!routingValidation.ok) return {status:409,data:{error:routingValidation.error,code:routingValidation.code}};
-      approvalLiquidity=liquidityState(approvalProviderAccount,Number(payment.expected_total));
+      approvalLiquidity=approvalProviderAccount.account_scope==='MASTER'
+        ? {ready:true,state:'MASTER_FUNDING_VALIDATED_IN_LIMIT_GATE'}
+        : liquidityState(approvalProviderAccount,Number(payment.expected_total));
       if(!approvalLiquidity.ready) return {status:409,data:{
         error:approvalLiquidity.state==='INSUFFICIENT'
           ? 'Saldo E2Pay sub-account client tidak mencukupi untuk approval PI'
@@ -1741,7 +1748,7 @@ async function executeAction(database, body, actor, env, organizationId) {
         liquidity:approvalLiquidity,
       }};
       const funding=await readProviderFundingState(
-        database,organizationId,approvalProviderAccount.id,Number(payment.expected_total),payment.id
+        database,organizationId,approvalProviderAccount.id,Number(payment.expected_total),payment.id,Date.now(),null,payment.client_id,payment.project_id||null
       );
       if(!funding.ready) return {status:409,data:{
         error:funding.state==='NO_ACTIVE_LIMIT'
