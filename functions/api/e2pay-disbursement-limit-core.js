@@ -8,7 +8,7 @@ function ageMs(value,nowMs=Date.now()){
   return Number.isFinite(valueMs)?nowMs-valueMs:Number.POSITIVE_INFINITY;
 }
 
-export async function readProviderFundingState(database,organizationId,providerAccountRegistryId,requiredAmount=0,paymentInstructionId=null,nowMs=Date.now(),disbursementRequestId=null){
+export async function readProviderFundingState(database,organizationId,providerAccountRegistryId,requiredAmount=0,paymentInstructionId=null,nowMs=Date.now(),disbursementRequestId=null,clientId=null,projectId=null){
   const required=Math.max(0,Number(requiredAmount||0));
   const account=await d1First(database,`SELECT * FROM payment_provider_accounts
     WHERE id=? AND org_id=? AND provider='E2PAY' LIMIT 1`,[providerAccountRegistryId,organizationId]);
@@ -39,7 +39,9 @@ export async function readProviderFundingState(database,organizationId,providerA
 
   const activeLimit=await d1First(database,`SELECT * FROM e2pay_disbursement_limit_requests
     WHERE org_id=? AND provider_account_registry_id=? AND status='ACTIVE'
-    ORDER BY approved_at DESC,created_at DESC LIMIT 1`,[organizationId,providerAccountRegistryId]);
+      AND (? IS NULL OR client_id=?)
+      AND (? IS NULL OR (project_id IS ? OR project_id=?))
+    ORDER BY approved_at DESC,created_at DESC LIMIT 1`,[organizationId,providerAccountRegistryId,clientId,clientId,projectId,projectId,projectId]);
 
   let committedAmount=0;
   let currentCommittedAmount=0;
