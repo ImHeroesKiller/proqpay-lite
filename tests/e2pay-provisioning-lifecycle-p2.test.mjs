@@ -25,9 +25,8 @@ test('P2 readiness fails closed until provisioning is active',()=>{
   assert.match(ui,/Menunggu konfirmasi E2Pay/);
 });
 
-test('P2 payment routing prefers explicit project override then client inheritance',()=>{
-  assert.match(routing,/if\(projectId\)/);
-  assert.match(routing,/project_id=\?/);
-  assert.match(routing,/project_id IS NULL/);
-  assert.match(routing,/projectId:account\.project_id\|\|null/);
+test('GT5 master-only routing never falls back to deleted project/client subaccount',()=>{
+  assert.match(routing,/account_scope='MASTER'/);
+  assert.match(routing,/master\?\.status==='ACTIVE'/);
+  assert.doesNotMatch(routing,/account_scope='SUB_ACCOUNT'/);
 });
