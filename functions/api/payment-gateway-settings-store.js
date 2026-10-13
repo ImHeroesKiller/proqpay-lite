@@ -179,10 +179,15 @@ function attachE2PayAudit(runtime,database,organizationId){
   if(!database || !organizationId) return runtime;
   Object.defineProperty(runtime,'__e2payAudit',{enumerable:false,configurable:true,value:async(event)=>{
     const payload=JSON.stringify(event);
+    if(event.phase==='COMPLETE' && event.critical===true){
+      await database.prepare(`UPDATE audit_logs SET detail=? WHERE id=? AND org_id=? AND action='E2PAY_HTTP_REQUEST'`)
+        .bind(payload,event.requestId,organizationId).run();
+      return;
+    }
     await database.prepare(`INSERT INTO audit_logs
       (id,org_id,username,role,action,detail,entity,entity_id,correlation_id)
       VALUES (?,?,?,'SYSTEM','E2PAY_HTTP_REQUEST',?,'e2pay_http',?,?)`)
-      .bind(crypto.randomUUID(),organizationId,'E2PAY_GATEWAY',payload,event.requestId,event.requestId).run();
+      .bind(event.requestId,organizationId,'E2PAY_GATEWAY',payload,event.requestId,event.requestId).run();
   }});
   return runtime;
 }
