@@ -65,5 +65,5 @@ test('P1.A application parent owns stage navigation and browser Back/Forward res
  assert.match(page,/normalizeInternalRoute\(normalizedView,params\.get\('stage'\)/);
 });
 
-test('GT5 retired credential recovery deep link is absent from Client UI',()=>{ assert.doesNotMatch(directory,/recoveryAccountId/); });
+test('GT5 retired credential recovery deep link is absent from Client UI',()=>{ assert.doesNotMatch(await src('src/components/DirectoryManager.tsx'),/recoveryAccountId/); });
 
