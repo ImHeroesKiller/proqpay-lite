@@ -35,3 +35,12 @@
 7. No live provider disbursement until all above gates pass. No database schema changes.
 
 Current branch supplies the safe read-only Master readiness contract + unit test foundation. It **does not** claim that the full cutover or live payment readiness is complete.
+
+## GT5.1.1 implementation delta (draft, no production write)
+- Added existing-schema MASTER registry binding on privileged E2Pay operations API, requiring live merchant account validation and MFA step-up.
+- PI preparation, asynchronous routing submission and Controller PI funding approval can recognize MASTER records and no longer require SUB_ACCOUNT credential readiness.
+- Master limit requests require explicit client/project ownership; Controller conditional UPDATE recomputes shared unallocated balance under one D1 write.
+- Canonical DR creation, Controller review and canonical execution use the immutable Master registry ID and live validated MASTER gateway secrets (not subclient credentials).
+- PI and DR limit reservations are scoped to source client/project IDs.
+- Existing field names `provider_sub_account_id_snapshot` in canonical DR and `provider_sub_account_id` in PI are legacy schema constraints; Master DR stores the provider-verified master ID in the required snapshot field, while Master PI leaves the optional sub-account field null. Do not reinterpret this as a new subclient credential.
+- All GT5.1.1 changes are in a draft PR, no schema migration or live payout. Need final CI/regression, credential read test, verified provider balance, and Controller-approved UAT.
