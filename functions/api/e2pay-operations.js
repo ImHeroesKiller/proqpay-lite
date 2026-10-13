@@ -1,4 +1,5 @@
 import { masterFundingReadiness } from './e2pay-master-funding.js';
+import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { activateGatewaySecureSettings, gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
@@ -233,7 +234,40 @@ export async function onRequest({request,env}){
     const action=String(body.action||'').trim().toUpperCase();
     let result;
 
-    if(action==='REFRESH_ACCOUNT'){
+    if(action==='BIND_MASTER_ACCOUNT'){
+      // Administrative registry binding only; NEVER provisions merchant identity or moves funds.
+      if(mfaEnforcementMode(env)==='ENFORCE' && !hasRecentMfa(authorization.actor,300))
+        return secureJson({error:'MFA step-up diperlukan untuk registrasi Master Account',code:'MFA_STEP_UP_REQUIRED'},428,request,env,METHODS);
+      if(!readiness.configured) return secureJson({error:'Credential Master belum lengkap',code:'MASTER_CREDENTIAL_NOT_CONFIGURED'},409,request,env,METHODS);
+      const auth=await e2payAuthorize(runtimeEnv);
+      const live=await e2payMerchantAccount(runtimeEnv,auth.accessToken);
+      const contract=e2payExecutionContract(runtimeEnv,live);
+      if(!contract.valid || !live.accountId)
+        return secureJson({error:'Master provider account tidak cocok dengan konfigurasi',code:'MASTER_IDENTITY_MISMATCH'},409,request,env,METHODS);
+      const environment=String(runtimeEnv.E2PAY_ENV||'UAT').toUpperCase();
+      const existing=await d1First(env.DB,`SELECT * FROM payment_provider_accounts
+        WHERE org_id=? AND provider='E2PAY' AND environment=? AND account_scope='MASTER'
+        LIMIT 1`,[organizationId,environment]);
+      if(existing && String(existing.provider_account_id||'')!==String(live.accountId))
+        return secureJson({error:'Master registry sudah terikat identitas provider lain',code:'MASTER_REGISTRY_IDENTITY_CONFLICT'},409,request,env,METHODS);
+      if(existing && existing.status==='ACTIVE')
+        return secureJson({ok:true,action,registered:true,idempotent:true,correlationId},200,request,env,METHODS);
+      const id=existing?.id || 'MASTER-'+crypto.randomUUID();
+      if(existing){
+        await d1Run(env.DB,`UPDATE payment_provider_accounts
+          SET status='ACTIVE',updated_by=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id=? AND org_id=? AND account_scope='MASTER' AND provider_account_id=?`,
+          [authorization.actor.email,id,organizationId,String(live.accountId)]);
+      }else{
+        await d1Run(env.DB,`INSERT INTO payment_provider_accounts
+          (id,org_id,client_id,provider,environment,account_scope,provider_account_id,
+           account_name,currency,status,created_by,updated_by)
+          VALUES(?,?,NULL,'E2PAY',?,'MASTER',?,?,'IDR','ACTIVE',?,?)`,
+          [id,organizationId,environment,String(live.accountId),clean(live.accountName,200),authorization.actor.email,authorization.actor.email]);
+      }
+      await d1Batch(env.DB,[audit(organizationId,authorization.actor,'E2PAY_MASTER_ACCOUNT_BOUND','Verified provider identity; no funds moved',correlationId)]);
+      return secureJson({ok:true,action,registered:true,accountScope:'MASTER',correlationId},200,request,env,METHODS);
+    }else     if(action==='REFRESH_ACCOUNT'){
       if(!readiness.configured) return secureJson({error:readiness.reason,code:'E2PAY_NOT_READY'},503,request,env,METHODS);
       const row=await liveAccount(env.DB,runtimeEnv,organizationId,true);
       result={account:publicSnapshot(row,readiness,runtimeEnv)};
