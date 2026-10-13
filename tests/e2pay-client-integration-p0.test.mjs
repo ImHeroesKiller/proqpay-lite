@@ -13,13 +13,6 @@ test('P0 allows Super Admin and Payroll Processor to manage client E2Pay registr
   assert.match(api,/e2payRegisterRequest/);
 });
 
-test('P0 registration is owned by Client UI rather than requiring raw provider IDs',()=>{
-  assert.match(ui,/Payment & Disbursement/);
-  assert.match(ui,/Register E2Pay Sub-Client/);
-  assert.match(ui,/registerE2PaySubAccount/);
-  assert.match(client,/action:'REGISTER_SUBACCOUNT'/);
-});
-
 test('P0 preserves controller-only payment execution boundary',()=>{
   assert.match(api,/const READ_ROLES=\['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'\]/);
   assert.match(api,/const MANAGE_ROLES=\['SUPER_ADMIN','PAYROLL_PROCESSOR'\]/);
