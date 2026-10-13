@@ -171,7 +171,7 @@ test('E2Pay provider-facing transaction fields stay compact ASCII and diagnostic
   }),{status:400,headers:{'Content-Type':'application/json'}});
 
   await assert.rejects(
-    e2payDisburse(baseEnv,'ACCESS',{
+    e2payDisburse({...baseEnv,__e2payAudit:async()=>{}},'ACCESS',{
       clientRef,
       description:'Payroll UAT',
       inquiryId:'INQ-1',
@@ -187,7 +187,7 @@ test('financial POST is attempted once; ambiguous network failure is not auto-re
     throw new Error('network down');
   };
   await assert.rejects(
-    e2payDisburse(baseEnv, 'ACCESS', {
+    e2payDisburse({...baseEnv,__e2payAudit:async()=>{}}, 'ACCESS', {
       clientRef:'PQP-123',
       description:'Payroll',
       inquiryId:'INQ-1',
