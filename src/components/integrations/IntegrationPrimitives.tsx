@@ -27,9 +27,9 @@ export function IntegrationPagination({
   onNext:()=>void;
 }) {
   const hasMore = offset + count < total;
-  return <nav className="integration-pagination" aria-label="Pagination">
+  return <div className="integration-pagination" role="group" aria-label="Pagination aktivitas API">
     <button type="button" className="btn" disabled={disabled || offset <= 0} onClick={onPrevious}>Sebelumnya</button>
     <span aria-live="polite">{total ? offset + 1 : 0}–{Math.min(offset + count, total)} dari {total}</span>
     <button type="button" className="btn" disabled={disabled || !hasMore} onClick={onNext}>Berikutnya</button>
-  </nav>;
+  </div>;
 }

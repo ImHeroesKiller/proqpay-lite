@@ -121,7 +121,8 @@ test('E2Pay operations API covers all v1.1 functions and blocks raw disbursement
 test('Dashboard surfaces E2Pay merchant balance and refreshes it with dashboard refresh',async()=>{
   const source=await read('src/components/PayrollControlTower.tsx');
   assert.match(source,/getE2PayOverview/);
-  assert.match(source,/E2Pay balance/);
+  assert.match(source,/className=\"gateway-balance-widget\"/);
+  assert.match(source,/Available balance/);
   assert.match(source,/loadGatewayBalance\(true\)/);
   assert.match(source,/GatewayBalanceWidget/);
   assert.match(source,/dashboard-summary-layout/);

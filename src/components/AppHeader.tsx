@@ -291,7 +291,7 @@ export default function AppHeader({
                 setAccountOpen(false);
               }}
             >
-              <IconSearch aria-hidden="true" /> <span>Search</span>
+              <IconSearch aria-hidden="true" /> <span>Cari modul</span>
             </button>
             {searchOpen ? (
               <div

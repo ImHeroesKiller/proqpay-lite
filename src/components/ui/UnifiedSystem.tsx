@@ -249,6 +249,21 @@ export function Tabs({
           key={item.value}
           type="button"
           role="tab"
+          tabIndex={value === item.value ? 0 : -1}
+          onKeyDown={(event)=>{
+            const index=items.findIndex(candidate=>candidate.value===value);
+            let nextIndex=-1;
+            if(event.key==='ArrowRight')nextIndex=(index+1)%items.length;
+            if(event.key==='ArrowLeft')nextIndex=(index+items.length-1)%items.length;
+            if(event.key==='Home')nextIndex=0;
+            if(event.key==='End')nextIndex=items.length-1;
+            if(nextIndex<0)return;
+            event.preventDefault();
+            const next=items[nextIndex];
+            onChange(next.value);
+            const buttons=event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+            requestAnimationFrame(()=>buttons?.[nextIndex]?.focus());
+          }}
           aria-selected={value === item.value}
           className={value === item.value ? "active" : ""}
           onClick={() => onChange(item.value)}

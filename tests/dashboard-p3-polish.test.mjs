@@ -7,7 +7,8 @@ const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
 test('dashboard P3 removes repetitive action copy and adds contextual empty states',async()=>{
   const source=await read('src/components/PayrollControlTower.tsx');
-  assert.match(source,/aria-label=\{\`\$\{item\.action\} untuk \$\{item\.client\}\`\}/);
+  assert.match(source,/className=\"action-list\"/);
+  assert.doesNotMatch(source,/aria-label=\{\`\$\{item\.action\} untuk \$\{item\.client\}\`\}/);
   assert.doesNotMatch(source,/\{item\.title\} · \{item\.detail\}/);
   assert.match(source,/Tidak ada tindakan sesuai filter aktif/);
   assert.match(source,/Belum ada payroll untuk periode ini/);

@@ -1,0 +1,61 @@
+name: G4 Accessibility & Responsive Gate
+
+on:
+  pull_request:
+    paths:
+      - 'src/app/**'
+      - 'src/components/**'
+      - 'src/lib/**'
+      - 'tests/e2e/g4-*.spec.mjs'
+      - 'playwright.uat.config.mjs'
+      - 'package*.json'
+      - '.github/workflows/g4-accessibility-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  accessibility:
+    name: G4 Read-only Axe / Responsive
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_URL: http://127.0.0.1:39822
+    steps:
+      - name: Checkout candidate changes
+        uses: actions/checkout@v4
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Install test-only Playwright runner
+        run: npm install --no-save --package-lock=false @playwright/test@1.56.1 axe-core@4.12.1
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build immutable CSS/CSP static export
+        run: npm run build
+      - name: Start local static preview (API mocked in browser)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 39822 --bind 127.0.0.1 --directory out >/tmp/g4-http.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:39822/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/g4-http.log
+          exit 1
+      - name: 60-view WCAG/ARIA/contrast audit and keyboard tests (no financial writes)
+        run: npx playwright test tests/e2e/g4-accessibility-matrix.spec.mjs tests/e2e/g4-theme-accessibility.spec.mjs tests/e2e/g4-tabs-keyboard.spec.mjs tests/e2e/g3-shared-modal-focus.spec.mjs --config playwright.uat.config.mjs
+      - name: Publish no-credentials regression summary
+        if: always()
+        shell: bash
+        run: |
+          echo '## G4 Accessibility Gate' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Read-only synthetic role responses; no production credentials or database writes' >> "$GITHUB_STEP_SUMMARY"
+          echo '- WCAG/ARIA + color contrast, 1440/390/320 responsive layouts, keyboard tab and modal focus' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Actual authenticated Production MFA E2E is outside this gate' >> "$GITHUB_STEP_SUMMARY"

@@ -217,7 +217,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
     {error?<div className="app-notice-bubble app-notice-error" role="alert"><strong>Dashboard gagal dimuat</strong><span>{error}</span></div>:null}
     {data.dashboardMeta?.truncated?<div className="app-notice-bubble app-notice-error" role="alert"><strong>Dashboard dibatasi</strong><span>Menampilkan {Number(data.dashboardMeta.submissionsReturned||0).toLocaleString('id-ID')} dari {Number(data.dashboardMeta.submissionsTotal||0).toLocaleString('id-ID')} Pay Run. Gunakan periode yang lebih spesifik agar seluruh KPI akurat.</span></div>:null}
     {loading?<div className="card control-loading" role="status" aria-live="polite">Menyiapkan payroll control tower…</div>:<>
-      {!simplifiedInternal ? <div className="portfolio-snapshot" aria-label="Ringkasan kesiapan master data">
+      {!simplifiedInternal ? <div className="portfolio-snapshot" aria-label="Ringkasan kesiapan master data" tabIndex={0}>
         <span>Data readiness</span><b>{Number(portfolio.employees||0).toLocaleString('id-ID')} karyawan</b><i aria-hidden="true" />
         <b>{Number(portfolio.clients||0).toLocaleString('id-ID')} klien</b><i aria-hidden="true" />
         <b>{Number(portfolio.projects||0).toLocaleString('id-ID')} project</b><i aria-hidden="true" />
@@ -248,7 +248,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
       </div>
       <div className={simplifiedInternal?'':'control-priority-grid'}>
         <section className="card action-center"><PanelTitle eyebrow="PRIORITY QUEUE" title={simplifiedInternal?'My Work':'Action Center'} meta={`${actions.length} tindakan`} />
-          <div className="action-list">{actions.length?actions.slice(0,simplifiedInternal?10:8).map((item)=><button type="button" key={item.id} onClick={()=>openContext(item.view,item.submissionId)} aria-label={`${item.action} untuk ${item.client}`}><i className={`action-tone ${item.tone}`} /><span><strong>{item.client}</strong><small>{item.detail}</small></span><b>{item.amount?formatIDRShort(item.amount):'-'}</b><em>{item.action} →</em></button>):<Empty text={activeFilterCount?'Tidak ada tindakan sesuai filter aktif.':'Tidak ada tindakan yang membutuhkan Anda saat ini.'} />}</div>
+          <div className="action-list">{actions.length?actions.slice(0,simplifiedInternal?10:8).map((item)=><button type="button" key={item.id} onClick={()=>openContext(item.view,item.submissionId)}><i className={`action-tone ${item.tone}`} /><span><strong>{item.client}</strong><small>{item.detail}</small></span><b>{item.amount?formatIDRShort(item.amount):'-'}</b><em>{item.action} →</em></button>):<Empty text={activeFilterCount?'Tidak ada tindakan sesuai filter aktif.':'Tidak ada tindakan yang membutuhkan Anda saat ini.'} />}</div>
         </section>
         {!simplifiedInternal ? <section className="card deadline-panel"><PanelTitle eyebrow="UPCOMING 30 DAYS" title="Deadline & SLA" meta={`${deadlines.length} agenda`} />
           <div className="deadline-list">{deadlines.length?deadlines.map((item)=><button type="button" key={item.id} onClick={()=>openContext('operations',String(item.id))}><time>{dateLabel(item.deadline)}</time><span><strong>{item.client_name||item.client_id}</strong><small>{item.business.label} · {statusLabel(item.state)}</small></span><b className={item.days!==null&&item.days<0?'overdue':''}>{item.days===null?'-':item.days<0?`${Math.abs(item.days)} hari terlambat`:item.days===0?'Hari ini':`${item.days} hari`}</b></button>):<Empty text="Belum ada deadline operasional." />}</div>
@@ -260,7 +260,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
           const share=Math.round((stage.rows.length/pipelineTotal)*100);
           const meterWidth=stage.rows.length?Math.max(8,share):0;
           const stageValue=stage.rows.reduce((sum,row)=>sum+Number(row.total_net||0),0);
-          return <button type="button" key={stage.label} onClick={()=>openContext(stage.view,undefined,stage.stage)} aria-label={`${stage.label}: ${stage.rows.length} pay run, buka ${stage.view}`}>
+          return <button type="button" key={stage.label} onClick={()=>openContext(stage.view,undefined,stage.stage)}>
             <span>{index+1}</span>
             <strong>{stage.rows.length}</strong>
             <small>{stage.label}</small>
@@ -290,7 +290,7 @@ function GatewayBalanceWidget({account,loading,error,onClick}:{account:E2PayAcco
   const value=loading?'…':account?.balance!==null&&account?.balance!==undefined?formatIDR(Number(account.balance)):'—';
   const status=error||account?.merchantStatus||'Status unavailable';
   const updated=account?.refreshedAt ? new Date(account.refreshedAt).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) : null;
-  return <button type="button" className="gateway-balance-widget" onClick={onClick} aria-label={`E2Pay balance ${value}`}>
+  return <button type="button" className="gateway-balance-widget" onClick={onClick}>
     <div className="gateway-balance-widget-head"><span>PAYMENT GATEWAY</span><i className={error?'error':account?.readiness?.configured?'ready':'idle'}>{error?'Issue':account?.environment||'E2PAY'}</i></div>
     <div className="gateway-balance-widget-icon"><IconWallet aria-hidden="true" /></div>
     <div className="gateway-balance-widget-body"><small>Available balance</small><strong>{value}</strong><span>{status}</span></div>
