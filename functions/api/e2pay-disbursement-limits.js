@@ -247,10 +247,43 @@ export async function onRequest({request,env}){
         [organizationId,pending.provider_account_registry_id]);
       if(active) return secureJson({error:'Sub-client masih memiliki limit aktif',code:'E2PAY_ACTIVE_LIMIT_EXISTS',limitRequestId:active.id},409,request,env,METHODS);
 
+      const account=await accountFor(env.DB,organizationId,pending.provider_account_registry_id);
+      if(!account || account.status!=='ACTIVE') return secureJson({error:'Provider account tidak ACTIVE',code:'MASTER_ACCOUNT_NOT_ACTIVE'},409,request,env,METHODS);
       const funding=await readProviderFundingState(env.DB,organizationId,pending.provider_account_registry_id,Number(pending.requested_amount));
       const fundingError=assertFundingForLimit(funding,Number(pending.requested_amount));
       if(fundingError) return secureJson({...fundingError,funding},fundingError.status,request,env,METHODS);
 
+      if(account.account_scope==='MASTER'){
+        // Single atomic, conditional D1 UPDATE guards cross-client capacity.
+        // Allocation is held at APPROVAL, before any PI/DR reservation.
+        const guarded=await d1Run(env.DB,`UPDATE e2pay_disbursement_limit_requests
+          SET status='ACTIVE',approved_amount=requested_amount,approved_by_user_id=?,approved_by_email=?,
+              approved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id=? AND org_id=? AND status='PENDING_APPROVAL'
+            AND EXISTS (
+              SELECT 1 FROM payment_gateway_provider_snapshots s
+              WHERE s.org_id=? AND s.provider='E2PAY' AND s.environment=?
+                AND s.balance IS NOT NULL AND s.balance>=0
+                AND (julianday('now')-julianday(s.refreshed_at))*86400000 BETWEEN 0 AND 300000
+                AND s.balance >= (
+                  SELECT COALESCE(SUM(CASE WHEN status='ACTIVE' THEN
+                    MAX(0,COALESCE(approved_amount,0)-
+                      COALESCE((SELECT SUM(CASE WHEN u.status='CONSUMED' THEN u.consumed_amount WHEN u.status='RESERVED' THEN u.reserved_amount ELSE 0 END)
+                        FROM e2pay_disbursement_limit_usage u WHERE u.limit_request_id=l.id AND u.status IN ('RESERVED','CONSUMED')),0)-
+                      COALESCE((SELECT SUM(CASE WHEN d.status='CONSUMED' THEN d.consumed_amount WHEN d.status='RESERVED' THEN d.reserved_amount ELSE 0 END)
+                        FROM e2pay_disbursement_request_limit_usage d WHERE d.limit_request_id=l.id AND d.status IN ('RESERVED','CONSUMED')),0))
+                    ELSE 0 END),0)
+                  FROM e2pay_disbursement_limit_requests l
+                  WHERE l.org_id=? AND l.provider_account_registry_id=? AND l.status='ACTIVE'
+                ) + (SELECT requested_amount FROM e2pay_disbursement_limit_requests WHERE id=?)
+            )`,
+          [actor.id||null,actor.email,id,organizationId,organizationId,pending.environment,organizationId,pending.provider_account_registry_id,id]);
+        if(Number(guarded?.meta?.changes||0)!==1)
+          return secureJson({error:'Alokasi Master tidak dapat disetujui: saldo/kapasitas berubah atau tidak fresh.',code:'MASTER_GLOBAL_CAPACITY_RECHECK_FAILED'},409,request,env,METHODS);
+        await d1Batch(env.DB,[audit(organizationId,actor,'E2PAY_MASTER_LIMIT_APPROVED',id,
+          `amount=${Number(pending.requested_amount)} · client=${pending.client_id}`,correlationId)]);
+        return secureJson({ok:true,request:await d1First(env.DB,'SELECT * FROM e2pay_disbursement_limit_requests WHERE id=?',[id]),funding,correlationId},200,request,env,METHODS);
+      }
       await d1Batch(env.DB,[
         {statement:`UPDATE e2pay_disbursement_limit_requests SET status='ACTIVE',approved_amount=requested_amount,
           approved_by_user_id=?,approved_by_email=?,approved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
