@@ -1,3 +1,4 @@
+import { masterFundingReadiness } from './e2pay-master-funding.js';
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { activateGatewaySecureSettings, gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
@@ -165,28 +166,27 @@ export async function onRequest({request,env}){
         // provider request, financial operation, or database write.
         const environment=String(runtimeEnv.E2PAY_ENV||'UAT');
         const row=await snapshot(env.DB,organizationId,environment);
-        const credentialConfigured=Boolean(readiness.configured);
-        const refreshedAt=row?.refreshed_at||null;
-        const balanceFresh=Boolean(row && isFresh(refreshedAt) && row.balance!==null && Number.isFinite(Number(row.balance)));
         const contract=e2payExecutionContract(runtimeEnv,{accountId:row?.account_id||''});
-        const verified=credentialConfigured && balanceFresh && contract.valid===true;
+        const funding=masterFundingReadiness({
+          snapshot:row,
+          credentialConfigured:readiness.configured,
+          executionContractValid:contract.valid===true,
+          requiredAmount:0,
+        });
         return secureJson({
           ok:true,
           mode:'MASTER_ACCOUNT',
           environment,
-          ready:verified,
+          ready:funding.ready,
           checks:{
-            credentialConfigured,
+            credentialConfigured:Boolean(readiness.configured),
             accountSnapshotPresent:Boolean(row),
-            balanceFresh,
+            balanceFresh:!['MASTER_BALANCE_NOT_SYNCED','MASTER_BALANCE_STALE','MASTER_BALANCE_INVALID'].includes(funding.state),
             executionContractValid:contract.valid===true,
           },
-          balance:row?.balance===null||row?.balance===undefined?null:Number(row.balance),
-          refreshedAt,
-          reason:!credentialConfigured?'MASTER_CREDENTIAL_NOT_CONFIGURED':
-            !row?'MASTER_BALANCE_NOT_SYNCED':
-            !balanceFresh?'MASTER_BALANCE_STALE':
-            contract.valid!==true?'MASTER_EXECUTION_CONTRACT_INVALID':'READY',
+          balance:funding.availableBalance,
+          refreshedAt:row?.refreshed_at||null,
+          reason:funding.state,
           correlationId,
         },200,request,env,METHODS);
       }
