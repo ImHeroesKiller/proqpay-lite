@@ -189,6 +189,16 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
     queryParameters:String(path).includes('?')?auditSafe(Object.fromEntries(new URLSearchParams(String(path).split('?').slice(1).join('?')))):null,
     requestJson:auditRequestBody(init),
     status:'UNKNOWN',httpStatus:null,durationMs:0};
+  const critical=String(path).split('?')[0]==='/b2b/merchant/me/sdp/transaction';
+  audit.critical=critical;
+  if(critical){
+    if(typeof env?.__e2payAudit!=='function')
+      throw new E2PayRequestError('Audit sink wajib aktif sebelum disbursement E2Pay','E2PAY_AUDIT_REQUIRED');
+    audit.phase='PREPARED';
+    audit.status='REQUEST_PREPARED';
+    try{await env.__e2payAudit(audit);}
+    catch{throw new E2PayRequestError('Audit request E2Pay tidak tersimpan; pembayaran diblokir','E2PAY_AUDIT_PREPARE_FAILED');}
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs(env));
   try {
@@ -237,6 +247,7 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
   } finally {
     clearTimeout(timer);
     audit.durationMs=Date.now()-started;
+    audit.phase='COMPLETE';
     if(typeof env?.__e2payAudit==='function'){
       try{await env.__e2payAudit(audit);}catch{/* Audit storage must not transform a completed provider call into a replayable payment failure. */}
     }
