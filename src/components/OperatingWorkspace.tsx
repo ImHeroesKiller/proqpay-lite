@@ -39,7 +39,7 @@ type Actor = { email: string; role: string; permissions?: string[]; clientIds?: 
 const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; description:string; search:string }> = {
   payruns: { title:'Pay Runs', eyebrow:'PAYROLL EXECUTION', description:'Kelola setiap periode payroll dari intake sampai siap dibayarkan.', search:'Klien, project, pay run…' },
   actions: { title:'Action Center', eyebrow:'EXCEPTION WORK QUEUE', description:'Selesaikan blocker dan temuan payroll berdasarkan prioritas dan status.', search:'Karyawan, temuan, klien…' },
-  payments: { title:'Approval & Payment', eyebrow:'PAYMENT CONTROL', description:'Review Payment Instruction, approval, liquidity, dan execution.', search:'Dokumen PI, klien, project…' },
+  payments: { title:'Payment Instructions', eyebrow:'PAYMENT CONTROL', description:'Kelola instruksi pembayaran, disbursement, dan funding dalam tab terpisah.', search:'Dokumen PI, klien, project…' },
   reconcile: { title:'Payment Reconciliation', eyebrow:'RECONCILE', description:'Catat proof, reconcile provider result, dan pastikan payment matched.', search:'Dokumen PI, klien, project…' },
   billing: { title:'Billing & AR', eyebrow:'FINANCE OPERATIONS', description:'Kelola invoice layanan, jatuh tempo, dan pelunasan piutang.', search:'Invoice, klien, periode…' },
 };
@@ -468,10 +468,6 @@ export default function OperatingWorkspace({
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} payRuns={visibleSubmissions} role={role} canResolve={isProcessor || isClient} act={act} />}
           {mode === 'payments' ? <section className="payment-decision-workbench" aria-label="Unified Payment Workbench">
-            <header className="payment-decision-intro">
-              <div><span className="page-eyebrow">DECISION-CENTRIC PAYMENT CONTROL</span><h2>Payment Workbench</h2><p>{isPaymentController?'Tinjau instruksi, putuskan approval, lalu jalankan pembayaran yang disetujui.':'Siapkan instruksi dan disbursement request untuk keputusan Payroll Controller.'}</p></div>
-              <span className="payment-decision-role">{role==='PAYROLL_CONTROLLER'?'Controller · Final approval':role==='PAYROLL_PROCESSOR'?'Processor · Maker':'Monitoring · Read-only'}</span>
-            </header>
             <nav className="payment-decision-tabs" role="tablist" aria-label="Kategori Payment Instructions" style={{display:'flex',gap:8,flexWrap:'wrap',borderBottom:'1px solid var(--border)',paddingBottom:10}}>
               <button type="button" role="tab" id="pi-tab-instructions" aria-controls="pi-tab-panel" aria-selected={displayedPaymentPanel==='PI'} tabIndex={displayedPaymentPanel==='PI'?0:-1} className={displayedPaymentPanel==='PI'?'btn btn-primary':'btn'} onClick={()=>selectPaymentPanel('PI')}>Payment Instructions ({paymentDecision.primaryCount})</button>
               <button type="button" role="tab" id="pi-tab-disbursement" aria-controls="pi-tab-panel" aria-selected={displayedPaymentPanel==='DISBURSEMENT'} tabIndex={displayedPaymentPanel==='DISBURSEMENT'?0:-1} className={displayedPaymentPanel==='DISBURSEMENT'?'btn btn-primary':'btn'} onClick={()=>selectPaymentPanel('DISBURSEMENT')}>Disbursement{canonicalDecisionKnown?` (${canonicalDecisionActions})`:''}</button>
