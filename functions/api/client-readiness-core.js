@@ -2,12 +2,14 @@ export function deriveClientReadiness(input={}){
   const clientActive=String(input.clientStatus||'').toUpperCase()==='ACTIVE';
   const employeeCount=Math.max(0,Number(input.employeeCount||0));
   const payrollCount=Math.max(0,Number(input.payrollCount||0));
-  const providerStatus=String(input.providerStatus||'').toUpperCase();
-  const providerSubAccountId=String(input.providerSubAccountId||'').trim();
-  const provisioningState=String(input.provisioningState||'').toUpperCase();
-  const credentialReady=Boolean(input.credentialReady);
-  const paymentReady=clientActive && providerStatus==='ACTIVE' && Boolean(providerSubAccountId)
-    && provisioningState==='READY' && credentialReady;
+  // GT5 Master Account routing: client sub-accounts and their OTP credentials are obsolete.
+  // This is provider setup readiness only; liquidity, limit, maker-checker and payment
+  // execution retain their own strict server-side preflights.
+  const masterActive=String(input.masterAccountStatus||'').toUpperCase()==='ACTIVE';
+  const masterScoped=String(input.masterAccountScope||'').toUpperCase()==='MASTER';
+  const credentialReady=Boolean(input.masterCredentialReady);
+  const paymentReady=clientActive && masterActive && masterScoped && credentialReady;
+
 
   return {
     client:{state:clientActive?'READY':'BLOCKED',ready:clientActive,blocking:false},
@@ -15,7 +17,7 @@ export function deriveClientReadiness(input={}){
     payroll:{state:clientActive?'READY':'BLOCKED',ready:clientActive,blocking:false,count:payrollCount},
     ewa:{state:clientActive?'CONFIGURABLE':'BLOCKED',ready:clientActive,blocking:false},
     payment:{
-      state:paymentReady?'READY':!clientActive?'CLIENT_BLOCKED':providerStatus!=='ACTIVE'?'PROVIDER_PENDING':!providerSubAccountId?'PROVIDER_PENDING':provisioningState!=='READY'?'PROVISIONING_PENDING':!credentialReady?'CREDENTIAL_PENDING':'PROVIDER_PENDING',
+      state:paymentReady?'READY':!clientActive?'CLIENT_BLOCKED':!masterActive||!masterScoped?'MASTER_ACCOUNT_PENDING':!credentialReady?'MASTER_CREDENTIAL_PENDING':'MASTER_ACCOUNT_PENDING',
       ready:paymentReady,
       blocking:true,
     },
