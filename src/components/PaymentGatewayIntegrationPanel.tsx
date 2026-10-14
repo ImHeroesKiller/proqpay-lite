@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { gatewayRuntimeHealth } from '@/lib/integration-health';
 import { IntegrationHealthPill } from '@/components/integrations/IntegrationPrimitives';
+import { Notice } from '@/components/ui/UnifiedSystem';
 import E2PayOperationsConsole from '@/components/E2PayOperationsConsole';
 import {
   getHostedPaymentStatus,
@@ -80,7 +81,7 @@ export default function PaymentGatewayIntegrationPanel({ canManage, canView = tr
       </div>
     </div>
 
-    {error?<div className="app-notice-bubble app-notice-error" role="alert"><strong>Gateway status gagal</strong><span>{error}</span></div>:null}
+    {error?<Notice key={error} title="Gateway status gagal" tone="error" onDismiss={()=>setError('')}>{error}</Notice>:null}
 
     <div className="integration-runtime-strip" aria-label="Ringkasan payment gateway">
       <div><span>Provider</span><strong>{provider}</strong></div>
