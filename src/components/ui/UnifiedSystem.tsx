@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -118,13 +118,19 @@ export function Notice({
   tone = "info",
   action,
   role,
+  dismissible = true,
+  onDismiss,
 }: {
   title?: ReactNode;
   children: ReactNode;
   tone?: "info" | "success" | "warning" | "error";
   action?: ReactNode;
   role?: "status" | "alert";
+  dismissible?: boolean;
+  onDismiss?: () => void;
 }) {
+  const [dismissed,setDismissed] = useState(false);
+  if (dismissed) return null;
   return (
     <div className={`app-notice-bubble ui-notice ui-notice-${tone}`} role={role || (tone === "error" ? "alert" : "status")}>
       <div>
@@ -132,6 +138,14 @@ export function Notice({
         <span>{children}</span>
       </div>
       {action}
+      {dismissible ? <button
+        type="button"
+        className="ui-notice-close"
+        aria-label="Tutup notifikasi"
+        title="Tutup notifikasi"
+        style={{marginLeft:"auto",flexShrink:0,alignSelf:"flex-start",padding:"2px 8px",fontSize:18,lineHeight:1.2,cursor:"pointer"}}
+        onClick={() => { setDismissed(true); onDismiss?.(); }}
+      >×</button> : null}
     </div>
   );
 }
