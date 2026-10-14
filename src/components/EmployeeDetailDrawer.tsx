@@ -177,7 +177,7 @@ export default function EmployeeDetailDrawer({
           </div>:null}
 
           <div role="tabpanel" className="employee-detail-groups">
-            {activeTab==='identity'||activeTab==='bank'?groups.filter(group=>activeTab==='identity'?group.title==='Identitas & Penempatan':group.title==='Rekening Pembayaran').map(group=><section key={group.title}><h3>{group.title}</h3><dl>{group.fields.map(([label,value])=><div key={String(label)}><dt>{label}</dt><dd>{employeeText(value)||'-'}</dd></div>)}</dl></section>):null}
+            {activeTab==='identity'||activeTab==='bank'?groups.filter(group=>activeTab==='identity'?group.title==='Identitas & Penempatan':group.title==='Rekening Pembayaran').map(group=><section key={group.title}><h3>{group.title}</h3><dl>{group.fields.map(([label,value])=><div key={String(label)}><dt>{String(label)}</dt><dd>{employeeText(value)||'-'}</dd></div>)}</dl></section>):null}
             {activeTab==='payroll'?<section aria-label="Rincian payroll Data Intake">
               <h3>Payroll per Periode</h3>
               <label>Periode sumber data <input type="month" value={selectedPeriod} onChange={event=>setSelectedPeriod(event.target.value)}/></label>
