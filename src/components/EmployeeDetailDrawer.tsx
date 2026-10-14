@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import {
   canManageEmployees,
-  employeeDateLabel,
+  employeeIntakePayroll,
   employeeInitials,
   employeeMasked,
   employeeStatusTone,
@@ -28,6 +28,9 @@ export default function EmployeeDetailDrawer({
   onSaved: () => Promise<void>;
 }) {
   const [editing,setEditing]=useState(false);
+  const [activeTab,setActiveTab]=useState<'identity'|'bank'|'payroll'>('identity');
+  const [selectedPeriod,setSelectedPeriod]=useState(String(employee.payrollSourcePeriod||''));
+  const payroll=employeeIntakePayroll(employee,selectedPeriod);
   const [saving,setSaving]=useState(false);
   const [resetting,setResetting]=useState(false);
   const [message,setMessage]=useState('');
@@ -121,10 +124,8 @@ export default function EmployeeDetailDrawer({
   }
 
   const groups=[
-    {title:'Pekerjaan',fields:[['Kode karyawan',employee.employeeCode||employee.id],['NRK',employee.id],['Klien',employee.company],['Project',employee.project],['Posisi',employee.position],['Status',employee.status],['Tipe kerja',employee.employmentType]]},
-    {title:'Kontrak',fields:[['Tanggal bergabung',employeeDateLabel(employee.joinDate)],['Mulai kontrak',employeeDateLabel(employee.contractStart)],['Akhir kontrak',employeeDateLabel(employee.contractEnd)],['Tanggal resign',employeeDateLabel(employee.resignDate)],['Alasan resign',employee.resignReason]]},
-    {title:'Administrasi',fields:[['NIK',employeeMasked(employee.nik,maskSensitiveData)],['NPWP',employeeMasked(employee.npwp,maskSensitiveData)],['Rekening',employeeMasked(employee.accountNo,maskSensitiveData)],['Bank',employee.bankName],['BPJS Kesehatan',employeeMasked(employee.bpjsKesehatanNo,maskSensitiveData)],['BPJS TK',employeeMasked(employee.jamsostekNo,maskSensitiveData)]]},
-    {title:'Kontak',fields:[['Email',employee.email],['Telepon',employee.phone||employee.mobile],['Alamat',employee.address],['Wilayah',employee.region||employee.province]]},
+    {title:'Identitas & Penempatan',fields:[['NRK',employee.employeeCode||employee.id],['Nama Karyawan',employee.name],['Kode Client',employee.clientId],['Nama Client',employee.company],['Nama Cabang',employee.branchName||employee.branch],['Lokasi',employee.locationName||employee.region||employee.province],['Jabatan',employee.position],['Status Karyawan',employee.status]]},
+    {title:'Rekening Pembayaran',fields:[['Nama Bank',employee.bankName],['No Rek',employeeMasked(employee.accountNo||employee.bankAccount,maskSensitiveData)]]},
   ];
 
   return(
@@ -137,21 +138,13 @@ export default function EmployeeDetailDrawer({
         </div>
 
         <div className="employee-drawer-body">
-          <div className="employee-profile-hero">
-            <div>
-              <span>Gaji pokok</span>
-              <strong>{formatIDR(Number(employee.salaryGross||0))}</strong>
-              <small>{employee.bankName||'Bank belum diisi'} · {employeeMasked(employee.accountNo,maskSensitiveData)||'Rekening belum diisi'}</small>
-            </div>
-            <div>
-              <em className={`status-pill status-${employeeStatusTone(employee.status)}`}>{employee.status||'Belum diisi'}</em>
-              <small>{employee.employmentType||'Tipe kerja belum diisi'}</small>
-            </div>
+          <div role="tablist" aria-label="Detail Data Intake" style={{display:'flex',gap:8,flexWrap:'wrap',paddingBottom:10,borderBottom:'1px solid var(--border)'}}>
+            {([['identity','Identitas & Penempatan'],['bank','Rekening Pembayaran'],['payroll','Payroll per Periode']] as const).map(([id,label])=><button key={id} type="button" role="tab" aria-selected={activeTab===id} className={activeTab===id?'btn btn-primary':'btn'} onClick={()=>{setActiveTab(id);setEditing(false);}}>{label}</button>)}
           </div>
 
-          {canEdit||canResetPortal?<div className="employee-drawer-actions">
+          {(activeTab==='bank'&&canEdit)||canResetPortal?<div className="employee-drawer-actions">
             {canResetPortal?<button className="btn" type="button" disabled={resetting} onClick={()=>setResetConfirm(true)}>{resetting?'Menerbitkan…':'Reset password portal'}</button>:null}
-            {canEdit?<button className="btn" type="button" onClick={()=>editing?cancelEditing():setEditing(true)}>{editing?'Batal edit':'Edit administrasi'}</button>:null}
+            {canEdit&&activeTab==='bank'?<button className="btn" type="button" onClick={()=>editing?cancelEditing():setEditing(true)}>{editing?'Batal edit':'Edit rekening'}</button>:null}
           </div>:null}
 
           {discardConfirm?<div className="employee-inline-confirm employee-discard-confirm" role="alertdialog" aria-modal="true">
@@ -168,13 +161,13 @@ export default function EmployeeDetailDrawer({
 
           {portalPassword?<div className="account-credential employee-portal-password" role="status"><div><strong>Password portal — hanya sekali</strong><span>{employee.employeeCode||employee.id}</span></div><code>{portalPassword}</code><button type="button" className="btn" onClick={()=>void navigator.clipboard.writeText(portalPassword)}>Salin</button></div>:null}
 
-          {editing?<div className="employee-edit-shell">
+          {editing&&activeTab==='bank'?<div className="employee-edit-shell">
             <div className="employee-edit-heading">
               <div><span>ADMINISTRASI</span><strong>Lengkapi data utama</strong></div>
               {dirty?<small>Perubahan belum disimpan</small>:<small>Belum ada perubahan</small>}
             </div>
             <div className="employee-admin-form">
-              {(Object.entries({nik:'NIK (16 digit)',email:'Email',bankName:'Nama bank',accountNo:'Nomor rekening',bpjsKesehatanNo:'BPJS Kesehatan',jamsostekNo:'BPJS Ketenagakerjaan'}) as Array<[keyof EmployeeAdminForm,string]>).map(([key,label])=><label key={key}>{label}<input value={form[key]} onChange={(event)=>setForm({...form,[key]:event.target.value})}/></label>)}
+              {(Object.entries({bankName:'Nama bank',accountNo:'Nomor rekening'}) as Array<[keyof EmployeeAdminForm,string]>).map(([key,label])=><label key={key}>{label}<input value={form[key]} onChange={(event)=>setForm({...form,[key]:event.target.value})}/></label>)}
               {message?<p className="employee-form-error">{message}</p>:null}
             </div>
             <div className="employee-edit-footer">
@@ -183,7 +176,20 @@ export default function EmployeeDetailDrawer({
             </div>
           </div>:null}
 
-          <div className="employee-detail-groups">{groups.map((group)=><section key={group.title}><h3>{group.title}</h3><dl>{group.fields.map(([label,value])=><div key={String(label)}><dt>{label}</dt><dd>{employeeText(value)||'-'}</dd></div>)}</dl></section>)}</div>
+          <div role="tabpanel" className="employee-detail-groups">
+            {activeTab==='identity'||activeTab==='bank'?groups.filter(group=>activeTab==='identity'?group.title==='Identitas & Penempatan':group.title==='Rekening Pembayaran').map(group=><section key={group.title}><h3>{group.title}</h3><dl>{group.fields.map(([label,value])=><div key={String(label)}><dt>{label}</dt><dd>{employeeText(value)||'-'}</dd></div>)}</dl></section>):null}
+            {activeTab==='payroll'?<section aria-label="Rincian payroll Data Intake">
+              <h3>Payroll per Periode</h3>
+              <label>Periode sumber data <input type="month" value={selectedPeriod} onChange={event=>setSelectedPeriod(event.target.value)}/></label>
+              <p>Data payroll hanya ditampilkan untuk periode intake yang cocok. Data dari periode lain tidak digunakan.</p>
+              {payroll.status==='NO_PERIOD_DATA'||payroll.status==='COMPONENTS_UNAVAILABLE'?<p role="status">Data payroll untuk periode ini belum tersedia atau rincian komponen belum lengkap.</p>:<>
+                <p role="status">Pemeriksaan total: {payroll.status==='BALANCED'?'Sesuai':'Perlu rekonsiliasi'}</p>
+                <h4>Pendapatan</h4><dl>{payroll.earnings.map(row=><div key={row.label}><dt>{row.label}</dt><dd>{row.amount===null?'—':formatIDR(row.amount)}</dd></div>)}</dl>
+                <h4>Potongan</h4><dl>{payroll.deductions.map(row=><div key={row.label}><dt>{row.label}</dt><dd>{row.amount===null?'—':formatIDR(row.amount)}</dd></div>)}</dl>
+                {payroll.totals?<dl>{([['Gross',payroll.totals.gross],['Deduct',payroll.totals.deduct],['Netto',payroll.totals.netto]] as const).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value===null?'—':formatIDR(value)}</dd></div>)}</dl>:null}
+              </>}
+            </section>:null}
+          </div>
         </div>
       </aside>
     </div>
