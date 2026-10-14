@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import DismissibleBubble from '@/components/ui/DismissibleBubble';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useIntegrationMonitor } from '@/hooks/useIntegrationMonitor';
 import { apiRecoveryGuidance, integrationHealthLabel } from '@/lib/integration-health';
@@ -131,12 +132,12 @@ export default function ApiEndpointMonitor({ onOpenAuditCorrelation }: { onOpenA
     </div>
 
     <div className="sr-only" aria-live="polite">{refreshing ? 'Memperbarui data integrasi' : ''}</div>
-    {error ? <div className="app-notice-bubble app-notice-error" role="alert">
+    {error ? <DismissibleBubble className="app-notice-bubble app-notice-error" role="alert">
       <strong>Monitoring gagal dimuat</strong>
       <span>{error}{retryCount > 1 ? ` · retry ${retryCount}x belum berhasil` : ''}</span>
       <button type="button" className="btn" disabled={refreshing} onClick={() => void load('retry')}>Retry sekarang</button>
-    </div> : null}
-    {data.pendingMigration ? <div className="app-notice-bubble app-notice-info"><strong>Monitoring disiapkan</strong><span>Migration observability belum aktif pada database ini.</span></div> : null}
+    </DismissibleBubble> : null}
+    {data.pendingMigration ? <DismissibleBubble className="app-notice-bubble app-notice-info" role="status"><strong>Monitoring disiapkan</strong><span>Migration observability belum aktif pada database ini.</span></DismissibleBubble> : null}
 
     <div className="integration-health-banner" data-state={health.state}>
       <div><span>System health</span><strong>{integrationHealthLabel(health.state)}</strong><small>{health.reason}</small></div>
