@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import DismissibleBubble from '@/components/ui/DismissibleBubble';
 import { formatIDR } from '@/lib/format';
 import {
   getE2PayBanks,
@@ -257,16 +258,16 @@ export default function E2PayOperationsConsole({canManage}:Props){
       <button type="button" className="btn" disabled={loading} onClick={()=>void loadOverview(true)}>{loading?'Refreshing…':'Refresh provider'}</button>
     </div>
 
-    {error?<div className="app-notice-bubble app-notice-error" role="alert"><strong>E2Pay operation gagal</strong><span>{error}</span></div>:null}
-    {notice?<div className="app-notice-bubble app-notice-info" role="status"><span>{notice}</span></div>:null}
-    {account?.executionContract && !account.executionContract.valid?<div className="app-notice-bubble app-notice-error" role="alert">
+    {error?<DismissibleBubble className="app-notice-bubble app-notice-error" role="alert"><strong>E2Pay operation gagal</strong><span>{error}</span></DismissibleBubble>:null}
+    {notice?<DismissibleBubble className="app-notice-bubble app-notice-info" role="status"><span>{notice}</span></DismissibleBubble>:null}
+    {account?.executionContract && !account.executionContract.valid?<DismissibleBubble className="app-notice-bubble app-notice-error" role="alert">
       <strong>Execution contract belum valid</strong>
       <span>{account.executionContract.issues.join(', ')}. Financial POST akan diblokir sampai source account/password/source ID memenuhi kontrak E2Pay.</span>
-    </div>:null}
-    {account?.executionContract?.sourceIdConfigured?<div className="app-notice-bubble app-notice-info" role="note">
+    </DismissibleBubble>:null}
+    {account?.executionContract?.sourceIdConfigured?<DismissibleBubble className="app-notice-bubble app-notice-info" role="note">
       <strong>Source ID berasal dari provisioning E2Pay</strong>
       <span>ProQPay dapat memastikan Source ID terkonfigurasi, tetapi SSD tidak menyediakan read-only endpoint untuk memvalidasi nilainya sebelum transaksi. Nilai ini harus mengikuti Source ID resmi dari E2Pay.</span>
-    </div>:null}
+    </DismissibleBubble>:null}
 
     <div className="e2pay-account-hero">
       <div className="e2pay-account-balance">
@@ -327,14 +328,14 @@ export default function E2PayOperationsConsole({canManage}:Props){
           <strong>{account?.funding?.accountName||account?.accountName||'—'}</strong>
         </div>
       </div>
-      {!account?.funding?.bankName?<div className="app-notice-bubble app-notice-error" role="alert">
+      {!account?.funding?.bankName?<DismissibleBubble className="app-notice-bubble app-notice-error" role="alert">
         <strong>Bank tujuan VA belum dikonfigurasi</strong>
         <span>Jangan melakukan transfer sebelum Super Admin mengisi Funding bank di Settings → Payment Gateway berdasarkan informasi resmi E2Pay.</span>
-      </div>:null}
-      {String(account?.environment||'').toUpperCase()==='UAT'?<div className="app-notice-bubble app-notice-info" role="note">
+      </DismissibleBubble>:null}
+      {String(account?.environment||'').toUpperCase()==='UAT'?<DismissibleBubble className="app-notice-bubble app-notice-info" role="note">
         <strong>Permata 701075327 bukan VA Top Up</strong>
         <span>Data dummy Permata tersebut hanya untuk pengujian transaksi/disbursement pada E2Pay UAT. Jangan gunakan sebagai tujuan pengisian saldo wallet.</span>
-      </div>:null}
+      </DismissibleBubble>:null}
       <ol className="e2pay-topup-steps">
         <li>Buka mobile banking / internet banking perusahaan.</li>
         <li>Pilih transfer ke <strong>{account?.funding?.bankName||'bank VA E2Pay'}</strong>.</li>
@@ -402,10 +403,10 @@ export default function E2PayOperationsConsole({canManage}:Props){
         </article>)}
         {!subAccounts.length?<div className="integration-empty">Belum ada sub-account yang dipetakan. Simpan sebagai DRAFT sampai itUP memberikan provider sub-account ID.</div>:null}
       </div>
-      <div className="app-notice-bubble app-notice-info" role="note">
+      <DismissibleBubble className="app-notice-bubble app-notice-info" role="note">
         <strong>Isolation control</strong>
         <span>Satu provider sub-account hanya dapat dimiliki satu client pada environment yang sama. Mapping ACTIVE wajib memiliki provider sub-account ID; credential/token tetap berada di secure gateway settings dan tidak disimpan pada registry ini.</span>
-      </div>
+      </DismissibleBubble>
     </section>
 
     {String(account?.environment||'').toUpperCase()==='UAT' && uatValidation?<section className="integration-panel" aria-label="P5.4 UAT Disbursement Validation">
@@ -419,10 +420,10 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <b>{row?.subAccount?('Sub-account '+row.subAccount.masked):'Sub-account belum mapped'}</b>
         <em>{row?('Liquidity '+row.liquidity.state+' · PI '+(row.paymentInstruction?.status||'belum dibuat')+' · Gateway '+(row.transaction?.status||'belum ada')):'Menunggu deployment seed'}</em>
       </article>)}
-      <div className="app-notice-bubble app-notice-info" role="note">
+      <DismissibleBubble className="app-notice-bubble app-notice-info" role="note">
         <strong>Authority tetap Payment Control</strong>
         <span>Card ini hanya observability. Generate/submit PI dilakukan Processor, approval dan Process Payment hanya Payroll Controller. Raw disbursement dari Integration Console tetap dinonaktifkan.</span>
-      </div>
+      </DismissibleBubble>
       <ol className="e2pay-topup-steps">
         <li>Pastikan canary menunjukkan <b>FUNDED</b> dan <b>READY_FOR_PI</b>.</li>
         <li>Processor membuat + submit PI canary Rp15.000.</li>
@@ -482,10 +483,10 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <details className="e2pay-admin-detail">
           <summary>Disbursement inquiry</summary>
           <p>Validasi rekening tujuan dan fee tanpa mengirim uang.</p>
-          {String(account?.environment||'').toUpperCase()==='UAT'?<div className="app-notice-bubble app-notice-info" role="note">
+          {String(account?.environment||'').toUpperCase()==='UAT'?<DismissibleBubble className="app-notice-bubble app-notice-info" role="note">
             <strong>E2Pay UAT dummy destination</strong>
             <span>Sesuai arahan E2Pay untuk environment UAT: gunakan bank <b>Permata</b> dengan rekening dummy <b>701075327</b>. Nominal Rp15.000 berasal dari contoh dokumen dan dapat diubah sesuai skenario test.</span>
-          </div>:null}
+          </DismissibleBubble>:null}
           <div className="e2pay-form-grid">
             <Field label="Destination account" value={inquiry.accountId} onChange={(value)=>setInquiry({...inquiry,accountId:value})} />
             <Field label="Bank ID" value={inquiry.bankId} onChange={(value)=>setInquiry({...inquiry,bankId:value})} />
