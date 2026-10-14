@@ -47,7 +47,7 @@ export default function EmployeeDetailDrawer({
     jamsostekNo:employeeText(employee.jamsostekNo),
   };
   const [form,setForm]=useState<EmployeeAdminForm>(initialForm);
-  const dirty=editing && JSON.stringify(form)!==JSON.stringify(initialForm);
+  const dirty=editing && (form.bankName!==initialForm.bankName||form.accountNo!==initialForm.accountNo);
   const canEdit=canManageEmployees(actor);
   const canResetPortal=canManageEmployees(actor);
 
@@ -97,7 +97,7 @@ export default function EmployeeDetailDrawer({
       const response=await fetch('/api/employees',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({action:'UPDATE_ADMIN',id:employee.id,...form}),
+        body:JSON.stringify({action:'UPDATE_ADMIN',id:employee.id,bankName:form.bankName,accountNo:form.accountNo}),
       });
       const result=await response.json().catch(()=>({}));
       if(!response.ok) throw new Error(result.error||result.message||`HTTP ${response.status}`);
