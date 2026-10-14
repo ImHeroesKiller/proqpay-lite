@@ -25,29 +25,26 @@ export async function onRequest({request,env}){
       (SELECT COUNT(*) FROM payroll_submissions ps WHERE ps.client_id=c.id) AS payroll_count
     FROM clients c WHERE c.org_id=? ${requestedClientId?'AND c.id=?':''} ORDER BY c.name`,
     requestedClientId?[organizationId,requestedClientId]:[organizationId]);
-  const result=[];
-  for(const client of clients){
-    const account=await d1First(env.DB,`SELECT ppa.*,pps.state AS provisioning_session_state
-      FROM payment_provider_accounts ppa
-      LEFT JOIN provider_provisioning_sessions pps ON pps.provider_account_registry_id=ppa.id
-      WHERE ppa.org_id=? AND ppa.client_id=? AND ppa.project_id IS NULL
-        AND ppa.provider='E2PAY' AND ppa.environment=?
-      ORDER BY CASE ppa.status WHEN 'ACTIVE' THEN 0 WHEN 'DRAFT' THEN 1 ELSE 2 END,ppa.updated_at DESC LIMIT 1`,
-      [organizationId,client.id,environment]);
-    const credential=providerAccountCredentialState(account||{});
-    result.push({
-      clientId:client.id,clientCode:client.code,clientName:client.name,environment,
-      readiness:deriveClientReadiness({
-        clientStatus:client.status,
-        employeeCount:client.employee_count,
-        payrollCount:client.payroll_count,
-        providerStatus:account?.status,
-        providerSubAccountId:account?.provider_sub_account_id,
-        provisioningState:account?.provisioning_session_state,
-        credentialReady:credential.ready,
-      }),
-      provider:account?{accountId:account.id,status:account.status,subAccountIdMasked:account.provider_sub_account_id?'••••'+String(account.provider_sub_account_id).slice(-4):null,provisioningState:account.provisioning_session_state||null,credentialReady:credential.ready}:null,
-    });
-  }
+  // One Master E2Pay provider account is shared across clients in this organization.
+  const master=await d1First(env.DB,`SELECT * FROM payment_provider_accounts
+    WHERE org_id=? AND provider='E2PAY' AND environment=? AND account_scope='MASTER'
+    ORDER BY CASE status WHEN 'ACTIVE' THEN 0 ELSE 1 END,updated_at DESC LIMIT 1`,[organizationId,environment]);
+  const masterCredential=providerAccountCredentialState(master||{});
+  const result=clients.map(client=>({
+    clientId:client.id,clientCode:client.code,clientName:client.name,environment,
+    readiness:deriveClientReadiness({
+      clientStatus:client.status,
+      employeeCount:client.employee_count,
+      payrollCount:client.payroll_count,
+      masterAccountStatus:master?.status,
+      masterAccountScope:master?.account_scope,
+      masterCredentialReady:masterCredential.ready,
+    }),
+    provider:master?{
+      accountId:master.id,status:master.status,accountScope:'MASTER',
+      credentialReady:masterCredential.ready,
+    }:null,
+  }));
+
   return secureJson({ok:true,environment,clients:result},200,request,env,METHODS);
 }
