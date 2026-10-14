@@ -107,3 +107,29 @@ export function canManageEmployees(actor: EmployeeActor | null) {
     actor.permissions?.includes('employees:write')
   );
 }
+
+/** D3 Data Intake V1 read-only component labels. Monetary values are always period-scoped. */
+export const INTAKE_EARNINGS:ReadonlyArray<readonly [string,string]>=[
+ ['Gaji Pokok','basicSalary'],['Rapel Gaji','salaryArrears'],['Rapel Tunj','allowanceArrears'],['Lembur','overtime'],['Tunj Jabatan','positionAllowance'],['Tunj Makan','mealAllowance'],['Tunj Transport','transportAllowance'],['Tunj Pulsa','phoneAllowance'],['Tunj Kehadiran','attendanceAllowance'],['Tunj Lain','otherAllowance'],['Insentif','incentive'],['Shift','shift'],['Medical','medical'],['Bonus/ Uang Cuti','bonusOrLeave'],['Tunj Pajak','taxAllowance'],['BPJS TK','bpjsTk'],['BPJS Kes.','bpjsHealth']
+];
+export const INTAKE_DEDUCTIONS:ReadonlyArray<readonly [string,string]>=[
+ ['Pot. Kehadiran','attendanceDeduction'],['Pot. JHT','jhtDeduction'],['Pot. Pensiun','pensionDeduction'],['Pot. BPJS Kes','bpjsHealthDeduction'],['Pot. Koperasi','cooperativeDeduction'],['Pot. Pajak','taxDeduction'],['Pot. Lain','otherDeduction']
+];
+export function employeeIntakePayroll(employee:EmployeeRecord,period:string){
+ if(!period || employeeText(employee.payrollSourcePeriod)!==period) return {status:'NO_PERIOD_DATA' as const,earnings:[],deductions:[],totals:null};
+ let components:Record<string,unknown>|null=null;
+ try{
+  const raw=employee.payrollComponents;
+  const parsed=typeof raw==='string'?JSON.parse(raw):raw;
+  if(parsed && typeof parsed==='object' && !Array.isArray(parsed))components=parsed as Record<string,unknown>;
+ }catch{components=null;}
+ if(!components)return {status:'COMPONENTS_UNAVAILABLE' as const,earnings:[],deductions:[],totals:null};
+ const amount=(v:unknown)=>v===null||v===undefined||v===''?null:Number.isFinite(Number(v))?Number(v):null;
+ const earnings=INTAKE_EARNINGS.map(([label,key])=>({label,amount:amount(components?.[key])}));
+ const deductions=INTAKE_DEDUCTIONS.map(([label,key])=>({label,amount:amount(components?.[key])}));
+ const gross=amount(employee.importedGross),deduct=amount(employee.importedDeduction),netto=amount(employee.importedNet);
+ const complete=[...earnings,...deductions].every(row=>row.amount!==null)&&[gross,deduct,netto].every(n=>n!==null);
+ const sumGross=earnings.reduce((v,row)=>v+(row.amount??0),0),sumDeduct=deductions.reduce((v,row)=>v+(row.amount??0),0);
+ const valid=complete&&gross===sumGross&&deduct===sumDeduct&&netto===gross-deduct;
+ return {status:valid?'BALANCED' as const:'REVIEW_REQUIRED' as const,earnings,deductions,totals:{gross,deduct,netto,sumGross,sumDeduct}};
+}
