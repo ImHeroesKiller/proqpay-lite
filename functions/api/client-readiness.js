@@ -1,7 +1,7 @@
 import { d1All, d1First, hasD1 } from './_d1.js';
 import { authorize, enforceRateLimit, handlePreflight, secureJson } from './_security.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
-import { providerAccountCredentialState } from './payment-provider-account-credentials.js';
+import { e2payReadiness, e2payExecutionContract } from './payment-gateway-e2pay.js';
 import { deriveClientReadiness } from './client-readiness-core.js';
 
 const METHODS='GET, OPTIONS';
@@ -29,7 +29,10 @@ export async function onRequest({request,env}){
   const master=await d1First(env.DB,`SELECT * FROM payment_provider_accounts
     WHERE org_id=? AND provider='E2PAY' AND environment=? AND account_scope='MASTER'
     ORDER BY CASE status WHEN 'ACTIVE' THEN 0 ELSE 1 END,updated_at DESC LIMIT 1`,[organizationId,environment]);
-  const masterCredential=providerAccountCredentialState(master||{});
+  // Master authentication is configured centrally; no per-client merchant credential.
+  const gateway=e2payReadiness(runtimeEnv);
+  const contract=e2payExecutionContract(runtimeEnv,{accountId:master?.provider_account_id||''});
+  const masterCredentialReady=Boolean(gateway.configured && contract.valid);
   const result=clients.map(client=>({
     clientId:client.id,clientCode:client.code,clientName:client.name,environment,
     readiness:deriveClientReadiness({
@@ -38,11 +41,11 @@ export async function onRequest({request,env}){
       payrollCount:client.payroll_count,
       masterAccountStatus:master?.status,
       masterAccountScope:master?.account_scope,
-      masterCredentialReady:masterCredential.ready,
+      masterCredentialReady:masterCredentialReady,
     }),
     provider:master?{
       accountId:master.id,status:master.status,accountScope:'MASTER',
-      credentialReady:masterCredential.ready,
+      credentialReady:masterCredentialReady,
     }:null,
   }));
 
