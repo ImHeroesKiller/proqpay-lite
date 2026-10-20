@@ -1,4 +1,4 @@
-import { d1All, d1Batch, d1First } from './_d1.js';
+import { d1All, d1Batch, d1Run } from './_d1.js';
 import { decryptAccountNumber, sha256Hex } from './payment-instruction-core.js';
 import {
   E2PayRequestError,
@@ -18,10 +18,13 @@ const NOW="strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
 function num(value){ const n=Number(value||0); return Number.isFinite(n)?n:0; }
 function ambiguousError(error){
-  return error instanceof E2PayRequestError && (
-    ['E2PAY_TIMEOUT','E2PAY_NETWORK_ERROR'].includes(error.code)
-    || (error.code==='E2PAY_HTTP_ERROR' && (Number(error.httpStatus)>=500 || [408,429].includes(Number(error.httpStatus))))
-  );
+  // Once the financial request might have left the process, only a documented
+  // rejection or a proven pre-send failure is final. Parsing errors are UNKNOWN.
+  if(error instanceof E2PayRequestError){
+    if(['E2PAY_AUDIT_REQUIRED','E2PAY_AUDIT_PREPARE_FAILED','E2PAY_TRANSACTION_INVALID'].includes(error.code)) return false;
+    if(error.code==='E2PAY_HTTP_ERROR' && Number(error.httpStatus)>=400 && Number(error.httpStatus)<500 && ![408,429].includes(Number(error.httpStatus))) return false;
+  }
+  return true;
 }
 async function providerClientRef(request,item){
   const digest=await sha256Hex(`${request.id}|${item.id}|${request.routing_hash}|${item.beneficiary_hash}`);
@@ -75,7 +78,7 @@ async function ensureExecutionItems(database,execution,request,requestItems){
   return d1All(database,'SELECT * FROM disbursement_execution_items WHERE disbursement_execution_id=? ORDER BY created_at,id',[execution.id]);
 }
 
-export async function executeCanonicalE2Pay({database,env,execution,request,requestItems,channelSnapshot,liquidityBalance=null}){
+export async function executeCanonicalE2Pay({database,env,execution,request,requestItems,channelSnapshot,liquidityBalance=null,assertExecutionLock=async()=>{}}){
   let items=await ensureExecutionItems(database,execution,request,requestItems);
   if(items.some(item=>['PENDING','PROCESSING','UNKNOWN'].includes(String(item.status)))){
     await updateExecution(database,execution.id,{status:'RECONCILIATION_REQUIRED',error_code:'E2PAY_RECONCILIATION_REQUIRED',error_message:'Provider status unresolved; financial retry blocked'});
@@ -85,7 +88,7 @@ export async function executeCanonicalE2Pay({database,env,execution,request,requ
   const auth=await e2payAuthorize(env);
   const [merchant,banks]=await Promise.all([e2payMerchantAccount(env,auth.accessToken),e2payBankList(env,auth.accessToken)]);
   const contract=e2payExecutionContract(env,merchant);
-  if(!contract.valid){
+  if(!contract.valid || String(merchant?.merchantStatus||'').toUpperCase()!=='ACTIVE'){
     await updateExecution(database,execution.id,{status:'FAILED',error_code:contract.issues[0]||'E2PAY_EXECUTION_CONTRACT_INVALID',error_message:'E2Pay execution contract invalid'});
     return {ok:false,statusCode:409,parentStatus:'FAILED',code:contract.issues[0]||'E2PAY_EXECUTION_CONTRACT_INVALID',executionContract:contract,summary:summarizeCanonicalExecutionItems(items),items};
   }
@@ -131,10 +134,12 @@ export async function executeCanonicalE2Pay({database,env,execution,request,requ
     return {ok:false,statusCode:409,parentStatus:'FAILED',code:'E2PAY_PREFLIGHT_FAILED',summary,items,financialPostStarted:false};
   }
   const remainingRequired=items.filter(item=>item.status==='INQUIRY_READY').reduce((sum,item)=>sum+num(item.amount)+num(item.fee_amount),0);
-  const merchantBalance=liquidityBalance===null||liquidityBalance===undefined?num(merchant?.balance):num(liquidityBalance);
-  if(summary.succeeded===0 && merchantBalance<remainingRequired){
+  const liveBalance=Number(merchant?.balance);
+  const merchantBalance=Number.isFinite(liveBalance)&&liveBalance>=0
+    ? (liquidityBalance===null||liquidityBalance===undefined?liveBalance:Math.min(liveBalance,num(liquidityBalance))) : 0;
+  if(merchantBalance<remainingRequired){
     await updateExecution(database,execution.id,{status:'FAILED',error_code:'E2PAY_INSUFFICIENT_BALANCE',error_message:`Balance ${merchantBalance} < required ${remainingRequired}`});
-    return {ok:false,statusCode:409,parentStatus:'FAILED',code:'E2PAY_INSUFFICIENT_BALANCE',summary,items,merchantBalance,requiredBalance:remainingRequired,financialPostStarted:false};
+    return {ok:false,statusCode:409,parentStatus:'FAILED',code:'E2PAY_INSUFFICIENT_BALANCE',summary,items,merchantBalance,requiredBalance:remainingRequired,financialPostStarted:items.some(item=>Number(item.attempt_count||0)>0)};
   }
 
   const maxChunk=Math.max(1,Math.min(25,Number(env.E2PAY_SYNC_BENEFICIARY_LIMIT||25)||25));
@@ -145,7 +150,10 @@ export async function executeCanonicalE2Pay({database,env,execution,request,requ
     const prefix=String(channelSnapshot?.metadata?.descriptionPrefix||channelSnapshot?.providerChannel||request.purpose||'PQP').slice(0,24);
     const description=`${prefix} ${request.client_reference} ${source.sequence_no}`;
     const diagnostics=await e2payExecutionDiagnostics(env,{clientRef:ledger.client_ref,description,inquiryId:ledger.inquiry_id},merchant);
-    await updateItem(database,ledger.id,{status:'PENDING',attempt_count:Number(ledger.attempt_count||0)+1,last_attempt_at:new Date().toISOString(),failure_stage:'DISBURSEMENT_POST',request_diagnostics_json:JSON.stringify({...diagnostics,providerChannel:channelSnapshot?.providerChannel||null,channelConfigHash:channelSnapshot?.configHash||null})});
+    await assertExecutionLock();
+    // Atomic claim is a second fence against a stale worker after lock expiry.
+    const claim=await d1Run(database,`UPDATE disbursement_execution_items SET status='PENDING',attempt_count=attempt_count+1,last_attempt_at=?,failure_stage='DISBURSEMENT_POST',request_diagnostics_json=?,updated_at=${NOW} WHERE id=? AND status='INQUIRY_READY' AND attempt_count=0`,[new Date().toISOString(),JSON.stringify({...diagnostics,providerChannel:channelSnapshot?.providerChannel||null,channelConfigHash:channelSnapshot?.configHash||null}),ledger.id]);
+    if(Number(claim?.meta?.changes||0)!==1) break;
     let result;
     try{ result=await e2payDisburse(env,auth.accessToken,{clientRef:ledger.client_ref,description,inquiryId:ledger.inquiry_id}); }
     catch(error){
@@ -170,6 +178,6 @@ export async function executeCanonicalE2Pay({database,env,execution,request,requ
   const remaining=items.filter(item=>item.status==='INQUIRY_READY'&&Number(item.attempt_count||0)===0).length;
   const partialFailure=summary.failed>0&&(summary.succeeded>0||unresolved);
   const parentStatus=canonicalExecutionParentStatus(summary,remaining);
-  await updateExecution(database,execution.id,{status:parentStatus,error_code:unresolved?'E2PAY_EXECUTION_UNKNOWN':partialFailure?'E2PAY_PARTIAL_FAILURE':null,error_message:unresolved?'Provider status unresolved; reconcile before retry':partialFailure?`${summary.failed} beneficiary gagal`:null,completed_at:allSuccess?new Date().toISOString():null});
+  await updateExecution(database,execution.id,{status:parentStatus,error_code:unresolved?'E2PAY_EXECUTION_UNKNOWN':partialFailure?'E2PAY_PARTIAL_FAILURE':null,error_message:unresolved?'Provider status unresolved; reconcile before retry':partialFailure?`${summary.failed} beneficiary gagal`:null,completed_at:parentStatus==='SUCCEEDED'?new Date().toISOString():null});
   return {ok:!unresolved,statusCode:unresolved?409:201,parentStatus,summary,items,merchantBalance,hasMore:remaining>0,remaining,financialPostStarted:items.some(item=>Number(item.attempt_count||0)>0)};
 }

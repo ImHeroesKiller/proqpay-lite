@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -44,8 +44,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Manual-dispatch quality gates
-        if: github.event_name == 'workflow_dispatch'
+      - name: Reviewed commit quality gates
         run: |
           npm test
           npm run typecheck
@@ -64,12 +63,38 @@ jobs:
         env:
           NODE_ENV: production
 
+      - name: Local E2Pay multi-role browser gate (synthetic APIs only)
+        shell: bash
+        env:
+          BASE_URL: http://127.0.0.1:39822
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+          python3 -m http.server 39822 --bind 127.0.0.1 --directory out >/tmp/e2pay-local-uat.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl -fsS "$BASE_URL/" >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS "$BASE_URL/" >/dev/null
+          npx playwright test tests/e2e/e2pay-master-closure.spec.mjs --config playwright.uat.config.mjs
+
       - name: Verify Cloudflare credentials
         shell: bash
         run: |
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is missing"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is missing"; exit 1; }
           npx wrangler whoami
+
+      - name: Verify production release controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test "$current_sha" = "$RELEASE_SHA" || { echo "Refusing stale release commit"; exit 1; }
+          node scripts/verify-pages-release-control.mjs
 
       - name: Close custom domain and WAF controls
         shell: bash

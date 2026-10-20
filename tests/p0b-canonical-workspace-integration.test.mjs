@@ -89,5 +89,5 @@ test('P0.B EWA cannot mark paid unless every provider execution item is confirme
 
 test('P0.B settlement bridge only fires after confirmed execution or MATCHED reconciliation',()=>{
  assert.match(execution,/result\.parentStatus==='SUCCEEDED'\) await applyCanonicalEwaSettlement/);
- assert.match(reconcile,/result\.outcome\.attemptStatus==='MATCHED'\) await applyCanonicalEwaSettlement/);
+ assert.match(reconcile,/result\.outcome\.attemptStatus==='MATCHED'\)\{\s*await applyCanonicalEwaSettlement/);
 });

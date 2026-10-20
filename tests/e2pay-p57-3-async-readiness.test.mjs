@@ -19,7 +19,7 @@ test('P5.7.3 separates operational readiness from payment readiness',()=>{
   assert.equal(pending.overall.paymentReady,false);
   assert.equal(pending.payment.blocking,true);
 
-  const ready=deriveClientReadiness({clientStatus:'ACTIVE',employeeCount:99,payrollCount:4,providerStatus:'ACTIVE',providerSubAccountId:'SUB-1',provisioningState:'READY',credentialReady:true});
+  const ready=deriveClientReadiness({clientStatus:'ACTIVE',employeeCount:99,payrollCount:4,masterAccountStatus:'ACTIVE',masterAccountScope:'MASTER',masterCredentialReady:true});
   assert.equal(ready.payment.ready,true);
   assert.equal(ready.payment.state,'READY');
 });
@@ -59,9 +59,10 @@ test('P5.7.3 PI generation is asynchronous but payment submission remains fail-c
 test('P5.7.3 exposes canonical client readiness independently of payment provider state',()=>{
   assert.match(readinessApi,/deriveClientReadiness/);
   assert.match(readinessApi,/payroll_submissions/);
-  assert.match(readinessApi,/provider_provisioning_sessions/);
-  assert.match(readinessApi,/credentialReady/);
+  assert.match(readinessApi,/account_scope='MASTER'/);
+  assert.doesNotMatch(readinessApi,/provider_provisioning_sessions/);
+  assert.match(readinessApi,/masterCredentialReady/);
   assert.match(ui,/Operational Readiness/);
   assert.match(ui,/Payment setup berjalan async/);
-  assert.match(ui,/Client, employee, payroll calculation, dan konfigurasi EWA tetap dapat dilanjutkan/);
+  assert.match(ui,/Setup payroll tetap dapat dilanjutkan/);
 });

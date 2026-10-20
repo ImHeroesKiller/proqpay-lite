@@ -24,9 +24,12 @@ export async function readProviderFundingState(database,organizationId,providerA
   const parent=await d1First(database,`SELECT * FROM payment_gateway_provider_snapshots
     WHERE org_id=? AND provider='E2PAY' AND environment=? LIMIT 1`,[organizationId,account.environment]);
   const parentAge=parent?ageMs(parent.refreshed_at,nowMs):Number.POSITIVE_INFINITY;
-  const parentBalance=parent?Number(parent.balance||0):null;
+  const parentBalance=parent&&parent.balance!==null?Number(parent.balance):null;
   const parentState=!parent?'NOT_SYNCED'
-    : parentAge<0||parentAge>PARENT_BALANCE_MAX_AGE_MS?'STALE'
+    : !Number.isFinite(parentAge)||parentAge<0||parentAge>PARENT_BALANCE_MAX_AGE_MS?'STALE'
+      : !Number.isFinite(parentBalance)||parentBalance<0?'INVALID'
+      : account.account_scope==='MASTER' && account.status!=='ACTIVE'?'ACCOUNT_INACTIVE'
+      : account.account_scope==='MASTER' && (String(parent.account_id)!==String(account.provider_account_id)||String(parent.merchant_status).toUpperCase()!=='ACTIVE')?'IDENTITY_NOT_READY'
       :'READY';
 
   // Shared master liquidity: one provider balance for all clients. A client never owns
@@ -40,8 +43,8 @@ export async function readProviderFundingState(database,organizationId,providerA
   const activeLimit=await d1First(database,`SELECT * FROM e2pay_disbursement_limit_requests
     WHERE org_id=? AND provider_account_registry_id=? AND status='ACTIVE'
       AND (? IS NULL OR client_id=?)
-      AND (? IS NULL OR (project_id IS ? OR project_id=?))
-    ORDER BY approved_at DESC,created_at DESC LIMIT 1`,[organizationId,providerAccountRegistryId,clientId,clientId,projectId,projectId,projectId]);
+      AND ((? IS NULL AND project_id IS NULL) OR (? IS NOT NULL AND (project_id IS NULL OR project_id=?)))
+    ORDER BY (project_id IS NOT NULL) DESC,approved_at DESC,created_at DESC LIMIT 1`,[organizationId,providerAccountRegistryId,clientId,clientId,projectId,projectId,projectId]);
 
   let committedAmount=0;
   let currentCommittedAmount=0;
@@ -141,10 +144,10 @@ export async function reserveDisbursementLimit(database,{organizationId,provider
   if(!source) return {ok:false,code:'MASTER_LIMIT_SOURCE_INVALID'};
   const active=await d1First(database,`SELECT * FROM e2pay_disbursement_limit_requests
     WHERE org_id=? AND provider_account_registry_id=? AND client_id=?
-      AND (project_id IS ? OR project_id=?)
+      AND (project_id IS NULL OR project_id IS ? OR project_id=?)
       AND status='ACTIVE'
       AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
-    ORDER BY approved_at DESC,created_at DESC LIMIT 1`,
+    ORDER BY (project_id IS NOT NULL) DESC,approved_at DESC,created_at DESC LIMIT 1`,
     [organizationId,providerAccountRegistryId,source.client_id,source.project_id||null,source.project_id||null]);
   if(!active) return {ok:false,code:'E2PAY_DISBURSEMENT_LIMIT_REQUIRED'};
 
@@ -212,10 +215,10 @@ export async function reserveDisbursementRequestLimit(database,{organizationId,p
   if(!source) return {ok:false,code:'MASTER_LIMIT_SOURCE_INVALID'};
   const active=await d1First(database,`SELECT * FROM e2pay_disbursement_limit_requests
     WHERE org_id=? AND provider_account_registry_id=? AND client_id=?
-      AND (project_id IS ? OR project_id=?)
+      AND (project_id IS NULL OR project_id IS ? OR project_id=?)
       AND status='ACTIVE'
       AND (expires_at IS NULL OR julianday(expires_at)>julianday('now'))
-    ORDER BY approved_at DESC,created_at DESC LIMIT 1`,
+    ORDER BY (project_id IS NOT NULL) DESC,approved_at DESC,created_at DESC LIMIT 1`,
     [organizationId,providerAccountRegistryId,source.client_id,source.project_id||null,source.project_id||null]);
   if(!active) return {ok:false,code:'E2PAY_DISBURSEMENT_LIMIT_REQUIRED'};
 

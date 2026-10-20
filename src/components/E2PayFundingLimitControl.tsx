@@ -6,6 +6,9 @@ import {
   approveE2PayDisbursementLimit,
   getE2PayDisbursementLimits,
   getE2PayOverview,
+  getE2PayMasterActivation,
+  runE2PayAction,
+  type E2PayMasterActivation,
   rejectE2PayDisbursementLimit,
   requestE2PayDisbursementLimit,
   revokeE2PayDisbursementLimit,
@@ -15,6 +18,9 @@ import {
 
 type ClientOption={id:string;name:string};
 export default function E2PayFundingLimitControl({role}:{role:string}){
+  const [activation,setActivation]=useState<E2PayMasterActivation|null>(null);
+  const [projects,setProjects]=useState<Array<{id:string;client_id?:string;clientId?:string;name:string}>>([]);
+  const [projectId,setProjectId]=useState('');
   const [funding,setFunding]=useState<E2PayFundingState[]>([]);
   const [requests,setRequests]=useState<E2PayDisbursementLimitRequest[]>([]);
   const [clients,setClients]=useState<ClientOption[]>([]);
@@ -29,24 +35,28 @@ export default function E2PayFundingLimitControl({role}:{role:string}){
   const load=useCallback(async()=>{
     setLoading(true);
     try{
-      const [data,masterData]=await Promise.all([
+      const [data,masterData,activationData]=await Promise.all([
         getE2PayDisbursementLimits(),
-        fetch('/api/client-projects',{headers:{Accept:'application/json'},cache:'no-store'}).then(r=>r.ok?r.json():Promise.resolve({clients:[]})),
+        fetch('/api/client-projects',{headers:{Accept:'application/json'},cache:'no-store'}).then(async r=>{if(!r.ok)throw new Error('Gagal memuat klien dan project');return r.json();}),
+        getE2PayMasterActivation(),
       ]);
-      setFunding(data.funding);
-      setRequests(data.requests);
+      setActivation(activationData);
+      setProjects(masterData.projects||[]);
+      setFunding(data.funding.filter(row=>row.environment===activationData.environment && row.providerAccountRegistryId===activationData.registryId));
+      setRequests(data.requests.filter(row=>row.environment===activationData.environment));
       setClients((masterData.clients||[]).map((c:ClientOption)=>({id:c.id,name:c.name})));
       setClientId(current=>(masterData.clients||[]).some((c:ClientOption)=>c.id===current)?current:(masterData.clients?.[0]?.id||''));
     }catch(error){setMessage(error instanceof Error?error.message:'Gagal memuat Master Funding');}
     finally{setLoading(false);}
   },[]);
   useEffect(()=>{void load();},[load]);
-  const master=funding.find(row=>row.providerAccountRegistryId && !row.clientId)||funding[0]||null;
+  const master=funding.find(row=>row.providerAccountRegistryId===activation?.registryId && !row.clientId)||null;
   const selectedRequests=useMemo(()=>clientId?requests.filter(row=>row.clientId===clientId):requests,[requests,clientId]);
   const pending=selectedRequests.filter(row=>row.status==='PENDING_APPROVAL');
   const active=selectedRequests.filter(row=>row.status==='ACTIVE');
   const balance=master?.parent?.balance??null;
-  const masterReady=Boolean(master?.parent?.ready && master?.accountReadiness?.ready);
+  const masterReady=Boolean(activation?.connectionReady && master?.parent?.ready && master?.accountReadiness?.ready);
+  const visibleProjects=projects.filter(p=>(p.client_id||p.clientId)===clientId);
 
   async function execute(key:string,action:()=>Promise<unknown>,success:string){
     setBusy(key);setMessage('');
@@ -65,6 +75,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}){
     await execute('REQUEST',()=>requestE2PayDisbursementLimit({
       providerAccountRegistryId:master.providerAccountRegistryId,
       clientId,
+      projectId:projectId||undefined,
       amount:value,
       reason:reason.trim(),
     }),'Permintaan limit dikirim ke Payroll Controller.');
@@ -89,15 +100,21 @@ export default function E2PayFundingLimitControl({role}:{role:string}){
         <small>{master?.parent?.ready?'Saldo tervalidasi':'Perlu validasi saldo terbaru'}</small></div>
       <div className="card ui-metric-card"><span>Approved Limit Aktif</span><strong>{formatIDR(requests.filter(row=>row.status==='ACTIVE').reduce((sum,row)=>sum+row.remainingAmount,0))}</strong>
         <small>Akumulasi alokasi dari seluruh klien</small></div>
-      <div className="card ui-metric-card"><span>Master Readiness</span><strong>{masterReady?'READY':'NOT READY'}</strong>
+      <div className="card ui-metric-card"><span>Koneksi Master</span><strong>{masterReady?'Tervalidasi':'Perlu tindakan'}</strong>
         <small>{master?.environment||'UAT'} · {master?.parent?.state||'Belum terhubung'}</small></div>
     </div>
-    {!master?<p role="status">Master Account belum aktif. Super Admin perlu melakukan validasi dan binding Master E2Pay melalui pengaturan integrasi.</p>:null}
+    {!master?<p role="status">Master Account belum aktif. Super Admin perlu melakukan validasi identitas E2Pay.</p>:null}
+    {activation?<div aria-label="Pemeriksaan Master"><p>Lingkungan provider: <b>{activation.environment}</b>{activation.environment==='UAT'?' · Saldo dan pembayaran menggunakan lingkungan pengujian.':''}</p>
+      <ul>{Object.entries(activation.checks).map(([key,ready])=><li key={key}>{({credentialConfigured:'Credential pusat',registryActive:'Aktivasi Master',identityMatched:'Identitas provider',merchantActive:'Status merchant',balanceFresh:'Saldo terbaru'} as Record<string,string>)[key]}: {ready?'Tervalidasi':'Perlu tindakan'}</li>)}</ul>
+      <p>Kanal pembayaran terkonfirmasi: {activation.channels.filter(c=>c.ready).length}. Kesiapan pembayaran tetap memerlukan kanal yang sesuai, limit aktif, dan persetujuan PI.</p>
+      {role==='SUPER_ADMIN'?<button type="button" className="btn btn-primary" disabled={Boolean(busy)||loading||!activation.checks.credentialConfigured} onClick={()=>void execute('BIND_MASTER',()=>runE2PayAction('BIND_MASTER_ACCOUNT'),'Identitas Master tervalidasi dan aktivasi tersimpan.')}>{busy==='BIND_MASTER'?'Memvalidasi…':'Validasi & Aktifkan Master'}</button>:null}
+    </div>:null}
     <div className="card ui-filter-bar">
-      <label className="ui-form-field"><span>Klien</span><select value={clientId} onChange={e=>setClientId(e.target.value)}>
+      <label className="ui-form-field"><span>Klien</span><select value={clientId} onChange={e=>{setClientId(e.target.value);setProjectId('');}}>
         {!clients.length?<option value="">Belum ada klien</option>:clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
       </select></label>
     </div>
+    {canRequest?<label className="ui-form-field"><span>Project untuk limit</span><select value={projectId} onChange={e=>setProjectId(e.target.value)}><option value="">Seluruh klien</option>{visibleProjects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>:null}
     {canRequest?<div className="card ui-section-card">
       <strong>Ajukan Disbursement Limit</strong>
       <div className="directory-form-grid">

@@ -13,7 +13,8 @@ test('Integrations UI no longer renders legacy HRIS attendance accounting bank c
   assert.doesNotMatch(page, /OperatingWorkspace mode="integrations"/);
   assert.match(workspace, /PaymentGatewayIntegrationPanel/);
   assert.match(workspace, /ApiEndpointMonitor/);
-  assert.match(workspace, /Payment Gateway dan aktivitas aplikasi eksternal/);
+  assert.match(workspace, /Payment Gateway/);
+  assert.match(workspace, /API Monitor/);
   assert.doesNotMatch(operating, /\['HRIS','ATTENDANCE','ACCOUNTING','BANK'\]/);
   assert.doesNotMatch(operating, /Pantau koneksi HRIS, attendance, accounting, dan bank/);
 });

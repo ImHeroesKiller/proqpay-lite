@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   migrate:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -39,6 +39,14 @@ jobs:
 
       - name: Install locked dependencies
         run: npm ci
+
+      - name: Validate reviewed commit before database access
+        run: |
+          npm test
+          npm run typecheck
+          npm run lint
+          npm run cloudflare:preflight
+          npm run build
 
       - name: Verify Cloudflare credentials
         shell: bash

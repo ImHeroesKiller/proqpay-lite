@@ -146,7 +146,10 @@ export async function onRequest({request,env}){
       const runtime=await gatewayRuntimeEnv(env.DB,env,organizationId,dr.provider_environment);
       const routedEnv=isMaster?runtime:await scopedE2PayRuntimeEnv(env.DB,runtime,account);
       await d1Batch(env.DB,[{statement:`UPDATE disbursement_requests SET status='EXECUTING',execution_started_at=COALESCE(execution_started_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status IN ('APPROVED','PROCESSING','EXECUTING')`,bindings:[dr.id]}]);
-      const result=await executeCanonicalE2Pay({database:env.DB,env:routedEnv,execution,request:dr,requestItems,channelSnapshot,liquidityBalance:isMaster?funding.parent.balance:account.available_balance});
+      const result=await executeCanonicalE2Pay({database:env.DB,env:routedEnv,execution,request:dr,requestItems,channelSnapshot,liquidityBalance:isMaster?funding.parent.balance:account.available_balance,assertExecutionLock:async()=>{
+        const renewed=await d1Run(env.DB,`UPDATE disbursement_executions SET execution_lock_expires_at=datetime('now','+2 minutes') WHERE id=? AND execution_lock_token=? AND datetime(execution_lock_expires_at)>datetime('now')`,[execution.id,lock]);
+        if(Number(renewed?.meta?.changes||0)!==1) throw new Error('DISBURSEMENT_EXECUTION_LOCK_LOST');
+      }});
       let nextDrStatus='PROCESSING';
       if(result.parentStatus==='SUCCEEDED') nextDrStatus='SETTLED';
       else if(result.parentStatus==='RECONCILIATION_REQUIRED') nextDrStatus='RECONCILIATION_REQUIRED';

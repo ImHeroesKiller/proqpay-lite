@@ -1,7 +1,7 @@
 import { masterFundingReadiness } from './e2pay-master-funding.js';
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
-import { d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
+import { d1All, d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { activateGatewaySecureSettings, gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import {
   e2payAuthorize,
@@ -159,8 +159,18 @@ export async function onRequest({request,env}){
     if(request.method==='GET'){
       const url=new URL(request.url);
       const resource=String(url.searchParams.get('resource')||'overview').toLowerCase();
-      if(!['overview','account','catalog','master-readiness'].includes(resource) && !MANAGE_ROLES.includes(authorization.actor.role)){
+      if(!['overview','account','catalog','master-readiness','master-activation'].includes(resource) && !MANAGE_ROLES.includes(authorization.actor.role)){
         return secureJson({error:'Resource E2Pay ini hanya tersedia untuk Super Admin'},403,request,env,METHODS);
+      }
+      if(resource==='master-activation'){
+        const environment=String(runtimeEnv.E2PAY_ENV||'UAT');
+        const row=await snapshot(env.DB,organizationId,environment);
+        const master=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE org_id=? AND provider='E2PAY' AND environment=? AND account_scope='MASTER' ORDER BY created_at DESC LIMIT 1`,[organizationId,environment]);
+        const contract=e2payExecutionContract(runtimeEnv,{accountId:row?.account_id||''});
+        const funding=masterFundingReadiness({snapshot:row,credentialConfigured:readiness.configured,executionContractValid:contract.valid});
+        const channels=await d1All(env.DB,`SELECT purpose,destination_mode,beneficiary_type,mapping_status,confirmed_at,config_hash FROM provider_channel_mappings WHERE provider='E2PAY' AND environment=?`,[environment]);
+        const checks={credentialConfigured:Boolean(readiness.configured),registryActive:master?.status==='ACTIVE',identityMatched:Boolean(master?.provider_account_id && master.provider_account_id===row?.account_id && contract.valid),merchantActive:String(row?.merchant_status||'').toUpperCase()==='ACTIVE',balanceFresh:funding.ready};
+        return secureJson({ok:true,environment,registryId:master?.id||null,checks,connectionReady:Object.values(checks).every(Boolean),balance:funding.availableBalance,refreshedAt:row?.refreshed_at||null,channels:channels.map(c=>({purpose:c.purpose,destinationMode:c.destination_mode,beneficiaryType:c.beneficiary_type,ready:c.mapping_status==='ACTIVE'&&Boolean(c.confirmed_at&&c.config_hash)})),correlationId},200,request,env,METHODS);
       }
       if(resource==='master-readiness'){
         // GT5.1: read-only master readiness. No sub-account registry dependency,
@@ -242,9 +252,10 @@ export async function onRequest({request,env}){
       const auth=await e2payAuthorize(runtimeEnv);
       const live=await e2payMerchantAccount(runtimeEnv,auth.accessToken);
       const contract=e2payExecutionContract(runtimeEnv,live);
-      if(!contract.valid || !live.accountId)
+      if(!contract.valid || !live.accountId || String(live.merchantStatus||'').toUpperCase()!=='ACTIVE' || !Number.isFinite(Number(live.balance)) || Number(live.balance)<0)
         return secureJson({error:'Master provider account tidak cocok dengan konfigurasi',code:'MASTER_IDENTITY_MISMATCH'},409,request,env,METHODS);
       const environment=String(runtimeEnv.E2PAY_ENV||'UAT').toUpperCase();
+      await saveSnapshot(env.DB,organizationId,environment,live);
       const existing=await d1First(env.DB,`SELECT * FROM payment_provider_accounts
         WHERE org_id=? AND provider='E2PAY' AND environment=? AND account_scope='MASTER'
         LIMIT 1`,[organizationId,environment]);

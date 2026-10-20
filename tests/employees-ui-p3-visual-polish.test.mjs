@@ -9,7 +9,9 @@ test('Employees UI P3: detail drawer uses sticky header, scroll body and compact
   const detail=await read('src/components/EmployeeDetailDrawer.tsx');
   const css=await readPolishCss();
   assert.match(detail,/employee-drawer-body/);
-  assert.match(detail,/employee-profile-hero/);
+  assert.match(detail,/employee-avatar-lg/);
+  assert.match(detail,/id="employee-detail-title"/);
+  assert.match(detail,/aria-label="Detail Data Intake"/);
   assert.doesNotMatch(detail,/employee-drawer-pay/);
   assert.match(css,/\.employee-drawer-header \{[\s\S]*position:sticky/);
   assert.match(css,/\.employee-drawer-body \{[\s\S]*overflow:auto/);

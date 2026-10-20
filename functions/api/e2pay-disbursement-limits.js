@@ -182,12 +182,13 @@ export async function onRequest({request,env}){
         return secureJson({error:'Hanya Payroll Processor yang dapat mengajukan limit sub-client.',code:'E2PAY_LIMIT_PROCESSOR_REQUIRED'},403,request,env,METHODS);
       }
       const providerAccountRegistryId=clean(body.providerAccountRegistryId,120);
-      const amount=Math.trunc(Number(body.amount||0));
+      const amount=Number(body.amount);
       const scopedClientId=clean(body.clientId,120);
       const scopedProjectId=clean(body.projectId,120)||null;
       const reason=clean(body.reason,500);
       const expiresAt=clean(body.expiresAt,80)||null;
-      if(!providerAccountRegistryId||amount<=0) return secureJson({error:'providerAccountRegistryId dan amount wajib valid'},422,request,env,METHODS);
+      if(!providerAccountRegistryId||!Number.isSafeInteger(amount)||amount<=0) return secureJson({error:'providerAccountRegistryId dan amount wajib valid'},422,request,env,METHODS);
+      if(expiresAt && (!Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt)<=Date.now())) return secureJson({error:'Masa berlaku limit harus berupa tanggal mendatang yang valid',code:'E2PAY_LIMIT_EXPIRY_INVALID'},422,request,env,METHODS);
       if(reason.length<5) return secureJson({error:'Alasan limit minimal 5 karakter'},422,request,env,METHODS);
 
       const account=await accountFor(env.DB,organizationId,providerAccountRegistryId);
@@ -269,16 +270,25 @@ export async function onRequest({request,env}){
                 AND s.balance >= (
                   SELECT COALESCE(SUM(CASE WHEN status='ACTIVE' THEN
                     MAX(0,COALESCE(approved_amount,0)-
-                      COALESCE((SELECT SUM(CASE WHEN u.status='CONSUMED' THEN u.consumed_amount WHEN u.status='RESERVED' THEN u.reserved_amount ELSE 0 END)
+                      COALESCE((SELECT SUM(CASE WHEN u.status='CONSUMED' THEN u.consumed_amount WHEN u.status='RESERVED' THEN 0 ELSE 0 END)
                         FROM e2pay_disbursement_limit_usage u WHERE u.limit_request_id=l.id AND u.status IN ('RESERVED','CONSUMED')),0)-
-                      COALESCE((SELECT SUM(CASE WHEN d.status='CONSUMED' THEN d.consumed_amount WHEN d.status='RESERVED' THEN d.reserved_amount ELSE 0 END)
+                      COALESCE((SELECT SUM(CASE WHEN d.status='CONSUMED' THEN d.consumed_amount WHEN d.status='RESERVED' THEN 0 ELSE 0 END)
                         FROM e2pay_disbursement_request_limit_usage d WHERE d.limit_request_id=l.id AND d.status IN ('RESERVED','CONSUMED')),0))
-                    ELSE 0 END),0)
+                    ELSE
+                      COALESCE((SELECT SUM(u.reserved_amount) FROM e2pay_disbursement_limit_usage u WHERE u.limit_request_id=l.id AND u.status='RESERVED'),0)
+                      +COALESCE((SELECT SUM(d.reserved_amount) FROM e2pay_disbursement_request_limit_usage d WHERE d.limit_request_id=l.id AND d.status='RESERVED'),0)
+                    END),0)
                   FROM e2pay_disbursement_limit_requests l
-                  WHERE l.org_id=? AND l.provider_account_registry_id=? AND l.status='ACTIVE'
-                ) + (SELECT requested_amount FROM e2pay_disbursement_limit_requests WHERE id=?)
+                  WHERE l.org_id=? AND l.provider_account_registry_id=?
+                ) + COALESCE((SELECT SUM(u.consumed_amount) FROM e2pay_disbursement_limit_usage u
+                  WHERE u.org_id=s.org_id AND u.provider_account_registry_id=? AND u.status='CONSUMED'
+                    AND julianday(u.consumed_at)>=julianday(s.refreshed_at)),0)
+                + COALESCE((SELECT SUM(d.consumed_amount) FROM e2pay_disbursement_request_limit_usage d
+                  WHERE d.org_id=s.org_id AND d.provider_account_registry_id=? AND d.status='CONSUMED'
+                    AND julianday(d.consumed_at)>=julianday(s.refreshed_at)),0)
+                + (SELECT requested_amount FROM e2pay_disbursement_limit_requests WHERE id=?)
             )`,
-          [actor.id||null,actor.email,id,organizationId,organizationId,pending.environment,organizationId,pending.provider_account_registry_id,id]);
+          [actor.id||null,actor.email,id,organizationId,organizationId,pending.environment,organizationId,pending.provider_account_registry_id,pending.provider_account_registry_id,pending.provider_account_registry_id,id]);
         if(Number(guarded?.meta?.changes||0)!==1)
           return secureJson({error:'Alokasi Master tidak dapat disetujui: saldo/kapasitas berubah atau tidak fresh.',code:'MASTER_GLOBAL_CAPACITY_RECHECK_FAILED'},409,request,env,METHODS);
         await d1Batch(env.DB,[audit(organizationId,actor,'E2PAY_MASTER_LIMIT_APPROVED',id,
