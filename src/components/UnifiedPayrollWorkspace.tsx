@@ -184,6 +184,7 @@ export default function UnifiedPayrollWorkspace({
 
       {stage==='PAYMENT' ? (
         <div className="unified-payroll-stage">
+          <h2 className="visually-hidden">Payment Instructions, disbursement, dan funding</h2>
           <p className="payment-stage-safety-note">Satu workspace untuk PI, Canonical DR, dan Funding. Maker menyiapkan; final execution hanya Payroll Controller.</p>
           <OperatingWorkspace mode="payments" period={period} filters={filters} embedded gatewayCanView={gatewayCanView} />
         </div>
