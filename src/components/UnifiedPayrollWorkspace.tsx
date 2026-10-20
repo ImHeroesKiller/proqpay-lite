@@ -124,7 +124,7 @@ export default function UnifiedPayrollWorkspace({
   return (
     <section className="unified-payroll-workspace">
       <header className="unified-payroll-head">
-        <WorkspaceTitle eyebrow="END-TO-END PAYROLL" title="Payroll Workspace"
+        <WorkspaceTitle eyebrowClassName="workspace-eyebrow" eyebrow="END-TO-END PAYROLL" title="Payroll Workspace"
           description={isController?'Selesaikan keputusan payroll, payment, reconciliation, dan close dari satu workspace.':'Siapkan payroll, selesaikan exception, dan kirim Payment Instruction tanpa berpindah-pindah halaman.'} />
         {canUpload ? (
           <Link className="btn btn-primary" href={`/data-intake?period=${encodeURIComponent(period)}`}>
@@ -184,6 +184,7 @@ export default function UnifiedPayrollWorkspace({
 
       {stage==='PAYMENT' ? (
         <div className="unified-payroll-stage">
+          <h2 className="visually-hidden">Payment Instructions, disbursement, dan funding</h2>
           <p className="payment-stage-safety-note">Satu workspace untuk PI, Canonical DR, dan Funding. Maker menyiapkan; final execution hanya Payroll Controller.</p>
           <OperatingWorkspace mode="payments" period={period} filters={filters} embedded gatewayCanView={gatewayCanView} />
         </div>

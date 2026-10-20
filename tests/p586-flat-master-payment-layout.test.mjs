@@ -20,13 +20,13 @@ test('P5.8.6 Payment Instructions has compact filters, inline decisions, flat PI
  assert.match(workspace,/payroll-stage-nav-compact/);
  assert.match(workspace,/stage==='PAYMENT'\?' payroll-shared-filter-payments':' card'/);
  assert.match(payment,/operations-control-bar-payments/);
- assert.match(payment,/payment-decision-inline/);
- assert.match(payment,/payment-decision-nav-compact/);
+ assert.match(payment,/payment-decision-tabs/);
+ assert.match(payment,/role="tablist" aria-label="Kategori Payment Instructions"/);
  assert.match(payment,/payment-instruction-table-flat/);
  assert.match(payment,/flat=\{phase==='payment'\}/);
  assert.match(payment,/mode==='payments'\?' operations-control-bar-payments':''/);
  assert.match(payment,/displayedPaymentPanel==='PI'\?<Payments phase="payment"/);
- assert.match(payment,/canonicalDecisionKnown\?canonicalDecisionActions:'—'/);
+ assert.match(payment,/canonicalDecisionKnown\?` \(\$\{canonicalDecisionActions\}\)`/);
 });
 
 test('P5.8.6 mobile and desktop CSS scope prevents cardless styling leaking into other workspaces',async()=>{

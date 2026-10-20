@@ -134,7 +134,7 @@ test('Employees P0: directory UI no longer lets CLIENT_USER edit and sends only 
   assert.match(ui,/\['SUPER_ADMIN','PAYROLL_PROCESSOR'\]\.includes\(actor\.role\)/);
   assert.match(detail,/const canEdit=canManageEmployees\(actor\)/);
   assert.doesNotMatch(detail,/\.\.\.employee, \.\.\.form/);
-  assert.match(detail,/action:'UPDATE_ADMIN',id:employee\.id,\.\.\.form/);
+  assert.match(detail,/action:'UPDATE_ADMIN',id:employee\.id,bankName:form\.bankName,accountNo:form\.accountNo/);
   assert.doesNotMatch(detail,/clientId:employee\.clientId/);
   assert.match(directory,/EmployeeDetailDrawer/);
 });

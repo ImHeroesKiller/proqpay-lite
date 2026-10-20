@@ -1847,6 +1847,12 @@ async function executeAction(database, body, actor, env, organizationId) {
     if (actor.role !== 'PAYROLL_CONTROLLER' || !actor.permissions?.includes('reconciliation:write')) {
       return { status:403, data:{ error:'Rekonsiliasi pembayaran membutuhkan role Payroll Controller dan izin reconciliation:write', code:'PAYMENT_RECONCILE_PERMISSION_REQUIRED' } };
     }
+    const canonical=await d1First(database,`SELECT id,status FROM disbursement_requests WHERE org_id=? AND source_document_type='PAYMENT_INSTRUCTION' AND source_document_id=? AND status NOT IN ('REJECTED','CANCELLED') LIMIT 1`,[organizationId,body.paymentInstructionId]);
+    if(canonical){
+      const reconciliation=await d1First(database,"SELECT r.* FROM reconciliations r JOIN payment_instructions pi ON pi.id=r.payment_instruction_id WHERE pi.id=? AND pi.org_id=? AND pi.status='COMPLETED' AND r.status='MATCHED'",[body.paymentInstructionId,organizationId]);
+      if(canonical.status==='RECONCILED' && reconciliation) return {data:{ok:true,reconciliation,idempotentReplay:true}};
+      return {status:409,data:{error:'Gunakan Reconcile Provider pada transaksi canonical.',code:'CANONICAL_RECONCILIATION_REQUIRED',disbursementRequestId:canonical.id}};
+    }
     const payment = await d1First(database, `SELECT pi.id,pi.submission_id,pi.status,pi.expected_total,
       COALESCE((SELECT SUM(amount) FROM payment_instruction_lines WHERE payment_instruction_id=pi.id),0) AS instruction_total,
       COALESCE((SELECT SUM(amount) FROM payment_proofs WHERE payment_instruction_id=pi.id),0) AS manual_proof_total,

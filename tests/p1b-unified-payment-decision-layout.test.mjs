@@ -69,7 +69,7 @@ test('P1.B Canonical workspace exposes action-first queue, monitoring toggle and
 test('P1.B shared client/project/query filters reach DR while funding panel preserves account selection',async()=>{
  const [workspace,funding]=await Promise.all([read('src/components/OperatingWorkspace.tsx'),read('src/components/E2PayFundingLimitControl.tsx')]);
  assert.match(workspace,/projectId=\{projectFilter\} query=\{query\} compact/);
- assert.match(workspace,/canonicalDecisionKnown\?canonicalDecisionActions:'—'/);
+ assert.match(workspace,/canonicalDecisionKnown\?` \(\$\{canonicalDecisionActions\}\)`/);
  assert.match(workspace,/setCanonicalDecisionKnown\(false\)/);
  assert.match(workspace,/response\.ok/);
  assert.match(funding,/setClientId\(e\.target\.value\)/);

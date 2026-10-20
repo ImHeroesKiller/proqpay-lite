@@ -17,7 +17,7 @@ test('client readiness endpoint reads organization Master scope, not subclient',
  const src=readFileSync(new URL('../functions/api/client-readiness.js',import.meta.url),'utf8');
  assert.match(src,/account_scope='MASTER'/);
  assert.doesNotMatch(src,/provider_sub_account_id/);
- assert.match(src,/masterCredentialReady:masterCredential.ready/);
+ assert.match(src,/masterCredentialReady:masterCredentialReady/);
 });
 test('funding and payment rules remain separate',()=>{
  const src=readFileSync(new URL('../functions/api/e2pay-disbursement-limit-core.js',import.meta.url),'utf8');

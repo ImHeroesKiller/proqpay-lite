@@ -139,3 +139,22 @@ export async function scopedE2PayRuntimeEnv(database,env,row){
     E2PAY_SOURCE_MODE:'SUB_ACCOUNT_SNAPSHOT',
   });
 }
+
+// Master reconciliation uses centrally managed credentials and the identity
+// frozen on the request. Never decrypt or fall back to per-client credentials.
+export async function reconciliationE2PayRuntimeEnv(database,runtime,account,request){
+  if(account?.account_scope!=='MASTER') return scopedE2PayRuntimeEnv(database,runtime,account);
+  if(String(account.org_id)!==String(request.org_id)
+    || String(account.id)!==String(request.provider_account_registry_id)
+    || String(account.provider)!=='E2PAY'
+    || String(account.environment)!==String(request.provider_environment)
+    || String(runtime.E2PAY_ENV||'UAT')!==String(request.provider_environment)
+    || !account.provider_account_id
+    || String(account.provider_account_id)!==String(request.provider_sub_account_id_snapshot)
+    || String(runtime.E2PAY_ACCOUNT_SRC||'')!==String(account.provider_account_id)){
+    const error=new Error('Master identity/environment does not match immutable request');
+    error.code='MASTER_RECONCILIATION_IDENTITY_MISMATCH';
+    throw error;
+  }
+  return runtime;
+}

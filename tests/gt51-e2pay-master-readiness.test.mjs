@@ -6,7 +6,7 @@ import { masterFundingReadiness } from '../functions/api/e2pay-master-funding.js
 const api=readFileSync(new URL('../functions/api/e2pay-operations.js',import.meta.url),'utf8');
 
 test('GT5.1 exposes an authenticated master-only readiness resource',()=>{
-  assert.match(api,/\['overview','account','catalog','master-readiness'\]/);
+  assert.match(api,/\['overview','account','catalog','master-readiness','master-activation'\]/);
   const block=api.slice(api.indexOf("if(resource==='master-readiness')"),api.indexOf("if(resource==='catalog')"));
   assert.ok(block.length>100);
   assert.match(block,/mode:'MASTER_ACCOUNT'/);

@@ -1,10 +1,11 @@
 import { d1All, d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { authorize, enforceRateLimit, handlePreflight, secureJson } from './_security.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
-import { scopedE2PayRuntimeEnv } from './payment-provider-account-credentials.js';
+import { reconciliationE2PayRuntimeEnv } from './payment-provider-account-credentials.js';
 import { reconcileCanonicalE2Pay } from './disbursement-reconciliation-e2pay.js';
 import { consumeDisbursementRequestLimit, releaseDisbursementRequestLimit } from './e2pay-disbursement-limit-core.js';
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
+import {applyCanonicalPayrollSettlement} from './canonical-payroll-settlement.js';
 import { applyCanonicalEwaSettlement } from './ewa-canonical-settlement.js';
 
 const METHODS='GET, POST, OPTIONS';
@@ -110,7 +111,7 @@ export async function onRequest({request,env}){
     const account=await d1First(env.DB,'SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? LIMIT 1',[dr.provider_account_registry_id,organizationId]);
     if(!account) return secureJson({error:'Provider account registry tidak ditemukan'},409,request,env,METHODS);
     const runtime=await gatewayRuntimeEnv(env.DB,env,organizationId,dr.provider_environment);
-    const routed=await scopedE2PayRuntimeEnv(env.DB,runtime,account);
+    const routed=await reconciliationE2PayRuntimeEnv(env.DB,runtime,account,dr);
     const result=await reconcileCanonicalE2Pay({database:env.DB,env:routed,execution,requestRow:dr});
     const correlationId=crypto.randomUUID();
     const attemptId=`DRA-${crypto.randomUUID()}`;
@@ -120,7 +121,10 @@ export async function onRequest({request,env}){
       audit(organizationId,actor,'CANONICAL_DISBURSEMENT_RECONCILED',`outcome=${result.outcome.attemptStatus} · providerFound=${result.providerFound} · providerMissing=${result.providerMissing} · success=${result.summary.succeeded}/${result.summary.total} · settled=${result.summary.settledAmount}`,dr.id),
     ]);
     if(result.outcome.attemptStatus==='MATCHED') await consumeDisbursementRequestLimit(env.DB,dr.id,result.summary.settledAmount);
-    if(result.outcome.attemptStatus==='MATCHED') await applyCanonicalEwaSettlement(env.DB,dr,actor.email);
+    if(result.outcome.attemptStatus==='MATCHED'){
+      await applyCanonicalEwaSettlement(env.DB,dr,actor.email);
+      await applyCanonicalPayrollSettlement(env.DB,dr,actor.email);
+    }
     else if(result.outcome.attemptStatus==='PARTIAL') await consumeDisbursementRequestLimit(env.DB,dr.id,result.summary.settledAmount);
     else if(result.outcome.attemptStatus==='FAILED') await releaseDisbursementRequestLimit(env.DB,dr.id,'RECONCILIATION_CONFIRMED_ALL_FAILED');
     return secureJson({ok:true,attemptId,outcome:result.outcome,summary:result.summary,providerFound:result.providerFound,providerMissing:result.providerMissing,...await detail(env.DB,organizationId,dr.id)},200,request,env,METHODS);
