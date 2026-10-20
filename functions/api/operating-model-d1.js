@@ -1526,7 +1526,7 @@ async function executeAction(database, body, actor, env, organizationId) {
           return {status:409,data:{
             error:'Payroll sudah siap, tetapi Payment Readiness masih menunggu aktivasi E2Pay. PI tetap tersimpan dan dapat disubmit setelah provider READY.',
             code:'PAYMENT_READINESS_PENDING',
-            paymentReadiness:{ready:false,state:!providerAccount?'PROVIDER_PENDING':!providerAccount.provider_sub_account_id?'PROVISIONING_PENDING':'CREDENTIAL_PENDING',blockingStage:'PAYMENT_SUBMISSION'},
+            paymentReadiness:{ready:false,state:!providerAccount?'MASTER_ACCOUNT_MISSING':master?'MASTER_PROVIDER_NOT_READY':'LEGACY_SUBACCOUNT_UNSUPPORTED',blockingStage:'PAYMENT_SUBMISSION'},
           }};
         }
         const routingSnapshot=providerSnapshot(providerAccount);
@@ -1536,6 +1536,21 @@ async function executeAction(database, body, actor, env, organizationId) {
           auditOperation(organizationId,actor,'PAYMENT_ROUTING_BOUND',`Provider routing bound asynchronously · ${providerAccount.provider} · accountLast4=${String(master?providerAccount.provider_account_id:providerAccount.provider_sub_account_id).slice(-4)}`,'payment_instruction',payment.id),
         ]);
         paymentForSubmit=await d1First(database,'SELECT * FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1',[payment.id,organizationId]);
+      }
+    }
+    // Payment Readiness is independent of PI creation and immutable routing.
+    // Fail closed before any approval transition; this does not reserve funds or execute payments.
+    const submitEnv=await gatewayRuntimeEnv(database,env,organizationId);
+    if(String(submitEnv.PAYMENT_GATEWAY_PROVIDER||'').toUpperCase()==='E2PAY'){
+      const submissionScope=await d1First(database,'SELECT project_id FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1',[paymentForSubmit.submission_id,organizationId]);
+      const masterAccount=await activeProviderAccount(database,organizationId,paymentForSubmit.client_id,'E2PAY',String(submitEnv.E2PAY_ENV||'UAT').toUpperCase(),submissionScope?.project_id||null);
+      const contract=masterAccount?e2payExecutionContract(submitEnv,{accountId:masterAccount.provider_account_id}):null;
+      const providerReady=Boolean(masterAccount?.account_scope==='MASTER' && masterAccount.provider_account_id && e2payReadiness(submitEnv).configured && contract?.valid);
+      const routingReady=Boolean(providerReady && paymentForSubmit.provider_account_registry_id===masterAccount.id && validatePaymentProviderSnapshot(paymentForSubmit,masterAccount).ok);
+      const funding=routingReady?await readProviderFundingState(database,organizationId,masterAccount.id,Number(paymentForSubmit.expected_total),paymentForSubmit.id,Date.now(),null,paymentForSubmit.client_id,submissionScope?.project_id||null):null;
+      if(!routingReady || !funding?.ready){
+        const state=!providerReady?'MASTER_PROVIDER_NOT_READY':!routingReady?'MASTER_ROUTING_NOT_READY':funding.state;
+        return {status:409,data:{error:'Payment Readiness belum siap. Validasi Master E2Pay, saldo terbaru, dan limit yang disetujui sebelum submit PI.',code:'PAYMENT_READINESS_PENDING',paymentReadiness:{ready:false,state,blockingStage:'PAYMENT_SUBMISSION',checks:{providerReady,routingReady,balanceReady:Boolean(funding?.parent?.ready&&funding?.subClient?.ready),limitReady:Boolean(funding?.limit?.ready)}}}};
       }
     }
     await d1Batch(database, [
