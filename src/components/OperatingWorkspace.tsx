@@ -112,11 +112,11 @@ export default function OperatingWorkspace({
   const [canonicalDecisionRefresh,setCanonicalDecisionRefresh]=useState(0);
   const [fundingPanel,setFundingPanel]=useState<'LIQUIDITY'|'CHANNEL'>('LIQUIDITY');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (background=false) => {
     const generation=++requestGeneration.current;
     const current=()=>requestGeneration.current===generation;
-    setLoading(true);
-    if(mode==='payments'||mode==='reconcile')setUatArchiveVerified(false);
+    if(!background)setLoading(true);
+    if(!background&&(mode==='payments'||mode==='reconcile'))setUatArchiveVerified(false);
     setMessage('');
     try {
       const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup','payment-instructions','exceptions']
@@ -170,7 +170,7 @@ export default function OperatingWorkspace({
     setMessage('Memproses…');
     try {
       if (Object.keys(payload).length) await executeOperatingAction(payload);
-      await load();
+      await load(true);
       setMessage(success);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Aksi gagal');
@@ -475,7 +475,7 @@ export default function OperatingWorkspace({
             </nav>
             <div id="pi-tab-panel" className="payment-decision-main" role="tabpanel" tabIndex={0} aria-label={displayedPaymentPanel==='PI'?'Payment Instruction Queue':displayedPaymentPanel==='DISBURSEMENT'?'Canonical Disbursement Queue':'Funding and Limit Control'}>
               {displayedPaymentPanel==='PI'?<Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} />:null}
-              {displayedPaymentPanel==='DISBURSEMENT'?<CanonicalDisbursementWorkspace actor={actor} payrollSources={visibleInstructions} clientId={clientFilter} projectId={projectFilter} query={query} compact onChanged={()=>{void load();setCanonicalDecisionRefresh(v=>v+1);}} />:null}
+              {displayedPaymentPanel==='DISBURSEMENT'?<CanonicalDisbursementWorkspace actor={actor} payrollSources={visibleInstructions} clientId={clientFilter} projectId={projectFilter} query={query} compact onChanged={async()=>{await load(true);setCanonicalDecisionRefresh(v=>v+1);}} />:null}
               {displayedPaymentPanel==='FUNDING'&&['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role)?<div className="funding-integrated-panel">
                 <div className="funding-integrated-tabs" role="group" aria-label="Funding and Provider Routing">
                   <button className={fundingPanel==='LIQUIDITY'?'active':''} type="button" aria-pressed={fundingPanel==='LIQUIDITY'} onClick={()=>setFundingPanel('LIQUIDITY')}>Saldo & Disbursement Limit</button>
@@ -1027,6 +1027,9 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
   const [detailError, setDetailError] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
   const [approvalConfirmed, setApprovalConfirmed] = useState(false);
+  const [approvalBusy,setApprovalBusy]=useState(false);
+  const [approvalError,setApprovalError]=useState('');
+  const [approvalNotice,setApprovalNotice]=useState('');
   const [detailQuery, setDetailQuery] = useState('');
   const [detailBank, setDetailBank] = useState('ALL');
   const [detailPage, setDetailPage] = useState(1);
@@ -1048,7 +1051,7 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
     return () => document.removeEventListener('keydown', close);
   }, [detail]);
   async function openDetail(id:string) {
-    setDetailLoading(true); setDetailError(''); setLiquidityError(''); setApprovalConfirmed(false); setDetailQuery(''); setDetailBank('ALL'); setDetailPage(1);
+    setDetailLoading(true); setDetailError(''); setApprovalError(''); setApprovalNotice(''); setLiquidityError(''); setApprovalConfirmed(false); setDetailQuery(''); setDetailBank('ALL'); setDetailPage(1);
     setExecutionStrategy('checking');
     try {
       const fresh=await getPaymentInstructionDetail(id);
@@ -1083,7 +1086,9 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
     }
   }
   async function approveWithFreshLiquidity(){
-    if(!detail) return;
+    if(!detail||approvalBusy) return;
+    setApprovalBusy(true);setApprovalError('');setApprovalNotice('');
+    try {
     let current=detail;
     if(String(current.paymentInstruction.provider||'').toUpperCase()==='E2PAY'){
       try{
@@ -1104,9 +1109,17 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
         return;
       }
     }
-    await act({action:'APPROVE_PAYMENT',paymentInstructionId:current.paymentInstruction.id,actionHash:current.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'},'Payment Instruction disetujui berdasarkan content hash');
-    await openDetail(current.paymentInstruction.id);
+    await executeOperatingAction({action:'APPROVE_PAYMENT',paymentInstructionId:current.paymentInstruction.id,actionHash:current.paymentInstruction.content_hash,confirmation:'KONFIRMASI PAYMENT'});
+    const approved=await getPaymentInstructionDetail(current.paymentInstruction.id);
+    setDetail(approved);
+    setApprovalConfirmed(false);
+    setApprovalNotice('Approval tersimpan. Status PI telah diperbarui dari server.');
+    await act({},'Payment Instruction disetujui berdasarkan content hash');
+    }catch(error){
+      setApprovalError(error instanceof Error?error.message:'Approval PI gagal. Periksa status sebelum mencoba kembali.');
+    }finally{setApprovalBusy(false);}
   }
+
   const priority:Record<string,number>=phase==='payment'
     ? {PAYMENT_APPROVAL_PENDING:0,APPROVED_FOR_PAYMENT:1,DISBURSEMENT_PROCESSING:2,PAYMENT_INSTRUCTION_READY:3,REVISION_REQUIRED:4}
     : {PAYMENT_EXCEPTION:0,PROOF_UPLOADED:1,RECONCILIATION:2,APPROVED_FOR_PAYMENT:3,DISBURSEMENT_PROCESSING:4,COMPLETED:9};
@@ -1117,7 +1130,7 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
       : ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','RECONCILIATION','PAYMENT_EXCEPTION','COMPLETED'].includes(status);
   }).sort((a,b)=>(priority[String(a.status||'')]??8)-(priority[String(b.status||'')]??8)
     || String(b.created_at||'').localeCompare(String(a.created_at||'')));
-  if (!phaseInstructions.length) return <Empty title={phase==='payment'?'Belum ada payment yang perlu diproses':'Belum ada payment untuk direkonsiliasi'} detail={phase==='payment'?'PI akan muncul setelah payroll siap untuk approval/payment.':'Payment akan muncul setelah PI approved atau execution dimulai.'} />;
+  if (!phaseInstructions.length && !detail && !detailLoading && !detailError) return <Empty title={phase==='payment'?'Belum ada payment yang perlu diproses':'Belum ada payment untuk direkonsiliasi'} detail={phase==='payment'?'PI akan muncul setelah payroll siap untuk approval/payment.':'Payment akan muncul setelah PI approved atau execution dimulai.'} />;
   return <div style={{ display:'grid', gap:16 }}>
     <CardTable flat={phase==='payment'} headers={['Instruction / Periode','Nilai','Status','Next action']} rows={phaseInstructions.map((r) => {
       let action: React.ReactNode = <span style={small}>Menunggu tahap berikutnya</span>;
@@ -1144,6 +1157,8 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
         <div className="pi-detail-header-actions"><Badge text={paymentBusinessLabel(detail.paymentInstruction.status)} /><button type="button" aria-label="Tutup detail Payment Instruction" onClick={()=>setDetail(null)}>✕</button></div>
       </header>
       <div className="pi-detail-body">
+        {approvalError?<div className="app-notice-bubble app-notice-error" role="alert">{approvalError}</div>:null}
+        {approvalNotice?<div className="app-notice-bubble app-notice-info" role="status">{approvalNotice}</div>:null}
         <section className="pi-detail-summary" aria-label="Ringkasan Payment Instruction">
           <div><span>Periode payroll</span><strong>{detail.paymentInstruction.payroll_period || '-'}</strong></div>
           <div><span>Periode bayar</span><strong>{detail.paymentInstruction.payment_period || detail.paymentInstruction.payroll_period || '-'}</strong></div>
@@ -1219,7 +1234,7 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
           <a className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=PDF`} target="_blank" rel="noreferrer">PDF resmi</a>
           {role==='PAYROLL_CONTROLLER' && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING','PROOF_UPLOADED','COMPLETED'].includes(detail.paymentInstruction.status) ? <details className="pi-export-more"><summary>Bank file</summary><div>{['BCA','MANDIRI','BRI','BNI','CUSTOM'].map((format)=><a key={format} className="btn" href={`/api/payment-instruction-export?id=${encodeURIComponent(detail.paymentInstruction.id)}&format=${format}`}>{format}</a>)}</div></details> : null}
         </div>
-        {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Kontrol utama PI sudah saya review.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady || liquiditySyncing} onClick={()=>void approveWithFreshLiquidity()}>{liquiditySyncing?'Syncing balance…':'Approve & Continue'}</button></div> : null}
+        {detail.paymentInstruction.status === 'PAYMENT_APPROVAL_PENDING' && canApprove ? <div className="pi-approve-actions"><label className="payroll-review-confirm"><input type="checkbox" checked={approvalConfirmed} onChange={(event)=>setApprovalConfirmed(event.target.checked)} /><span>Kontrol utama PI sudah saya review.</span></label><button className="btn" onClick={()=>{const reason=window.prompt('Alasan penolakan PI (minimal 10 karakter):');if(reason)void act({action:'REJECT_PAYMENT',paymentInstructionId:detail.paymentInstruction.id,reason},'PI dikembalikan ke Processor untuk revisi').then(()=>setDetail(null));}}>Reject</button><button className="btn btn-primary" disabled={!approvalConfirmed || !integrity.approvalReady || liquiditySyncing || approvalBusy} onClick={()=>void approveWithFreshLiquidity()}>{liquiditySyncing?'Syncing balance…':approvalBusy?'Menyimpan approval…':'Approve & Continue'}</button></div> : null}
       </footer>
     </div></div>, document.body) : null}
     {phase==='reconcile' ? <>

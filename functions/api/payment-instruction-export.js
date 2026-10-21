@@ -1,7 +1,8 @@
+import {verifyStoredInstructionHash} from './payment-instruction-integrity.js';
 import { d1All, d1First, d1Run, hasD1 } from './_d1.js';
 import { authorize, enforceRateLimit, handlePreflight, secureJson } from './_security.js';
 import {
-  decryptAccountNumber, generateBankFile, generateInstructionPdf, instructionContentHash,
+  decryptAccountNumber, generateBankFile, generateInstructionPdf,
 } from './payment-instruction-core.js';
 import { arGateMessage, evaluateClientArGate } from './ar-payment-control.js';
 
@@ -67,9 +68,8 @@ export async function onRequest(context) {
     employeeId:line.employee_id,beneficiaryName:line.beneficiary_name,bankName:line.bank_name,bankCode:line.bank_code,
     accountNumber:await decryptAccountNumber(line.account_ciphertext,line.account_iv,env.PI_ENCRYPTION_KEY),amount:Number(line.amount),
   })));
-  const actualHash = await instructionContentHash({organizationId:instruction.org_id,clientId:instruction.client_id,
-    submissionId:instruction.submission_id,payrollPeriod:instruction.payroll_period,paymentPeriod:instruction.payment_period},decrypted);
-  if (actualHash !== instruction.content_hash) return respond({error:'Integritas snapshot PI gagal diverifikasi; export diblokir'},409);
+  const integrity=await verifyStoredInstructionHash(env.DB,instruction,decrypted);
+  if(!integrity.valid)return respond({error:'Integritas snapshot PI gagal diverifikasi; export diblokir'},409);
   const file = generateBankFile(format,decrypted,{paymentPeriod:instruction.payment_period,remark:`PAYROLL ${instruction.payment_period}`});
   await d1Run(env.DB, `INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id)
     VALUES(?,?,?,?,'PAYMENT_BANK_FILE_EXPORTED',?,'payment_instruction',?)`,

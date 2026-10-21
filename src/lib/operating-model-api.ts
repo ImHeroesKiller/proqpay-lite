@@ -182,12 +182,12 @@ export function invalidateOperatingCache() {
 
 export async function getPaymentInstructionDetail(paymentInstructionId: string):Promise<PaymentInstructionDetail> {
   const params = new URLSearchParams({ resource:'payment-instruction-detail', paymentInstructionId });
-  return parseResponse<PaymentInstructionDetail>(await fetch(`/api/operating-model?${params}`, { headers:{Accept:'application/json'} }));
+  return parseResponse<PaymentInstructionDetail>(await fetch(`/api/operating-model?${params}`, { cache:'no-store', headers:{Accept:'application/json'} }));
 }
 
 export async function getPayRunDetail(submissionId: string):Promise<any> {
   const params = new URLSearchParams({ resource:'pay-run-detail', submissionId });
-  return parseResponse<any>(await fetch(`/api/operating-model?${params}`, { headers:{Accept:'application/json'} }));
+  return parseResponse<any>(await fetch(`/api/operating-model?${params}`, { cache:'no-store', headers:{Accept:'application/json'} }));
 }
 
 export async function executeOperatingAction(action: Record<string, unknown>):Promise<any> {
