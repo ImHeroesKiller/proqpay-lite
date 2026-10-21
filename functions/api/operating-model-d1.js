@@ -1,3 +1,4 @@
+import {dashboardClientBalances} from './dashboard-client-balances.js';
 import {verifyStoredInstructionHash} from './payment-instruction-integrity.js';
 import { d1All, d1Batch, d1First } from './_d1.js';
 import { applyEwaRepayments, markEwaRepaid } from './_ewa.js';
@@ -572,7 +573,9 @@ async function readResource(database, params, actor, env, organizationId) {
   ]);
   const employees = Number(employeeCount?.total || 0);
   const primaryAccounts = Number(bankCount?.total || 0);
-  return { data: { ok: true, submissions:dashboardSubmissions, paymentInstructions,
+  const clientBalances=resource==='dashboard'&&dashboardOffset===0&&actor.role==='SUPER_ADMIN'
+    ? await dashboardClientBalances(database,organizationId,env,clientId):[];
+  return { data: { ok: true, submissions:dashboardSubmissions, paymentInstructions,clientBalances,
     // Dashboard intentionally carries summary-level evidence only. Detailed exceptions,
     // proofs and reconciliation records stay in their dedicated workspaces.
     exceptions: [], paymentProofs: [], reconciliations: [],

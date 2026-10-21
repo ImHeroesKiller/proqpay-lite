@@ -29,20 +29,7 @@ const PIPELINE = PAYROLL_BUSINESS_STAGE_ORDER.map((stage) => ({
   view:BUSINESS_STAGE_META[stage].view as AppView,
 }));
 
-function localDate(value?:string|null) {
-  if (!value) return null;
-  const match=String(value).slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  return new Date(Number(match[1]),Number(match[2])-1,Number(match[3]));
-}
-function dateLabel(value?:string|null) { const date=localDate(value); return date ? date.toLocaleDateString('id-ID',{day:'2-digit',month:'short'}) : '-'; }
 function statusLabel(value?:string|null) { return String(value||'-').replaceAll('_',' '); }
-function daysFromNow(value?:string|null) {
-  const target=localDate(value); if (!target) return null;
-  const today=new Date(); today.setHours(0,0,0,0);
-  return Math.round((target.getTime()-today.getTime())/86_400_000);
-}
-
 export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const [data,setData] = useState<DashboardApiResponse>({submissions:[],paymentInstructions:[]});
   const [loading,setLoading] = useState(true);
@@ -82,9 +69,10 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
       setGatewayAccount(null);
       setGatewayBalanceError(cause instanceof Error ? cause.message : 'Saldo E2Pay gagal dimuat');
     } finally {
+      if(force){invalidateOperatingCache();await load(true);}
       setGatewayBalanceLoading(false);
     }
-  },[actor.role]);
+  },[actor.role,load]);
   useEffect(()=>{ void loadGatewayBalance(false); },[loadGatewayBalance]);
 
   const submissions=useMemo(()=>data.submissions||[],[data.submissions]);
@@ -126,9 +114,9 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
     return {...row,state:operationalState,submission_state:row.state,payment_instruction_id:instruction?.id,business,nextAction};
   }),[submissions,instructionBySubmission,actor.role,actor.permissions]);
   const clients=useMemo(()=>{
-    const map=new Map<string,string>(); operationalSubmissions.forEach((row)=>map.set(String(row.client_id),String(row.client_name||row.client_id)));
+    const map=new Map<string,string>(); (data.clientBalances||[]).forEach(row=>map.set(row.clientId,row.clientName)); operationalSubmissions.forEach((row)=>map.set(String(row.client_id),String(row.client_name||row.client_id)));
     return [...map.entries()].sort((a,b)=>a[1].localeCompare(b[1]));
-  },[operationalSubmissions]);
+  },[operationalSubmissions,data.clientBalances]);
   useEffect(()=>{
     let cancelled=false;
     if(client==='ALL'){setScopedPortfolio(null);return()=>{cancelled=true;};}
@@ -187,11 +175,8 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
       .sort((a,b)=>a.priority-b.priority||({danger:0,warning:1,info:2,success:3}[a.tone]-{danger:0,warning:1,info:2,success:3}[b.tone]));
   },[actionScope]);
 
-  const deadlines=useMemo(()=>visible.map((row)=>{
-    const raw=row.payment_date||row.due_date||row.cutoff_date||row.payment_due_date;
-    return {...row,deadline:raw,days:raw?daysFromNow(raw):null};
-  }).filter((row)=>row.deadline&&row.days!==null&&row.days<=30)
-    .sort((a,b)=>(a.days??0)-(b.days??0)).slice(0,6),[visible]);
+  const clientBalances=useMemo(()=>(data.clientBalances||[]).filter(row=>(client==='ALL'||row.clientId===client)
+    &&(!query.trim()||row.clientName.toLowerCase().includes(query.trim().toLowerCase()))),[data.clientBalances,client,query]);
   const pipeline=PIPELINE.map((stage)=>({...stage,rows:visible.filter((row)=>row.business.stage===stage.stage)}));
   const pipelineTotal=Math.max(1,visible.length);
   const pageCount=Math.max(1,Math.ceil(visible.length/10));
@@ -206,7 +191,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
 
 
   return <section className={`control-tower${simplifiedInternal?' control-tower-simple':''}`} aria-busy={loading||refreshing}>
-    <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription}</p></div><button type="button" className="btn control-refresh" disabled={refreshing} onClick={()=>{invalidateOperatingCache();void load(true);void loadGatewayBalance(true);}}><IconRefresh aria-hidden="true" /> {refreshing?'Refreshing…':'Refresh'}</button></div>
+    <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription}</p></div><button type="button" className="btn control-refresh" disabled={refreshing||gatewayBalanceLoading} onClick={()=>{if(actor.role==='CLIENT_USER'){invalidateOperatingCache();void load(true);}else void loadGatewayBalance(true);}}><IconRefresh aria-hidden="true" /> {refreshing?'Refreshing…':'Refresh'}</button></div>
     <div className="control-bar card" aria-label="Filter dashboard payroll">
       <label><span>Klien</span><select value={client} onChange={(event)=>setClient(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
       <label><span>Workflow stage</span><select value={stage} onChange={(event)=>setStage(event.target.value)}><option value="ALL">Semua stage</option>{PIPELINE.map((item)=><option key={item.stage} value={item.stage}>{item.label}</option>)}</select></label>
@@ -250,8 +235,16 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
         <section className="card action-center"><PanelTitle eyebrow="PRIORITY QUEUE" title={simplifiedInternal?'My Work':'Action Center'} meta={`${actions.length} tindakan`} />
           <div className="action-list">{actions.length?actions.slice(0,simplifiedInternal?10:8).map((item)=><button type="button" key={item.id} onClick={()=>openContext(item.view,item.submissionId)}><i className={`action-tone ${item.tone}`} /><span><strong>{item.client}</strong><small>{item.detail}</small></span><b>{item.amount?formatIDRShort(item.amount):'-'}</b><em>{item.action} →</em></button>):<Empty text={activeFilterCount?'Tidak ada tindakan sesuai filter aktif.':'Tidak ada tindakan yang membutuhkan Anda saat ini.'} />}</div>
         </section>
-        {!simplifiedInternal ? <section className="card deadline-panel"><PanelTitle eyebrow="UPCOMING 30 DAYS" title="Deadline & SLA" meta={`${deadlines.length} agenda`} />
-          <div className="deadline-list">{deadlines.length?deadlines.map((item)=><button type="button" key={item.id} onClick={()=>openContext('operations',String(item.id))}><time>{dateLabel(item.deadline)}</time><span><strong>{item.client_name||item.client_id}</strong><small>{item.business.label} · {statusLabel(item.state)}</small></span><b className={item.days!==null&&item.days<0?'overdue':''}>{item.days===null?'-':item.days<0?`${Math.abs(item.days)} hari terlambat`:item.days===0?'Hari ini':`${item.days} hari`}</b></button>):<Empty text="Belum ada deadline operasional." />}</div>
+        {!simplifiedInternal ? <section className="card client-balance-panel" aria-label="Saldo tersedia per klien"><PanelTitle eyebrow="CLIENT AVAILABLE BALANCE" title="Available Saldo per Klien" meta={`${clientBalances.length} klien`} />
+          <p className="client-balance-hint">Alokasi limit tersisa, dibatasi saldo Master bersama. Pemblokiran menghentikan pembayaran.</p>
+          <div className="client-balance-list">{clientBalances.length?clientBalances.map(row=><article key={row.clientId}>
+            <div className="client-balance-row"><strong>{row.clientName}</strong><span className={row.blocked?'client-balance-blocked':'client-balance-ready'}>{row.blocked?<IconAlertTriangle aria-hidden="true"/>:<IconCheckCircle aria-hidden="true"/>}{row.blocked?'Tertahan':'Tersedia'}</span></div>
+            <div className="client-balance-amount">{row.availableAmount===null?'Belum tervalidasi':formatIDR(row.availableAmount)}</div>
+            <small>Alokasi tersisa {formatIDR(row.remainingLimit)} · {row.environment}</small>
+            {row.reasons.length?<ul>{row.reasons.map(reason=><li key={reason.code}>{reason.message}</li>)}</ul>:null}
+            {row.warnings.map(warning=><p className="client-balance-warning" key={warning}>{warning}</p>)}
+            <small>{row.checkedAt?`Saldo diperiksa ${new Date(row.checkedAt).toLocaleString('id-ID',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Jakarta'})} WIB`:'Saldo belum diperiksa'}</small>
+          </article>):<Empty text={error?'Saldo klien belum dapat dimuat. Silakan refresh.':'Belum ada klien sesuai filter.'}/>}</div>
         </section> : null}
       </div>
       <section className="card pipeline-panel">

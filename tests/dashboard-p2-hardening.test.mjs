@@ -17,7 +17,7 @@ test('dashboard P2 keeps data visible during manual refresh',async()=>{
   const source=await read('src/components/PayrollControlTower.tsx');
   assert.match(source,/const \[refreshing,setRefreshing\] = useState\(false\)/);
   assert.match(source,/void load\(true\)/);
-  assert.match(source,/disabled=\{refreshing\}/);
+  assert.match(source,/disabled=\{refreshing\|\|gatewayBalanceLoading\}/);
   assert.match(source,/aria-busy=\{loading\|\|refreshing\}/);
 });
 

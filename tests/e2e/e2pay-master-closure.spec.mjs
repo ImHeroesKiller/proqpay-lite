@@ -49,6 +49,10 @@ let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const act
   if(url.searchParams.get('resource')==='payment-instruction-detail')body={ok:true,paymentInstruction:pi(),lines:[],control:{expectedTotal:2000,totalAmount:2000,recipientCount:26,expectedRecipientCount:26,balanced:true,recipientBalanced:true},approvals:[],activity:[]};
  }
  if(approvalMode&&url.pathname==='/api/disbursement-requests')body=url.searchParams.has('id')||req.method()==='POST'?{ok:true,request:dr()}:{ok:true,requests:[dr()]};
+ if(url.pathname==='/api/operating-model'&&url.searchParams.get('resource')==='dashboard'&&role==='SUPER_ADMIN')body.clientBalances=[
+  {clientId:'C-MOCK',clientName:'Mock Client',availableAmount:5000,remainingLimit:6000,blocked:false,reasons:[],warnings:[],checkedAt:new Date().toISOString(),environment:'UAT'},
+  {clientId:'C-BLOCK',clientName:'Blocked Client',availableAmount:0,remainingLimit:10000,blocked:true,reasons:[{code:'AR_OUTSTANDING_PAYMENT_BLOCKED',message:'Invoice overdue Rp 2.000. Pembayaran diblokir.'}],warnings:[],checkedAt:new Date().toISOString(),environment:'UAT'},
+ ];
  if(url.pathname==='/api/me')body={authenticated:true,authMode:'session',user:{id:'MOCK-'+role,orgId:'ORG-MOCK',name:role,email:role+'@example.test',role,permissions:permissionsForRole(role),clientIds:['C-MOCK'],projectIds:[]}};
  if(url.pathname==='/api/client-projects')body={ok:true,clients:[{id:'C-MOCK',name:'Mock Client'}],projects:[{id:'P-MOCK',client_id:'C-MOCK',name:'Mock Project'}]};
  if(url.pathname==='/api/provider-channel-mappings')body={ok:true,routingMode:'AUTOMATIC',environment:'UAT',routes:[
@@ -113,6 +117,18 @@ let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const act
  }
  assert.deepEqual(errors,[]);console.log(JSON.stringify({role,passed:true,simulatedActions:actions,externalNetwork:0,runtimeErrors:errors.length}));
  if(role==='SUPER_ADMIN'){
+  const before=[...actions];
+  await page.goto(base+'/?view=dashboard',{waitUntil:'networkidle'});
+  const balances=page.getByRole('region',{name:'Saldo tersedia per klien',exact:true});
+  await balances.getByRole('heading',{name:'Available Saldo per Klien',exact:true}).waitFor();
+  await expect(balances.locator('article')).toHaveCount(2);
+  await expect(balances).toContainText('Rp 5.000');
+  await expect(balances).toContainText('Invoice overdue Rp 2.000. Pembayaran diblokir.');
+  assert.equal(await page.getByRole('heading',{name:'Deadline & SLA'}).count(),0);
+  await page.setViewportSize({width:390,height:844});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.setViewportSize({width:1280,height:900});
+  assert.deepEqual(actions,before,'Dashboard availability is read-only');
   expired=true;
   await page.goto(base+'/?view=dashboard',{waitUntil:'networkidle'});
   await page.getByRole('button',{name:'Masuk ke ProQPay',exact:true}).waitFor();
