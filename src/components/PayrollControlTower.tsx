@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppView } from './Sidebar';
 import {patchRoute} from '@/lib/route-state';
 import { formatIDR, formatIDRShort } from '@/lib/format';
@@ -31,6 +31,8 @@ const PIPELINE = PAYROLL_BUSINESS_STAGE_ORDER.map((stage) => ({
 
 function statusLabel(value?:string|null) { return String(value||'-').replaceAll('_',' '); }
 export default function PayrollControlTower({actor,period,onNavigate}:Props) {
+  const loadGeneration=useRef(0);
+  const balanceGeneration=useRef(0);
   const [data,setData] = useState<DashboardApiResponse>({submissions:[],paymentInstructions:[]});
   const [loading,setLoading] = useState(true);
   const [refreshing,setRefreshing] = useState(false);
@@ -46,34 +48,42 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
   const [gatewayBalanceError,setGatewayBalanceError] = useState('');
 
   const load = useCallback(async(background=false)=>{
+    const generation=++loadGeneration.current;
     if (background) setRefreshing(true); else setLoading(true);
     setError('');
     try {
-      setData(await listOperatingDashboard(undefined,actor.role==='PAYROLL_CONTROLLER'?'ALL':period));
+      const next=await listOperatingDashboard(undefined,actor.role==='PAYROLL_CONTROLLER'?'ALL':period);
+      if(generation===loadGeneration.current)setData(next);
     } catch (loadError) {
-      setError(loadError instanceof Error?loadError.message:'Dashboard operasional gagal dimuat');
+      if(generation===loadGeneration.current)setError(loadError instanceof Error?loadError.message:'Dashboard operasional gagal dimuat');
     } finally {
-      if (background) setRefreshing(false); else setLoading(false);
+      if(generation===loadGeneration.current){setRefreshing(false);setLoading(false);}
     }
   },[period,actor.role]);
   useEffect(()=>{void load(false);},[load]);
 
   const loadGatewayBalance = useCallback(async(force=false)=>{
     if(actor.role==='CLIENT_USER') return;
+    const generation=++balanceGeneration.current;
     setGatewayBalanceLoading(true);
     setGatewayBalanceError('');
     try {
       const result=await getE2PayOverview(force);
+      if(generation!==balanceGeneration.current)return;
       setGatewayAccount(result.account);
+      if(!force&&result.account.refreshedAt){invalidateOperatingCache();await load(true);}
     } catch (cause) {
+      if(generation!==balanceGeneration.current)return;
       setGatewayAccount(null);
       setGatewayBalanceError(cause instanceof Error ? cause.message : 'Saldo E2Pay gagal dimuat');
     } finally {
+      if(generation===balanceGeneration.current){
       if(force){invalidateOperatingCache();await load(true);}
       setGatewayBalanceLoading(false);
+      }
     }
   },[actor.role,load]);
-  useEffect(()=>{ void loadGatewayBalance(false); },[loadGatewayBalance]);
+  useEffect(()=>{ void loadGatewayBalance(false);return()=>{balanceGeneration.current+=1;loadGeneration.current+=1;}; },[loadGatewayBalance]);
 
   const submissions=useMemo(()=>data.submissions||[],[data.submissions]);
   const instructions=useMemo(()=>data.paymentInstructions||[],[data.paymentInstructions]);

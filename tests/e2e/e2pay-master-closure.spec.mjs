@@ -12,7 +12,7 @@ for(const role of ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIEN
   try{
    const context=await browser.newContext({viewport:{width:1280,height:900}});
    const page=await context.newPage();
-let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const actions=[];const errors=[];let prompts=0;
+let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const actions=[];const errors=[];let prompts=0;
  page.on('dialog',async dialog=>{if(dialog.type()==='confirm'){await dialog.accept();return;}assert.equal(dialog.type(),'prompt');prompts++;await dialog.accept('123456');});
  let approvalMode=false;let piStatus='PAYMENT_APPROVAL_PENDING';let drStatus='PENDING_APPROVAL';let piRejected=false;
  const pi=()=>({id:'PI-MOCK',client_id:'C-MOCK',project_id:'P-MOCK',document_no:'PI/MOCK',client_name:'Mock Client',payroll_period:'2026-10',payment_period:'2026-10',status:piStatus,expected_total:2000,recipient_count:26,content_hash:'MOCK-HASH',provider:'MOCK'});
@@ -50,7 +50,7 @@ let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const act
  }
  if(approvalMode&&url.pathname==='/api/disbursement-requests')body=url.searchParams.has('id')||req.method()==='POST'?{ok:true,request:dr()}:{ok:true,requests:[dr()]};
  if(url.pathname==='/api/operating-model'&&url.searchParams.get('resource')==='dashboard'&&role==='SUPER_ADMIN')body.clientBalances=[
-  {clientId:'C-MOCK',clientName:'Mock Client',availableAmount:5000,remainingLimit:6000,blocked:false,reasons:[],warnings:[],checkedAt:new Date().toISOString(),environment:'UAT'},
+  {clientId:'C-MOCK',clientName:'Mock Client',availableAmount:dashboardMasterChecked?5000:null,remainingLimit:6000,blocked:false,reasons:[],warnings:[],checkedAt:new Date().toISOString(),environment:'UAT'},
   {clientId:'C-BLOCK',clientName:'Blocked Client',availableAmount:0,remainingLimit:10000,blocked:true,reasons:[{code:'AR_OUTSTANDING_PAYMENT_BLOCKED',message:'Invoice overdue Rp 2.000. Pembayaran diblokir.'}],warnings:[],checkedAt:new Date().toISOString(),environment:'UAT'},
  ];
  if(url.pathname==='/api/me')body={authenticated:true,authMode:'session',user:{id:'MOCK-'+role,orgId:'ORG-MOCK',name:role,email:role+'@example.test',role,permissions:permissionsForRole(role),clientIds:['C-MOCK'],projectIds:[]}};
@@ -62,7 +62,7 @@ let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const act
  ]};
  if(url.pathname==='/api/e2pay-operations'){
   if(url.searchParams.get('resource')==='master-activation')body={ok:true,environment:'UAT',registryId:bound?'MASTER-MOCK':null,connectionReady:bound,balance:100000,refreshedAt:new Date().toISOString(),checks:{credentialConfigured:true,registryActive:bound,identityMatched:bound,merchantActive:true,balanceFresh:true},channels:[]};
-  else body={ok:true,account:{available:true,balance:100000,environment:'UAT',merchantStatus:'ACTIVE'}};
+  else {if(role==='SUPER_ADMIN'&&url.searchParams.get('resource')==='overview'){await new Promise(resolve=>setTimeout(resolve,100));dashboardMasterChecked=true;}body={ok:true,account:{available:true,balance:100000,environment:'UAT',merchantStatus:'ACTIVE',refreshedAt:role==='SUPER_ADMIN'?new Date().toISOString():undefined}};}
  }
  if(url.pathname==='/api/e2pay-disbursement-limits')body={ok:true,funding:bound?[{providerAccountRegistryId:'MASTER-MOCK',environment:'UAT',clientId:null,parent:{ready:true,state:'READY',balance:100000},accountReadiness:{ready:true},limit:{ready:false}}]:[],requests};
  await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
@@ -117,7 +117,7 @@ let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const act
  }
  assert.deepEqual(errors,[]);console.log(JSON.stringify({role,passed:true,simulatedActions:actions,externalNetwork:0,runtimeErrors:errors.length}));
  if(role==='SUPER_ADMIN'){
-  const before=[...actions];
+  const before=[...actions];dashboardMasterChecked=false;
   await page.goto(base+'/?view=dashboard',{waitUntil:'networkidle'});
   const balances=page.getByRole('region',{name:'Saldo tersedia per klien',exact:true});
   await balances.getByRole('heading',{name:'Available Saldo per Klien',exact:true}).waitFor();
