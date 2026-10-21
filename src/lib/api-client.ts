@@ -1,4 +1,11 @@
 /** G2 shared API error contract. No automatic retries for financial mutations. */
+export const AUTHENTICATION_REQUIRED_EVENT='proqpay:authentication-required';
+export function notifyAuthenticationRequired(status:number,body:Record<string,unknown>):boolean {
+  // A provider rejection or invalid MFA code is not an expired application session.
+  const required=status===401 && body.error==='Authentication required';
+  if(required && typeof window!=='undefined')window.dispatchEvent(new Event(AUTHENTICATION_REQUIRED_EVENT));
+  return required;
+}
 export class ApiRequestError extends Error {
   readonly status:number;
   readonly code:string|undefined;
@@ -24,6 +31,9 @@ export async function parseApiResponse<T>(response:Response):Promise<T> {
   }
   const payload=body&&typeof body==='object'&&!Array.isArray(body)?body as Record<string,unknown>:{};
   if(!response.ok){
+    if(notifyAuthenticationRequired(response.status,payload)) {
+      throw new ApiRequestError('Sesi berakhir. Silakan masuk kembali.',response.status,payload);
+    }
     const message=typeof payload.error==='string'?payload.error:
       typeof payload.message==='string'?payload.message:`HTTP ${response.status}`;
     throw new ApiRequestError(message,response.status,payload);

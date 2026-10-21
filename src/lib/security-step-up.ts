@@ -5,8 +5,8 @@ export async function fetchWithSecurityStepUp(input: RequestInfo | URL, init?: R
   const challenge = await response.clone().json().catch(() => ({})) as Record<string, unknown>;
   if (challenge.code !== 'MFA_STEP_UP_REQUIRED' || typeof window === 'undefined') return response;
 
-  const code = window.prompt('Masukkan kode MFA 6 digit untuk melanjutkan aksi pembayaran:')?.replace(/\D/g, '').slice(0, 6);
-  if (!code || code.length !== 6) return response;
+  const code = window.prompt('Masukkan kode 6 digit Google Authenticator untuk melanjutkan:')?.trim();
+  if (!code || !/^\d{6}$/.test(code)) return response;
 
   const stepUp = await fetch('/api/security-mfa', {
     method:'POST',
