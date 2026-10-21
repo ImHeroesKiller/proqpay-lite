@@ -78,7 +78,8 @@ export default function EmployeeDetailDrawer({
 
   function discardChanges(){
     setDiscardConfirm(false);setEditing(false);setForm(initialForm);setMessage('');
-    if(discardTarget==='close')onClose();
+    // Let the nested confirmation restore its focus/scroll lock before closing the profile.
+    if(discardTarget==='close')requestAnimationFrame(onClose);
     else if(discardTarget!=='cancel')setActiveTab(discardTarget);
   }
 

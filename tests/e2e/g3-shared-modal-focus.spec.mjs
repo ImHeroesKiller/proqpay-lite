@@ -91,4 +91,6 @@ test('Employee profile popup preserves edits, handles nested focus, reports save
  await opener.click();await profile.getByRole('tab',{name:'Rekening Pembayaran',exact:true}).click();await profile.getByRole('button',{name:'Edit rekening',exact:true}).click();await profile.getByLabel('Nama bank',{exact:true}).fill('BNI');
  await profile.getByRole('tab',{name:'Identitas & Penempatan',exact:true}).click();await discard.getByRole('button',{name:'Buang perubahan',exact:true}).click();await expect(profile.getByRole('tab',{name:'Identitas & Penempatan',exact:true})).toHaveAttribute('aria-selected','true');
  await page.keyboard.press('Escape');await expect(profile).toHaveCount(0);await expect(opener).toBeFocused();
+ await opener.click();await profile.getByRole('tab',{name:'Rekening Pembayaran',exact:true}).click();await profile.getByRole('button',{name:'Edit rekening',exact:true}).click();await profile.getByLabel('Nama bank',{exact:true}).fill('BNI');await profile.getByRole('button',{name:'Tutup profil',exact:true}).click();await discard.getByRole('button',{name:'Buang perubahan',exact:true}).click();await expect(profile).toHaveCount(0);await expect(opener).toBeFocused();
+ await expect.poll(()=>page.evaluate(()=>document.body.style.overflow)).not.toBe('hidden');
 });
