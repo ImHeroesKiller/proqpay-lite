@@ -41,7 +41,7 @@ test('Employees UI P2: drawer protects dirty admin edits from close, backdrop, E
   assert.match(source,/const dirty=editing && \(form\.bankName!==initialForm\.bankName\|\|form\.accountNo!==initialForm\.accountNo\)/);
   assert.match(source,/function requestClose\(\)/);
   assert.match(source,/setDiscardConfirm\(true\)/);
-  assert.match(source,/onMouseDown=\{\(event\)=>\{if\(event\.target===event\.currentTarget\)requestClose\(\);\}\}/);
+  assert.match(source,/<ModalShell title="Profil Karyawan" onClose=\{requestClose\}/);
   assert.match(source,/onClick=\{requestClose\}/);
   assert.match(source,/Perubahan belum disimpan/);
   assert.match(source,/Buang perubahan/);
