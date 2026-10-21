@@ -53,7 +53,7 @@ test('Payment Instructions P3 keeps approval readiness derived from one integrit
   const helper=await read('src/lib/payment-instruction-ui.ts');
 
   assert.match(helper,/approvalReady:valid&&detail\?\.paymentInstruction\?\.status==='PAYMENT_APPROVAL_PENDING'/);
-  assert.match(workspace,/disabled={!approvalConfirmed \|\| !integrity.approvalReady \|\| liquiditySyncing}/);
+  assert.match(workspace,/disabled={!approvalConfirmed \|\| !integrity.approvalReady \|\| liquiditySyncing \|\| approvalBusy}/);
   assert.match(workspace,/approveWithFreshLiquidity/);
   assert.match(workspace,/providerFunding\?\.subClient\.ready!==true/);
   assert.match(workspace,/providerFunding\?\.limit\.ready!==true/);

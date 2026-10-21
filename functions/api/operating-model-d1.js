@@ -1,3 +1,4 @@
+import {verifyStoredInstructionHash} from './payment-instruction-integrity.js';
 import { d1All, d1Batch, d1First } from './_d1.js';
 import { applyEwaRepayments, markEwaRepaid } from './_ewa.js';
 import { handlePreflight, publicError, secureJson } from './_security.js';
@@ -1777,24 +1778,13 @@ async function executeAction(database, body, actor, env, organizationId) {
         funding,
       }};
     }
-    const serverHash = await instructionContentHash({
-      organizationId,
-      clientId:payment.client_id,
-      submissionId:payment.submission_id,
-      payrollPeriod:payment.payroll_period,
-      paymentPeriod:payment.payment_period,
-      provider:payment.provider||'',providerEnvironment:payment.provider_environment||'',
-      providerAccountRegistryId:payment.provider_account_registry_id||'',providerSubAccountId:payment.provider_sub_account_id||'',
-    }, decrypted.map((line) => ({
-      employeeId:line.employee_id,
-      beneficiaryName:line.beneficiary_name,
-      bankName:line.bank_name,
-      bankCode:line.bank_code,
-      accountNumber:line.accountNumber,
-      amount:Number(line.amount),
+    const integrity=await verifyStoredInstructionHash(database,payment,decrypted.map(line=>({
+      employeeId:line.employee_id,beneficiaryName:line.beneficiary_name,bankName:line.bank_name,
+      bankCode:line.bank_code,accountNumber:line.accountNumber,amount:Number(line.amount),
     })));
-    if (serverHash !== payment.content_hash || serverHash !== body.actionHash) {
-      return { status:409, data:{ error:'Content hash hasil verifikasi server tidak sesuai snapshot PI; approval diblokir', code:'PI_SERVER_HASH_MISMATCH' } };
+    const serverHash=integrity.hash;
+    if(!integrity.valid || serverHash!==body.actionHash){
+      return {status:409,data:{error:'Integritas snapshot PI tidak sesuai. Approval diblokir; Processor perlu meninjau dan meregenerasi PI.',code:'PI_SERVER_HASH_MISMATCH'}};
     }
     const existing = await d1First(database, `SELECT * FROM payment_approvals WHERE payment_instruction_id=? AND action_hash=? AND status='APPROVED' LIMIT 1`, [payment.id, body.actionHash]);
     if (existing) return { data: { ok: true, approval: existing, idempotentReplay: true } };
@@ -1823,7 +1813,7 @@ async function executeAction(database, body, actor, env, organizationId) {
           payment.id,
         ] },
       { statement: `UPDATE payroll_submissions SET state='APPROVED_FOR_PAYMENT',updated_at=${NOW} WHERE id=? AND state='PAYMENT_APPROVAL_PENDING'`, bindings: [payment.submission_id] },
-      auditOperation(organizationId, actor, 'PAYMENT_APPROVED', `Maker-checker approval passed · ${payment.recipient_count} recipients · ${serverHash}${approvalLiquidity?` · liquidity=${approvalLiquidity.state} · available=${approvalLiquidity.availableBalance}`:''}`, 'payment_instruction', payment.id),
+      auditOperation(organizationId, actor, 'PAYMENT_APPROVED', `Maker-checker approval passed · ${payment.recipient_count} recipients · ${serverHash} · integrity=${integrity.mode} · routedHash=${integrity.routedHash}${approvalLiquidity?` · liquidity=${approvalLiquidity.state} · available=${approvalLiquidity.availableBalance}`:''}`, 'payment_instruction', payment.id),
     ]);
     return { data: { ok: true, approval: { id: approvalId, paymentInstructionId: payment.id, status: 'APPROVED' } } };
   }
