@@ -79,7 +79,13 @@ export type DashboardMeta = {
   truncated?:boolean;
 };
 
+export type DashboardClientBalance = {
+  clientId:string;clientName:string;availableAmount:number|null;remainingLimit:number;checkedAt:string|null;
+  blocked:boolean;reasons:Array<{code:string;message:string}>;warnings:string[];environment:string;
+};
+
 export type DashboardApiResponse = {
+  clientBalances?:DashboardClientBalance[];
   ok?:boolean;
   submissions:DashboardSubmission[];
   paymentInstructions:DashboardPaymentInstruction[];

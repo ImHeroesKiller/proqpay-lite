@@ -4,12 +4,11 @@ import test from 'node:test';
 
 const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
-test('dashboard SLA includes overdue items and keeps them ahead of upcoming deadlines', async()=>{
+test('dashboard replaces deadlines with client availability and visible payment blocks',async()=>{
   const source=await read('src/components/PayrollControlTower.tsx');
-  assert.match(source,/filter\(\(row\)=>row\.deadline&&row\.days!==null&&row\.days<=30\)/);
-  assert.doesNotMatch(source,/row\.days>=0/);
-  assert.match(source,/sort\(\(a,b\)=>\(a\.days\?\?0\)-\(b\.days\?\?0\)\)/);
-  assert.match(source,/hari terlambat/);
+  assert.match(source,/Available Saldo per Klien/);
+  assert.match(source,/row.reasons.map/);
+  assert.doesNotMatch(source,/Deadline & SLA|UPCOMING 30 DAYS/);
 });
 
 test('Open exceptions KPI routes directly to exception workspace', async()=>{

@@ -260,3 +260,21 @@
 .canonical-disbursement-workspace .ui-data-table td { font-size:13px; vertical-align:top; }
 .canonical-snapshot .ui-data-table th:last-child,.canonical-snapshot .ui-data-table td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
 @media(max-width:760px) { .canonical-create-form { grid-template-columns:minmax(0,1fr); } .canonical-disbursement-workspace { padding:14px; } .canonical-recipient-pages { flex-wrap:wrap; } }
+
+.client-balance-panel { padding:17px; min-width:0; }
+.client-balance-hint { margin:10px 0; color:var(--text3); font-size:12px; line-height:1.6; }
+.client-balance-list { max-height:440px; overflow:auto; }
+.client-balance-list article { display:grid; gap:7px; padding:15px 0; border-bottom:1px solid var(--border-soft); }
+.client-balance-list article:last-child { border-bottom:0; }
+.client-balance-row { display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center; font-size:13px; }
+.client-balance-row strong { overflow-wrap:anywhere; }
+.client-balance-row span { display:inline-flex; gap:5px; align-items:center; font-size:11px; }
+.client-balance-row svg { width:14px; height:14px; }
+.client-balance-blocked { color:var(--text); background:var(--danger-soft); padding:4px 7px; border-radius:6px; }
+.client-balance-blocked svg { color:var(--danger-strong); }
+.client-balance-ready { color:var(--text); background:var(--success-soft); padding:4px 7px; border-radius:6px; }
+.client-balance-ready svg { color:var(--success-strong); }
+.client-balance-amount { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
+.client-balance-list small { font-size:11px; color:var(--text3); }
+.client-balance-list ul { margin:2px 0; padding-left:17px; font-size:12px; line-height:1.7; color:var(--text2); }
+.client-balance-warning { margin:0; font-size:12px; color:var(--text2); }
