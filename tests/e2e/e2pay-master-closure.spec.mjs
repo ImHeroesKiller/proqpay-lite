@@ -1,4 +1,4 @@
-import {test,chromium} from '@playwright/test';
+import {test,chromium,expect} from '@playwright/test';
 import assert from 'node:assert/strict';
 import {permissionsForRole} from '../../shared/authority-matrix.js';
 
@@ -102,9 +102,9 @@ let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const act
   await page.getByRole('tab',{name:/Disbursement/}).click();
   await page.getByRole('button',{name:'Review & Approve',exact:true}).click();
   const snapshot=page.getByLabel('Immutable Disbursement Snapshot');
-  assert.equal(await snapshot.locator('tbody tr').count(),25);
+  await expect(snapshot.locator('tbody tr')).toHaveCount(25);
   await snapshot.getByRole('button',{name:'Berikutnya',exact:true}).click();
-  assert.equal(await snapshot.locator('tbody tr').count(),1);
+  await expect(snapshot.locator('tbody tr')).toHaveCount(1);
   await snapshot.getByRole('button',{name:'Approve DR',exact:true}).click();
   await page.getByText('Disbursement Request disetujui oleh Controller.',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Process Payment',exact:true}).waitFor();
