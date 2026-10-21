@@ -19,6 +19,7 @@ import { ChangePasswordModal, LoginScreen } from '@/components/AuthViews';
 import AppFooter from '@/components/AppFooter';
 import {allowedPayrollView,normalizeInternalRoute,validAppView,PAYROLL_STAGE_URL,stageForView} from '@/lib/workspace-navigation';
 import {patchRoute,routeParams,subscribeRoute} from '@/lib/route-state';
+import {AUTHENTICATION_REQUIRED_EVENT} from '@/lib/api-client';
 
 const IdaFab = dynamic(() => import('@/components/IdaFab'));
 const HelpModal = dynamic(() => import('@/components/HelpModal'));
@@ -50,6 +51,25 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [canonicalPeriods, setCanonicalPeriods] = useState<string[]>([]);
   const [canonicalClientCount, setCanonicalClientCount] = useState<number | null>(null);
+
+  useEffect(()=>{
+    const requireLogin=()=>{
+      setActor(null);
+      setAuthRequired(true);
+      setAuthChecked(true);
+      setOperatingCacheActor(null);
+      clearDatabaseMirror();
+      clearIdaSessionId();
+      clearSystemLogs();
+      setDb(null);
+      setCanonicalPeriods([]);
+      setCanonicalClientCount(null);
+      setSettingsOpen(false);
+      setMobileNavOpen(false);
+    };
+    window.addEventListener(AUTHENTICATION_REQUIRED_EVENT,requireLogin);
+    return ()=>window.removeEventListener(AUTHENTICATION_REQUIRED_EVENT,requireLogin);
+  },[]);
 
   useEffect(() => {
     const controller = new AbortController();

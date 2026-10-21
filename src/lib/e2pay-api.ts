@@ -1,3 +1,6 @@
+import { fetchWithSecurityStepUp } from './security-step-up';
+import { notifyAuthenticationRequired } from './api-client';
+
 export type E2PayAccountSnapshot = {
   available:boolean;
   provider?:string;
@@ -84,6 +87,9 @@ export class E2PayApiError extends Error {
 async function parse(response:Response){
   const data=await response.json().catch(()=>({})) as Record<string,unknown>;
   if(!response.ok){
+    if(notifyAuthenticationRequired(response.status,data)) {
+      throw new E2PayApiError('Sesi berakhir. Silakan masuk kembali.',response,data);
+    }
     const base=String(data.error||data.message||`HTTP ${response.status}`);
     const provider=typeof data.providerMessage==='string'&&data.providerMessage&&!base.includes(data.providerMessage)
       ? ` · ${data.providerMessage}`
@@ -132,7 +138,7 @@ export async function getE2PayTransactions(filters:Record<string,string|number|u
 }
 
 export async function runE2PayAction(action:string,payload:Record<string,unknown>={}){
-  return parse(await fetch('/api/e2pay-operations',{
+  return parse(await fetchWithSecurityStepUp('/api/e2pay-operations',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action,...payload}),

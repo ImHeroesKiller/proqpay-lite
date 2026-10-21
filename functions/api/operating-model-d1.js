@@ -1524,7 +1524,9 @@ async function executeAction(database, body, actor, env, organizationId) {
           ? (!providerAccount.provider_account_id || !e2payReadiness(gatewayEnv).configured || !masterContract.valid)
           : (!providerAccount.provider_sub_account_id || !credential.ready))){
           return {status:409,data:{
-            error:'Payroll sudah siap, tetapi Payment Readiness masih menunggu aktivasi E2Pay. PI tetap tersimpan dan dapat disubmit setelah provider READY.',
+            error:!providerAccount
+              ? 'Master E2Pay belum aktif. Super Admin perlu membuka Payment Instructions → Funding & Limit → Validasi & Aktifkan Master, lalu memasukkan kode Google Authenticator jika diminta. PI tetap tersimpan.'
+              : 'Koneksi Master E2Pay belum tervalidasi. Super Admin perlu memeriksa identitas dan konfigurasi pada Payment Instructions → Funding & Limit. PI tetap tersimpan.',
             code:'PAYMENT_READINESS_PENDING',
             paymentReadiness:{ready:false,state:!providerAccount?'MASTER_ACCOUNT_MISSING':master?'MASTER_PROVIDER_NOT_READY':'LEGACY_SUBACCOUNT_UNSUPPORTED',blockingStage:'PAYMENT_SUBMISSION'},
           }};

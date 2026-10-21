@@ -12,14 +12,21 @@ for(const role of ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIEN
   try{
    const context=await browser.newContext({viewport:{width:1280,height:900}});
    const page=await context.newPage();
-let bound=role!=='SUPER_ADMIN';const actions=[];const errors=[];
+let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const actions=[];const errors=[];let prompts=0;
+ page.on('dialog',async dialog=>{assert.equal(dialog.type(),'prompt');prompts++;await dialog.accept('123456');});
  let requests=role==='PAYROLL_CONTROLLER'?[{id:'LIMIT-MOCK',clientId:'C-MOCK',clientName:'Mock Client',environment:'UAT',status:'PENDING_APPROVAL',requestedAmount:2000,remainingAmount:0}]:[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{const req=route.request();const url=new URL(req.url());if(url.origin!==base){await route.abort();return;}if(!url.pathname.startsWith('/api/'))return route.continue();
+ if(expired&&url.pathname==='/api/operating-model'){await route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({error:'Authentication required'})});return;}
  let body={ok:true,periods:['2026-10'],submissions:[],paymentInstructions:[],paymentProofs:[],reconciliations:[],exceptions:[],requests:[],funding:[],records:[],clients:[],projects:[],employees:[],servicePlans:[],arItems:[],invoices:[],billablePayments:[],issuerProfile:null,portfolioSummary:{clients:0}};
  if(req.method()!=='GET'){
   const data=req.postDataJSON();actions.push(data.action);
-  if(data.action==='BIND_MASTER_ACCOUNT'){assert.equal(role,'SUPER_ADMIN');bound=true;}
+  if(data.action==='BIND_MASTER_ACCOUNT'){
+   assert.equal(role,'SUPER_ADMIN');
+   if(!mfaVerified){await route.fulfill({status:428,contentType:'application/json',body:JSON.stringify({error:'MFA step-up diperlukan untuk registrasi Master Account',code:'MFA_STEP_UP_REQUIRED'})});return;}
+   bound=true;
+  }
+  else if(url.pathname==='/api/security-mfa'&&data.action==='STEP_UP'){assert.equal(data.code,'123456');mfaVerified=true;}
   else if(data.action==='REQUEST_LIMIT'){assert.equal(role,'PAYROLL_PROCESSOR');assert.equal(data.clientId,'C-MOCK');assert.equal(data.amount,2000);requests=[{id:'LIMIT-MOCK',clientId:'C-MOCK',environment:'UAT',status:'PENDING_APPROVAL',requestedAmount:2000,remainingAmount:0}];}
   else if(data.action==='APPROVE_LIMIT'){assert.equal(role,'PAYROLL_CONTROLLER');requests[0].status='ACTIVE';requests[0].remainingAmount=2000;}
   else throw new Error('Forbidden unexpected UI mutation '+data.action);
@@ -35,7 +42,7 @@ let bound=role!=='SUPER_ADMIN';const actions=[];const errors=[];
  });
  await page.goto(base+'/?view=payments&paymentPanel=FUNDING',{waitUntil:'networkidle'});
  if(role==='SUPER_ADMIN'){
-  await page.getByRole('button',{name:'Validasi & Aktifkan Master'}).click();await page.getByText('Identitas Master tervalidasi dan aktivasi tersimpan.').waitFor();assert.deepEqual(actions,['BIND_MASTER_ACCOUNT']);
+  await page.getByRole('button',{name:'Validasi & Aktifkan Master'}).click();await page.getByText('Identitas Master tervalidasi dan aktivasi tersimpan.').waitFor();assert.deepEqual(actions,['BIND_MASTER_ACCOUNT','STEP_UP','BIND_MASTER_ACCOUNT']);assert.equal(prompts,1);
   assert.equal(await page.getByRole('button',{name:'Ajukan ke Controller'}).count(),0);
  }else if(role==='PAYROLL_PROCESSOR'){
   assert.equal(await page.getByRole('button',{name:'Validasi & Aktifkan Master'}).count(),0);
@@ -46,6 +53,13 @@ let bound=role!=='SUPER_ADMIN';const actions=[];const errors=[];
   assert.equal(await page.getByRole('button',{name:'Validasi & Aktifkan Master'}).count(),0);assert.equal(await page.getByRole('button',{name:'Ajukan ke Controller'}).count(),0);assert.deepEqual(actions,[]);
  }
  assert.deepEqual(errors,[]);console.log(JSON.stringify({role,passed:true,simulatedActions:actions,externalNetwork:0,runtimeErrors:errors.length}));
+ if(role==='SUPER_ADMIN'){
+  expired=true;
+  await page.goto(base+'/?view=dashboard',{waitUntil:'networkidle'});
+  await page.getByRole('button',{name:'Masuk ke ProQPay',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Validasi & Aktifkan Master'}).count(),0);
+  assert.deepEqual(errors,[]);
+ }
   }finally{await browser.close();}
  });
 }
