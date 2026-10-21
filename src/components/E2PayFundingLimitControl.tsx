@@ -115,7 +115,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}){
       </li>)}</ul>
       <div className="e2pay-funding-verification-footer"><div>
         {activation.environment==='UAT'?<p>Lingkungan pengujian: saldo dan pembayaran menggunakan E2Pay UAT.</p>:null}
-        <p>Kanal terkonfirmasi: <b>{activation.channels.filter(c=>c.ready).length}</b>. Pembayaran memerlukan kanal yang sesuai, limit aktif, dan persetujuan PI.</p>
+        <p>Tiga tujuan pembayaran dipetakan otomatis dari Master. Pembayaran tetap memerlukan rekening tervalidasi, limit aktif, dan persetujuan PI.</p>
       </div>
       {role==='SUPER_ADMIN'?<button type="button" className="btn btn-primary" disabled={Boolean(busy)||loading||!activation.checks.credentialConfigured} onClick={()=>void execute('BIND_MASTER',()=>runE2PayAction('BIND_MASTER_ACCOUNT'),'Identitas Master tervalidasi dan aktivasi tersimpan.')}><IconShieldCheck aria-hidden="true"/>{busy==='BIND_MASTER'?'Memvalidasi…':'Validasi & Aktifkan Master'}</button>:null}
       </div>

@@ -394,7 +394,7 @@ export async function revokeE2PayDisbursementLimit(id:string,reason:string){
 export type E2PayMasterActivation={
   environment:string;registryId:string|null;connectionReady:boolean;balance:number|null;refreshedAt:string|null;
   checks:{credentialConfigured:boolean;registryActive:boolean;identityMatched:boolean;merchantActive:boolean;balanceFresh:boolean};
-  channels:Array<{purpose:string;destinationMode:string;beneficiaryType:string;ready:boolean}>;
+  routingMode?:'AUTOMATIC';
 };
 export async function getE2PayMasterActivation(){
   return parse(await fetch('/api/e2pay-operations?resource=master-activation',{cache:'no-store'})) as Promise<E2PayMasterActivation>;

@@ -114,8 +114,8 @@ test('P1.C Provider Channels are read-only for Controller, and activation never 
  assert.equal(attempt.status,403);
  const admin=await createSession(DB,'ADMIN-P1C',env);
  const missingEvidence=await invoke(channelApi,env,admin.token,'/api/provider-channel-mappings','POST',{action:'ACTIVATE_MAPPING',provider:'E2PAY',environment:'UAT',purpose:'PAYROLL',destinationMode:'DIRECT_EMPLOYEE',beneficiaryType:'EMPLOYEE'});
- assert.equal(missingEvidence.status,422,JSON.stringify(missingEvidence.data));
- assert.equal(missingEvidence.data.code,'PROVIDER_CHANNEL_CODE_REQUIRED');
+ assert.equal(missingEvidence.status,410,JSON.stringify(missingEvidence.data));
+ assert.equal(missingEvidence.data.code,'E2PAY_AUTOMATIC_ROUTING');
 });
 
 test('P1.C UI integrates role-safe funding health, channel evidence control and register pagination',async()=>{
@@ -130,10 +130,9 @@ test('P1.C UI integrates role-safe funding health, channel evidence control and 
  assert.match(funding,/row.limit.ready/);
  assert.match(funding,/accountReadiness\?\.ready/);
  assert.match(funding,/Legacy recovery/);
- assert.match(channel,/const canManage=role==='SUPER_ADMIN'/);
- assert.match(channel,/confirmationReference\.trim\(\)/);
- assert.match(channel,/UBAH ROUTING PRODUKSI/);
- assert.match(channel,/Belum terkonfirmasi; tidak siap untuk eksekusi/);
+ assert.match(channel,/Jalur Pembayaran Otomatis/);
+ assert.doesNotMatch(channel,/<input|<select|ACTIVATE_MAPPING|SAVE_DRAFT/);
+ assert.match(channel,/inquiry E2Pay/);
  assert.match(reg,/pageSize:'40'/);
  assert.match(reg,/reconciliationStatus/);
  assert.match(reg,/reconciliationAttempts/);
