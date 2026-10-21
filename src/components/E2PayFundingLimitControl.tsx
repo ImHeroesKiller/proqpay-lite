@@ -2,6 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useState} from 'react';
 import {formatIDR} from '@/lib/format';
+import {IconRefresh,IconShieldCheck,IconCheckCircle,IconAlertTriangle,IconArrowUpRight} from '@/components/Icons';
 import {
   approveE2PayDisbursementLimit,
   getE2PayDisbursementLimits,
@@ -88,52 +89,65 @@ export default function E2PayFundingLimitControl({role}:{role:string}){
         return kind==='REJECT'?rejectE2PayDisbursementLimit(id,reason):revokeE2PayDisbursementLimit(id,reason);};
     await execute(kind+id,action,kind==='APPROVE'?'Limit disetujui.':'Keputusan Controller tercatat.');
   }
-  return <section className="card ui-section-card" aria-label="Master Funding dan Limit">
+  return <section className="e2pay-funding" aria-label="Master Funding dan Limit" aria-busy={loading}>
     <div className="ui-section-card-head">
       <div><span className="workspace-eyebrow">MASTER FUNDING</span><h2>Balance Master &amp; Limit Klien</h2>
         <p>Satu saldo E2Pay Master. Processor mengajukan limit per klien, Controller menyetujui sebelum pembayaran.</p></div>
-      <button type="button" className="btn" disabled={loading||Boolean(busy)} onClick={()=>void refreshBalance()}>{busy==='SYNC'?'Menyinkronkan…':'Refresh Saldo Master'}</button>
+      <button type="button" className="btn" disabled={loading||Boolean(busy)} onClick={()=>void refreshBalance()}><IconRefresh aria-hidden="true"/>{busy==='SYNC'?'Menyinkronkan…':'Refresh Saldo Master'}</button>
     </div>
     {message?<p className="ui-notice" role="status">{message}</p>:null}
-    <div className="ui-metric-grid">
-      <div className="card ui-metric-card"><span>Balance E2Pay Master</span><strong>{balance===null?'Belum tersinkron':formatIDR(balance)}</strong>
+    <div className="e2pay-funding-summary">
+      <div className="ui-metric-card"><span>Balance E2Pay Master</span><strong>{balance===null?'Belum tersinkron':formatIDR(balance)}</strong>
         <small>{master?.parent?.ready?'Saldo tervalidasi':'Perlu validasi saldo terbaru'}</small></div>
-      <div className="card ui-metric-card"><span>Approved Limit Aktif</span><strong>{formatIDR(requests.filter(row=>row.status==='ACTIVE').reduce((sum,row)=>sum+row.remainingAmount,0))}</strong>
+      <div className="ui-metric-card"><span>Approved Limit Aktif</span><strong>{formatIDR(requests.filter(row=>row.status==='ACTIVE').reduce((sum,row)=>sum+row.remainingAmount,0))}</strong>
         <small>Akumulasi alokasi dari seluruh klien</small></div>
-      <div className="card ui-metric-card"><span>Koneksi Master</span><strong>{masterReady?'Tervalidasi':'Perlu tindakan'}</strong>
-        <small>{master?.environment||'UAT'} · {master?.parent?.state||'Belum terhubung'}</small></div>
+      <div className="ui-metric-card"><span>Koneksi Master</span><strong>{masterReady?'Tervalidasi':'Perlu tindakan'}</strong>
+        <small>{master?.environment||'UAT'} · {master?.parent?.ready?'Saldo terbaru':master?.parent?.state==='STALE'?'Perbarui saldo':'Perlu validasi'}</small></div>
     </div>
-    {!master?<p role="status">Master Account belum aktif. Super Admin perlu melakukan validasi identitas E2Pay.</p>:null}
-    {activation?<div aria-label="Pemeriksaan Master"><p>Lingkungan provider: <b>{activation.environment}</b>{activation.environment==='UAT'?' · Saldo dan pembayaran menggunakan lingkungan pengujian.':''}</p>
-      <ul>{Object.entries(activation.checks).map(([key,ready])=><li key={key}>{({credentialConfigured:'Credential pusat',registryActive:'Aktivasi Master',identityMatched:'Identitas provider',merchantActive:'Status merchant',balanceFresh:'Saldo terbaru'} as Record<string,string>)[key]}: {ready?'Tervalidasi':'Perlu tindakan'}</li>)}</ul>
-      <p>Kanal pembayaran terkonfirmasi: {activation.channels.filter(c=>c.ready).length}. Kesiapan pembayaran tetap memerlukan kanal yang sesuai, limit aktif, dan persetujuan PI.</p>
-      {role==='SUPER_ADMIN'?<button type="button" className="btn btn-primary" disabled={Boolean(busy)||loading||!activation.checks.credentialConfigured} onClick={()=>void execute('BIND_MASTER',()=>runE2PayAction('BIND_MASTER_ACCOUNT'),'Identitas Master tervalidasi dan aktivasi tersimpan.')}>{busy==='BIND_MASTER'?'Memvalidasi…':'Validasi & Aktifkan Master'}</button>:null}
+    {!master&&!loading?<p className="ui-notice" role="status">Master Account belum aktif. Super Admin perlu melakukan validasi identitas E2Pay.</p>:null}
+    {activation?<div className="e2pay-funding-verification" aria-label="Pemeriksaan Master">
+      <div className="e2pay-funding-section-head"><div><h3>Pemeriksaan Master</h3><p>Pastikan koneksi dan saldo tervalidasi sebelum mengajukan limit.</p></div>
+        <span className="e2pay-funding-environment">{activation.environment}</span>
+      </div>
+      <ul className="e2pay-funding-checks">{Object.entries(activation.checks).map(([key,ready])=><li key={key}>
+        <span>{({credentialConfigured:'Credential pusat',registryActive:'Aktivasi Master',identityMatched:'Identitas provider',merchantActive:'Status merchant',balanceFresh:'Saldo terbaru'} as Record<string,string>)[key]}</span>
+        <span className={`e2pay-funding-check ${ready?'is-ready':'needs-action'}`}>{ready?<IconCheckCircle aria-hidden="true"/>:<IconAlertTriangle aria-hidden="true"/>}{ready?'Tervalidasi':'Perlu tindakan'}</span>
+      </li>)}</ul>
+      <div className="e2pay-funding-verification-footer"><div>
+        {activation.environment==='UAT'?<p>Lingkungan pengujian: saldo dan pembayaran menggunakan E2Pay UAT.</p>:null}
+        <p>Kanal terkonfirmasi: <b>{activation.channels.filter(c=>c.ready).length}</b>. Pembayaran memerlukan kanal yang sesuai, limit aktif, dan persetujuan PI.</p>
+      </div>
+      {role==='SUPER_ADMIN'?<button type="button" className="btn btn-primary" disabled={Boolean(busy)||loading||!activation.checks.credentialConfigured} onClick={()=>void execute('BIND_MASTER',()=>runE2PayAction('BIND_MASTER_ACCOUNT'),'Identitas Master tervalidasi dan aktivasi tersimpan.')}><IconShieldCheck aria-hidden="true"/>{busy==='BIND_MASTER'?'Memvalidasi…':'Validasi & Aktifkan Master'}</button>:null}
+      </div>
     </div>:null}
-    <div className="card ui-filter-bar">
+    <div className="e2pay-funding-filters">
       <label className="ui-form-field"><span>Klien</span><select value={clientId} onChange={e=>{setClientId(e.target.value);setProjectId('');}}>
         {!clients.length?<option value="">Belum ada klien</option>:clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
       </select></label>
-    </div>
     {canRequest?<label className="ui-form-field"><span>Project untuk limit</span><select value={projectId} onChange={e=>setProjectId(e.target.value)}><option value="">Seluruh klien</option>{visibleProjects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>:null}
-    {canRequest?<div className="card ui-section-card">
-      <strong>Ajukan Disbursement Limit</strong>
-      <div className="directory-form-grid">
+    </div>
+    {canRequest?<div className="e2pay-funding-request">
+      <div className="e2pay-funding-section-head"><div><h3>Ajukan Disbursement Limit</h3><p>Pengajuan akan diperiksa oleh Payroll Controller.</p></div></div>
+      <div className="e2pay-funding-form">
         <label className="ui-form-field"><span>Nominal (IDR)</span><input inputMode="numeric" type="number" min="1" value={amount} onChange={e=>setAmount(e.target.value)}/></label>
         <label className="ui-form-field"><span>Alasan</span><input value={reason} onChange={e=>setReason(e.target.value)}/></label>
       </div>
-      <button type="button" className="btn btn-primary" disabled={!masterReady||!clientId||Boolean(busy)} onClick={()=>void submitLimit()}>Ajukan ke Controller</button>
+      <button type="button" className="btn btn-primary" disabled={!masterReady||!clientId||Boolean(busy)} onClick={()=>void submitLimit()}><IconArrowUpRight aria-hidden="true"/>Ajukan ke Controller</button>
     </div>:null}
-    <div className="card ui-section-card"><strong>Permintaan dan Alokasi Limit</strong>
-      {!selectedRequests.length?<p>Belum ada pengajuan limit untuk klien ini.</p>:null}
-      {selectedRequests.map(row=><div key={row.id} className="directory-inline-actions">
-        <span>{row.clientName||row.clientCode||row.clientId} · {row.status} · {formatIDR(row.requestedAmount)} · Sisa {formatIDR(row.remainingAmount)}</span>
+    <div className="e2pay-funding-limits"><div className="e2pay-funding-section-head"><div><h3>Permintaan dan Alokasi Limit</h3><p>{pending.length} menunggu Controller · {active.length} limit aktif untuk klien terpilih.</p></div></div>
+      {!selectedRequests.length?<div className="e2pay-funding-empty"><IconShieldCheck aria-hidden="true"/><div><strong>Belum ada pengajuan limit</strong><p>Payroll Processor dapat mengajukan limit untuk klien ini, kemudian Payroll Controller menyetujuinya.</p></div></div>:null}
+      {selectedRequests.length?<div className="ui-table-wrap"><table className="ui-data-table"><thead><tr><th scope="col">Klien</th><th scope="col">Status</th><th scope="col" className="e2pay-funding-amount">Pengajuan</th><th scope="col" className="e2pay-funding-amount">Sisa limit</th><th scope="col">Tindakan</th></tr></thead><tbody>
+      {selectedRequests.map(row=><tr key={row.id}>
+        <td>{row.clientName||row.clientCode||row.clientId}</td><td><span className="e2pay-funding-status">{({PENDING_APPROVAL:'Menunggu persetujuan',ACTIVE:'Aktif',REJECTED:'Ditolak',REVOKED:'Dicabut',EXHAUSTED:'Habis',EXPIRED:'Kedaluwarsa'} as Record<string,string>)[row.status]||row.status}</span></td><td className="e2pay-funding-amount">{formatIDR(row.requestedAmount)}</td><td className="e2pay-funding-amount">{formatIDR(row.remainingAmount)}</td><td><div className="e2pay-funding-actions">
         {canApprove&&row.status==='PENDING_APPROVAL'?<>
           <button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void respond(row.id,'APPROVE')}>Setujui</button>
           <button type="button" className="btn" disabled={Boolean(busy)} onClick={()=>void respond(row.id,'REJECT')}>Tolak</button>
         </>:null}
         {canApprove&&row.status==='ACTIVE'?<button type="button" className="btn" disabled={Boolean(busy)} onClick={()=>void respond(row.id,'REVOKE')}>Cabut</button>:null}
-      </div>)}
+        {!(canApprove&&['PENDING_APPROVAL','ACTIVE'].includes(row.status))?<span className="e2pay-funding-muted">—</span>:null}
+      </div></td></tr>)}
+      </tbody></table></div>:null}
     </div>
-    <small>{pending.length} menunggu Controller · {active.length} limit aktif untuk klien terpilih. Eksekusi disbursement tetap melalui approved Payment Instruction.</small>
+    <p className="e2pay-funding-footnote">Eksekusi pembayaran tetap melalui Payment Instruction yang telah disetujui.</p>
   </section>;
 }
