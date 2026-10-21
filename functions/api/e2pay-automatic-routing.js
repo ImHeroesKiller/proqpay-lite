@@ -10,6 +10,10 @@ import {DISBURSEMENT_INTENTS,providerChannelKey,validateDisbursementIntent} from
 export const E2PAY_AUTOMATIC_CONTRACT='SSD_B2B_1.1';
 export const E2PAY_AUTOMATIC_INTENTS=Object.freeze(Object.values(DISBURSEMENT_INTENTS));
 
+export function automaticE2PaySourceFingerprint(organizationId,registryId,runtime){
+  return sha256Hex(JSON.stringify([organizationId,registryId,runtime.E2PAY_ACCOUNT_SRC,runtime.E2PAY_SOURCE_ID]));
+}
+
 export async function automaticE2PayRoute(database,env,input={}){
   const intent=validateDisbursementIntent(input);
   if(!intent.ok)return {ok:false,code:intent.code};
@@ -35,7 +39,7 @@ export async function automaticE2PayRoute(database,env,input={}){
     providerAccountRegistryId:account.id,
     providerChannel:'E2PAY_SDP',contractVersion:E2PAY_AUTOMATIC_CONTRACT,
     inquiryPath:'/b2b/merchant/me/sdp/inquiry',transactionPath:'/b2b/merchant/me/sdp/transaction',
-    sourceFingerprint:await sha256Hex(JSON.stringify([organizationId,account.id,runtime.E2PAY_ACCOUNT_SRC,runtime.E2PAY_SOURCE_ID])),
+    sourceFingerprint:await automaticE2PaySourceFingerprint(organizationId,account.id,runtime),
     metadata:{descriptionPrefix:intent.purpose},
   };
   return {ok:true,mapping:null,snapshot:{...snapshot,configHash:await sha256Hex(JSON.stringify(snapshot))}};

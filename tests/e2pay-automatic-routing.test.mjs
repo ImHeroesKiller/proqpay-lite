@@ -6,6 +6,7 @@ import {resolveProviderChannel,validateProviderChannelSnapshot} from '../functio
 import {onRequest as routingApi} from '../functions/api/provider-channel-mappings.js';
 import {onRequest as requestApi} from '../functions/api/disbursement-requests.js';
 import {e2payDisburse} from '../functions/api/payment-gateway-e2pay.js';
+import {executeCanonicalE2Pay} from '../functions/api/disbursement-execution-e2pay.js';
 
 const input=(f,intent=E2PAY_AUTOMATIC_INTENTS[0])=>({...intent,provider:'E2PAY',orgId:'ORG-FIX',environment:'UAT',registryId:'MASTER-FIX'});
 const post=(handler,f,headers,body)=>handler({request:new Request('https://proqpay.test/api/test',{method:'POST',headers,body:JSON.stringify(body)}),env:f.env});
@@ -82,4 +83,16 @@ test('Automatic route labels do not add undocumented channel fields or override 
  });
  assert.deepEqual(Object.keys(payload).sort(),['accountSrc','clientRef','description','password','inquiryId','sourceId'].sort());
  assert.equal(payload.accountSrc,f.env.E2PAY_ACCOUNT_SRC);assert.equal(payload.sourceId,f.env.E2PAY_SOURCE_ID);
+});
+
+test('Actual execution environment must match approved source; partial sends retain reconciliation and reservations',async t=>{
+ noNetwork(t);
+ for(const partial of [false,true]){
+  const f=masterFixture(2);const route=await automaticE2PayRoute(f.database,f.env,input(f));
+  f.channelSnapshot=route.snapshot;
+  if(partial)f.database.sqlite.prepare("UPDATE disbursement_execution_items SET status='SUCCEEDED',attempt_count=1 WHERE id='XI-1'").run();
+  const result=await executeCanonicalE2Pay({...f,env:{...f.env,E2PAY_SOURCE_ID:'DIFFERENT-SOURCE'}});
+  assert.equal(result.code,'MASTER_ROUTING_SOURCE_CHANGED');
+  assert.equal(result.parentStatus,partial?'RECONCILIATION_REQUIRED':'FAILED');assert.equal(result.financialPostStarted,partial);
+ }
 });
