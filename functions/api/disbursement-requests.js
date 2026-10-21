@@ -185,7 +185,7 @@ export async function onRequest({request,env}){
     if(String(current.requested_by_user_id||'')===String(actor.id||'')) return secureJson({error:'Maker tidak dapat approve request yang sama',code:'DISBURSEMENT_MAKER_CHECKER_VIOLATION'},409,request,env,METHODS);
     if(current.source_document_type==='PAYMENT_INSTRUCTION' && await legacyGatewayForPi(env.DB,organizationId,current.source_document_id))
       return secureJson(LEGACY_FINANCIAL_PRESENT,409,request,env,METHODS);
-    const routeValidation=await validateProviderChannelSnapshot(env.DB,current);
+    const routeValidation=await validateProviderChannelSnapshot(env.DB,current,env);
     if(!routeValidation.ok) return secureJson({error:'Provider channel snapshot tidak lagi valid untuk approval',code:routeValidation.code},409,request,env,METHODS);
     const account=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider=? AND environment=? AND status='ACTIVE' LIMIT 1`,[current.provider_account_registry_id,organizationId,current.provider,current.provider_environment]);
     if(!account) return secureJson({error:'Provider routing snapshot tidak cocok',code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'},409,request,env,METHODS);
@@ -228,13 +228,14 @@ export async function onRequest({request,env}){
     const route=await resolveProviderChannel(env.DB,{
       provider:current.provider,environment:current.provider_environment,purpose:current.purpose,
       destinationMode:current.destination_mode,beneficiaryType:current.beneficiary_type,
-    });
+      sourceDocumentType:current.source_document_type,orgId:organizationId,registryId:current.provider_account_registry_id,
+    },env);
     if(!route.ok) return secureJson({
-      error:'Provider channel untuk intent ini belum ACTIVE/terkonfirmasi. Disbursement Request tetap READY dan tidak dikirim ke approval.',
+      error:'Jalur pembayaran otomatis belum siap. Periksa konfigurasi dan identitas Master E2Pay. Request tetap tersimpan.',
       code:route.code,intentKey:route.intentKey||null,
     },409,request,env,METHODS);
     await d1Batch(env.DB,[
-      {statement:`UPDATE disbursement_requests SET status='PENDING_APPROVAL',provider_channel_mapping_id=?,provider_channel_snapshot=?,requested_by_user_id=?,requested_by_email=?,requested_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_by_user_id=?,updated_by_email=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='READY'`,bindings:[route.mapping.id,JSON.stringify(route.snapshot),actor.id||null,actor.email,actor.id||null,actor.email,id,organizationId]},
+      {statement:`UPDATE disbursement_requests SET status='PENDING_APPROVAL',provider_channel_mapping_id=?,provider_channel_snapshot=?,requested_by_user_id=?,requested_by_email=?,requested_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_by_user_id=?,updated_by_email=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='READY'`,bindings:[route.mapping?.id||null,JSON.stringify(route.snapshot),actor.id||null,actor.email,actor.id||null,actor.email,id,organizationId]},
       audit(organizationId,actor,'DISBURSEMENT_PROVIDER_CHANNEL_BOUND',`intent=${route.snapshot.intentKey} · providerChannel=${route.snapshot.providerChannel} · contract=${route.snapshot.contractVersion} · configHash=${route.snapshot.configHash}`,id),
       audit(organizationId,actor,'DISBURSEMENT_REQUEST_SUBMITTED',`purpose=${current.purpose} · destination=${current.destination_mode} · amount=${current.amount} · channel=${route.snapshot.providerChannel}`,id),
     ]);

@@ -1,7 +1,7 @@
 import {d1All,d1First,hasD1} from './_d1.js';
 import {authorize,enforceRateLimit,handlePreflight,secureJson} from './_security.js';
 import {providerAccountCredentialState} from './payment-provider-account-credentials.js';
-import {resolveProviderChannel} from './provider-channel-router.js';
+import {resolveLegacyProviderChannel as resolveProviderChannel} from './provider-channel-router.js';
 import {readProviderFundingState} from './e2pay-disbursement-limit-core.js';
 
 // P5.8.2 reads only. Never call a provider, bind credentials, modify a PI,

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { D1Mock } from './helpers/d1-mock.mjs';
-import { canonicalProviderChannelConfig, providerChannelConfigHash, resolveProviderChannel } from '../functions/api/provider-channel-router.js';
+import { canonicalProviderChannelConfig, providerChannelConfigHash, resolveLegacyProviderChannel as resolveProviderChannel } from '../functions/api/provider-channel-router.js';
 
 const routerApi=await readFile(new URL('../functions/api/provider-channel-mappings.js',import.meta.url),'utf8');
 const drApi=await readFile(new URL('../functions/api/disbursement-requests.js',import.meta.url),'utf8');
@@ -22,7 +22,7 @@ test('P5.7.5 channel config is descriptive only and strips execution/security ov
   assert.equal('password' in config.metadata,false);
 });
 
-test('P5.7.5 resolver is fail-closed until mapping is active, confirmed and hash-valid',async()=>{
+test('Historical P5.7.5 mappings remain fail-closed until confirmed and hash-valid',async()=>{
   const db=new D1Mock();
   db.sqlite.exec(`INSERT INTO provider_channel_mappings(id,provider,environment,purpose,destination_mode,beneficiary_type,mapping_status,config_json,created_by)
     VALUES('PCM-575','E2PAY','UAT','PAYROLL','DIRECT_EMPLOYEE','EMPLOYEE','PENDING_PROVIDER_CONFIRMATION','{}','seed')`);
@@ -64,10 +64,9 @@ test('P5.7.5 DR submission resolves and snapshots provider channel before approv
 
 test('P5.7.5 mapping management is integrations-admin only and never accepts arbitrary endpoint or secrets',()=>{
   assert.match(routerApi,/integrations:manage/);
-  assert.match(routerApi,/SAVE_DRAFT/);
-  assert.match(routerApi,/ACTIVATE_MAPPING/);
-  assert.match(routerApi,/DEACTIVATE_MAPPING/);
-  assert.match(routerApi,/confirmationReference/);
+  assert.match(routerApi,/E2PAY_AUTOMATIC_ROUTING/);
+  assert.match(routerApi,/410/);
+  assert.doesNotMatch(routerApi,/d1Batch|d1Run/);
   assert.doesNotMatch(routerApi,/body\?\.endpoint|body\.endpoint/);
   assert.doesNotMatch(routerApi,/body\?\.password|body\.password/);
   assert.doesNotMatch(routerApi,/body\?\.accountSrc|body\.accountSrc/);

@@ -479,7 +479,7 @@ export default function OperatingWorkspace({
               {displayedPaymentPanel==='FUNDING'&&['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role)?<div className="funding-integrated-panel">
                 <div className="funding-integrated-tabs" role="group" aria-label="Funding and Provider Routing">
                   <button className={fundingPanel==='LIQUIDITY'?'active':''} type="button" aria-pressed={fundingPanel==='LIQUIDITY'} onClick={()=>setFundingPanel('LIQUIDITY')}>Saldo & Disbursement Limit</button>
-                  <button className={fundingPanel==='CHANNEL'?'active':''} type="button" aria-pressed={fundingPanel==='CHANNEL'} onClick={()=>setFundingPanel('CHANNEL')}>Provider Channel Mapping</button>
+                  <button className={fundingPanel==='CHANNEL'?'active':''} type="button" aria-pressed={fundingPanel==='CHANNEL'} onClick={()=>setFundingPanel('CHANNEL')}>Jalur Pembayaran</button>
                 </div>
                 {fundingPanel==='LIQUIDITY'?<E2PayFundingLimitControl role={role} />:<ProviderChannelControl role={role} />}
               </div>:null}

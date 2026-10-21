@@ -1,6 +1,7 @@
 import { d1First } from './_d1.js';
 import { sha256Hex } from './payment-instruction-core.js';
 import { providerChannelKey } from '../../shared/disbursement-contract.js';
+import {automaticE2PayRoute,validateAutomaticE2PaySnapshot} from './e2pay-automatic-routing.js';
 
 function clean(value,limit=180){ return String(value??'').trim().replace(/[\r\n\t]+/g,' ').slice(0,limit); }
 
@@ -43,7 +44,13 @@ export function providerChannelSnapshot(mapping){
   };
 }
 
-export async function resolveProviderChannel(database,input={}){
+export async function resolveProviderChannel(database,input={},env={}){
+  if(String(input.provider||'').toUpperCase()==='E2PAY')return automaticE2PayRoute(database,env,input);
+  return resolveLegacyProviderChannel(database,input);
+}
+
+// Retained for historical snapshots; new E2Pay requests always use the SSD profile.
+export async function resolveLegacyProviderChannel(database,input={}){
   const provider=String(input.provider||'').trim().toUpperCase();
   const environment=String(input.environment||'').trim().toUpperCase();
   const purpose=String(input.purpose||'').trim().toUpperCase();
@@ -64,10 +71,13 @@ export async function resolveProviderChannel(database,input={}){
   return {ok:true,mapping,snapshot};
 }
 
-export async function validateProviderChannelSnapshot(database,requestRow){
-  if(!requestRow?.provider_channel_mapping_id||!requestRow?.provider_channel_snapshot) return {ok:false,code:'PROVIDER_CHANNEL_SNAPSHOT_REQUIRED'};
+export async function validateProviderChannelSnapshot(database,requestRow,env={}){
+  if(!requestRow?.provider_channel_snapshot) return {ok:false,code:'PROVIDER_CHANNEL_SNAPSHOT_REQUIRED'};
   let snapshot;
   try{ snapshot=JSON.parse(String(requestRow.provider_channel_snapshot)); }catch{ return {ok:false,code:'PROVIDER_CHANNEL_SNAPSHOT_INVALID'}; }
+  if(!snapshot||typeof snapshot!=='object'||Array.isArray(snapshot))return {ok:false,code:'PROVIDER_CHANNEL_SNAPSHOT_INVALID'};
+  if(snapshot?.routingMode==='AUTOMATIC')return validateAutomaticE2PaySnapshot(database,env,requestRow,snapshot);
+  if(!requestRow.provider_channel_mapping_id)return {ok:false,code:'PROVIDER_CHANNEL_SNAPSHOT_REQUIRED'};
   const mapping=await d1First(database,'SELECT * FROM provider_channel_mappings WHERE id=? LIMIT 1',[requestRow.provider_channel_mapping_id]);
   if(!mapping) return {ok:false,code:'PROVIDER_CHANNEL_MAPPING_NOT_FOUND'};
   if(String(mapping.mapping_status)!=='ACTIVE') return {ok:false,code:'PROVIDER_CHANNEL_MAPPING_INACTIVE'};

@@ -33,6 +33,11 @@ let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const act
  }
  if(url.pathname==='/api/me')body={authenticated:true,authMode:'session',user:{id:'MOCK-'+role,orgId:'ORG-MOCK',name:role,email:role+'@example.test',role,permissions:permissionsForRole(role),clientIds:['C-MOCK'],projectIds:[]}};
  if(url.pathname==='/api/client-projects')body={ok:true,clients:[{id:'C-MOCK',name:'Mock Client'}],projects:[{id:'P-MOCK',client_id:'C-MOCK',name:'Mock Project'}]};
+ if(url.pathname==='/api/provider-channel-mappings')body={ok:true,routingMode:'AUTOMATIC',environment:'UAT',routes:[
+  {purpose:'PAYROLL',destinationMode:'DIRECT_EMPLOYEE',beneficiaryType:'EMPLOYEE',ready:bound},
+  {purpose:'PAYROLL',destinationMode:'CLIENT_ACCOUNT',beneficiaryType:'CORPORATE',ready:bound},
+  {purpose:'EWA',destinationMode:'DIRECT_EMPLOYEE',beneficiaryType:'EMPLOYEE',ready:bound},
+ ]};
  if(url.pathname==='/api/e2pay-operations'){
   if(url.searchParams.get('resource')==='master-activation')body={ok:true,environment:'UAT',registryId:bound?'MASTER-MOCK':null,connectionReady:bound,balance:100000,refreshedAt:new Date().toISOString(),checks:{credentialConfigured:true,registryActive:bound,identityMatched:bound,merchantActive:true,balanceFresh:true},channels:[]};
   else body={ok:true,account:{available:true,balance:100000,environment:'UAT',merchantStatus:'ACTIVE'}};
@@ -51,6 +56,18 @@ let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const act
   assert.equal(await page.getByRole('button',{name:'Ajukan ke Controller'}).count(),0);await page.getByRole('button',{name:'Setujui',exact:true}).click();await page.getByText('Limit disetujui.').waitFor();assert.deepEqual(actions,['APPROVE_LIMIT']);
  }else{
   assert.equal(await page.getByRole('button',{name:'Validasi & Aktifkan Master'}).count(),0);assert.equal(await page.getByRole('button',{name:'Ajukan ke Controller'}).count(),0);assert.deepEqual(actions,[]);
+ }
+ if(role!=='CLIENT_USER'){
+  const before=[...actions];
+  await page.getByRole('button',{name:'Jalur Pembayaran',exact:true}).click();
+  const routing=page.getByRole('region',{name:'Jalur Pembayaran Otomatis',exact:true});
+  await routing.getByRole('heading',{name:'Payroll → Rekening Karyawan',exact:true}).waitFor();
+  await routing.getByRole('heading',{name:'Payroll → Rekening Perusahaan Klien',exact:true}).waitFor();
+  await routing.getByRole('heading',{name:'EWA → Rekening Karyawan',exact:true}).waitFor();
+  assert.equal(await routing.locator('input,select').count(),0);
+  await routing.getByRole('button',{name:'Periksa Koneksi',exact:true}).click();
+  await routing.getByRole('button',{name:'Periksa Koneksi',exact:true}).waitFor();
+  assert.deepEqual(actions,before,'Read-only routing view must never submit a mutation');
  }
  assert.deepEqual(errors,[]);console.log(JSON.stringify({role,passed:true,simulatedActions:actions,externalNetwork:0,runtimeErrors:errors.length}));
  if(role==='SUPER_ADMIN'){

@@ -82,7 +82,7 @@ export async function onRequest({request,env}){
     if(execution?.status==='FAILED') return secureJson({error:'Execution sebelumnya gagal. Blind retry diblokir; review/reconciliation diperlukan.',code:'DISBURSEMENT_CONTROLLED_RECOVERY_REQUIRED',execution:safeExecution(execution)},409,request,env,METHODS);
     if(!['APPROVED','EXECUTING','PROCESSING'].includes(String(dr.status))) return secureJson({error:`DR berstatus ${dr.status} belum dapat dieksekusi`,code:'DISBURSEMENT_NOT_APPROVED'},409,request,env,METHODS);
 
-    const route=await validateProviderChannelSnapshot(env.DB,dr);
+    const route=await validateProviderChannelSnapshot(env.DB,dr,env);
     if(!route.ok) return secureJson({error:'Provider channel snapshot tidak valid untuk execution',code:route.code},409,request,env,METHODS);
     const account=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider=? AND environment=? AND status='ACTIVE' LIMIT 1`,[dr.provider_account_registry_id,organizationId,dr.provider,dr.provider_environment]);
     if(!account) return secureJson({error:'Provider registry tidak aktif',code:'DISBURSEMENT_PROVIDER_SNAPSHOT_MISMATCH'},409,request,env,METHODS);

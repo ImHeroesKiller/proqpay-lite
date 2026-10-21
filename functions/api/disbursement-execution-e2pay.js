@@ -1,5 +1,6 @@
 import { d1All, d1Batch, d1Run } from './_d1.js';
 import { decryptAccountNumber, sha256Hex } from './payment-instruction-core.js';
+import {automaticE2PaySourceFingerprint} from './e2pay-automatic-routing.js';
 import {
   E2PayRequestError,
   e2payAuthorize,
@@ -85,6 +86,16 @@ export async function executeCanonicalE2Pay({database,env,execution,request,requ
     return {ok:false,statusCode:409,parentStatus:'RECONCILIATION_REQUIRED',code:'E2PAY_RECONCILIATION_REQUIRED',summary:summarizeCanonicalExecutionItems(items),items};
   }
 
+  if(channelSnapshot?.routingMode==='AUTOMATIC' && (
+    channelSnapshot.environment!==String(env.E2PAY_ENV||'UAT').toUpperCase()
+    || channelSnapshot.providerAccountRegistryId!==request.provider_account_registry_id
+    || channelSnapshot.sourceFingerprint!==await automaticE2PaySourceFingerprint(request.org_id,request.provider_account_registry_id,env)
+  )){
+    const financialPostStarted=items.some(item=>Number(item.attempt_count)>0||item.status==='SUCCEEDED');
+    const parentStatus=financialPostStarted?'RECONCILIATION_REQUIRED':'FAILED';
+    await updateExecution(database,execution.id,{status:parentStatus,error_code:'MASTER_ROUTING_SOURCE_CHANGED',error_message:'Master source differs from approved routing snapshot'});
+    return {ok:false,statusCode:409,parentStatus,code:'MASTER_ROUTING_SOURCE_CHANGED',financialPostStarted,summary:summarizeCanonicalExecutionItems(items),items};
+  }
   const auth=await e2payAuthorize(env);
   const [merchant,banks]=await Promise.all([e2payMerchantAccount(env,auth.accessToken),e2payBankList(env,auth.accessToken)]);
   const contract=e2payExecutionContract(env,merchant);
