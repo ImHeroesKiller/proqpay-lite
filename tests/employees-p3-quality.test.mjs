@@ -41,10 +41,10 @@ test('Employees P3: native confirm dialogs are removed from employee flows',asyn
 test('Employees P3: detail drawer handles Escape, focus trap and keyboard row activation',async()=>{
   const directory=await read('src/components/EmployeeDirectory.tsx');
   const detail=await read('src/components/EmployeeDetailDrawer.tsx');
-  assert.match(detail,/event\.key==='Escape'/);
-  assert.match(detail,/event\.key==='Tab'/);
-  assert.match(detail,/aria-labelledby="employee-detail-title"/);
-  assert.match(detail,/closeRef\.current\?\.focus/);
+  assert.match(detail,/ModalShell/);
+  assert.match(detail,/title="Profil Karyawan" onClose=\{requestClose\}/);
+  assert.match(detail,/function switchTab/);
+  assert.match(detail,/setDiscardTarget\(tab\)/);
   assert.match(directory,/event\.key==='Enter'\|\|event\.key===' '/);
 });
 

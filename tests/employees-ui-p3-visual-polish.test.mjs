@@ -5,17 +5,17 @@ import { readFile } from 'node:fs/promises';
 
 const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
-test('Employees UI P3: detail drawer uses sticky header, scroll body and compact profile hero',async()=>{
+test('Employees UI P3: centered profile popup uses shared modal, tabs and scroll body',async()=>{
   const detail=await read('src/components/EmployeeDetailDrawer.tsx');
-  const css=await readPolishCss();
-  assert.match(detail,/employee-drawer-body/);
+  const css=await read('src/app/e2pay-wallet.css');
+  assert.match(detail,/employee-profile-body/);
   assert.match(detail,/employee-avatar-lg/);
   assert.match(detail,/id="employee-detail-title"/);
   assert.match(detail,/aria-label="Detail Data Intake"/);
   assert.doesNotMatch(detail,/employee-drawer-pay/);
-  assert.match(css,/\.employee-drawer-header \{[\s\S]*position:sticky/);
-  assert.match(css,/\.employee-drawer-body \{[\s\S]*overflow:auto/);
-  assert.match(css,/\.employee-profile-hero/);
+  assert.match(detail,/<ModalShell title="Profil Karyawan"/);
+  assert.match(css,/\.employee-profile-body \{[^}]*overflow:auto/);
+  assert.match(css,/\.employee-profile-summary/);
 });
 
 test('Employees UI P3: edit mode has dedicated shell and sticky save footer',async()=>{
@@ -28,10 +28,10 @@ test('Employees UI P3: edit mode has dedicated shell and sticky save footer',asy
   assert.match(css,/\.employee-edit-footer \{[\s\S]*position:sticky[\s\S]*bottom:0/);
 });
 
-test('Employees UI P3: mobile detail is a true full-screen view',async()=>{
-  const css=await readPolishCss();
-  assert.match(css,/@media \(max-width:760px\)[\s\S]*\.employee-drawer \{[\s\S]*position:fixed !important;[\s\S]*inset:0 !important;[\s\S]*height:100dvh !important;/);
-  assert.match(css,/\.employee-drawer-backdrop \{ background:var\(--bg-surface\); backdrop-filter:none; \}/);
+test('Employees UI P3: profile popup remains centered and bounded on mobile',async()=>{
+  const css=await read('src/app/e2pay-wallet.css');
+  assert.match(css,/width:min\(880px,100%\)/);
+  assert.match(css,/@media\(max-width:600px\)/);
   assert.match(css,/safe-area-inset-bottom/);
 });
 
