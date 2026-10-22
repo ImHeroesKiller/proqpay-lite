@@ -124,6 +124,16 @@ async function ewaSource(db,org,sourceId,env){
   return {ewa,account,items:[item],clientId:ewa.client_id,projectId:ewa.project_id||null,amount:Number(ewa.amount),provider:'E2PAY',environment};
 }
 
+// Reissue only a definitively unsent source. Check the entire source history,
+// not just the latest execution, so a previously paid/cancelled sibling cannot replay.
+export const FAILED_REISSUE_GUARD=`status='FAILED'
+ AND NOT EXISTS(SELECT 1 FROM disbursement_requests sibling WHERE sibling.org_id=disbursement_requests.org_id AND sibling.source_document_type=disbursement_requests.source_document_type AND sibling.source_document_id=disbursement_requests.source_document_id AND sibling.status IN ('SETTLED','PARTIALLY_SETTLED','RECONCILED','RECONCILIATION_REQUIRED'))
+ AND EXISTS(SELECT 1 FROM disbursement_executions ex WHERE ex.disbursement_request_id=disbursement_requests.id AND ex.status='FAILED' AND (ex.execution_lock_token IS NULL OR datetime(ex.execution_lock_expires_at)<=datetime('now')))
+ AND NOT EXISTS(SELECT 1 FROM disbursement_requests sibling JOIN disbursement_executions ex ON ex.disbursement_request_id=sibling.id JOIN disbursement_execution_items i ON i.disbursement_execution_id=ex.id WHERE sibling.org_id=disbursement_requests.org_id AND sibling.source_document_type=disbursement_requests.source_document_type AND sibling.source_document_id=disbursement_requests.source_document_id AND (i.attempt_count>0 OR i.journal_id IS NOT NULL OR i.provider_transaction_id IS NOT NULL OR i.status NOT IN ('CREATED','INQUIRY_READY','FAILED')))
+ AND NOT EXISTS(SELECT 1 FROM disbursement_requests sibling JOIN e2pay_disbursement_request_limit_usage u ON u.disbursement_request_id=sibling.id WHERE sibling.org_id=disbursement_requests.org_id AND sibling.source_document_type=disbursement_requests.source_document_type AND sibling.source_document_id=disbursement_requests.source_document_id AND (u.status='RESERVED' OR u.consumed_amount>0))
+ AND (SELECT count(*) FROM disbursement_execution_items i JOIN disbursement_executions ex ON ex.id=i.disbursement_execution_id WHERE ex.disbursement_request_id=disbursement_requests.id)=recipient_count
+ AND (SELECT sum(i.amount) FROM disbursement_execution_items i JOIN disbursement_executions ex ON ex.id=i.disbursement_execution_id WHERE ex.disbursement_request_id=disbursement_requests.id)=amount`;
+
 export async function onRequest({request,env}){
   if(request.method==='OPTIONS') return handlePreflight(request,env,METHODS);
   if(!['GET','POST'].includes(request.method)) return secureJson({error:'Method not allowed'},405,request,env,METHODS);
@@ -242,16 +252,29 @@ export async function onRequest({request,env}){
     return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id)},200,request,env,METHODS);
   }
 
-  if(action!=='CREATE') return secureJson({error:'Action tidak didukung'},422,request,env,METHODS);
-  const sourceDocumentType=canonicalSourceType(body?.sourceDocumentType);
-  const sourceDocumentId=clean(body?.sourceDocumentId,160);
-  let destinationMode=String(body?.destinationMode||'').trim().toUpperCase();
+  if(!['CREATE','REISSUE_FAILED'].includes(action)) return secureJson({error:'Action tidak didukung'},422,request,env,METHODS);
+  let predecessor=null;
+  let replacementKey=null;
+  if(action==='REISSUE_FAILED'){
+    if(actor.role!=='PAYROLL_PROCESSOR'||!roleCanAction(actor.role,'disbursement.request')) return secureJson({error:'Hanya Payroll Processor dapat mengajukan ulang DR.',code:'DISBURSEMENT_REQUEST_PERMISSION_REQUIRED'},403,request,env,METHODS);
+    predecessor=await d1First(env.DB,'SELECT * FROM disbursement_requests WHERE id=? AND org_id=?',[clean(body?.id,140),organizationId]);
+    if(!predecessor)return secureJson({error:'DR tidak ditemukan'},404,request,env,METHODS);
+    replacementKey=await sha256Hex(`DR_REISSUE|${predecessor.id}|${predecessor.idempotency_key}`);
+    const replay=await d1First(env.DB,'SELECT id FROM disbursement_requests WHERE org_id=? AND idempotency_key=?',[organizationId,replacementKey]);
+    if(replay)return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,replay.id),idempotentReplay:true},200,request,env,METHODS);
+    const eligible=await d1First(env.DB,`SELECT id FROM disbursement_requests WHERE id=? AND org_id=? AND ${FAILED_REISSUE_GUARD}`,[predecessor.id,organizationId]);
+    if(!eligible)return secureJson({error:'DR hanya dapat diajukan ulang setelah kegagalan sebelum transfer terverifikasi dan reservasi limit dilepas. Riwayat transfer/hasil ambigu wajib direkonsiliasi.',code:'DISBURSEMENT_REISSUE_UNSAFE'},409,request,env,METHODS);
+  }
+  const sourceDocumentType=predecessor?.source_document_type||canonicalSourceType(body?.sourceDocumentType);
+  const sourceDocumentId=predecessor?.source_document_id||clean(body?.sourceDocumentId,160);
+  let destinationMode=predecessor?.destination_mode||String(body?.destinationMode||'').trim().toUpperCase();
   if(sourceDocumentType==='EWA_REQUEST'&&!destinationMode) destinationMode='DIRECT_EMPLOYEE';
   const intent=intentFromSource(sourceDocumentType,destinationMode);
   if(!sourceDocumentId||!intent.ok) return secureJson({error:'Source document / destination mode tidak valid',code:intent.code||'DISBURSEMENT_INTENT_UNSUPPORTED'},422,request,env,METHODS);
 
   const existing=await existingForSource(env.DB,organizationId,sourceDocumentType,sourceDocumentId);
-  if(existing){
+  if(existing&&existing.id!==predecessor?.id){
+    if(existing.status==='FAILED')return secureJson({error:'DR sebelumnya gagal. Gunakan Ajukan ulang pada DR tersebut; PI tidak perlu dibuat ulang.',code:'DISBURSEMENT_REISSUE_REQUIRED',request:publicDisbursementRequest(existing,[])},409,request,env,METHODS);
     if(existing.destination_mode!==destinationMode) return secureJson({error:'Source document sudah memiliki settlement strategy aktif yang berbeda',code:'DISBURSEMENT_SETTLEMENT_STRATEGY_LOCKED',request:publicDisbursementRequest(existing,[])},409,request,env,METHODS);
     return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,existing.id),idempotentReplay:true},200,request,env,METHODS);
   }
@@ -264,17 +287,30 @@ export async function onRequest({request,env}){
     : await ewaSource(env.DB,organizationId,sourceDocumentId,env);
   if(source.error) return secureJson({error:source.error,code:source.code},source.status||409,request,env,METHODS);
 
+  if(predecessor){
+    const oldItems=await d1All(env.DB,'SELECT * FROM disbursement_request_items WHERE disbursement_request_id=? ORDER BY sequence_no',[predecessor.id]);
+    const oldSnapshot=JSON.stringify(oldItems.map(i=>[i.source_item_id,i.beneficiary_hash,Number(i.amount)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+    const newSnapshot=JSON.stringify(source.items.map(i=>[i.sourceItemId,i.beneficiaryHash,Number(i.amount)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+    if(oldSnapshot!==newSnapshot||Number(predecessor.amount)!==source.amount||Number(predecessor.recipient_count)!==source.items.length||predecessor.provider_account_registry_id!==source.account.id||predecessor.provider_environment!==source.environment||predecessor.client_id!==source.clientId)
+      return secureJson({error:'Snapshot sumber berubah; pengajuan ulang diblokir untuk review.',code:'DISBURSEMENT_REISSUE_SNAPSHOT_CHANGED'},409,request,env,METHODS);
+  }
   const identity=await disbursementIdentity({orgId:organizationId,clientId:source.clientId,sourceDocumentType,sourceDocumentId,destinationMode,provider:source.provider,environment:source.environment,providerAccountId:source.account.id,amount:source.amount,items:source.items});
+  if(predecessor){
+    identity.idempotencyKey=replacementKey;
+    identity.clientReference=`PQP-DR-${(await sha256Hex(`${identity.routingHash}|REISSUE|${predecessor.id}`)).slice(0,24).toUpperCase()}`;
+  }
   const id=`DR-${crypto.randomUUID()}`;
+  const replacementMarker=`SUPERSEDED_BY:${id}`;
   const ops=[
+    ...(predecessor?[{statement:`UPDATE disbursement_requests SET status='CANCELLED',rejection_reason=?,updated_by_user_id=?,updated_by_email=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND ${FAILED_REISSUE_GUARD}`,bindings:[replacementMarker,actor.id||null,actor.email,predecessor.id,organizationId]}]:[]),
     {statement:`INSERT INTO disbursement_requests(
       id,org_id,client_id,project_id,provider,provider_account_registry_id,provider_sub_account_id_snapshot,provider_environment,
       purpose,destination_mode,beneficiary_type,source_document_type,source_document_id,amount,currency,recipient_count,
       client_reference,correlation_id,idempotency_key,routing_hash,status,created_by_user_id,created_by_email,updated_by_user_id,updated_by_email
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'IDR',?,?,?,?,?,'READY',?,?,?,?)`,bindings:[
+    ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'IDR',?,?,?,?,?,'READY',?,?,?,? ${predecessor?"WHERE EXISTS(SELECT 1 FROM disbursement_requests WHERE id=? AND org_id=? AND status='CANCELLED' AND rejection_reason=?)":''}`,bindings:[
       id,organizationId,source.clientId,source.projectId,source.provider,source.account.id,source.account.account_scope==='MASTER'?source.account.provider_account_id:source.account.provider_sub_account_id,source.environment,
       intent.purpose,intent.destinationMode,intent.beneficiaryType,sourceDocumentType,sourceDocumentId,source.amount,source.items.length,
-      identity.clientReference,correlationId,identity.idempotencyKey,identity.routingHash,actor.id||null,actor.email,actor.id||null,actor.email,
+      identity.clientReference,correlationId,identity.idempotencyKey,identity.routingHash,actor.id||null,actor.email,actor.id||null,actor.email,...(predecessor?[predecessor.id,organizationId,replacementMarker]:[]),
     ]},
     ...source.items.map((item)=>({statement:`INSERT INTO disbursement_request_items(
       id,disbursement_request_id,sequence_no,source_item_type,source_item_id,beneficiary_type,beneficiary_reference,employee_id,client_bank_account_id,
@@ -283,10 +319,17 @@ export async function onRequest({request,env}){
       `DRI-${crypto.randomUUID()}`,id,item.sequence,item.sourceItemType,item.sourceItemId,item.beneficiaryType,item.beneficiaryReference,item.employeeId,item.clientBankAccountId,
       item.bankCode,item.bankName,item.beneficiaryName,item.ciphertext,item.iv,item.accountHash,item.last4,item.beneficiaryHash,item.amount,`${identity.clientReference}-${String(item.sequence).padStart(4,'0')}`,
     ]})),
+    ...(predecessor?[audit(organizationId,actor,'DISBURSEMENT_REQUEST_REISSUED',`predecessor=${predecessor.id} · replacement=${id} · previousStatus=FAILED · financialAttempts=0 · approvalRequired=true`,predecessor.id)]:[]),
     audit(organizationId,actor,'DISBURSEMENT_REQUEST_CREATED',`purpose=${intent.purpose} · destination=${intent.destinationMode} · source=${sourceDocumentType}:${sourceDocumentId} · recipients=${source.items.length} · amount=${source.amount} · routing=${identity.routingHash}`,id),
   ];
   try{ await d1Batch(env.DB,ops); }
   catch(error){
+    if(predecessor){
+      const replay=await d1First(env.DB,'SELECT id FROM disbursement_requests WHERE org_id=? AND idempotency_key=?',[organizationId,replacementKey]);
+      if(replay)return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,replay.id),idempotentReplay:true},200,request,env,METHODS);
+      if(/constraint failed/i.test(String(error?.message||error)))return secureJson({error:'Status DR berubah saat pengajuan ulang. Refresh dan review kembali.',code:'DISBURSEMENT_REISSUE_STATE_CHANGED'},409,request,env,METHODS);
+      throw error;
+    }
     if(/UNIQUE constraint failed|constraint failed/i.test(String(error?.message||error))){
       const replay=await existingForSource(env.DB,organizationId,sourceDocumentType,sourceDocumentId);
       if(replay) return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,replay.id),idempotentReplay:true,concurrentReplay:true},200,request,env,METHODS);
