@@ -46,6 +46,19 @@ test('E2Pay documented signature vector and actual inquiry wire contract match p
  });
 });
 
+test('inquiry diagnostics classify nested provider errors without exposing provider text',async()=>{
+ for(const [body,reason] of [
+  [{code:'99',errorMessage:'Invalid signature secret-701075327'},'SIGNATURE_REJECTED'],
+  [{code:'99',errors:[{detail:'Amount exceeds maximum secret-701075327'}]},'AMOUNT_REJECTED'],
+  [{code:'99',error:{message:'Otentikasi user gagal secret-701075327'}},'AUTH_REJECTED'],
+ ]){
+  const audits=[];
+  await assert.rejects(()=>e2payInquiry({E2PAY_CLIENT_SECRET:'secret',__e2payAudit:async a=>audits.push(a)},'token',{accountId:'701075327',bankId:'permata',amount:15000},async()=>Response.json(body,{status:400})),new RegExp(reason));
+  assert.equal(audits[0].responseDiagnostics.reason,reason);
+  assert.ok(!JSON.stringify(audits).includes('secret-701075327'));
+ }
+});
+
 test('214 beneficiaries resume bounded inquiry batches without financial POST before all pass',async t=>{
  const f=await inquiryFixture(214);const p=provider(t);
  let r=await executeCanonicalE2Pay(f);assert.equal(r.statusCode,202);assert.equal(r.phase,'INQUIRY');assert.equal(r.remaining,209);assert.equal(p.inquiries(),5);assert.equal(p.posts(),0);
