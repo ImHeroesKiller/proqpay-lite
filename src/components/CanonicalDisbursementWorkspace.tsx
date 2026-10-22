@@ -15,7 +15,7 @@ type Props={actor:Actor|null;payrollSources?:Source[];clientId?:string;projectId
 
 async function api(path:string,payload?:Record<string,unknown>){
   const response=await (payload?fetchWithSecurityStepUp:fetch)(path,{method:payload?'POST':'GET',headers:payload?{'Content-Type':'application/json'}:{Accept:'application/json'},body:payload?JSON.stringify(payload):undefined,cache:'no-store'});
-  return parseApiResponse<{requests?:DR[];request?:DR}>(response);
+  return parseApiResponse<{requests?:DR[];request?:DR;hasMore?:boolean;remaining?:number;phase?:string;parentStatus?:string}>(response);
 }
 
 export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],clientId='',projectId='',sourceType,focusSourceId='',compact=false,query='',onChanged}:Props){
@@ -28,6 +28,8 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
   const [selected,setSelected]=useState<DR|null>(null);
   const [reason,setReason]=useState('');
   const loadGeneration=useRef(0);
+  const executionCancelled=useRef(false);
+  useEffect(()=>{executionCancelled.current=false;return()=>{executionCancelled.current=true;};},[]);
   const [recipientPage,setRecipientPage]=useState(1);
   const [queueFilter,setQueueFilter]=useState<'ACTION'|'ALL'>('ACTION');
   const allowed=actor&&['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
@@ -71,20 +73,32 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
     if(busy)return;
     setBusy(key);setNotice('');
     try{
-      const target=key==='EXECUTE'?'/api/disbursement-executions':key==='RECONCILE'?'/api/canonical-transaction-register':'/api/disbursement-requests';
-      if(key==='APPROVE'){
-        const request=requests.find(row=>row.id===payload.id)||selected;
+      const target=['EXECUTE','RECOVER_INTERRUPTED'].includes(key)?'/api/disbursement-executions':key==='RECONCILE'?'/api/canonical-transaction-register':'/api/disbursement-requests';
+      if(key==='APPROVE'||key==='EXECUTE'){
+        const request=requests.find(row=>row.id===(payload.id||payload.disbursementRequestId))||selected;
         if(request?.provider.toUpperCase()==='E2PAY')await refreshE2PayMasterBalance();
       }
-      const body=await api(target,payload);
+      let body=await api(target,payload);
+      // Continue only a completed, persisted batch. Never retry a failed request.
+      const seen=new Set<string>();
+      for(let batch=1;key==='EXECUTE'&&body.hasMore&&batch<100&&!executionCancelled.current;batch++){
+        const progress=`${body.phase||'PAYMENT'}:${body.remaining}`;
+        if(seen.has(progress))throw new Error('Progres tidak berubah. Proses dihentikan; refresh status sebelum melanjutkan.');
+        seen.add(progress);
+        setNotice(`Progres tersimpan · ${Number(body.remaining||0).toLocaleString('id-ID')} penerima menunggu ${body.phase==='INQUIRY'?'validasi rekening':'pembayaran'}.`);
+        body=await api(target,payload);
+      }
       if(body.request?.id){setSelected(body.request||null);setRecipientPage(1);}
-      setNotice(message);
+      setNotice(body.hasMore?`Progres tersimpan. ${Number(body.remaining||0).toLocaleString('id-ID')} penerima menunggu tahap ${body.phase==='INQUIRY'?'validasi rekening':'pembayaran'} berikutnya. Klik Lanjutkan proses untuk meneruskan.`:message);
       invalidateOperatingCache();
       await load();
       await onChanged?.();
     }catch(error){
       const code=(error as Error&{code?:string}).code;
       const description=error instanceof Error?error.message:'Aksi gagal';
+      invalidateOperatingCache();
+      await load();
+      await onChanged?.();
       setNotice(code==='MFA_STEP_UP_REQUIRED'?'Approval belum disimpan. Verifikasi kode Google Authenticator diperlukan; silakan ulangi approval.':`${description}${code?` [${code}]`:''}`);
     }finally{setBusy('');}
   }
@@ -126,7 +140,8 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
         <button className="btn" type="button" disabled={Boolean(busy)} onClick={()=>void openDetail(row.id)}>Review snapshot</button>
         {maker&&row.status==='READY'?<button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void run('SUBMIT',{action:'SUBMIT_REQUEST',id:row.id},'DR dikirim ke Payroll Controller.')}>Submit</button>:null}
         {checker&&row.status==='PENDING_APPROVAL'?<><button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void openDetail(row.id)}>Review & Approve</button></>:null}
-        {executor&&row.status==='APPROVED'?<button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void execute(row)}>Process Payment</button>:null}
+        {executor&&['APPROVED','PROCESSING'].includes(row.status)?<button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void execute(row)}>{row.status==='PROCESSING'?'Lanjutkan proses':'Process Payment'}</button>:null}
+        {executor&&['EXECUTING','PROCESSING'].includes(row.status)?<button type="button" className="btn" disabled={Boolean(busy)} onClick={()=>{if(window.confirm('Periksa dan tutup status eksekusi yang terputus? Tindakan ini tidak mengirim pembayaran. Proses aktif akan ditolak oleh server.'))void run('RECOVER_INTERRUPTED',{action:'RECOVER_INTERRUPTED',disbursementRequestId:row.id},'Status diperbarui. Tinjau kegagalan atau lanjutkan rekonsiliasi.');}}>Pulihkan status</button>:null}
         {canReconcile&&['RECONCILIATION_REQUIRED','PROCESSING','PARTIALLY_SETTLED','FAILED','SETTLED'].includes(row.status)?<button type="button" className="btn" disabled={Boolean(busy)} onClick={()=>void run('RECONCILE',{action:'RECONCILE',disbursementRequestId:row.id},'Provider reconciliation dijalankan.')}>Reconcile</button>:null}
       </div></td>
     </tr>)}</tbody></table></div>:<p style={{margin:0,color:'var(--text3)'}}>{compact&&queueFilter==='ACTION'&&visible.length?'Tidak ada tindakan yang memerlukan keputusan Anda. Pilih Semua status untuk monitoring.':'Belum ada Canonical DR pada filter ini.'} {maker?'Pilih PI / EWA yang telah siap untuk dibuatkan DR.':'Menunggu Payroll Processor membuat dan mengirim request.'}</p>}

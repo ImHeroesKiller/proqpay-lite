@@ -1,7 +1,7 @@
 import { d1All, d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
-import { e2payExecutionContract, e2payReadiness } from './payment-gateway-e2pay.js';
+import { e2payExecutionContract, e2payReadiness, e2payRuntimeErrorCode } from './payment-gateway-e2pay.js';
 import { scopedE2PayRuntimeEnv, providerAccountCredentialState } from './payment-provider-account-credentials.js';
 import { validateProviderChannelSnapshot } from './provider-channel-router.js';
 import { executeCanonicalE2Pay } from './disbursement-execution-e2pay.js';
@@ -32,13 +32,27 @@ function safeItem(row){
 async function loadExecution(database,org,drId){
   return d1First(database,'SELECT * FROM disbursement_executions WHERE org_id=? AND disbursement_request_id=? LIMIT 1',[org,drId]);
 }
-async function acquireLock(database,id){
+async function acquireLock(database,id,recovery=false){
   const token=crypto.randomUUID();
-  const result=await d1Run(database,`UPDATE disbursement_executions SET execution_lock_token=?,execution_lock_expires_at=datetime('now','+2 minutes'),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND (execution_lock_token IS NULL OR execution_lock_expires_at IS NULL OR datetime(execution_lock_expires_at)<=datetime('now'))`,[token,id]);
+  const result=await d1Run(database,`UPDATE disbursement_executions SET execution_lock_token=?,execution_lock_expires_at=datetime('now','+2 minutes'),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND (execution_lock_token IS NULL OR execution_lock_expires_at IS NULL OR datetime(execution_lock_expires_at)<=datetime('now')) ${recovery?"AND status IN ('CREATED','PROCESSING') AND datetime(updated_at)<=datetime('now','-4 minutes') AND (execution_lock_token IS NULL OR datetime(execution_lock_expires_at)<=datetime('now','-2 minutes'))":''}`,[token,id]);
   return Number(result?.meta?.changes||0)===1?token:null;
 }
 async function releaseLock(database,id,token){
   await d1Run(database,`UPDATE disbursement_executions SET execution_lock_token=NULL,execution_lock_expires_at=NULL,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND execution_lock_token=?`,[id,token]);
+}
+
+// Caller holds the execution lock. Never reset item attempts or replay financial calls.
+export async function closeInterruptedExecution(database,execution,dr,actor,organizationId,code='E2PAY_EXECUTION_INTERRUPTED'){
+  const items=await d1All(database,'SELECT * FROM disbursement_execution_items WHERE disbursement_execution_id=?',[execution.id]);
+  const financialPostStarted=items.some(item=>Number(item.attempt_count)>0||['PENDING','PROCESSING','UNKNOWN','SUCCEEDED'].includes(item.status));
+  const status=financialPostStarted?'RECONCILIATION_REQUIRED':'FAILED';
+  await d1Batch(database,[
+    {statement:`UPDATE disbursement_executions SET status=?,error_code=?,error_message=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,bindings:[status,code,'Execution interrupted; controlled review required',execution.id]},
+    {statement:`UPDATE disbursement_requests SET status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,bindings:[status,dr.id]},
+    audit(organizationId,actor,'DISBURSEMENT_EXECUTION_INTERRUPTED',`execution=${execution.id} · status=${status} · code=${code} · financialPostStarted=${financialPostStarted}`,dr.id),
+  ]);
+  if(!financialPostStarted) await releaseDisbursementRequestLimit(database,dr.id,'PRE_PROVIDER_EXECUTION_INTERRUPTED');
+  return {status,financialPostStarted};
 }
 
 export async function onRequest({request,env}){
@@ -64,7 +78,7 @@ export async function onRequest({request,env}){
   if(actor.role!=='PAYROLL_CONTROLLER'||!roleHasCapability(actor.role,'gateway:execute')) return secureJson({error:'Hanya Payroll Controller yang dapat mengeksekusi disbursement',code:'DISBURSEMENT_EXECUTE_PERMISSION_REQUIRED'},403,request,env,METHODS);
   const body=await request.json().catch(()=>null);
   const action=String(body?.action||'EXECUTE').toUpperCase();
-  if(action!=='EXECUTE') return secureJson({error:'Action tidak didukung. Retry/reconcile ditangani bundle reconciliation terkontrol.',code:'DISBURSEMENT_EXECUTION_ACTION_UNSUPPORTED'},422,request,env,METHODS);
+  if(!['EXECUTE','RECOVER_INTERRUPTED'].includes(action)) return secureJson({error:'Action tidak didukung. Retry/reconcile ditangani bundle reconciliation terkontrol.',code:'DISBURSEMENT_EXECUTION_ACTION_UNSUPPORTED'},422,request,env,METHODS);
   const drId=clean(body?.disbursementRequestId,140);
   if(!drId) return secureJson({error:'disbursementRequestId wajib'},422,request,env,METHODS);
 
@@ -77,6 +91,18 @@ export async function onRequest({request,env}){
     if(execution?.status==='SUCCEEDED'){
       await applyCanonicalEwaSettlement(env.DB,dr,actor.email);
       return secureJson({ok:true,execution:safeExecution(execution),idempotentReplay:true},200,request,env,METHODS);
+    }
+    if(action==='RECOVER_INTERRUPTED'){
+      if(mfaEnforcementMode(env)==='ENFORCE'&&!hasRecentMfa(actor,600)) return secureJson({error:'MFA terbaru diperlukan untuk pemulihan status.',code:'MFA_STEP_UP_REQUIRED'},428,request,env,METHODS);
+      // A grace period beyond lock expiry avoids racing a timed-out provider fetch.
+      const stale=execution&&await d1First(env.DB,`SELECT id FROM disbursement_executions WHERE id=? AND status IN ('CREATED','PROCESSING') AND datetime(updated_at)<=datetime('now','-4 minutes') AND (execution_lock_token IS NULL OR datetime(execution_lock_expires_at)<=datetime('now','-2 minutes'))`,[execution.id]);
+      if(!stale||!['EXECUTING','PROCESSING'].includes(dr.status)) return secureJson({error:'Eksekusi belum memenuhi syarat pemulihan; refresh status.',code:'DISBURSEMENT_RECOVERY_NOT_STALE'},409,request,env,METHODS);
+      const recoveryLock=await acquireLock(env.DB,execution.id,true);
+      if(!recoveryLock) return secureJson({error:'Eksekusi masih diproses.',code:'DISBURSEMENT_EXECUTION_BUSY'},409,request,env,METHODS);
+      try{
+        const outcome=await closeInterruptedExecution(env.DB,execution,dr,actor,organizationId);
+        return secureJson({ok:true,recovered:true,...outcome,execution:safeExecution(await loadExecution(env.DB,organizationId,dr.id))},200,request,env,METHODS);
+      }finally{await releaseLock(env.DB,execution.id,recoveryLock);}
     }
     if(execution?.status==='RECONCILIATION_REQUIRED'||dr.status==='RECONCILIATION_REQUIRED') return secureJson({error:'Status provider belum final. Reconciliation wajib sebelum tindakan berikutnya.',code:'E2PAY_RECONCILIATION_REQUIRED',execution:safeExecution(execution)},409,request,env,METHODS);
     if(execution?.status==='FAILED') return secureJson({error:'Execution sebelumnya gagal. Blind retry diblokir; review/reconciliation diperlukan.',code:'DISBURSEMENT_CONTROLLED_RECOVERY_REQUIRED',execution:safeExecution(execution)},409,request,env,METHODS);
@@ -164,6 +190,14 @@ export async function onRequest({request,env}){
       execution=await loadExecution(env.DB,organizationId,dr.id);
       const items=await d1All(env.DB,'SELECT * FROM disbursement_execution_items WHERE disbursement_execution_id=? ORDER BY created_at,id',[execution.id]);
       return secureJson({...result,execution:safeExecution(execution),items:items.map(safeItem),funding},result.statusCode||200,request,env,METHODS);
+    }catch(error){
+      // Only the current owner may close the ledger. A stale worker cannot
+      // overwrite another worker's outcome after losing its lease.
+      const owned=await d1First(env.DB,`SELECT id FROM disbursement_executions WHERE id=? AND execution_lock_token=? AND datetime(execution_lock_expires_at)>datetime('now')`,[execution.id,lock]);
+      const runtimeCode=e2payRuntimeErrorCode(error);
+      const code=['E2PAY_SUBREQUEST_LIMIT','E2PAY_RESOURCE_LIMIT','E2PAY_TIMEOUT'].includes(runtimeCode)?runtimeCode:'E2PAY_EXECUTION_INTERRUPTED';
+      if(owned) await closeInterruptedExecution(env.DB,execution,dr,actor,organizationId,code);
+      throw error;
     }finally{
       await releaseLock(env.DB,execution.id,lock);
     }

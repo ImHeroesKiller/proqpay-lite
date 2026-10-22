@@ -96,6 +96,12 @@ export async function executeCanonicalE2Pay({database,env,execution,request,requ
     await updateExecution(database,execution.id,{status:parentStatus,error_code:'MASTER_ROUTING_SOURCE_CHANGED',error_message:'Master source differs from approved routing snapshot'});
     return {ok:false,statusCode:409,parentStatus,code:'MASTER_ROUTING_SOURCE_CHANGED',financialPostStarted,summary:summarizeCanonicalExecutionItems(items),items};
   }
+  if(items.some(item=>item.status==='FAILED')){
+    const financialPostStarted=items.some(item=>Number(item.attempt_count)>0||item.status==='SUCCEEDED');
+    const parentStatus=financialPostStarted?'RECONCILIATION_REQUIRED':'FAILED';
+    await updateExecution(database,execution.id,{status:parentStatus,error_code:'E2PAY_PREFLIGHT_FAILED',error_message:'Review failed beneficiaries before controlled recovery'});
+    return {ok:false,statusCode:409,parentStatus,code:'E2PAY_PREFLIGHT_FAILED',error:'Pemeriksaan rekening sebelumnya gagal. Tinjau diagnostik sebelum pemulihan terkontrol.',summary:summarizeCanonicalExecutionItems(items),items,financialPostStarted};
+  }
   const auth=await e2payAuthorize(env);
   const [merchant,banks]=await Promise.all([e2payMerchantAccount(env,auth.accessToken),e2payBankList(env,auth.accessToken)]);
   const contract=e2payExecutionContract(env,merchant);
@@ -105,14 +111,20 @@ export async function executeCanonicalE2Pay({database,env,execution,request,requ
   }
 
   const requestById=new Map(requestItems.map(item=>[item.id,item]));
-  for(const ledger of items.filter(item=>item.status==='CREATED')){
+  // Inquiry and financial POST have separate bounded phases. Never send funds
+  // until ALL beneficiaries passed preflight. Resume only untouched CREATED rows.
+  const inquiryLimit=Math.max(1,Math.min(5,Math.trunc(Number(env.E2PAY_INQUIRY_BATCH_LIMIT)||5)));
+  const inquiryDeadline=Date.now()+20000;
+  for(const ledger of items.filter(item=>item.status==='CREATED').slice(0,inquiryLimit)){
+    if(Date.now()>=inquiryDeadline) break;
+    await assertExecutionLock();
     const source=requestById.get(ledger.disbursement_request_item_id);
     if(!source) continue;
     let accountNumber='';
     try{ accountNumber=await decryptAccountNumber(source.account_number_ciphertext,source.account_number_iv,env.PI_ENCRYPTION_KEY); }
     catch{
       await updateItem(database,ledger.id,{status:'FAILED',failure_stage:'PREFLIGHT',error_code:'BENEFICIARY_SNAPSHOT_DECRYPT_FAILED',error_message:'Beneficiary snapshot cannot be decrypted'});
-      continue;
+      break;
     }
     const beneficiary={bankCode:source.bank_code,bankName:source.bank_name,accountNumber,amount:Number(source.amount)};
     const destination=e2payEffectiveDestination(env,beneficiary);
@@ -121,28 +133,39 @@ export async function executeCanonicalE2Pay({database,env,execution,request,requ
       : resolveE2PayBank(banks,beneficiary);
     if(!bank){
       await updateItem(database,ledger.id,{status:'FAILED',failure_stage:'PREFLIGHT',error_code:'E2PAY_BANK_NOT_MAPPED',error_message:'Bank beneficiary tidak ditemukan pada directory E2Pay'});
-      continue;
+      break;
     }
     try{
       const inquiry=await e2payInquiry(env,auth.accessToken,{accountId:destination.accountId,bankId:bank.id,amount:destination.amount});
       const returnedAccount=String(inquiry?.accountId||'').trim();
       const returnedAmount=Math.trunc(num(inquiry?.amount));
       const inquiryId=String(inquiry?.id||'').trim();
-      if(!inquiryId||returnedAccount!==destination.accountId||returnedAmount!==destination.amount){
+      if(!inquiryId||returnedAccount!==destination.accountId||returnedAmount!==destination.amount||String(inquiry?.bankId||'')!==String(bank.id)){
         await updateItem(database,ledger.id,{status:'FAILED',bank_id:String(bank.id),failure_stage:'PREFLIGHT',error_code:'E2PAY_INQUIRY_CONTROL_MISMATCH',error_message:'Inquiry response tidak sesuai beneficiary snapshot'});
-        continue;
+        break;
       }
       await updateItem(database,ledger.id,{status:'INQUIRY_READY',bank_id:String(bank.id),provider_beneficiary_name:String(inquiry?.name||'').slice(0,180)||null,inquiry_id:inquiryId,fee_amount:Math.max(0,Math.trunc(num(inquiry?.feeAmount))),error_code:null,error_message:null});
     }catch(error){
       await updateItem(database,ledger.id,{status:'FAILED',bank_id:String(bank.id),failure_stage:'PREFLIGHT',error_code:error instanceof E2PayRequestError?error.code:'E2PAY_INQUIRY_FAILED',error_message:String(error?.message||'Inquiry E2Pay gagal').slice(0,300)});
+      // Fail fast: a rejected or unavailable inquiry cannot be followed by transfers.
+      break;
     }
   }
 
   items=await d1All(database,'SELECT * FROM disbursement_execution_items WHERE disbursement_execution_id=? ORDER BY created_at,id',[execution.id]);
   let summary=summarizeCanonicalExecutionItems(items);
-  if(summary.failed>0 && summary.succeeded===0 && summary.unresolved===0){
+  if(summary.failed>0){
+    if(summary.succeeded>0||summary.unresolved>0){
+      await updateExecution(database,execution.id,{status:'RECONCILIATION_REQUIRED',error_code:'E2PAY_PARTIAL_FAILURE',error_message:'Preflight failed after prior financial activity'});
+      return {ok:false,statusCode:409,parentStatus:'RECONCILIATION_REQUIRED',code:'E2PAY_PARTIAL_FAILURE',summary,items,financialPostStarted:true};
+    }
     await updateExecution(database,execution.id,{status:'FAILED',error_code:'E2PAY_PREFLIGHT_FAILED',error_message:`${summary.failed} beneficiary gagal preflight`});
-    return {ok:false,statusCode:409,parentStatus:'FAILED',code:'E2PAY_PREFLIGHT_FAILED',summary,items,financialPostStarted:false};
+    return {ok:false,statusCode:409,parentStatus:'FAILED',code:'E2PAY_PREFLIGHT_FAILED',error:`Pemeriksaan rekening gagal: ${items.find(item=>item.status==='FAILED')?.error_message||'Tinjau diagnostik E2Pay'}`,summary,items,financialPostStarted:false};
+  }
+  const inquiryRemaining=items.filter(item=>item.status==='CREATED').length;
+  if(inquiryRemaining>0){
+    await updateExecution(database,execution.id,{status:'PROCESSING',error_code:null,error_message:null});
+    return {ok:true,statusCode:202,parentStatus:'PROCESSING',phase:'INQUIRY',summary,items,hasMore:true,remaining:inquiryRemaining,financialPostStarted:false};
   }
   const remainingRequired=items.filter(item=>item.status==='INQUIRY_READY').reduce((sum,item)=>sum+num(item.amount)+num(item.fee_amount),0);
   const liveBalance=Number(merchant?.balance);

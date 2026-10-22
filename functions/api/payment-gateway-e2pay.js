@@ -148,6 +148,21 @@ export function e2payEffectiveDestination(env = {}, beneficiary = {}) {
   };
 }
 
+// Keep runtime diagnostics useful without persisting free-form errors containing PII/secrets.
+export function e2payRuntimeErrorCode(error) {
+  const message=String(error?.message||'');
+  if(/too many subrequests/i.test(message)) return 'E2PAY_SUBREQUEST_LIMIT';
+  if(/CPU time|exceeded.*resource/i.test(message)) return 'E2PAY_RESOURCE_LIMIT';
+  if(error?.name==='AbortError') return 'E2PAY_TIMEOUT';
+  return 'E2PAY_NETWORK_ERROR';
+}
+async function responseDiagnostics(body,text) {
+  const rawCode=String(body?.responseCode??body?.errorCode??body?.code??'');
+  const message=[body?.message,body?.responseMessage,body?.error_description,body?.detail,body?.error].filter(v=>typeof v==='string').join(' ').toLowerCase();
+  const reason=/signature|hmac/.test(message)?'SIGNATURE_REJECTED':/account.*(not found|invalid)|rekening.*(salah|tidak)/.test(message)?'ACCOUNT_REJECTED':/bank.*(not found|invalid)/.test(message)?'BANK_REJECTED':/balance|saldo/.test(message)?'BALANCE_REJECTED':/unauthor|token|credential/.test(message)?'AUTH_REJECTED':'PROVIDER_REJECTED';
+  return {providerCode:/^[0-9]{1,6}$/.test(rawCode)?rawCode:null,reason,bodyBytes:encoder.encode(text).length,bodyFingerprint:await sha256Hex(text)};
+}
+
 function timeoutMs(env) {
   const value = Number(env.E2PAY_TIMEOUT_MS || 15000);
   if (!Number.isFinite(value)) return 15000;
@@ -215,6 +230,7 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
       catch { throw new E2PayRequestError('Response E2Pay bukan JSON valid', 'E2PAY_INVALID_JSON', response.status); }
     }
     if (!response.ok) {
+      audit.responseDiagnostics=await responseDiagnostics(body,text);
       const scalar=(value)=>value===undefined||value===null?'':String(value).trim();
       const nestedErrors=Array.isArray(body?.errors)
         ? body.errors.map((item)=>scalar(item?.message || item?.detail || item?.code || item)).filter(Boolean).join('; ')
@@ -231,7 +247,7 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
         nestedErrors,
       ].find(Boolean)?.slice(0,240) || '';
       throw new E2PayRequestError(
-        `E2Pay HTTP ${response.status}${providerMessage ? ` · ${providerMessage}` : ''}`,
+        `E2Pay HTTP ${response.status}${String(path).split('?')[0]==='/b2b/merchant/me/sdp/inquiry'?` · ${audit.responseDiagnostics.providerCode||'UNKNOWN'} · ${audit.responseDiagnostics.reason}`:providerMessage ? ` · ${providerMessage}` : ''}`,
         'E2PAY_HTTP_ERROR',
         response.status,
       );
@@ -240,10 +256,10 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
     return body;
   } catch (error) {
     audit.status='FAILED';
-    audit.errorCode=error?.code||error?.name||'E2PAY_REQUEST_ERROR';
+    audit.errorCode=error instanceof E2PayRequestError?error.code:e2payRuntimeErrorCode(error);
     if (error?.name === 'AbortError') throw new E2PayRequestError('Request E2Pay timeout', 'E2PAY_TIMEOUT');
     if (error instanceof E2PayRequestError) throw error;
-    throw new E2PayRequestError('Koneksi ke E2Pay gagal', 'E2PAY_NETWORK_ERROR');
+    throw new E2PayRequestError('Koneksi ke E2Pay gagal; lihat diagnostik koneksi atau batas runtime', e2payRuntimeErrorCode(error));
   } finally {
     clearTimeout(timer);
     audit.durationMs=Date.now()-started;
