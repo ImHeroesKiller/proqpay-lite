@@ -29,12 +29,12 @@ export function defaultPaymentPanel(rows:Array<{status:string}>,role:PaymentRole
 }
 
 export function canonicalActionRank(status:string,role:PaymentRole):number {
-  if(role==='PAYROLL_CONTROLLER')return ({PENDING_APPROVAL:0,APPROVED:1,RECONCILIATION_REQUIRED:2,PARTIALLY_SETTLED:3,FAILED:4,PROCESSING:5,READY:6} as Record<string,number>)[status]??10;
+  if(role==='PAYROLL_CONTROLLER')return ({PENDING_APPROVAL:0,APPROVED:1,EXECUTING:2,RECONCILIATION_REQUIRED:2,PARTIALLY_SETTLED:3,FAILED:4,PROCESSING:5,READY:6} as Record<string,number>)[status]??10;
   if(role==='PAYROLL_PROCESSOR')return ({READY:0,DRAFT:1,REJECTED:2,PENDING_APPROVAL:3,APPROVED:4,RECONCILIATION_REQUIRED:5} as Record<string,number>)[status]??10;
   return ({PENDING_APPROVAL:0,READY:1,APPROVED:2,RECONCILIATION_REQUIRED:3} as Record<string,number>)[status]??10;
 }
 export function canonicalNeedsAction(status:string,role:PaymentRole):boolean {
-  if(role==='PAYROLL_CONTROLLER')return ['PENDING_APPROVAL','APPROVED','RECONCILIATION_REQUIRED'].includes(status);
+  if(role==='PAYROLL_CONTROLLER')return ['PENDING_APPROVAL','APPROVED','EXECUTING','PROCESSING','FAILED','RECONCILIATION_REQUIRED'].includes(status);
   if(role==='PAYROLL_PROCESSOR')return status==='READY';
   return false;
 }

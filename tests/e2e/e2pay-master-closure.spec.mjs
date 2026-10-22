@@ -13,8 +13,8 @@ for(const role of ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIEN
    const context=await browser.newContext({viewport:{width:1280,height:900}});
    const page=await context.newPage();
 let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const actions=[];const errors=[];let prompts=0;
- page.on('dialog',async dialog=>{if(dialog.type()==='confirm'){await dialog.accept();return;}assert.equal(dialog.type(),'prompt');prompts++;await dialog.accept('123456');});
- let approvalMode=false;let piStatus='PAYMENT_APPROVAL_PENDING';let drStatus='PENDING_APPROVAL';let piRejected=false;let balanceFails=true;let balanceReads=0;let balanceReady=false;
+ page.on('dialog',async dialog=>{if(dialog.type()==='confirm'){await dialog.accept();return;}assert.equal(dialog.type(),'prompt');prompts++;await dialog.accept(dialog.message().includes('Ketik BAYAR')?'BAYAR':'123456');});
+ let approvalMode=false;let piStatus='PAYMENT_APPROVAL_PENDING';let drStatus='PENDING_APPROVAL';let piRejected=false;let balanceFails=true;let balanceReads=0;let balanceReady=false;let executionCalls=0;
  const pi=()=>({id:'PI-MOCK',client_id:'C-MOCK',project_id:'P-MOCK',document_no:'PI/MOCK',client_name:'Mock Client',payroll_period:'2026-10',payment_period:'2026-10',status:piStatus,expected_total:2000,recipient_count:26,content_hash:'MOCK-HASH',provider:'E2PAY',provider_environment:'UAT',provider_account_registry_id:'MASTER-MOCK',providerAccountScope:'MASTER',providerFunding:{ready:balanceReady,state:balanceReady?'AVAILABLE':'PARENT_STALE',parent:{ready:balanceReady,state:balanceReady?'READY':'STALE',balance:100000},subClient:{ready:balanceReady,state:balanceReady?'FUNDED':'PARENT_NOT_READY',availableBalance:balanceReady?100000:null},limit:{ready:true,state:'AVAILABLE',id:'LIMIT-MOCK',remainingAmount:2000,approvedAmount:2000}}});
  const dr=()=>({id:'DR-MOCK',clientId:'C-MOCK',projectId:'P-MOCK',sourceDocumentType:'PAYMENT_INSTRUCTION',sourceDocumentId:'PI-MOCK',purpose:'PAYROLL',destinationMode:'DIRECT_EMPLOYEE',clientReference:'DR/MOCK',status:drStatus,provider:'E2PAY',environment:'UAT',amount:2000,recipientCount:26,items:Array.from({length:26},(_,i)=>({id:'I-'+i,beneficiaryName:'Recipient '+(i+1),bankCode:'BCA',accountLast4:'1234',amount:2000/26}))});
  let requests=role==='PAYROLL_CONTROLLER'?[{id:'LIMIT-MOCK',clientId:'C-MOCK',clientName:'Mock Client',environment:'UAT',status:'PENDING_APPROVAL',requestedAmount:2000,remainingAmount:0}]:[];
@@ -47,6 +47,15 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
    assert.ok(balanceReady,'Fresh Master balance required before DR approval');assert.equal(role,'PAYROLL_CONTROLLER');assert.equal(data.id,'DR-MOCK');
    if(!mfaVerified){await route.fulfill({status:428,contentType:'application/json',body:JSON.stringify({error:'Verifikasi MFA diperlukan',code:'MFA_STEP_UP_REQUIRED'})});return;}
    drStatus='APPROVED';body={ok:true,request:dr()};
+  }
+  else if(approvalMode&&data.action==='EXECUTE'){
+   assert.equal(role,'PAYROLL_CONTROLLER');assert.equal(data.disbursementRequestId,'DR-MOCK');executionCalls++;
+   if(executionCalls===1){drStatus='PROCESSING';body={ok:true,hasMore:true,phase:'INQUIRY',remaining:21,parentStatus:'PROCESSING'};}
+   else if(executionCalls===2){drStatus='FAILED';await route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:'Synthetic inquiry rejected',code:'E2PAY_PREFLIGHT_FAILED'})});return;}
+   else throw new Error('Failed batch must never be automatically retried');
+  }
+  else if(approvalMode&&data.action==='RECOVER_INTERRUPTED'){
+   assert.equal(role,'PAYROLL_CONTROLLER');drStatus='RECONCILIATION_REQUIRED';body={ok:true,recovered:true,status:drStatus};
   }
   else throw new Error('Forbidden unexpected UI mutation '+data.action);
  }
@@ -125,6 +134,15 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
   assert.equal(drStatus,'APPROVED');
   assert.equal(balanceReads,4,'Each approval attempt must refresh Master balance, including DR');
   assert.deepEqual(actions.slice(-5),['APPROVE_PAYMENT','APPROVE_PAYMENT','APPROVE_REQUEST','STEP_UP','APPROVE_REQUEST']);
+  await page.getByRole('button',{name:'Process Payment',exact:true}).click();
+  await page.getByText(/Synthetic inquiry rejected/).waitFor();
+  assert.equal(executionCalls,2);assert.equal(drStatus,'FAILED');
+  await expect(page.getByRole('button',{name:'Process Payment',exact:true})).toHaveCount(0);
+  drStatus='EXECUTING';await page.getByRole('button',{name:'Refresh status',exact:true}).click();
+  await page.getByRole('button',{name:'Pulihkan status',exact:true}).click();
+  await page.getByText('Status diperbarui. Tinjau kegagalan atau lanjutkan rekonsiliasi.',{exact:true}).waitFor();
+  assert.equal(drStatus,'RECONCILIATION_REQUIRED');assert.equal(executionCalls,2);
+
  }
  assert.deepEqual(errors,[]);console.log(JSON.stringify({role,passed:true,simulatedActions:actions,externalNetwork:0,runtimeErrors:errors.length}));
  if(role==='SUPER_ADMIN'){

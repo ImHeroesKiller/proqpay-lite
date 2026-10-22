@@ -32,6 +32,7 @@ test('P1.B Canonical DR actionable statuses and sorting respect Maker/Checker au
  assert.ok(canonicalActionRank('RECONCILED','PAYROLL_CONTROLLER')>canonicalActionRank('APPROVED','PAYROLL_CONTROLLER'));
  assert.equal(canonicalNeedsAction('PENDING_APPROVAL','PAYROLL_CONTROLLER'),true);
  assert.equal(canonicalNeedsAction('APPROVED','PAYROLL_CONTROLLER'),true);
+ for(const status of ['EXECUTING','PROCESSING','FAILED'])assert.equal(canonicalNeedsAction(status,'PAYROLL_CONTROLLER'),true);
  assert.equal(canonicalNeedsAction('APPROVED','PAYROLL_PROCESSOR'),false);
  assert.equal(canonicalNeedsAction('READY','PAYROLL_PROCESSOR'),true);
  assert.equal(canonicalNeedsAction('READY','SUPER_ADMIN'),false);
@@ -62,7 +63,7 @@ test('P1.B Canonical workspace exposes action-first queue, monitoring toggle and
  assert.match(source,/Immutable Disbursement Snapshot/);
  assert.match(source,/Ketik BAYAR/);
  assert.match(source,/checker&&selected.status==='PENDING_APPROVAL'/);
- assert.match(source,/executor&&row.status==='APPROVED'/);
+ assert.match(source,/executor&&\['APPROVED','PROCESSING'\]\.includes\(row.status\)/);
  assert.match(source,/role==='PAYROLL_CONTROLLER'/);
 });
 
