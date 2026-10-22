@@ -14,7 +14,7 @@ for(const role of ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIEN
    const page=await context.newPage();
 let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const actions=[];const errors=[];let prompts=0;
  page.on('dialog',async dialog=>{if(dialog.type()==='confirm'){await dialog.accept();return;}assert.equal(dialog.type(),'prompt');prompts++;await dialog.accept(dialog.message().includes('Ketik BAYAR')?'BAYAR':'123456');});
- let approvalMode=false;let piStatus='PAYMENT_APPROVAL_PENDING';let drStatus='PENDING_APPROVAL';let piRejected=false;let balanceFails=true;let balanceReads=0;let balanceReady=false;let executionCalls=0;
+ let approvalMode=false;let piStatus='PAYMENT_APPROVAL_PENDING';let drStatus='PENDING_APPROVAL';let piRejected=false;let balanceFails=true;let balanceReads=0;let balanceReady=false;let executionCalls=0;let reissueMode=false;let replacement=false;
  const pi=()=>({id:'PI-MOCK',client_id:'C-MOCK',project_id:'P-MOCK',document_no:'PI/MOCK',client_name:'Mock Client',payroll_period:'2026-10',payment_period:'2026-10',status:piStatus,expected_total:2000,recipient_count:26,content_hash:'MOCK-HASH',provider:'E2PAY',provider_environment:'UAT',provider_account_registry_id:'MASTER-MOCK',providerAccountScope:'MASTER',providerFunding:{ready:balanceReady,state:balanceReady?'AVAILABLE':'PARENT_STALE',parent:{ready:balanceReady,state:balanceReady?'READY':'STALE',balance:100000},subClient:{ready:balanceReady,state:balanceReady?'FUNDED':'PARENT_NOT_READY',availableBalance:balanceReady?100000:null},limit:{ready:true,state:'AVAILABLE',id:'LIMIT-MOCK',remainingAmount:2000,approvedAmount:2000}}});
  const dr=()=>({id:'DR-MOCK',clientId:'C-MOCK',projectId:'P-MOCK',sourceDocumentType:'PAYMENT_INSTRUCTION',sourceDocumentId:'PI-MOCK',purpose:'PAYROLL',destinationMode:'DIRECT_EMPLOYEE',clientReference:'DR/MOCK',status:drStatus,provider:'E2PAY',environment:'UAT',amount:2000,recipientCount:26,items:Array.from({length:26},(_,i)=>({id:'I-'+i,beneficiaryName:'Recipient '+(i+1),bankCode:'BCA',accountLast4:'1234',amount:2000/26}))});
  let requests=role==='PAYROLL_CONTROLLER'?[{id:'LIMIT-MOCK',clientId:'C-MOCK',clientName:'Mock Client',environment:'UAT',status:'PENDING_APPROVAL',requestedAmount:2000,remainingAmount:0}]:[];
@@ -48,6 +48,8 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
    if(!mfaVerified){await route.fulfill({status:428,contentType:'application/json',body:JSON.stringify({error:'Verifikasi MFA diperlukan',code:'MFA_STEP_UP_REQUIRED'})});return;}
    drStatus='APPROVED';body={ok:true,request:dr()};
   }
+  else if(reissueMode&&data.action==='REISSUE_FAILED'){assert.equal(role,'PAYROLL_PROCESSOR');assert.equal(data.id,'DR-MOCK');replacement=true;drStatus='READY';body={ok:true,request:{...dr(),id:'DR-REPLACEMENT',clientReference:'DR/REPLACEMENT'}};}
+  else if(reissueMode&&data.action==='SUBMIT_REQUEST'){assert.equal(role,'PAYROLL_PROCESSOR');assert.equal(data.id,'DR-REPLACEMENT');drStatus='PENDING_APPROVAL';body={ok:true,request:{...dr(),id:'DR-REPLACEMENT'}};}
   else if(approvalMode&&data.action==='EXECUTE'){
    assert.equal(role,'PAYROLL_CONTROLLER');assert.equal(data.disbursementRequestId,'DR-MOCK');executionCalls++;
    if(executionCalls===1){drStatus='PROCESSING';body={ok:true,hasMore:true,phase:'INQUIRY',remaining:21,parentStatus:'PROCESSING'};}
@@ -63,7 +65,7 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
   body.paymentInstructions=[pi()];
   if(url.searchParams.get('resource')==='payment-instruction-detail')body={ok:true,paymentInstruction:pi(),lines:[],control:{expectedTotal:2000,totalAmount:2000,recipientCount:26,expectedRecipientCount:26,balanced:true,recipientBalanced:true},approvals:[],activity:[]};
  }
- if(approvalMode&&url.pathname==='/api/disbursement-requests')body=url.searchParams.has('id')||req.method()==='POST'?{ok:true,request:dr()}:{ok:true,requests:[dr()]};
+ if((approvalMode||reissueMode)&&url.pathname==='/api/disbursement-requests')body=url.searchParams.has('id')||req.method()==='POST'?{ok:true,request:replacement?{...dr(),id:'DR-REPLACEMENT',clientReference:'DR/REPLACEMENT'}:dr()}:{ok:true,requests:[replacement?{...dr(),id:'DR-REPLACEMENT',clientReference:'DR/REPLACEMENT'}:dr()]};
  if(url.pathname==='/api/operating-model'&&url.searchParams.get('resource')==='dashboard'&&role==='SUPER_ADMIN')body.clientBalances=[
   {clientId:'C-MOCK',clientName:'Mock Client',availableAmount:dashboardMasterChecked?5000:null,remainingLimit:6000,blocked:false,reasons:[],warnings:[],checkedAt:new Date().toISOString(),environment:'UAT'},
   {clientId:'C-BLOCK',clientName:'Blocked Client',availableAmount:0,remainingLimit:10000,blocked:true,reasons:[{code:'AR_OUTSTANDING_PAYMENT_BLOCKED',message:'Invoice overdue Rp 2.000. Pembayaran diblokir.'}],warnings:[],checkedAt:new Date().toISOString(),environment:'UAT'},
@@ -105,6 +107,16 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
   await routing.getByRole('button',{name:'Periksa Koneksi',exact:true}).click();
   await routing.getByRole('button',{name:'Periksa Koneksi',exact:true}).waitFor();
   assert.deepEqual(actions,before,'Read-only routing view must never submit a mutation');
+ }
+ if(role==='PAYROLL_PROCESSOR'){
+  reissueMode=true;drStatus='FAILED';
+  await page.goto(base+'/?view=payments&paymentPanel=DISBURSEMENT',{waitUntil:'networkidle'});
+  await page.getByRole('button',{name:'Ajukan ulang',exact:true}).click();
+  await page.getByText('DR pengganti berhasil dibuat. Klik Submit untuk persetujuan Controller.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Submit',exact:true}).click();
+  await page.getByText('DR dikirim ke Payroll Controller.',{exact:true}).waitFor();
+  assert.equal(drStatus,'PENDING_APPROVAL');assert.deepEqual(actions.slice(-2),['REISSUE_FAILED','SUBMIT_REQUEST']);
+  assert.equal(actions.includes('EXECUTE'),false);assert.equal(actions.includes('APPROVE_REQUEST'),false);
  }
  if(role==='PAYROLL_CONTROLLER'){
   approvalMode=true;mfaVerified=false;

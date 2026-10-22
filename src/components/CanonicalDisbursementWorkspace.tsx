@@ -138,6 +138,7 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
       <td><strong>{row.status.replaceAll('_',' ')}</strong></td>
       <td><div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
         <button className="btn" type="button" disabled={Boolean(busy)} onClick={()=>void openDetail(row.id)}>Review snapshot</button>
+        {maker&&row.status==='FAILED'?<button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>{if(window.confirm('Ajukan ulang DR dari PI yang sama? Sistem memverifikasi belum ada transfer, mempertahankan riwayat gagal, dan membuat DR pengganti untuk approval Controller.'))void run('REISSUE',{action:'REISSUE_FAILED',id:row.id},'DR pengganti berhasil dibuat. Klik Submit untuk persetujuan Controller.');}}>Ajukan ulang</button>:null}
         {maker&&row.status==='READY'?<button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void run('SUBMIT',{action:'SUBMIT_REQUEST',id:row.id},'DR dikirim ke Payroll Controller.')}>Submit</button>:null}
         {checker&&row.status==='PENDING_APPROVAL'?<><button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void openDetail(row.id)}>Review & Approve</button></>:null}
         {executor&&['APPROVED','PROCESSING'].includes(row.status)?<button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void execute(row)}>{row.status==='PROCESSING'?'Lanjutkan proses':'Process Payment'}</button>:null}
