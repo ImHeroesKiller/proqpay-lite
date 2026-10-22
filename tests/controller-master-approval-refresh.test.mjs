@@ -21,3 +21,26 @@ test('Controller refreshes stale Master balance, approves DR and replays safely 
  assert.equal(provider.posts().length,0);assert.equal(f.database.sqlite.prepare('SELECT COUNT(*) n FROM disbursement_executions').get().n,0);
  assert.equal(f.database.sqlite.prepare("SELECT COUNT(*) n FROM audit_logs WHERE action='DISBURSEMENT_REQUEST_APPROVED'").get().n,1);
 });
+
+test('E2Pay Master PI approval persists encrypted snapshot, checks MFA and never executes payment',async t=>{
+ const {handleD1OperatingModel}=await import('../functions/api/operating-model-d1.js');
+ const f=masterFixture();const provider=mockProvider(t);
+ f.env.SECURITY_MFA_ENFORCEMENT='ENFORCE';
+ f.database.sqlite.exec(`INSERT INTO payroll_submissions(id,org_id,client_id,service_plan_id,service_tier,period,payment_period,state,created_by,client_reviewed_by,client_review_decision) VALUES('PS-APPROVAL','ORG-FIX','C-FIX','SP-FIX','TIER_1_PAYMENT_PROCESSING','2026-09','2026-09','CLIENT_APPROVED','seed','client@test','APPROVED');
+ INSERT INTO employee_compensation(employee_id,basic_salary,payroll_source_period,imported_gross,imported_deduction,imported_net) VALUES('E-FIX',1000,'2026-09',1000,0,1000);
+ INSERT INTO employee_bank_accounts(id,employee_id,bank_name,account_no,is_primary) VALUES('BANK-APPROVAL','E-FIX','BCA','1234567890',1);
+ INSERT INTO payment_gateway_provider_snapshots(org_id,provider,environment,account_id,merchant_status,balance) VALUES('ORG-FIX','E2PAY','UAT','PROVIDER-MASTER','ACTIVE',1000000);
+ INSERT INTO e2pay_disbursement_limit_requests(id,org_id,provider_account_registry_id,client_id,environment,requested_amount,approved_amount,status,requested_by_email) VALUES('LIMIT-PI','ORG-FIX','MASTER-FIX','C-FIX','UAT',1000000,1000000,'ACTIVE','processor@test');`);
+ const maker={id:'MAKER-PI',orgId:'ORG-FIX',role:'PAYROLL_PROCESSOR',email:'maker@test',permissions:['payment:prepare']};
+ const checker={id:'CHECKER-PI',orgId:'ORG-FIX',role:'PAYROLL_CONTROLLER',email:'checker@test',permissions:['payment:approve'],mfaVerifiedAt:new Date().toISOString()};
+ const action=(actor,body)=>handleD1OperatingModel({request:new Request('https://proqpay.test/api/operating-model',{method:'POST',headers:{Origin:'https://proqpay.test','Content-Type':'application/json'},body:JSON.stringify(body)}),env:f.env},actor);
+ let r=await action(maker,{action:'GENERATE_PAYMENT_INSTRUCTION',submissionId:'PS-APPROVAL'});assert.equal(r.status,201,await r.clone().text());const pi=(await r.json()).paymentInstruction;
+ r=await action(maker,{action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:pi.id,confirmation:'SUBMIT PI'});assert.equal(r.status,200,await r.clone().text());
+ const approval={action:'APPROVE_PAYMENT',paymentInstructionId:pi.id,actionHash:pi.content_hash,confirmation:'KONFIRMASI PAYMENT'};
+ r=await action({...checker,mfaVerifiedAt:null},approval);assert.equal(r.status,428,await r.clone().text());
+ r=await action(checker,approval);assert.equal(r.status,200,await r.clone().text());
+ assert.equal(f.database.sqlite.prepare('SELECT status FROM payment_instructions WHERE id=?').get(pi.id).status,'APPROVED_FOR_PAYMENT');
+ assert.equal(f.database.sqlite.prepare("SELECT state FROM payroll_submissions WHERE id='PS-APPROVAL'").get().state,'APPROVED_FOR_PAYMENT');
+ assert.equal(f.database.sqlite.prepare('SELECT COUNT(*) n FROM payment_approvals WHERE payment_instruction_id=?').get(pi.id).n,1);
+ assert.equal(provider.posts().length,0);
+});
