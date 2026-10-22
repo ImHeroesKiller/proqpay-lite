@@ -70,6 +70,8 @@ export default function PaymentGatewaySettings() {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
+  const [inquiryAmount,setInquiryAmount]=useState('5731589');
+  const [inquiryResults,setInquiryResults]=useState<Array<{amount:number;ok:boolean;code?:string;diagnostic?:{httpStatus?:number;providerCode?:string;reason?:string}}>>([]);
   const [draftSaved, setDraftSaved] = useState(false);
   const [archiveOpen,setArchiveOpen] = useState(false);
   const [executionReady, setExecutionReady] = useState(false);
@@ -157,6 +159,22 @@ export default function PaymentGatewaySettings() {
     } finally {
       setBusy('');
     }
+  }
+
+  async function testInquiry() {
+    if(busy)return;
+    setBusy('inquiry');setInquiryResults([]);setMessage(null);
+    try{
+      const response=await fetch('/api/payment-gateway-settings',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'TEST_INQUIRY',amount:Number(inquiryAmount)}),
+      });
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Tes inquiry gagal');
+      setInquiryResults(data.results||[]);
+      setMessage({type:'info',text:'Tes inquiry selesai. Tidak ada transfer atau perubahan DR.'});
+    }catch(error){setMessage({type:'error',text:error instanceof Error?error.message:'Tes inquiry gagal'});}
+    finally{setBusy('');}
   }
 
   async function testConnection() {
@@ -299,6 +317,14 @@ export default function PaymentGatewaySettings() {
         Refresh
       </button>
     </div>
+
+    {activeProvider==='E2PAY'&&activeEnvironment==='UAT'?<section aria-label="Tes inquiry UAT" style={{display:'grid',gap:8}}>
+      <strong>Tes rekening UAT</strong>
+      <span>Membandingkan Rp15.000 dengan nominal berikut memakai koneksi aktif. Tidak menjalankan transfer atau mengubah DR.</span>
+      <label>Nominal pembanding<input type="number" min="1" max="1000000000" step="1" value={inquiryAmount} onChange={event=>setInquiryAmount(event.target.value)} disabled={Boolean(busy)}/></label>
+      <button type="button" className="btn" disabled={loading||Boolean(busy)||!Number.isSafeInteger(Number(inquiryAmount))||Number(inquiryAmount)<=0||Number(inquiryAmount)>1000000000} onClick={()=>void testInquiry()}>{busy==='inquiry'?'Memeriksa…':'Tes inquiry UAT'}</button>
+      {inquiryResults.length?<table><thead><tr><th>Nominal</th><th>Hasil</th><th>Respons</th></tr></thead><tbody>{inquiryResults.map(row=><tr key={row.amount}><td>{row.amount.toLocaleString('id-ID')}</td><td>{row.ok?'Berhasil':'Ditolak'}</td><td>{[row.diagnostic?.httpStatus,row.diagnostic?.providerCode,row.diagnostic?.reason||row.code].filter(Boolean).join(' · ')}</td></tr>)}</tbody></table>:null}
+    </section>:null}
 
     {message ? <div className={'settings-status ' + message.type} role="status">{message.text}</div> : null}
 
