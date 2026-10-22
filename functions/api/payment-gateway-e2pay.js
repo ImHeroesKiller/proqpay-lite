@@ -158,9 +158,18 @@ export function e2payRuntimeErrorCode(error) {
 }
 async function responseDiagnostics(body,text) {
   const rawCode=String(body?.responseCode??body?.errorCode??body?.code??'');
-  const message=[body?.message,body?.responseMessage,body?.error_description,body?.detail,body?.error].filter(v=>typeof v==='string').join(' ').toLowerCase();
-  const reason=/signature|hmac/.test(message)?'SIGNATURE_REJECTED':/account.*(not found|invalid)|rekening.*(salah|tidak)/.test(message)?'ACCOUNT_REJECTED':/bank.*(not found|invalid)/.test(message)?'BANK_REJECTED':/balance|saldo/.test(message)?'BALANCE_REJECTED':/unauthor|token|credential/.test(message)?'AUTH_REJECTED':'PROVIDER_REJECTED';
-  return {providerCode:/^[0-9]{1,6}$/.test(rawCode)?rawCode:null,reason,bodyBytes:encoder.encode(text).length,bodyFingerprint:await sha256Hex(text)};
+  const messages=[];
+  function collect(value,depth=0){
+    if(depth>4 || messages.length>=20)return;
+    if(typeof value==='string'){messages.push(value.slice(0,1000));return;}
+    if(Array.isArray(value)){for(const item of value.slice(0,20))collect(item,depth+1);return;}
+    if(value&&typeof value==='object')for(const key of ['message','responseMessage','error_description','detail','error','errorMessage','errors'])collect(value[key],depth+1);
+  }
+  collect(body);
+  const message=messages.join(' ').toLowerCase();
+  const reason=/signature|hmac|tanda tangan/.test(message)?'SIGNATURE_REJECTED':/account.*(not found|invalid)|rekening.*(salah|tidak)/.test(message)?'ACCOUNT_REJECTED':/bank.*(not found|invalid)/.test(message)?'BANK_REJECTED':/balance|saldo/.test(message)?'BALANCE_REJECTED':/unauthor|token|credential|otentikasi|autentikasi/.test(message)?'AUTH_REJECTED':/amount|nominal|minimum|maximum|limit/.test(message)?'AMOUNT_REJECTED':'PROVIDER_REJECTED';
+  // Only fixed categories and counts leave this function; provider text may contain secrets or PII.
+  return {providerCode:/^[0-9]{1,6}$/.test(rawCode)?rawCode:null,reason,messageCount:messages.length,bodyBytes:encoder.encode(text).length,bodyFingerprint:await sha256Hex(text)};
 }
 
 function timeoutMs(env) {

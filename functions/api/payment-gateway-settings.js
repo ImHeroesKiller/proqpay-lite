@@ -8,6 +8,7 @@ import {
   writeGatewaySecureSettings,
 } from './payment-gateway-settings-store.js';
 import { gatewayReadiness } from './payment-gateway-core.js';
+import { diagnoseUatInquiry } from './e2pay-inquiry-diagnostic-core.js';
 import {
   e2payAuthorize,
   e2payBankList,
@@ -198,6 +199,14 @@ export async function onRequest({ request, env }) {
 
     const body = await request.json();
     const action = String(body.action || 'SAVE').trim().toUpperCase();
+
+    if (action === 'TEST_INQUIRY') {
+      const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId);
+      const diagnostic=await diagnoseUatInquiry(runtimeEnv,body.amount);
+      await d1Batch(env.DB,[auditOperation(organizationId,authorization.actor,
+        'E2PAY_INQUIRY_DIAGNOSTIC',JSON.stringify(diagnostic),requestId)]);
+      return secureJson({ok:true,...diagnostic,correlationId:requestId},200,request,env,METHODS);
+    }
 
     if (action === 'TEST') {
       const tested = await testE2PayConnection(env.DB, env, organizationId, body);
