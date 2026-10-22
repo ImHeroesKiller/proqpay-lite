@@ -33,7 +33,9 @@ test('PI detail exposes live registry balance after sync',async()=>{
 
 test('Controller approval UI syncs E2Pay balance before APPROVE_PAYMENT',async()=>{
   const source=await read('src/components/OperatingWorkspace.tsx');
-  assert.match(source,/syncE2PaySubAccountBalance/);
+  assert.match(source,/await refreshE2PayMasterBalance\(\)/);
+  assert.match(source,/providerAccountScope==='SUB_ACCOUNT'/);
+  assert.match(source,/liquidityError\?<div[^>]+role="alert"/);
   assert.match(source,/async function refreshLiquidity/);
   assert.match(source,/await syncE2PaySubAccountBalance\(accountId,Number\(target\.control\.expectedTotal\|\|0\)\)/);
   assert.match(source,/async function approveWithFreshLiquidity/);

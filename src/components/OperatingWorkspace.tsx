@@ -18,7 +18,7 @@ import { PaymentEvidenceRegister, PaymentReconciliationControl } from '@/compone
 import { BUSINESS_STAGE_META, PAYROLL_BUSINESS_STAGE_ORDER, derivePayrollBusinessStage } from '@/lib/payroll-business-stage';
 import { derivePayrollNextAction } from '@/lib/payroll-next-action';
 import { includePaymentForWorkspace, includeSubmissionForWorkspace } from '@/lib/payroll-work-queue';
-import { syncE2PaySubAccountBalance } from '@/lib/e2pay-api';
+import { refreshE2PayMasterBalance, syncE2PaySubAccountBalance } from '@/lib/e2pay-api';
 import {
   filterPaymentInstructionLines,
   paymentActivityLabel,
@@ -1073,7 +1073,10 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
     if(!accountId || String(target.paymentInstruction.provider||'').toUpperCase()!=='E2PAY') return target;
     setLiquiditySyncing(true); setLiquidityError('');
     try{
-      await syncE2PaySubAccountBalance(accountId,Number(target.control.expectedTotal||0));
+      await refreshE2PayMasterBalance();
+      if(target.paymentInstruction.providerAccountScope==='SUB_ACCOUNT'){
+        await syncE2PaySubAccountBalance(accountId,Number(target.control.expectedTotal||0));
+      }
       const refreshed=await getPaymentInstructionDetail(target.paymentInstruction.id);
       setDetail(refreshed);
       return refreshed;
@@ -1096,10 +1099,14 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
       }catch{
         return;
       }
+      if(current.paymentInstruction.providerFunding?.parent.ready!==true){
+        setLiquidityError(`Master E2Pay belum siap: ${current.paymentInstruction.providerFunding?.parent.state||'NOT_SYNCED'}. Periksa identitas dan saldo Master terbaru.`);
+        return;
+      }
       if(current.paymentInstruction.providerFunding?.subClient.ready!==true){
         setLiquidityError(current.paymentInstruction.providerFunding?.subClient.state==='INSUFFICIENT'
-          ? 'Saldo E2Pay sub-account tidak mencukupi untuk PI ini.'
-          : 'Balance sub-client E2Pay belum fresh/siap. Sync balance diperlukan sebelum approval.');
+          ? 'Saldo provider E2Pay tidak mencukupi untuk PI ini.'
+          : 'Saldo provider E2Pay belum fresh/siap. Periksa hasil sinkronisasi Master.');
         return;
       }
       if(current.paymentInstruction.providerFunding?.limit.ready!==true){
@@ -1157,6 +1164,7 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
         <div className="pi-detail-header-actions"><Badge text={paymentBusinessLabel(detail.paymentInstruction.status)} /><button type="button" aria-label="Tutup detail Payment Instruction" onClick={()=>setDetail(null)}>✕</button></div>
       </header>
       <div className="pi-detail-body">
+        {liquidityError?<div className="app-notice-bubble app-notice-error" role="alert">{liquidityError}</div>:null}
         {approvalError?<div className="app-notice-bubble app-notice-error" role="alert">{approvalError}</div>:null}
         {approvalNotice?<div className="app-notice-bubble app-notice-info" role="status">{approvalNotice}</div>:null}
         <section className="pi-detail-summary" aria-label="Ringkasan Payment Instruction">
@@ -1185,11 +1193,11 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
           <div><strong>{integrity.hashPresent ? '✓ Snapshot terverifikasi' : '⚠ Snapshot legacy'}</strong><span title={detail.paymentInstruction.content_hash || undefined}>{integrity.hashPresent ? `SHA-256 · ${shortPaymentHash(detail.paymentInstruction.content_hash)}` : 'Content hash tidak tersedia; regenerasi PI diperlukan untuk approval.'}</span></div>
         </section>
         {detail.paymentInstruction.provider?<section className="pi-integrity-panel" aria-label="Provider routing snapshot">
-          <div><strong>Provider source terkunci</strong><span>{detail.paymentInstruction.provider} · {detail.paymentInstruction.provider_environment||'-'} · Sub-account {detail.paymentInstruction.providerSubAccountIdMasked||'belum tersedia'}</span></div>
+          <div><strong>Provider source terkunci</strong><span>{detail.paymentInstruction.provider} · {detail.paymentInstruction.provider_environment||'-'} · {detail.paymentInstruction.providerAccountScope==='MASTER'?'Master Account':`Sub-account ${detail.paymentInstruction.providerSubAccountIdMasked||'belum tersedia'}`}</span></div>
           <div><strong>Balance ProQPay</strong><span>{detail.paymentInstruction.providerFunding?.parent.balance==null?'Belum tersinkron':formatIDR(Number(detail.paymentInstruction.providerFunding.parent.balance))} · {String(detail.paymentInstruction.providerFunding?.parent.state||'NOT_SYNCED').replaceAll('_',' ')}</span></div>
-          <div><strong>Balance sub-client</strong><span>{detail.paymentInstruction.providerFunding?.subClient.availableBalance==null?'Belum tersinkron':formatIDR(Number(detail.paymentInstruction.providerFunding.subClient.availableBalance))} · {String(detail.paymentInstruction.providerFunding?.subClient.state||'NOT_SYNCED').replaceAll('_',' ')}</span></div>
+          <div><strong>{detail.paymentInstruction.providerAccountScope==='MASTER'?'Saldo tersedia Master':'Balance sub-client'}</strong><span>{detail.paymentInstruction.providerFunding?.subClient.availableBalance==null?'Belum tersinkron':formatIDR(Number(detail.paymentInstruction.providerFunding.subClient.availableBalance))} · {String(detail.paymentInstruction.providerFunding?.subClient.state||'NOT_SYNCED').replaceAll('_',' ')}</span></div>
           <div><strong>Disbursement limit</strong><span>{detail.paymentInstruction.providerFunding?.limit.id?formatIDR(Number(detail.paymentInstruction.providerFunding.limit.remainingAmount||0))+' remaining dari '+formatIDR(Number(detail.paymentInstruction.providerFunding.limit.approvedAmount||0)):'Belum ada approved limit'} · {String(detail.paymentInstruction.providerFunding?.limit.state||'NO_ACTIVE_LIMIT').replaceAll('_',' ')}</span></div>
-          {detail.paymentInstruction.status==='PAYMENT_APPROVAL_PENDING'&&role==='PAYROLL_CONTROLLER'&&String(detail.paymentInstruction.provider).toUpperCase()==='E2PAY'?<div><strong>Pre-approval balance check</strong><span><button type="button" className="btn" disabled={liquiditySyncing} onClick={()=>void refreshLiquidity(detail)}>{liquiditySyncing?'Menyinkronkan…':'Sync Balance E2Pay'}</button></span></div>:null}
+          {detail.paymentInstruction.status==='PAYMENT_APPROVAL_PENDING'&&role==='PAYROLL_CONTROLLER'&&String(detail.paymentInstruction.provider).toUpperCase()==='E2PAY'?<div><strong>Pre-approval balance check</strong><span><button type="button" className="btn" disabled={liquiditySyncing} onClick={()=>void refreshLiquidity(detail).catch(()=>{})}>{liquiditySyncing?'Menyinkronkan…':'Sync Balance E2Pay'}</button></span></div>:null}
         </section>:<section className="app-notice-bubble app-notice-error" role="alert"><strong>Provider routing snapshot belum tersedia</strong><span>PI legacy harus diregenerasi sebelum approval/payment execution.</span></section>}
         {detail.paymentInstruction.rejection_reason ? <section className={`app-notice-bubble ${detail.paymentInstruction.status==='REVISION_REQUIRED'?'app-notice-error':'app-notice-info'}`} role="status"><strong>{detail.paymentInstruction.status==='REVISION_REQUIRED'?'PI dikembalikan untuk revisi':'Riwayat reject sebelumnya'}</strong><span>{detail.paymentInstruction.rejection_reason} · {detail.paymentInstruction.rejected_by || 'Payroll Controller'}</span></section> : null}
         {phase==='payment' && gatewayCanView && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(detail.paymentInstruction.status) && executionStrategy!=='legacy' ? <div className="app-notice-bubble app-notice-info" role="status"><strong>{executionStrategy==='canonical'?'Canonical Disbursement Request aktif':'Verifikasi jalur pembayaran diperlukan'}</strong><span>{executionStrategy==='canonical'?'Gunakan Canonical Disbursement Control di atas; eksekusi gateway legacy tidak berlaku untuk PI ini.':'Jalur eksekusi belum dapat diverifikasi. Pembayaran melalui gateway legacy tidak ditampilkan sampai status berhasil dimuat.'}</span></div> : null}

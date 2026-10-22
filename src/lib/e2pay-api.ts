@@ -101,6 +101,17 @@ async function parse(response:Response){
   return data;
 }
 
+/** Read the authoritative Master balance without running a financial operation. */
+export async function refreshE2PayMasterBalance(){
+  const result=await parse(await fetch('/api/e2pay-operations?resource=account&refresh=1',{
+    headers:{Accept:'application/json'},cache:'no-store',
+  })) as {ok:true;account:E2PayAccountSnapshot};
+  if(!result.account?.available || result.account.readiness?.configured===false){
+    throw new Error(result.account?.readiness?.reason||'Master E2Pay belum siap. Saldo tidak dapat diverifikasi.');
+  }
+  return result.account;
+}
+
 export async function getE2PayOverview(refresh=false){
   const params=new URLSearchParams({resource:'overview'});
   if(refresh) params.set('refresh','1');

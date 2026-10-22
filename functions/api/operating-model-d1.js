@@ -373,6 +373,7 @@ async function readResource(database, params, actor, env, organizationId) {
         state:liveProviderAccount?liquidityState(liveProviderAccount,Number(instruction.expected_total)).state:'NOT_MAPPED',
         ready:liveProviderAccount?liquidityState(liveProviderAccount,Number(instruction.expected_total)).ready:false,
       }:null,
+      providerAccountScope:liveProviderAccount?.account_scope||null,
       providerFunding:liveFunding,
     };
     return { data: { ok: true, paymentInstruction: publicInstruction, lines, approvals, activity, proofSummary, reconciliationHistory,

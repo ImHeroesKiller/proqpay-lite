@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatIDR } from '@/lib/format';
 import { fetchWithSecurityStepUp } from '@/lib/security-step-up';
+import { refreshE2PayMasterBalance } from '@/lib/e2pay-api';
 import { parseApiResponse } from '@/lib/api-client';
 import { invalidateOperatingCache } from '@/lib/operating-model-api';
 import {canonicalActionRank,canonicalNeedsAction} from '@/lib/payment-decision-workbench';
@@ -71,6 +72,10 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
     setBusy(key);setNotice('');
     try{
       const target=key==='EXECUTE'?'/api/disbursement-executions':key==='RECONCILE'?'/api/canonical-transaction-register':'/api/disbursement-requests';
+      if(key==='APPROVE'){
+        const request=requests.find(row=>row.id===payload.id)||selected;
+        if(request?.provider.toUpperCase()==='E2PAY')await refreshE2PayMasterBalance();
+      }
       const body=await api(target,payload);
       if(body.request?.id){setSelected(body.request||null);setRecipientPage(1);}
       setNotice(message);

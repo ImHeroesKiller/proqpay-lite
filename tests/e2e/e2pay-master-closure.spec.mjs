@@ -14,12 +14,18 @@ for(const role of ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIEN
    const page=await context.newPage();
 let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const actions=[];const errors=[];let prompts=0;
  page.on('dialog',async dialog=>{if(dialog.type()==='confirm'){await dialog.accept();return;}assert.equal(dialog.type(),'prompt');prompts++;await dialog.accept('123456');});
- let approvalMode=false;let piStatus='PAYMENT_APPROVAL_PENDING';let drStatus='PENDING_APPROVAL';let piRejected=false;
- const pi=()=>({id:'PI-MOCK',client_id:'C-MOCK',project_id:'P-MOCK',document_no:'PI/MOCK',client_name:'Mock Client',payroll_period:'2026-10',payment_period:'2026-10',status:piStatus,expected_total:2000,recipient_count:26,content_hash:'MOCK-HASH',provider:'MOCK'});
- const dr=()=>({id:'DR-MOCK',clientId:'C-MOCK',projectId:'P-MOCK',sourceDocumentType:'PAYMENT_INSTRUCTION',sourceDocumentId:'PI-MOCK',purpose:'PAYROLL',destinationMode:'DIRECT_EMPLOYEE',clientReference:'DR/MOCK',status:drStatus,provider:'MOCK',environment:'UAT',amount:2000,recipientCount:26,items:Array.from({length:26},(_,i)=>({id:'I-'+i,beneficiaryName:'Recipient '+(i+1),bankCode:'BCA',accountLast4:'1234',amount:2000/26}))});
+ let approvalMode=false;let piStatus='PAYMENT_APPROVAL_PENDING';let drStatus='PENDING_APPROVAL';let piRejected=false;let balanceFails=true;let balanceReads=0;let balanceReady=false;
+ const pi=()=>({id:'PI-MOCK',client_id:'C-MOCK',project_id:'P-MOCK',document_no:'PI/MOCK',client_name:'Mock Client',payroll_period:'2026-10',payment_period:'2026-10',status:piStatus,expected_total:2000,recipient_count:26,content_hash:'MOCK-HASH',provider:'E2PAY',provider_environment:'UAT',provider_account_registry_id:'MASTER-MOCK',providerAccountScope:'MASTER',providerFunding:{ready:balanceReady,state:balanceReady?'AVAILABLE':'PARENT_STALE',parent:{ready:balanceReady,state:balanceReady?'READY':'STALE',balance:100000},subClient:{ready:balanceReady,state:balanceReady?'FUNDED':'PARENT_NOT_READY',availableBalance:balanceReady?100000:null},limit:{ready:true,state:'AVAILABLE',id:'LIMIT-MOCK',remainingAmount:2000,approvedAmount:2000}}});
+ const dr=()=>({id:'DR-MOCK',clientId:'C-MOCK',projectId:'P-MOCK',sourceDocumentType:'PAYMENT_INSTRUCTION',sourceDocumentId:'PI-MOCK',purpose:'PAYROLL',destinationMode:'DIRECT_EMPLOYEE',clientReference:'DR/MOCK',status:drStatus,provider:'E2PAY',environment:'UAT',amount:2000,recipientCount:26,items:Array.from({length:26},(_,i)=>({id:'I-'+i,beneficiaryName:'Recipient '+(i+1),bankCode:'BCA',accountLast4:'1234',amount:2000/26}))});
  let requests=role==='PAYROLL_CONTROLLER'?[{id:'LIMIT-MOCK',clientId:'C-MOCK',clientName:'Mock Client',environment:'UAT',status:'PENDING_APPROVAL',requestedAmount:2000,remainingAmount:0}]:[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{const req=route.request();const url=new URL(req.url());if(url.origin!==base){await route.abort();return;}if(!url.pathname.startsWith('/api/'))return route.continue();
+ if(approvalMode&&url.pathname==='/api/e2pay-subaccounts')throw new Error('Master approval must never use sub-account endpoint');
+ if(approvalMode&&url.pathname==='/api/e2pay-operations'&&url.searchParams.get('resource')==='account'){
+  assert.equal(url.searchParams.get('refresh'),'1');balanceReads++;
+  if(balanceFails){balanceFails=false;await route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:'Synthetic Master balance unavailable'})});return;}
+  balanceReady=true;
+ }
  if(expired&&url.pathname==='/api/operating-model'){await route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({error:'Authentication required'})});return;}
  let body={ok:true,periods:['2026-10'],submissions:[],paymentInstructions:[],paymentProofs:[],reconciliations:[],exceptions:[],requests:[],funding:[],records:[],clients:[],projects:[],employees:[],servicePlans:[],arItems:[],invoices:[],billablePayments:[],issuerProfile:null,portfolioSummary:{clients:0}};
  if(req.method()!=='GET'){
@@ -33,12 +39,12 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
   else if(data.action==='REQUEST_LIMIT'){assert.equal(role,'PAYROLL_PROCESSOR');assert.equal(data.clientId,'C-MOCK');assert.equal(data.amount,2000);requests=[{id:'LIMIT-MOCK',clientId:'C-MOCK',environment:'UAT',status:'PENDING_APPROVAL',requestedAmount:2000,remainingAmount:0}];}
   else if(data.action==='APPROVE_LIMIT'){assert.equal(role,'PAYROLL_CONTROLLER');requests[0].status='ACTIVE';requests[0].remainingAmount=2000;}
   else if(approvalMode&&data.action==='APPROVE_PAYMENT'){
-   assert.equal(role,'PAYROLL_CONTROLLER');assert.equal(data.actionHash,'MOCK-HASH');
+   assert.ok(balanceReady,'Fresh Master balance required before PI approval');assert.equal(role,'PAYROLL_CONTROLLER');assert.equal(data.actionHash,'MOCK-HASH');
    if(!piRejected){piRejected=true;await route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:'Synthetic integrity refusal',code:'PI_TEST_REJECTION'})});return;}
    piStatus='APPROVED_FOR_PAYMENT';
   }
   else if(approvalMode&&data.action==='APPROVE_REQUEST'){
-   assert.equal(role,'PAYROLL_CONTROLLER');assert.equal(data.id,'DR-MOCK');
+   assert.ok(balanceReady,'Fresh Master balance required before DR approval');assert.equal(role,'PAYROLL_CONTROLLER');assert.equal(data.id,'DR-MOCK');
    if(!mfaVerified){await route.fulfill({status:428,contentType:'application/json',body:JSON.stringify({error:'Verifikasi MFA diperlukan',code:'MFA_STEP_UP_REQUIRED'})});return;}
    drStatus='APPROVED';body={ok:true,request:dr()};
   }
@@ -98,6 +104,9 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
   const modal=page.getByRole('dialog',{name:'Detail Payment Instruction'});
   await modal.getByRole('checkbox',{name:'Kontrol utama PI sudah saya review.'}).check();
   await modal.getByRole('button',{name:'Approve & Continue',exact:true}).click();
+  await modal.getByRole('alert').filter({hasText:'Synthetic Master balance unavailable'}).waitFor();
+  assert.equal(actions.filter(action=>action==='APPROVE_PAYMENT').length,0,'Balance failure must stop approval');
+  await modal.getByRole('button',{name:'Approve & Continue',exact:true}).click();
   await modal.getByRole('alert').filter({hasText:'Synthetic integrity refusal'}).waitFor();
   assert.equal(piStatus,'PAYMENT_APPROVAL_PENDING');
   await modal.getByRole('button',{name:'Approve & Continue',exact:true}).click();
@@ -109,10 +118,12 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
   await expect(snapshot.locator('tbody tr')).toHaveCount(25);
   await snapshot.getByRole('button',{name:'Berikutnya',exact:true}).click();
   await expect(snapshot.locator('tbody tr')).toHaveCount(1);
+  balanceReady=false;
   await snapshot.getByRole('button',{name:'Approve DR',exact:true}).click();
   await page.getByText('Disbursement Request disetujui oleh Controller.',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Process Payment',exact:true}).waitFor();
   assert.equal(drStatus,'APPROVED');
+  assert.equal(balanceReads,4,'Each approval attempt must refresh Master balance, including DR');
   assert.deepEqual(actions.slice(-5),['APPROVE_PAYMENT','APPROVE_PAYMENT','APPROVE_REQUEST','STEP_UP','APPROVE_REQUEST']);
  }
  assert.deepEqual(errors,[]);console.log(JSON.stringify({role,passed:true,simulatedActions:actions,externalNetwork:0,runtimeErrors:errors.length}));
