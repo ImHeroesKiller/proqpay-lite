@@ -15,10 +15,10 @@ export async function diagnoseUatInquiry(env,amount,fetchImpl=fetch){
   for(const value of [...new Set([15000,amount])]){
     let diagnostic=null;
     const probeEnv=Object.create(env);
-    probeEnv.__e2payAudit=async audit=>{
+    Object.defineProperty(probeEnv,'__e2payAudit',{value:async audit=>{
       if(audit.endpoint==='/b2b/merchant/me/sdp/inquiry')diagnostic={httpStatus:audit.httpStatus,...audit.responseDiagnostics};
       if(typeof env.__e2payAudit==='function')await env.__e2payAudit(audit);
-    };
+    }});
     try{
       await e2payInquiry(probeEnv,auth.accessToken,{...E2PAY_UAT_DUMMY_DESTINATION,amount:value},fetchImpl);
       results.push({amount:value,ok:true,diagnostic});
