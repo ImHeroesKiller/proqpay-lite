@@ -5,6 +5,7 @@ import {diagnoseUatInquiry} from '../functions/api/e2pay-inquiry-diagnostic-core
 test('UAT diagnostic compares baseline and payroll without a financial request or leaking secrets',async()=>{
  const calls=[],audits=[];
  const env={E2PAY_ENV:'UAT',E2PAY_CLIENT_ID:'client',E2PAY_CLIENT_SECRET:'secret',E2PAY_USERNAME:'user',E2PAY_PASSWORD_MD5:'A'.repeat(32),__e2payAudit:async a=>audits.push(a)};
+ Object.defineProperty(env,'__e2payAudit',{writable:false});
  const result=await diagnoseUatInquiry(env,5731589,async(url,init)=>{
   const u=new URL(url);calls.push(u.pathname);
   if(u.pathname.endsWith('/authorization/'))return Response.json({code:'private-code'});
