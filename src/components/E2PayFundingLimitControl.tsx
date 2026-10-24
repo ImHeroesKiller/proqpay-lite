@@ -2,9 +2,11 @@
 
 import {useCallback,useEffect,useMemo,useState} from 'react';
 import {formatIDR} from '@/lib/format';
+import DismissibleBubble from '@/components/ui/DismissibleBubble';
 import {IconRefresh,IconShieldCheck,IconCheckCircle,IconAlertTriangle,IconArrowUpRight} from '@/components/Icons';
 import {
   approveE2PayDisbursementLimit,
+  E2PayApiError,
   getE2PayDisbursementLimits,
   getE2PayOverview,
   getE2PayMasterActivation,
@@ -31,6 +33,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}){
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState('');
   const [message,setMessage]=useState('');
+  const [errorMessage,setErrorMessage]=useState('');
   const canRequest=role==='PAYROLL_PROCESSOR';
   const canApprove=role==='PAYROLL_CONTROLLER';
   const load=useCallback(async()=>{
@@ -47,7 +50,7 @@ export default function E2PayFundingLimitControl({role}:{role:string}){
       setRequests(data.requests.filter(row=>row.environment===activationData.environment));
       setClients((masterData.clients||[]).map((c:ClientOption)=>({id:c.id,name:c.name})));
       setClientId(current=>(masterData.clients||[]).some((c:ClientOption)=>c.id===current)?current:(masterData.clients?.[0]?.id||''));
-    }catch(error){setMessage(error instanceof Error?error.message:'Gagal memuat Master Funding');}
+    }catch(error){setErrorMessage(error instanceof Error?error.message:'Gagal memuat Master Funding');}
     finally{setLoading(false);}
   },[]);
   useEffect(()=>{void load();},[load]);
@@ -60,9 +63,9 @@ export default function E2PayFundingLimitControl({role}:{role:string}){
   const visibleProjects=projects.filter(p=>(p.client_id||p.clientId)===clientId);
 
   async function execute(key:string,action:()=>Promise<unknown>,success:string){
-    setBusy(key);setMessage('');
+    setBusy(key);setMessage('');setErrorMessage('');
     try{await action();await load();setMessage(success);}
-    catch(error){setMessage(error instanceof Error?error.message:'Aksi gagal');}
+    catch(error){setErrorMessage((error instanceof Error?error.message:'Aksi gagal')+(error instanceof E2PayApiError&&error.code?` · Kode: ${error.code}`:''));}
     finally{setBusy('');}
   }
   async function refreshBalance(){
@@ -95,7 +98,8 @@ export default function E2PayFundingLimitControl({role}:{role:string}){
         <p>Satu saldo E2Pay Master. Processor mengajukan limit per klien, Controller menyetujui sebelum pembayaran.</p></div>
       <button type="button" className="btn" disabled={loading||Boolean(busy)} onClick={()=>void refreshBalance()}><IconRefresh aria-hidden="true"/>{busy==='SYNC'?'Menyinkronkan…':'Refresh Saldo Master'}</button>
     </div>
-    {message?<p className="ui-notice" role="status">{message}</p>:null}
+    {errorMessage?<DismissibleBubble key={errorMessage+busy} className="app-notice-bubble app-notice-error" role="alert"><strong>Proses limit belum berhasil</strong><p>{errorMessage}</p></DismissibleBubble>:null}
+    {message?<DismissibleBubble key={message} className="app-notice-bubble app-notice-info" role="status"><span>{message}</span></DismissibleBubble>:null}
     <div className="e2pay-funding-summary">
       <div className="ui-metric-card"><span>Balance E2Pay Master</span><strong>{balance===null?'Belum tersinkron':formatIDR(balance)}</strong>
         <small>{master?.parent?.ready?'Saldo tervalidasi':'Perlu validasi saldo terbaru'}</small></div>
