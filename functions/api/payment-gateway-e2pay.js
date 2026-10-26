@@ -179,8 +179,8 @@ function timeoutMs(env) {
 }
 
 // A copyable, *sanitized* representation of the outgoing provider request.
-// Never persist OAuth codes, tokens, merchant secrets, account numbers, PII or
-// free-form response bodies in audit_logs.
+// Never persist OAuth codes, tokens, merchant secrets, unrelated PII or free-form
+// response bodies. Inquiry destination IDs are deliberately visible for tracing.
 const E2PAY_SECRET_KEY=/(secret|password|passwd|token|authorization|cookie|credential|api.?key|private.?key|client.?id|username|phone|mobile|msisdn|email|address|account|bank|rekening|recipient|beneficiary|destination|identity|nik|npwp|birth|name|code|otp)/i;
 function auditSafe(value, depth=0){
   if(depth>7) return '[TRUNCATED]';
@@ -205,12 +205,24 @@ function auditRequestBody(init){
   }catch{return '[NON_JSON_BODY_REDACTED]';}
 }
 
+function auditQueryParameters(path){
+  if(!String(path).includes('?')) return null;
+  const query=Object.fromEntries(new URLSearchParams(String(path).split('?').slice(1).join('?')));
+  const sanitized=auditSafe(query);
+  if(String(path).split('?')[0]==='/b2b/merchant/me/sdp/inquiry'){
+    for(const key of ['accountId','bankId']){
+      if(Object.hasOwn(query,key)) sanitized[key]=String(query[key]).slice(0,600);
+    }
+  }
+  return sanitized;
+}
+
 async function requestJson(env, path, init = {}, fetchImpl = fetch) {
   const requestId=crypto.randomUUID();
   const started=Date.now();
   const audit={requestId,provider:'E2PAY',environment:String(env?.E2PAY_ENV||'UAT'),
     method:String(init?.method||'GET').toUpperCase(),endpoint:String(path).split('?')[0],
-    queryParameters:String(path).includes('?')?auditSafe(Object.fromEntries(new URLSearchParams(String(path).split('?').slice(1).join('?')))):null,
+    queryParameters:auditQueryParameters(path),
     requestJson:auditRequestBody(init),
     status:'UNKNOWN',httpStatus:null,durationMs:0};
   const critical=String(path).split('?')[0]==='/b2b/merchant/me/sdp/transaction';

@@ -2,7 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {gatewayRuntimeEnv} from '../functions/api/payment-gateway-settings-store.js';
-import {e2payHostAuthorize} from '../functions/api/payment-gateway-e2pay.js';
+import {e2payHostAuthorize,e2payInquiry} from '../functions/api/payment-gateway-e2pay.js';
+
+for(const status of [200,400]) test(`Inquiry audit retains destination and HTTP ${status} while protecting authentication`,async()=>{
+ const rows=[];
+ const env={E2PAY_ENV:'UAT',E2PAY_CLIENT_SECRET:'private-secret',__e2payAudit:async row=>rows.push(row)};
+ const call=e2payInquiry(env,'private-token',{accountId:'701075327',bankId:'permata',amount:15000},async url=>{
+   assert.equal(new URL(url).searchParams.get('accountId'),'701075327');
+   return new Response(JSON.stringify(status===200?{id:'INQ-TEST'}:{code:'99',message:'rejected'}),{status});
+ });
+ if(status===400) await assert.rejects(call); else await call;
+ assert.equal(rows.length,1);
+ assert.deepEqual(rows[0].queryParameters,{accountId:'701075327',bankId:'permata',amount:'15000'});
+ assert.equal(rows[0].httpStatus,status);
+ assert.equal(rows[0].status,status===200?'SUCCESS':'FAILED');
+ assert.ok(!JSON.stringify(rows).includes('private-secret'));
+ assert.ok(!JSON.stringify(rows).includes('private-token'));
+});
 
 test('E2Pay captures a redacted copyable request JSON in the existing audit table',async()=>{
  const calls=[];
