@@ -57,8 +57,6 @@ test('session survives ordinary browser hint drift and refresh under ENFORCE_CRI
       'User-Agent':'ProQPay-Browser/154',
       'Accept-Language':'en-US,en;q=0.9',
       'Sec-CH-UA':'"Chromium";v="154", "Not_A Brand";v="99"',
-      'Sec-CH-UA-Platform':'"macOS"',
-      'Sec-CH-UA-Mobile':'?0',
     },
   });
   const user=await authenticateSession(requestB,env);
@@ -72,4 +70,21 @@ test('E2Pay runtime credentials fall back to Worker secrets for partial stored p
   assert.match(gateway,/credential\('clientSecret','E2PAY_CLIENT_SECRET'\)/);
   assert.match(gateway,/credential\('partnerId','E2PAY_PARTNER_ID'\)/);
   assert.match(gateway,/credential\('sourceId','E2PAY_SOURCE_ID'\)/);
+});
+
+
+test('critical session still revokes when User-Agent is missing',async()=>{
+  const DB=new D1Mock();
+  try {
+    DB.sqlite.prepare(`INSERT INTO app_users
+      (id,org_id,name,email,role,status,password_hash,password_salt,password_iterations,must_change_password,payment_approver,created_by)
+      VALUES ('USR-UA-REQUIRED','ORG-OTSINDO','Controller','ua-required@example.test','PAYROLL_CONTROLLER','ACTIVE','h','s',100000,0,0,'test')`).run();
+    const env={DB,DEFAULT_ORG_ID:'ORG-OTSINDO',SECURITY_CONTEXT_KEY:'ua-required-security-context-key-longer-than-thirty-two',SECURITY_SESSION_DEVICE_MODE:'ENFORCE_CRITICAL'};
+    const original=new Request('https://proqpay.test/api/me',{headers:{'User-Agent':'ProQPay-Browser/154'}});
+    const context=await requestSecurityContext(original,env);
+    const created=await createSession(DB,'USR-UA-REQUIRED',env,{context});
+    const missing=new Request('https://proqpay.test/api/me',{headers:{Cookie:`proqpay_session=${encodeURIComponent(created.token)}`}});
+    assert.equal(await authenticateSession(missing,env),null);
+    assert.equal(DB.sqlite.prepare('SELECT COUNT(*) AS total FROM app_sessions WHERE user_id=?').get('USR-UA-REQUIRED').total,0);
+  } finally {DB.sqlite.close();}
 });

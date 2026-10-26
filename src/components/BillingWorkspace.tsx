@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ApiRequestError, parseApiResponse } from "@/lib/api-client";
 import { formatIDR } from "@/lib/format";
 import {
   Modal, Panel, Metric, Table, Empty, Badge, Form, Field, Select, Info,
@@ -56,8 +57,7 @@ async function loadAllBillingPages(focusSubmissionId = ""): Promise<Omit<Billing
     });
     if (focusSubmissionId) params.set("submissionId", focusSubmissionId);
     const response = await fetch(`/api/billing?${params.toString()}`, { credentials: "same-origin" });
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+    const body = await parseApiResponse<Record<string, any>>(response);
 
     for (const row of body.clients || []) clients.set(String(row.id), row);
     for (const row of body.billablePayments || []) billablePayments.set(String(row.id), row);
@@ -216,9 +216,7 @@ export default function BillingWorkspace({
         credentials: "same-origin",
         body: JSON.stringify({ action, ...payload }),
       });
-      const body = await response.json();
-      if (!response.ok)
-        throw new Error(body.error || `HTTP ${response.status}`);
+      await parseApiResponse<Record<string, any>>(response);
       setModal(null);
       setForm({});
       await load();
@@ -237,12 +235,13 @@ export default function BillingWorkspace({
         credentials: "same-origin",
         body: JSON.stringify({ invoiceId: row.id, force }),
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      const body = await parseApiResponse<Record<string, any>>(response);
       await load();
       setNotice(`Invoice ${row.invoice_number || ""} terkirim ke ${body.recipient}.`);
     } catch (error) {
-      await load();
+      // Authentication failure already returns the shell to login. Do not fan
+      // out additional billing/submission requests or replay an email send.
+      if (!(error instanceof ApiRequestError && error.status === 401)) await load();
       setNotice(error instanceof Error ? error.message : "Email invoice gagal dikirim");
     }
   }
@@ -256,20 +255,23 @@ export default function BillingWorkspace({
         credentials: "same-origin",
         body: JSON.stringify({ action: "ISSUE_INVOICE", invoiceId: row.id }),
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      await parseApiResponse<Record<string, any>>(response);
       const emailResponse = await fetch("/api/invoice-email", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify({ invoiceId: row.id }),
       });
-      const emailBody = await emailResponse.json();
-      await load();
-      if (!emailResponse.ok) {
-        setNotice(`Invoice sudah diterbitkan, tetapi email belum terkirim: ${emailBody.error || `HTTP ${emailResponse.status}`}`);
+      let emailBody: Record<string, any>;
+      try {
+        emailBody = await parseApiResponse<Record<string, any>>(emailResponse);
+      } catch (error) {
+        if (error instanceof ApiRequestError && error.status === 401) throw error;
+        await load();
+        setNotice(`Invoice sudah diterbitkan, tetapi email belum terkirim: ${error instanceof Error ? error.message : "Email invoice gagal dikirim"}`);
         return;
       }
+      await load();
       setNotice(`Invoice diterbitkan dan terkirim ke ${emailBody.recipient}.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Penerbitan invoice gagal");
@@ -288,9 +290,7 @@ export default function BillingWorkspace({
           credentials: "same-origin",
           body: upload,
         });
-        const uploadBody = await uploadResponse.json();
-        if (!uploadResponse.ok)
-          throw new Error(uploadBody.error || `HTTP ${uploadResponse.status}`);
+        await parseApiResponse<Record<string, any>>(uploadResponse);
       }
       const response = await fetch("/api/billing", {
         method: "POST",
@@ -305,9 +305,7 @@ export default function BillingWorkspace({
           coretaxReference: form.coretaxReference,
         }),
       });
-      const body = await response.json();
-      if (!response.ok)
-        throw new Error(body.error || `HTTP ${response.status}`);
+      await parseApiResponse<Record<string, any>>(response);
       setModal(null);
       setForm({});
       await load();
