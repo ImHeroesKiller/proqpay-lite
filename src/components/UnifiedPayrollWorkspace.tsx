@@ -94,11 +94,7 @@ export default function UnifiedPayrollWorkspace({
     setFilters(next);
   },[filters]);
 
-  const scopedSubmissions=useMemo(
-    ()=>submissions.filter((row)=>period==='ALL' || row.period===period || row.payment_period===period),
-    [submissions,period],
-  );
-  const filterSubmissions=isController?submissions:scopedSubmissions;
+  const filterSubmissions=submissions;
   const clients=useMemo(()=>{
     const map=new Map<string,string>();
     filterSubmissions.forEach((row)=>map.set(String(row.client_id),String(row.client_name || row.client_id)));
@@ -152,7 +148,7 @@ export default function UnifiedPayrollWorkspace({
       </nav>
 
       <div className={`payroll-shared-filter${stage==='PAYMENT'?' payroll-shared-filter-payments':' card'}`} aria-label="Filter Payroll Workspace">
-        <label><span>Periode</span><strong>{period}</strong></label>
+        <div className="directory-hint">Semua periode · pekerjaan lintas bulan tetap terlihat</div>
         <label><span>Klien</span><select value={filters.clientId} onChange={(event)=>patchFilters({clientId:event.target.value})}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
         <label><span>Project</span><select value={filters.projectId} disabled={!projects.length} onChange={(event)=>patchFilters({projectId:event.target.value})}><option value="ALL">Semua project</option>{projects.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
         <label className="payroll-shared-search"><span>Pencarian</span><input value={filters.query} onChange={(event)=>patchFilters({query:event.target.value})} placeholder="Klien, project, pay run, PI…" /></label>
@@ -178,7 +174,7 @@ export default function UnifiedPayrollWorkspace({
               </div>
             </div>
           )}
-          <OperatingWorkspace mode="payruns" period={period} filters={filters} embedded />
+          <OperatingWorkspace mode="payruns" period="ALL" filters={filters} embedded />
         </div>
       ) : null}
 
@@ -186,7 +182,7 @@ export default function UnifiedPayrollWorkspace({
         <div className="unified-payroll-stage">
           <h2 className="visually-hidden">Payment Instructions, disbursement, dan funding</h2>
           <p className="payment-stage-safety-note">Satu workspace untuk PI, Canonical DR, dan Funding. Maker menyiapkan; final execution hanya Payroll Controller.</p>
-          <OperatingWorkspace mode="payments" period={period} filters={filters} embedded gatewayCanView={gatewayCanView} />
+          <OperatingWorkspace mode="payments" period="ALL" filters={filters} embedded gatewayCanView={gatewayCanView} />
         </div>
       ) : null}
 
@@ -199,8 +195,8 @@ export default function UnifiedPayrollWorkspace({
               <small>Reconciliation tidak lagi bercampur dengan approval/payment execution.</small>
             </div>
           </div>
-          <div id="reconcile-work"><OperatingWorkspace mode="reconcile" period={period} filters={filters} embedded /></div>
-          <div id="billing-close" className="payroll-close-section"><OperatingWorkspace mode="billing" period={period} filters={filters} embedded /></div>
+          <div id="reconcile-work"><OperatingWorkspace mode="reconcile" period="ALL" filters={filters} embedded /></div>
+          <div id="billing-close" className="payroll-close-section"><OperatingWorkspace mode="billing" period="ALL" filters={filters} embedded /></div>
         </div>
       ) : null}
     </section>

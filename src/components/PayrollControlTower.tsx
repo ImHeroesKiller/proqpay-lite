@@ -173,7 +173,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
         id:`action-${row.id}-${row.nextAction.code}`,
         tone:row.nextAction.tone as Tone,
         title:row.nextAction.label,
-        detail:`${row.business.label} · ${row.nextAction.description}`,
+        detail:`${row.period} · ${row.business.label} · ${row.nextAction.description}`,
         client:row.client_name||row.client_id,
         amount:Number(row.total_net||0),
         action:row.nextAction.label,
@@ -201,7 +201,7 @@ export default function PayrollControlTower({actor,period,onNavigate}:Props) {
 
 
   return <section className={`control-tower${simplifiedInternal?' control-tower-simple':''}`} aria-busy={loading||refreshing}>
-    <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription}</p></div><button type="button" className="btn control-refresh" disabled={refreshing||gatewayBalanceLoading} onClick={()=>{if(actor.role==='CLIENT_USER'){invalidateOperatingCache();void load(true);}else void loadGatewayBalance(true);}}><IconRefresh aria-hidden="true" /> {refreshing?'Refreshing…':'Refresh'}</button></div>
+    <div className="control-tower-heading"><div><span>{simplifiedInternal?'MY WORKSPACE':'PAYROLL CONTROL TOWER'}</span><h1>{workspaceTitle}</h1><p>{workspaceDescription} Semua periode.</p></div><button type="button" className="btn control-refresh" disabled={refreshing||gatewayBalanceLoading} onClick={()=>{if(actor.role==='CLIENT_USER'){invalidateOperatingCache();void load(true);}else void loadGatewayBalance(true);}}><IconRefresh aria-hidden="true" /> {refreshing?'Refreshing…':'Refresh'}</button></div>
     <div className="control-bar card" aria-label="Filter dashboard payroll">
       <label><span>Klien</span><select value={client} onChange={(event)=>setClient(event.target.value)}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
       <label><span>Workflow stage</span><select value={stage} onChange={(event)=>setStage(event.target.value)}><option value="ALL">Semua stage</option>{PIPELINE.map((item)=><option key={item.stage} value={item.stage}>{item.label}</option>)}</select></label>

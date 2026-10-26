@@ -93,7 +93,7 @@ export default function OperatingWorkspace({
   const [uatClosedPiIds,setUatClosedPiIds] = useState<Set<string>>(new Set());
   const [uatArchiveVerified,setUatArchiveVerified] = useState(false);
   const [message, setMessage] = useState('');
-  const [periodFilter, setPeriodFilter] = useState(()=>period && period !== 'ALL'
+  const [periodFilter, setPeriodFilter] = useState(()=>period === 'ALL' ? 'ALL' : period && period !== 'ALL'
     ? period
     : typeof window==='undefined'?'ALL':routeValue('payrollPeriod')||'ALL');
   const [localClientFilter, setLocalClientFilter] = useState('ALL');
@@ -410,7 +410,7 @@ export default function OperatingWorkspace({
       {(focusSubmissionId||dashboardStage) && mode!=='billing' ? <div className="dashboard-focus-banner" role="status"><span>Dashboard focus · {focusSubmissionId || dashboardStage}</span><button type="button" onClick={clearDashboardFocus}>Tampilkan semua</button></div> : null}
 
       {!embedded && mode !== 'billing' ? <div className={`operations-control-bar${mode==='payments'?' operations-control-bar-payments':''}`}>
-        <label><span>Periode</span><select value={periodFilter} disabled={Boolean(period && period !== 'ALL')} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{period && period !== 'ALL' && !periods.includes(period) ? <option value={period}>{period}</option> : null}{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+        {mode==='reconcile'?<label><span>Periode</span><select value={periodFilter} disabled={Boolean(period && period !== 'ALL')} onChange={(event) => setPeriodFilter(event.target.value)}><option value="ALL">Semua periode</option>{period && period !== 'ALL' && !periods.includes(period) ? <option value={period}>{period}</option> : null}{periods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>:<div className="directory-hint">Semua periode · antrean kerja lintas bulan</div>}
         <label><span>Klien</span><select value={clientFilter} onChange={(event) => { setLocalClientFilter(event.target.value); setLocalProjectFilter('ALL'); }}><option value="ALL">Semua klien</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
         <label><span>Project</span><select value={projectFilter} onChange={(event)=>setLocalProjectFilter(event.target.value)}><option value="ALL">Semua project</option>{projects.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
         {mode!=='actions'?<label><span>{mode === 'payments' || mode === 'reconcile' ? 'Status PI' : simplifiedWorkspace && mode==='payruns' ? 'Stage' : 'Status pay run'}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">{simplifiedWorkspace&&mode==='payruns'?'Semua stage':'Semua status'}</option>{statusOptions.map((state) => <option key={state} value={state}>{simplifiedWorkspace&&mode==='payruns'?BUSINESS_STAGE_META[state as keyof typeof BUSINESS_STAGE_META]?.label:mode==='payments'||mode==='reconcile'?paymentBusinessLabel(String(state)):String(state).replaceAll('_', ' ')}</option>)}</select></label>:null}
@@ -1202,7 +1202,7 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
         {detail.paymentInstruction.rejection_reason ? <section className={`app-notice-bubble ${detail.paymentInstruction.status==='REVISION_REQUIRED'?'app-notice-error':'app-notice-info'}`} role="status"><strong>{detail.paymentInstruction.status==='REVISION_REQUIRED'?'PI dikembalikan untuk revisi':'Riwayat reject sebelumnya'}</strong><span>{detail.paymentInstruction.rejection_reason} · {detail.paymentInstruction.rejected_by || 'Payroll Controller'}</span></section> : null}
         {phase==='payment' && gatewayCanView && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(detail.paymentInstruction.status) && executionStrategy!=='legacy' ? <div className="app-notice-bubble app-notice-info" role="status"><strong>{executionStrategy==='canonical'?'Canonical Disbursement Request aktif':'Verifikasi jalur pembayaran diperlukan'}</strong><span>{executionStrategy==='canonical'?'Gunakan Canonical Disbursement Control di atas; eksekusi gateway legacy tidak berlaku untuk PI ini.':'Jalur eksekusi belum dapat diverifikasi. Pembayaran melalui gateway legacy tidak ditampilkan sampai status berhasil dimuat.'}</span></div> : null}
         {phase==='payment' && gatewayCanView && executionStrategy==='legacy' && ['APPROVED_FOR_PAYMENT','DISBURSEMENT_PROCESSING'].includes(detail.paymentInstruction.status) ? <section className="pi-gateway-section" aria-label="Payment execution">
-          <div className="pi-section-heading"><div><span>PAYMENT EXECUTION</span><h4>Gateway & provider status</h4></div><small>Terikat ke PI dan periode {period}</small></div>
+          <div className="pi-section-heading"><div><span>PAYMENT EXECUTION</span><h4>Gateway & provider status</h4></div><small>Terikat ke PI dan periode {detail.paymentInstruction.payroll_period || period}</small></div>
           <PaymentGatewayExecutionActions
             paymentInstructionId={detail.paymentInstruction.id}
             expectedPeriod={String(detail.paymentInstruction.payroll_period || period)}
