@@ -62,8 +62,8 @@ export default function AppWorkspaceRouter(props:Props) {
     <ModuleErrorBoundary moduleName={view} resetKey={`${view}:${retryKey}`} onRetry={() => setRetryKey((value)=>value+1)}>
       {view === 'dashboard' && (
         actor.role === 'CLIENT_USER'
-          ? <ClientHome actor={actor} period={period} onNavigate={props.onNavigate} />
-          : <PayrollControlTowerAdapter actor={actor} period={period} onNavigate={props.onNavigate} />
+          ? <ClientHome actor={actor} period="ALL" onNavigate={props.onNavigate} />
+          : <PayrollControlTowerAdapter actor={actor} period="ALL" onNavigate={props.onNavigate} />
       )}
       {view === 'employees' && <EmployeeDirectory
         employees={db.employees || []}
@@ -89,10 +89,10 @@ export default function AppWorkspaceRouter(props:Props) {
           initialStage={view === 'payments' ? 'PAYMENT' : view === 'billing' ? 'CLOSE' : 'PAYROLL'}
         />
       ) : null}
-      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'operations' && <OperatingWorkspace mode="payruns" period={period} />}
-      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'exceptions' && <OperatingWorkspace mode="actions" period={period} />}
-      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'payments' && <OperatingWorkspace mode="payments" period={period} gatewayCanView={gatewayCanView} />}
-      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'billing' && <OperatingWorkspace mode="billing" period={period} />}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'operations' && <OperatingWorkspace mode="payruns" period="ALL" />}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'exceptions' && <OperatingWorkspace mode="actions" period="ALL" />}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'payments' && <OperatingWorkspace mode="payments" period="ALL" gatewayCanView={gatewayCanView} />}
+      {!['PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role) && view === 'billing' && <OperatingWorkspace mode="billing" period="ALL" />}
       {view === 'integrations' && <IntegrationsWorkspace
         canManage={integrationsCanManage}
         canView={gatewayCanView}

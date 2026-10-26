@@ -33,11 +33,8 @@ type Props = {
 };
 
 export default function AppHeader({
-  period,
-  periods,
   view,
   clientCount,
-  onPeriodChange,
   onNavigate,
   onHelp,
   onMenu,
@@ -66,7 +63,7 @@ export default function AppHeader({
   const refreshAlerts = useCallback(async () => {
     setAlertsState("loading");
     try {
-      const result = await listOperatingDashboard(undefined, period);
+      const result = await listOperatingDashboard(undefined, 'ALL');
       const submissions = result.submissions || [];
       const paymentInstructions = result.paymentInstructions || [];
       const openCount = submissions.reduce(
@@ -127,7 +124,7 @@ export default function AppHeader({
     } catch {
       setAlertsState("error");
     }
-  }, [actor.role, period]);
+  }, [actor.role]);
   useEffect(() => {
     void refreshAlerts();
     const refresh=()=>void refreshAlerts();
@@ -265,20 +262,6 @@ export default function AppHeader({
           </div>
         </div>
         <div className="header-actions" ref={shellRef}>
-          <label className="header-period">
-            <span>Period</span>
-            <select
-              aria-label="Global payroll period"
-              value={period}
-              onChange={(event) => onPeriodChange(event.target.value)}
-            >
-              {periods.map((item) => (
-                <option key={item} value={item}>
-                  {item === "ALL" ? "All periods" : item}
-                </option>
-              ))}
-            </select>
-          </label>
           <div className="header-search">
             <button
               type="button"

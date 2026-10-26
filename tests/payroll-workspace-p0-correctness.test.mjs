@@ -15,15 +15,15 @@ test('P0 client payroll upload uses scoped capability without global import perm
   assert.match(intake,/invalidTransferTargets[\s\S]*clientIntakeScopeAllowed/);
 });
 
-test('P0 global period is propagated into payrun, PI and gateway execution surfaces',async()=>{
+test('Cross-period queues retain the selected PI period for financial execution',async()=>{
   const [workspace,operating,actions,api]=await Promise.all([
     read('src/components/UnifiedPayrollWorkspace.tsx'),
     read('src/components/OperatingWorkspace.tsx'),
     read('src/components/PaymentGatewayExecutionActions.tsx'),
     read('src/lib/payment-gateway-api.ts'),
   ]);
-  assert.match(workspace,/<OperatingWorkspace mode="payruns" period=\{period\}/);
-  assert.match(workspace,/<OperatingWorkspace mode="payments" period=\{period\}/);
+  assert.match(workspace,/<OperatingWorkspace mode="payruns" period="ALL"/);
+  assert.match(workspace,/<OperatingWorkspace mode="payments" period="ALL"/);
   assert.match(operating,/disabled=\{Boolean\(period && period !== 'ALL'\)\}/);
   assert.match(operating,/PaymentGatewayExecutionActions/);
   assert.match(operating,/expectedPeriod=\{String\(detail\.paymentInstruction\.payroll_period \|\| period\)\}/);

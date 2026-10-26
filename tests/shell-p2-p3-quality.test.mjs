@@ -48,7 +48,7 @@ test('Data Intake uses client-side Link and preserves global payroll period in b
 test('Header client scope uses canonical D1 dashboard summary instead of local company count', async()=>{
   const source=await read('src/app/page.tsx');
   assert.match(source,/canonicalClientCount/);
-  assert.match(source,/listOperatingDashboard\(undefined, period\)/);
+  assert.match(source,/listOperatingDashboard\(undefined, 'ALL'\)/);
   assert.match(source,/result\.portfolioSummary\?\.clients/);
   assert.match(source,/clientCount=\{canonicalClientCount\}/);
   assert.doesNotMatch(source,/clientCount=\{actor\.role==='CLIENT_USER'.*db\.companies/s);
@@ -139,4 +139,21 @@ test('P3 shell and backend authority consume one canonical matrix', async()=>{
   assert.match(page,/roleCanAction/);
   assert.match(account,/APP_ROLES/);
   assert.match(security,/permissionsForRole/);
+});
+
+
+test('operational navigation ignores stale global months while report filters remain available',async()=>{
+  const [router,header,workspace,operating,reports,intake]=await Promise.all([
+    read('src/components/AppWorkspaceRouter.tsx'),read('src/components/AppHeader.tsx'),
+    read('src/components/UnifiedPayrollWorkspace.tsx'),read('src/components/OperatingWorkspace.tsx'),
+    read('src/components/ReportsWorkspace.tsx'),read('src/app/data-intake/page.tsx'),
+  ]);
+  assert.match(router,/<ClientHome actor=\{actor\} period="ALL"/);
+  assert.match(router,/<PayrollControlTowerAdapter actor=\{actor\} period="ALL"/);
+  assert.doesNotMatch(header,/Global payroll period/);
+  assert.match(header,/listOperatingDashboard\(undefined, 'ALL'\)/);
+  for(const mode of ['payruns','payments','reconcile','billing']) assert.ok(workspace.includes(`mode="${mode}" period="ALL"`));
+  assert.match(operating,/period === 'ALL' \? 'ALL'/);
+  assert.match(reports,/<option value="ALL">Semua periode/);
+  assert.match(intake,/type="month"/);
 });

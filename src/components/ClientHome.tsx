@@ -135,7 +135,7 @@ export default function ClientHome({actor,period,onNavigate}:Props) {
       <button type="button" className="control-kpi red" onClick={()=>onNavigate('operations')}><span className="control-kpi-label">Needs Your Attention</span><strong>{needsAttention.length}</strong><small>Payroll yang perlu tindakan Anda</small><i>→</i></button>
       <button type="button" className="control-kpi amber" onClick={()=>onNavigate('operations')}><span className="control-kpi-label">For Approval</span><strong>{forApproval.length}</strong><small>Payroll yang siap direview</small><i>→</i></button>
       <button type="button" className="control-kpi blue" onClick={()=>onNavigate('operations')}><span className="control-kpi-label">Payment Status</span><strong>{processingPayments.length}</strong><small>{completedPayments.length} pembayaran selesai</small><i>→</i></button>
-      <button type="button" className="control-kpi green" onClick={()=>onNavigate('reports')}><span className="control-kpi-label">Invoices</span><strong>{visibleInvoices.length}</strong><small>Invoice pada periode aktif</small><i>→</i></button>
+      <button type="button" className="control-kpi green" onClick={()=>onNavigate('reports')}><span className="control-kpi-label">Invoices</span><strong>{visibleInvoices.length}</strong><small>Invoice semua periode</small><i>→</i></button>
     </div>
 
     <section className="card action-center">
@@ -153,7 +153,7 @@ export default function ClientHome({actor,period,onNavigate}:Props) {
     <section className="card portfolio-panel">
       <div className="control-panel-title"><div><span>PAYROLL STATUS</span><h2>Payroll Terbaru</h2></div><small>{rows.length} payroll</small></div>
       <div className="portfolio-table-wrap"><table className="portfolio-table dashboard-responsive-table">
-        <caption className="visually-hidden">Payroll terbaru untuk scope akun klien dan periode aktif</caption>
+        <caption className="visually-hidden">Payroll terbaru untuk scope akun klien, semua periode</caption>
         <thead><tr><th scope="col">Payroll</th><th scope="col">Stage</th><th scope="col">THP</th><th scope="col">Payment</th><th scope="col">Next</th></tr></thead><tbody>
         {latest.map((row)=><tr key={row.id}>
           <td data-label="Payroll"><strong>{row.client_name||row.client_id}</strong><small>{row.project_name||'-'} · {row.period}</small></td>

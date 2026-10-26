@@ -173,7 +173,7 @@ export default function Home() {
       return;
     }
     let cancelled = false;
-    void listOperatingDashboard(undefined, period)
+    void listOperatingDashboard(undefined, 'ALL')
       .then((result) => {
         if (cancelled) return;
         const clients = Number(result.portfolioSummary?.clients);

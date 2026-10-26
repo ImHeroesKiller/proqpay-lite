@@ -138,7 +138,7 @@ test('dashboard UI contracts implement audited P1 and P2 fixes',async()=>{
   ]);
   assert.match(page,/listOperatingPeriods/);
   assert.match(page,/AppWorkspaceRouter/);
-  assert.match(router,/<ClientHome actor=\{actor\} period=\{period\}/);
+  assert.match(router,/<ClientHome actor=\{actor\} period="ALL"/);
   assert.match(clientHome,/listOperatingDashboard\(undefined,period\)/);
   assert.match(clientHome,/invalidateOperatingCache\(\)/);
   assert.match(clientHome,/visibleInvoices/);
@@ -172,4 +172,21 @@ test('dashboard UI contracts implement audited P1 and P2 fixes',async()=>{
   assert.match(css,/theme-dark \.control-kpi/);
   assert.match(css,/dashboard-focus-banner/);
   assert.match(indexes,/idx_dashboard_active_pi_submission/);
+});
+
+
+test('all-period work queues retain earlier pending work and client isolation',async()=>{
+  const DB=new D1Mock();seed(DB);
+  try {
+    for(const role of ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER']) {
+      const result=await dashboard(DB,{...internal,role},'/api/operating-model?resource=dashboard');
+      assert.equal(result.response.status,200);
+      assert.ok(result.payload.submissions.some(row=>row.id==='SUB-DASH-SEP' && row.state==='PAYMENT_APPROVAL_PENDING'));
+      assert.ok(result.payload.submissions.some(row=>row.id==='SUB-DASH-AUG'));
+    }
+    const scoped=await dashboard(DB,client,'/api/operating-model?resource=dashboard');
+    assert.equal(scoped.response.status,200);
+    assert.deepEqual(new Set(scoped.payload.submissions.map(row=>row.id)),new Set(['SUB-DASH-SEP','SUB-DASH-AUG']));
+    assert.ok(scoped.payload.paymentInstructions.every(row=>row.client_id==='CLI-DASH-A'));
+  } finally {DB.sqlite.close();}
 });
