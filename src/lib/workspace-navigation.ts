@@ -26,7 +26,7 @@ export function normalizeInternalRoute(view:AppView,stageValue:string|null,inter
   if(!internal||!allowedPayrollView(view))return {view,stage:null};
   // Explicit stage owns visible parent tab as well as the URL.
   const stage=payrollStage(stageValue)||stageForView(view);
-  return {view:PAYROLL_STAGE_VIEW[stage],stage};
+  return {view:view==='exceptions' && stage==='PAYROLL'?'exceptions':PAYROLL_STAGE_VIEW[stage],stage};
 }
 export function recoveryReturnUrl(accountId:string,period:string|null):string {
   const params=new URLSearchParams({view:'payments',stage:'payment',paymentPanel:'FUNDING',fundingAccountId:accountId,recoveryComplete:'1'});
@@ -51,4 +51,9 @@ export function resolveRecoveryTarget<
     return project?{kind:'project',target:project,account}:{error:'PROJECT_NOT_FOUND'};
   }
   return {kind:'client',target:client,account};
+}
+
+export function exceptionCenterUrl(submissionId:string):string {
+  const params=new URLSearchParams({view:'exceptions',stage:'payroll',submissionId});
+  return `/?${params.toString()}`;
 }

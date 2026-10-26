@@ -86,6 +86,7 @@ export default function AppWorkspaceRouter(props:Props) {
           period={period}
           onNavigate={props.onNavigate}
           gatewayCanView={gatewayCanView}
+          initialPanel={view === 'exceptions' ? 'EXCEPTIONS' : 'PAYRUNS'}
           initialStage={view === 'payments' ? 'PAYMENT' : view === 'billing' ? 'CLOSE' : 'PAYROLL'}
         />
       ) : null}

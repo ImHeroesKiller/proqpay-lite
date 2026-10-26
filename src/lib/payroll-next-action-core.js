@@ -89,7 +89,7 @@ function processorAction(context, stage) {
     });
   }
 
-  if (Number(context.blockingCount || 0) > 0 || state === 'EXCEPTION_FOUND') {
+  if (Number(context.blockingCount || 0) > 0) {
     return result('RESOLVE_PAYROLL_ISSUES','Resolve Payroll Issues','Critical payroll findings must be resolved before approval.','exceptions',{
       actionable:true,tone:'danger',priority:1,category:'EXCEPTION',owner:'PAYROLL_PROCESSOR',
     });
@@ -106,7 +106,7 @@ function processorAction(context, stage) {
     });
   }
 
-  if (['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','CLIENT_RESUBMITTED','REVISION_REQUIRED','CLIENT_REVISION_REQUESTED'].includes(state)) {
+  if (['DRAFT','SUBMITTED','INGESTING','AI_VALIDATING','EXCEPTION_FOUND','CLIENT_RESUBMITTED','REVISION_REQUIRED','CLIENT_REVISION_REQUESTED'].includes(state)) {
     return result('VALIDATE_PAYROLL','Validate Payroll','Run payroll validation and continue the review cycle.','operations',{
       actionable:true,tone:'info',priority:3,category:'REVIEW',workflowCommand:'ADVANCE_VALIDATE',owner:'PAYROLL_PROCESSOR',
     });

@@ -628,6 +628,19 @@ async function getCloseReadiness(database, organizationId, submission) {
   };
 }
 
+// Confirmed NO_PAY is scoped to the current imported source of this exact run.
+// Historical/cancelled/unconfirmed batches and master-created runs cannot hide missing staff.
+async function missingEligiblePayRunEmployees(database, submission, organizationId) {
+  return d1All(database, `SELECT e.id AS employee_id,e.name AS employee_name
+    FROM employees e WHERE e.org_id=? AND e.client_id=? AND e.project_id=? AND ${ACTIVE_EMPLOYEE}
+      AND NOT EXISTS(SELECT 1 FROM payroll_run_lines l WHERE l.submission_id=? AND l.employee_id=e.id AND l.included=1)
+      AND NOT EXISTS(SELECT 1 FROM payroll_intake_missing_resolutions r
+        JOIN payroll_upload_batches b ON b.id=r.batch_id
+        WHERE r.employee_id=e.id AND r.resolution='NO_PAY_THIS_PERIOD'
+          AND b.submission_id=? AND b.org_id=e.org_id AND b.status='IMPORTED' AND ?='UPLOAD_FINAL')
+    ORDER BY e.name`, [organizationId,submission.client_id,submission.project_id,submission.id,submission.id,submission.source_mode]);
+}
+
 async function validateCanonicalPayRunSnapshot(database, submission, actor, organizationId, env) {
   const rows = await d1All(database, `SELECT l.employee_id,l.employee_name,l.gross_amount,l.deduction_amount,l.net_amount,
       l.bank_name,l.account_last4,e.status_aktif,e.client_id AS current_client_id,e.project_id AS current_project_id,
@@ -640,10 +653,7 @@ async function validateCanonicalPayRunSnapshot(database, submission, actor, orga
     LEFT JOIN employee_bank_accounts eba ON eba.employee_id=l.employee_id AND eba.is_primary=1
     WHERE l.submission_id=? AND l.included=1 ORDER BY l.employee_id`,
     [organizationId,submission.client_id,submission.project_id,submission.id]);
-  const missingEligible = await d1All(database, `SELECT e.id AS employee_id,e.name AS employee_name
-    FROM employees e WHERE e.org_id=? AND e.client_id=? AND e.project_id=? AND ${ACTIVE_EMPLOYEE}
-      AND NOT EXISTS(SELECT 1 FROM payroll_run_lines l WHERE l.submission_id=? AND l.employee_id=e.id AND l.included=1)
-    ORDER BY e.name`, [organizationId,submission.client_id,submission.project_id,submission.id]);
+  const missingEligible = await missingEligiblePayRunEmployees(database, submission, organizationId);
   const issues = [];
   const add = (row, category, field, reason) => issues.push({
     employeeId: row?.employee_id || null,
@@ -1059,15 +1069,17 @@ async function executeAction(database, body, actor, env, organizationId) {
       ) THEN 1 ELSE 0 END) AS invalid_population
       FROM payroll_run_lines WHERE submission_id=? AND included=1`,
       [organizationId,submission.client_id,submission.project_id,submission.id]);
-    const missingEligible = await d1First(database, `SELECT COUNT(*) AS count FROM employees e
-      WHERE e.org_id=? AND e.client_id=? AND e.project_id=? AND ${ACTIVE_EMPLOYEE}
-      AND NOT EXISTS(SELECT 1 FROM payroll_run_lines l WHERE l.submission_id=? AND l.employee_id=e.id AND l.included=1)`,
-      [organizationId,submission.client_id,submission.project_id,submission.id]);
+    const missingEligible = await missingEligiblePayRunEmployees(database, submission, organizationId);
     if (!Number(quality?.recipients||0)) return { status:409, data:{ error:'Pay Run tidak memiliki penerima aktif' } };
     if (Number(quality?.invalid_control||0) || Number(quality?.invalid_bank||0)
-      || Number(quality?.invalid_population||0) || Number(missingEligible?.count||0)) return { status:409, data:{
-      error:`Input belum valid: ${Number(quality?.invalid_control||0)} control payroll, ${Number(quality?.invalid_bank||0)} rekening, ${Number(quality?.invalid_population||0)} penerima tidak eligible, ${Number(missingEligible?.count||0)} karyawan aktif belum masuk snapshot`,
+      || Number(quality?.invalid_population||0) || missingEligible.length) return { status:409, data:{
+      error:`Input belum valid: ${Number(quality?.invalid_control||0)} control payroll, ${Number(quality?.invalid_bank||0)} rekening, ${Number(quality?.invalid_population||0)} penerima tidak eligible, ${missingEligible.length} karyawan aktif belum masuk snapshot`,
       code:'PAY_RUN_INPUT_CONTROL_INVALID',
+    } };
+    // Re-check system findings rather than requiring manual acceptance of stale blockers.
+    const validation = await validateCanonicalPayRunSnapshot(database, submission, actor, organizationId, env);
+    if (validation.issues.length) return { status:409, data:{
+      error:`${validation.issues.length} temuan input payroll masih perlu diperbaiki`,code:'PAY_RUN_INPUT_CONTROL_INVALID',
     } };
     await d1Batch(database, [
       { statement:`UPDATE payroll_submissions SET input_status='READY',updated_at=${NOW} WHERE id=?`, bindings:[submission.id] },

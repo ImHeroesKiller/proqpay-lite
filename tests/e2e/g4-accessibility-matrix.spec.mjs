@@ -8,8 +8,8 @@ test.use({bypassCSP:true});
 const axePath=fileURLToPath(new URL('../../node_modules/axe-core/axe.min.js',import.meta.url));
 const roleViews={
  SUPER_ADMIN:['dashboard','clients','operations','exceptions','payments','billing','employees','reports','integrations','ewa','logs','portalSettings'],
- PAYROLL_PROCESSOR:['dashboard','clients','operations','payments','billing'],
- PAYROLL_CONTROLLER:['dashboard','operations','payments','billing'],
+ PAYROLL_PROCESSOR:['dashboard','clients','operations','exceptions','payments','billing'],
+ PAYROLL_CONTROLLER:['dashboard','operations','exceptions','payments','billing'],
  CLIENT_USER:['dashboard','operations','reports'],
 };
 const viewports=[{width:1440,height:900},{width:390,height:844},{width:320,height:720}];
