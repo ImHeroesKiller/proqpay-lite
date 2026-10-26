@@ -16,6 +16,7 @@ type Props = {
   period:string;
   gatewayCanView:boolean;
   initialStage?:Stage;
+  initialPanel?:'PAYRUNS'|'EXCEPTIONS';
   onNavigate:(view:AppView)=>void;
 };
 
@@ -49,6 +50,7 @@ export default function UnifiedPayrollWorkspace({
   period,
   gatewayCanView,
   initialStage='PAYROLL',
+  initialPanel='PAYRUNS',
   onNavigate,
 }:Props) {
   const initialUrlStage=typeof window==='undefined'?null:stageFromUrl(routeValue('stage'));
@@ -82,12 +84,12 @@ export default function UnifiedPayrollWorkspace({
   },[initialStage]);
 
   const changeStage=useCallback((next:Stage)=>{
-    if(next===stage)return;
+    if(next===stage && initialPanel!=='EXCEPTIONS')return;
     // Parent is the single owner of route and sidebar state; do not pushState
     // only in the child while leaving the parent on an old view.
     onNavigate(PAYROLL_STAGE_VIEW[next]); // parent updates URL, stage, sidebar and Back/Forward once
     setStage(next);
-  },[onNavigate,stage]);
+  },[onNavigate,stage,initialPanel]);
 
   const patchFilters=useCallback((patch:Partial<WorkspaceFilterState>)=>{
     const next=patchWorkspaceFilters(filters,patch);
@@ -156,6 +158,10 @@ export default function UnifiedPayrollWorkspace({
 
       {stage==='PAYROLL' ? (
         <div className="unified-payroll-stage">
+          {initialPanel==='EXCEPTIONS'?<>
+            <div className="control-panel-title"><div><span>DATA READINESS</span><h2>Exception Center</h2></div><button type="button" className="btn" onClick={()=>changeStage('PAYROLL')}>Kembali ke Payroll</button></div>
+            <OperatingWorkspace mode="actions" period="ALL" filters={filters} embedded />
+          </>:<>
           {canUpload ? (
             <div className="workflow-shortcut card">
               <div>
@@ -175,6 +181,7 @@ export default function UnifiedPayrollWorkspace({
             </div>
           )}
           <OperatingWorkspace mode="payruns" period="ALL" filters={filters} embedded />
+          </>}
         </div>
       ) : null}
 

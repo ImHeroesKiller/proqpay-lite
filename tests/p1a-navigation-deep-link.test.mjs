@@ -3,7 +3,7 @@ import test from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {
   PAYROLL_STAGE_URL,PAYROLL_STAGE_VIEW,validAppView,payrollStage,
-  normalizeInternalRoute,recoveryReturnUrl,resolveRecoveryTarget,
+  normalizeInternalRoute,recoveryReturnUrl,resolveRecoveryTarget,exceptionCenterUrl,
 } from '../src/lib/workspace-navigation.ts';
 
 const src=async name=>readFile(new URL('../'+name,import.meta.url),'utf8');
@@ -67,3 +67,18 @@ test('P1.A application parent owns stage navigation and browser Back/Forward res
 
 test('GT5 retired credential recovery deep link is absent from Client UI',async()=>{ assert.doesNotMatch(await src('src/components/DirectoryManager.tsx'),/recoveryAccountId/); });
 
+
+test('Exception Center remains an exception view through refresh and browser route normalization',()=>{
+ for(const stage of [null,'payroll','broken']) {
+  assert.deepEqual(normalizeInternalRoute('exceptions',stage,true),{view:'exceptions',stage:'PAYROLL'});
+ }
+ assert.deepEqual(normalizeInternalRoute('exceptions','payment',true),{view:'payments',stage:'PAYMENT'});
+});
+
+test('Exception Center link retains the exact pay run and resets stale stage context',()=>{
+ const url=new URL(exceptionCenterUrl('SUB-A&B'),'https://proqpay.test');
+ assert.equal(url.searchParams.get('view'),'exceptions');
+ assert.equal(url.searchParams.get('stage'),'payroll');
+ assert.equal(url.searchParams.get('submissionId'),'SUB-A&B');
+ assert.deepEqual(normalizeInternalRoute('exceptions',url.searchParams.get('stage'),true),{view:'exceptions',stage:'PAYROLL'});
+});
