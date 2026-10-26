@@ -290,7 +290,7 @@ export async function onRequest({request,env}){
             )`,
           [actor.id||null,actor.email,id,organizationId,organizationId,pending.environment,organizationId,pending.provider_account_registry_id,pending.provider_account_registry_id,pending.provider_account_registry_id,id]);
         if(Number(guarded?.meta?.changes||0)!==1)
-          return secureJson({error:'Alokasi Master tidak dapat disetujui: saldo/kapasitas berubah atau tidak fresh.',code:'MASTER_GLOBAL_CAPACITY_RECHECK_FAILED'},409,request,env,METHODS);
+          return secureJson({error:'Limit belum dapat disetujui. Saldo Master harus diperbarui dalam 5 menit terakhir dan mencukupi setelah dikurangi alokasi limit klien lain. Refresh Saldo Master, lalu kurangi nominal pengajuan atau tinjau alokasi aktif.',code:'MASTER_GLOBAL_CAPACITY_RECHECK_FAILED'},409,request,env,METHODS);
         await d1Batch(env.DB,[audit(organizationId,actor,'E2PAY_MASTER_LIMIT_APPROVED',id,
           `amount=${Number(pending.requested_amount)} · client=${pending.client_id}`,correlationId)]);
         return secureJson({ok:true,request:await d1First(env.DB,'SELECT * FROM e2pay_disbursement_limit_requests WHERE id=?',[id]),funding,correlationId},200,request,env,METHODS);
