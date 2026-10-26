@@ -401,6 +401,14 @@ async function previewUpload(request, env, actor) {
       },
     };
   }
+  // Reset retains source history; the same file hash must reuse its cancelled
+  // batch rather than violate UNIQUE(org_id,submission_id,file_sha256).
+  const cancelled = await d1First(env.DB,
+    "SELECT id,r2_object_key FROM payroll_upload_batches WHERE org_id=? AND submission_id=? AND file_sha256=? AND status='CANCELLED' LIMIT 1",
+    [orgId,submission.id,fileHash]);
+  const retainedRows = cancelled ? await d1All(env.DB,
+    "SELECT row_no,row_hash FROM payroll_upload_rows WHERE batch_id=?",[cancelled.id]) : [];
+  const retainedHashes = new Map(retainedRows.map(row=>[Number(row.row_no),String(row.row_hash)]));
   const current = await loadCurrentEmployees(
     env.DB,
     orgId,
@@ -476,9 +484,9 @@ async function previewUpload(request, env, actor) {
       name: row.name,
       status: row.status_aktif || "ACTIVE",
     }));
-  const batchId = `PUB-${crypto.randomUUID()}`;
-  const objectKey = `payroll-source/${orgId}/${submission.id}/${batchId}-${safeName(file.name)}`;
-  await env.FILES.put(objectKey, bytes, {
+  const batchId = cancelled?.id || `PUB-${crypto.randomUUID()}`;
+  const objectKey = cancelled?.r2_object_key || `payroll-source/${orgId}/${submission.id}/${batchId}-${safeName(file.name)}`;
+  if (!cancelled) await env.FILES.put(objectKey, bytes, {
     httpMetadata: {
       contentType:
         file.type ||
@@ -494,6 +502,10 @@ async function previewUpload(request, env, actor) {
   const rowOps = [];
   for (let i = 0; i < base.rows.length; i += 1) {
     const rowHash = await sha256Hex(JSON.stringify(base.rows[i]));
+    if (retainedHashes.has(i+1)) {
+      if (retainedHashes.get(i+1)!==rowHash) return {status:409,data:{error:"Hasil pembacaan file berbeda dari sumber tersimpan. Hubungi administrator sebelum mengunggah ulang.",code:"PAYROLL_SOURCE_REPLAY_MISMATCH"}};
+      continue;
+    }
     rowOps.push({
       statement: `INSERT INTO payroll_upload_rows(id,batch_id,row_no,employee_id,raw_payload,normalized_payload,validation_status,validation_errors,row_hash) VALUES(?,?,?,?,?,?,?,?,?)`,
       bindings: [
@@ -525,7 +537,7 @@ async function previewUpload(request, env, actor) {
       missing: missing.length,
     },
   };
-  await d1Run(
+  if (!cancelled) await d1Run(
     env.DB,
     `INSERT INTO payroll_upload_batches(id,org_id,submission_id,original_filename,r2_object_key,file_sha256,template_version,uploaded_by,sheet_name,raw_row_count,accepted_row_count,rejected_row_count,source_total_gross,source_total_deduction,source_total_net,status,validation_summary)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -550,6 +562,12 @@ async function previewUpload(request, env, actor) {
     ],
   );
   for (const group of chunks(rowOps, 35)) await d1Batch(env.DB, group);
+  if (cancelled) {
+    const restored=await d1Run(env.DB,
+      "UPDATE payroll_upload_batches SET status=?,validation_summary=? WHERE id=? AND org_id=? AND submission_id=? AND file_sha256=? AND status='CANCELLED'",
+      [status,JSON.stringify(summary),batchId,orgId,submission.id,fileHash]);
+    if (Number(restored?.meta?.changes)!==1) return {status:409,data:{error:"Status intake berubah. Muat ulang sebelum mengunggah kembali.",code:"PAYROLL_INTAKE_STATE_CHANGED"}};
+  }
   await d1Run(
     env.DB,
     `INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id) VALUES(?,?,?,?,?,?,?,?)`,
