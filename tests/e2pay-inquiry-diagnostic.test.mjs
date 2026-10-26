@@ -16,7 +16,9 @@ test('UAT diagnostic compares baseline and payroll without a financial request o
  assert.equal(calls.length,4);assert.equal(result.results[0].ok,true);
  assert.equal(result.results[1].diagnostic.reason,'AMOUNT_REJECTED');
  assert.equal(result.financialPostStarted,false);
- assert.doesNotMatch(JSON.stringify({result,audits}),/private-token|private-code|private-inquiry|701075327|Amount exceeds/);
+ assert.doesNotMatch(JSON.stringify({result,audits}),/private-token|private-code|private-inquiry|Amount exceeds/);
+ assert.doesNotMatch(JSON.stringify(result),/701075327/);
+ for(const row of audits.filter(row=>row.endpoint.endsWith('/inquiry'))){assert.equal(row.queryParameters.accountId,'701075327');assert.equal(row.queryParameters.bankId,'permata');}
 });
 
 test('diagnostic rejects production and invalid amounts before any network access',async()=>{

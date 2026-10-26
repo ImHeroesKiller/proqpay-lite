@@ -74,7 +74,7 @@ for(const kind of ['reject','network'])test(`first ${kind} stops preflight, pers
  const r=await executeCanonicalE2Pay(f);assert.equal(r.parentStatus,'FAILED');assert.equal(p.inquiries(),1);assert.equal(p.posts(),0);
  const rows=f.database.sqlite.prepare('SELECT * FROM disbursement_execution_items').all();assert.equal(rows.filter(x=>x.status==='CREATED').length,213);
  const failed=rows.find(x=>x.status==='FAILED');assert.ok(!failed.error_message.includes('701075327'));assert.equal(failed.error_code,kind==='network'?'E2PAY_SUBREQUEST_LIMIT':'E2PAY_HTTP_ERROR');
- const a=audits.find(x=>x.endpoint.endsWith('/inquiry'));assert.ok(!JSON.stringify(a).includes('701075327'));assert.ok(!JSON.stringify(a).includes('private-token'));
+ const a=audits.find(x=>x.endpoint.endsWith('/inquiry'));assert.equal(a.queryParameters.accountId,'701075327');assert.equal(a.queryParameters.bankId,'permata');assert.ok(!JSON.stringify(a).includes('secret-account-701075327'));assert.ok(!JSON.stringify(a).includes('private-token'));
  if(kind==='reject'){assert.equal(a.responseDiagnostics.providerCode,'99');assert.equal(a.responseDiagnostics.reason,'SIGNATURE_REJECTED');assert.equal(a.responseDiagnostics.bodyFingerprint.length,64);}
  await executeCanonicalE2Pay(f);assert.equal(p.inquiries(),1);assert.equal(p.posts(),0);
 });
