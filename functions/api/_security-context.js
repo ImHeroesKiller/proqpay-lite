@@ -32,15 +32,12 @@ export async function requestSecurityContext(request, env = {}) {
       || ''
   ).split(',')[0].trim();
   const userAgent = String(request.headers.get('User-Agent') || '').trim();
-  // Keep the session fingerprint stable across navigation/refresh. Accept-Language
-  // and Sec-CH-UA brand/version hints can legitimately vary between browser
-  // navigation and fetch requests and must not invalidate an authenticated session.
-  const platform = String(request.headers.get('Sec-CH-UA-Platform') || '').trim();
-  const mobile = String(request.headers.get('Sec-CH-UA-Mobile') || '').trim();
-  const deviceSource = [userAgent, platform, mobile].join('|');
+  // Client hints (including platform/mobile) are optional and may be omitted on
+  // otherwise identical requests. Enforce the durable User-Agent only; network
+  // changes remain audited separately and critical-role device changes revoke.
   return {
     ipHash: ip ? await protectedHash(ip, env, 'IP') : null,
-    deviceHash: deviceSource.trim() ? await protectedHash(deviceSource, env, 'DEVICE') : null,
+    deviceHash: await protectedHash(userAgent, env, 'DEVICE'),
   };
 }
 
