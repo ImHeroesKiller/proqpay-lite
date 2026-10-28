@@ -81,3 +81,8 @@
 .enterprise-payments .e2pay-funding p{white-space:normal;overflow-wrap:anywhere}
 .enterprise-payments .e2pay-funding .ui-table-wrap{width:100%;max-width:100%;overflow-x:auto}
 .enterprise-payments .payment-decision-main{grid-template-columns:minmax(0,1fr)}
+/* Keep the brand fill; small accent text needs a darker AA tone on light surfaces. */
+.app-shell:not(.theme-dark) .unified-payroll-workspace .payroll-stage-nav button.active strong,
+.app-shell:not(.theme-dark) .unified-payroll-workspace .pay-run-group-tabs button.active,
+.app-shell:not(.theme-dark) .enterprise-payments .workspace-payment-tab[aria-selected="true"],
+.app-shell:not(.theme-dark) .enterprise-operating-workspace .stage-pill{color:#9c3d0b}

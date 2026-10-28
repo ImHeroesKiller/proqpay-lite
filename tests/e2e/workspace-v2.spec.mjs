@@ -43,16 +43,17 @@ for(const width of [1440,1024,768,390,360])test(`workspace v2 layout and state a
  await page.screenshot({path:`${capture}/pi-${width}.png`,fullPage:true});
  if(!before){
   await expect(page.locator('.payroll-shared-filter').locator('label').filter({hasText:'Periode'}).locator('select')).toHaveValue('2026-10');
+  await page.locator('.pi-status-filter select').selectOption('PAYMENT_APPROVAL_PENDING');await expect(page).toHaveURL(/piStatus=PAYMENT_APPROVAL_PENDING/);
   const tab=page.getByRole('tab',{name:/Payment Instructions/});expect(await tab.evaluate(el=>getComputedStyle(el).backgroundImage)).toBe('none');expect(await tab.evaluate(el=>getComputedStyle(el).borderBottomWidth)).toBe('2px');await tab.focus();await page.keyboard.press('ArrowRight');
  }else await page.getByRole('tab',{name:/Disbursement/}).click();
  await expect(page.getByText('DR-202610-001',{exact:true})).toBeVisible();
  await page.screenshot({path:`${capture}/disbursement-${width}.png`,fullPage:true});
- if(!before){await page.getByRole('button',{name:'Review snapshot',exact:true}).click();await expect(page.getByRole('dialog',{name:'Immutable Disbursement Snapshot'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);}
+ if(!before){await page.locator('.canonical-status-filter select').selectOption('PENDING_APPROVAL');await expect(page).toHaveURL(/drStatus=PENDING_APPROVAL/);await page.getByRole('button',{name:'Review snapshot',exact:true}).click();await expect(page.getByRole('dialog',{name:'Immutable Disbursement Snapshot'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);}
  await page.getByRole('tab',{name:'Funding & Limit',exact:true}).click();
  await expect(page.getByText('Balance Master & Limit Klien',{exact:true})).toBeVisible();
  if(!before)expect(await page.locator('.e2pay-funding').evaluate(el=>el.getBoundingClientRect().right<=innerWidth+1)).toBeTruthy();
  await page.screenshot({path:`${capture}/funding-${width}.png`,fullPage:true});
- if(!before){await page.getByRole('button',{name:'Lihat detail',exact:true}).click();await expect(page.getByRole('dialog',{name:'Detail alokasi limit'})).toBeVisible();await page.screenshot({path:`${capture}/drawer-${width}.png`});await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);await page.reload({waitUntil:'networkidle'});await expect(page.getByRole('tab',{name:'Funding & Limit'})).toHaveAttribute('aria-selected','true');}
+ if(!before){await page.getByRole('button',{name:'Lihat detail',exact:true}).click();await expect(page.getByRole('dialog',{name:'Detail alokasi limit'})).toBeVisible();await page.screenshot({path:`${capture}/drawer-${width}.png`});await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);await page.reload({waitUntil:'networkidle'});await expect(page.getByRole('tab',{name:'Funding & Limit'})).toHaveAttribute('aria-selected','true');await page.getByRole('tab',{name:/Disbursement/}).click();await expect(page.locator('.canonical-status-filter select')).toHaveValue('PENDING_APPROVAL');}
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();expect(errors).toEqual([]);expect(writes).toEqual([]);
  }finally{await browser.close();}
 });

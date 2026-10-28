@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {patchRoute,routeValue} from '@/lib/route-state';
 import DetailDrawer from '@/components/layout/DetailDrawer';
 import E2PaySupportJson from '@/components/E2PaySupportJson';
 import { formatIDR } from '@/lib/format';
@@ -33,8 +34,8 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
   const executionCancelled=useRef(false);
   useEffect(()=>{executionCancelled.current=false;return()=>{executionCancelled.current=true;};},[]);
   const [recipientPage,setRecipientPage]=useState(1);
-  const [statusFilter,setStatusFilter]=useState('ALL');
-  const [queueFilter,setQueueFilter]=useState<'ACTION'|'ALL'>('ACTION');
+  const [statusFilter,setStatusFilter]=useState(()=>routeValue('drStatus')||'ALL');
+  const [queueFilter,setQueueFilter]=useState<'ACTION'|'ALL'>(()=>routeValue('drQueue')==='ALL'?'ALL':'ACTION');
   const allowed=actor&&['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(actor.role);
   const maker=actor?.role==='PAYROLL_PROCESSOR'&&Boolean(actor.permissions?.includes('disbursement:request'));
   const checker=actor?.role==='PAYROLL_CONTROLLER'&&Boolean(actor.permissions?.includes('disbursement:approve'));
@@ -129,14 +130,14 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
       <div><span className="page-eyebrow">CANONICAL PAYMENT CONTROL</span><h3>Disbursement Request & Execution</h3><small>Payroll Direct · Payroll Corporate · EWA Direct — satu approval dan provider reconciliation.</small></div>
       <button className="btn" type="button" disabled={loading||Boolean(busy)} onClick={()=>void load()}>Refresh status</button>
     </div>
-    {!compact?<div className="directory-detail-grid"><div><span>Ready to submit</span><strong>{ready}</strong></div><div><span>Waiting Controller</span><strong>{pending}</strong></div><div><span>Approved to execute</span><strong>{executionQueue}</strong></div></div>:<div className="canonical-queue-bar" aria-label="Antrean Canonical DR"><span><strong>{actionable.length}</strong> memerlukan tindakan</span><span>{pending} menunggu Controller</span><span>{executionQueue} approved untuk eksekusi</span><div className="canonical-queue-switch"><button type="button" className={queueFilter==='ACTION'?'active':''} aria-pressed={queueFilter==='ACTION'} onClick={()=>setQueueFilter('ACTION')}>Tindakan saya</button><button type="button" className={queueFilter==='ALL'?'active':''} aria-pressed={queueFilter==='ALL'} onClick={()=>setQueueFilter('ALL')}>Semua status</button></div></div>}
+    {!compact?<div className="directory-detail-grid"><div><span>Ready to submit</span><strong>{ready}</strong></div><div><span>Waiting Controller</span><strong>{pending}</strong></div><div><span>Approved to execute</span><strong>{executionQueue}</strong></div></div>:<div className="canonical-queue-bar" aria-label="Antrean Canonical DR"><span><strong>{actionable.length}</strong> memerlukan tindakan</span><span>{pending} menunggu Controller</span><span>{executionQueue} approved untuk eksekusi</span><div className="canonical-queue-switch"><button type="button" className={queueFilter==='ACTION'?'active':''} aria-pressed={queueFilter==='ACTION'} onClick={()=>{setQueueFilter('ACTION');patchRoute({drQueue:null});}}>Tindakan saya</button><button type="button" className={queueFilter==='ALL'?'active':''} aria-pressed={queueFilter==='ALL'} onClick={()=>{setQueueFilter('ALL');patchRoute({drQueue:'ALL'});}}>Semua status</button></div></div>}
     {maker?<div className="canonical-create-form">
       {sourceType==='EWA_REQUEST'?<label className="ui-form-field">EWA Request<input value={sourceId} readOnly placeholder="Pilih pengajuan EWA yang APPROVED"/></label>
       :<label className="ui-form-field">Payment Instruction<select value={sourceId} onChange={e=>setSourceId(e.target.value)}><option value="">Pilih PI siap pembayaran</option>{availableSources.map(row=><option key={row.id} value={row.id}>{row.document_no||row.id} · {row.client_name||row.client_id} · {formatIDR(Number(row.expected_total||0))}</option>)}</select></label>}
       {sourceType!=='EWA_REQUEST'?<label className="ui-form-field">Tujuan pembayaran<select value={destination} disabled={Boolean(existingForSource)} onChange={e=>setDestination(e.target.value as typeof destination)}><option value="DIRECT_EMPLOYEE">Ke rekening karyawan</option><option value="CLIENT_ACCOUNT">Ke rekening perusahaan klien</option></select></label>:null}
       <button type="button" className="btn btn-primary" disabled={!sourceId||Boolean(busy)||Boolean(existingForSource)} onClick={()=>void create()}>{existingForSource?'DR sudah dibuat':'Buat Canonical DR'}</button>
     </div>:null}
-    <label className="ui-form-field canonical-status-filter"><span>Status eksekusi</span><select value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="ALL">Semua status</option>{[...new Set(requests.map(row=>row.status))].sort().map(status=><option key={status} value={status}>{status.replaceAll('_',' ')}</option>)}</select></label>
+    <label className="ui-form-field canonical-status-filter"><span>Status eksekusi</span><select value={statusFilter} onChange={event=>{setStatusFilter(event.target.value);patchRoute({drStatus:event.target.value==='ALL'?null:event.target.value});}}><option value="ALL">Semua status</option>{[...new Set(requests.map(row=>row.status))].sort().map(status=><option key={status} value={status}>{status.replaceAll('_',' ')}</option>)}</select></label>
     {notice?<div className={`app-notice-bubble ${/gagal|tidak|blocked|wajib|invalid|mismatch|belum|ditolak/i.test(notice)?'app-notice-error':'app-notice-info'}`} role="status"><span>{notice}</span></div>:null}
     {loading?<p>Memuat Canonical DR…</p>:shown.length?<div className="ui-table-wrap"><table className="ui-data-table"><thead><tr><th>DR Number</th><th>PI / Source</th><th>Klien / Project</th><th>Payment Method</th><th>Total Nominal</th><th>Execution Status</th><th>Dibuat</th><th>Action</th></tr></thead><tbody>{shown.map(row=><tr key={row.id}>
       <td><strong>{row.clientReference}</strong><small>{row.id}</small></td>

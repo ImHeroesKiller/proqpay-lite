@@ -9,7 +9,7 @@ Frontend redesign implemented against the two supplied visual references. Existi
 ## Changes
 
 - Shared numbered process stepper, 28–32px titles, consistent 12–14px labels/content, existing brand tokens and scoped responsive CSS.
-- Shared period/client/project/search controls. Period and payroll status group survive URL updates and refresh. Existing client/project reset contract remains unchanged.
+- Shared period/client/project/search controls. Period, payroll status group and independent PI/DR status filters survive URL updates, panel changes and refresh. Existing client/project reset contract remains unchanged.
 - Removed redundant opening payroll card and embedded KPI/next-action surfaces; payroll table leads with client/pay run, period, business stage, net/THP, recipients and existing next action. Upload remains in header; correction, adjustment, details, monitoring, invoicing and closing remain existing flows.
 - Payment navigation uses real keyboard-operable tabs with an underline, separate from primary action buttons. PI columns expose document/client/project/period/amount/recipients/status/date/action; independent status control retained.
 - DR columns expose canonical reference/source/client/project/method/amount/status/date/actions. Period scopes payroll DR via PI linkage, EWA via backend creation date; missing date/link is never guessed. Execution statuses and commands unchanged.
@@ -31,7 +31,7 @@ Frontend redesign implemented against the two supplied visual references. Existi
 | Static CSP hardening | PASS |
 | Cloudflare native preflight | 9/9 PASS |
 | Browser UAT | 9/9 PASS |
-| Local Axe WCAG/contrast | SUPER_ADMIN desktop 12-view matrix PASS |
+| Local Axe/WCAG, themes, keyboard and shared modal gate | 21/21 PASS |
 | Responsive viewports | 1440, 1024, 768, 390, 360px PASS |
 | Runtime browser errors | 0 |
 | Visual navigation writes | 0 |

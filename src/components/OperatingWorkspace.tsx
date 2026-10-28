@@ -99,7 +99,7 @@ export default function OperatingWorkspace({
     : typeof window==='undefined'?'ALL':routeValue('payrollPeriod')||'ALL');
   const [localClientFilter, setLocalClientFilter] = useState('ALL');
   const [localProjectFilter, setLocalProjectFilter] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState(()=>mode==='payments'?routeValue('piStatus')||'ALL':'ALL');
   const [localQuery, setLocalQuery] = useState('');
   const clientFilter = filters?.clientId || localClientFilter;
   const projectFilter = filters?.projectId || localProjectFilter;
@@ -283,7 +283,7 @@ export default function OperatingWorkspace({
   };
   useEffect(()=>{
     if(mode!=='payments')return;
-    const onRoute=()=>setActivePaymentPanel(paymentPanel(routeValue('paymentPanel')));
+    const onRoute=()=>{setActivePaymentPanel(paymentPanel(routeValue('paymentPanel')));setStatusFilter(routeValue('piStatus')||'ALL');};
     return subscribeRoute(onRoute);
   },[mode]);
   const visibleInstructionIds = useMemo(() => new Set(visibleInstructions.map((row) => row.id)), [visibleInstructions]);
@@ -480,7 +480,7 @@ export default function OperatingWorkspace({
               <button type="button" role="tab" id="pi-tab-funding" aria-controls="pi-tab-panel" aria-selected={displayedPaymentPanel==='FUNDING'} tabIndex={displayedPaymentPanel==='FUNDING'?0:-1} className="workspace-payment-tab" onClick={()=>selectPaymentPanel('FUNDING')}>Funding & Limit</button>
             </nav>
             <div id="pi-tab-panel" className="payment-decision-main" role="tabpanel" tabIndex={0} aria-label={displayedPaymentPanel==='PI'?'Payment Instruction Queue':displayedPaymentPanel==='DISBURSEMENT'?'Canonical Disbursement Queue':'Funding and Limit Control'}>
-              {displayedPaymentPanel==='PI'?<><label className="ui-form-field pi-status-filter"><span>Status approval</span><select value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="ALL">Semua status</option>{statusOptions.map(state=><option key={state} value={state}>{paymentBusinessLabel(String(state))}</option>)}</select></label><Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} /></>:null}
+              {displayedPaymentPanel==='PI'?<><label className="ui-form-field pi-status-filter"><span>Status approval</span><select value={statusFilter} onChange={event=>{setStatusFilter(event.target.value);patchRoute({piStatus:event.target.value==='ALL'?null:event.target.value});}}><option value="ALL">Semua status</option>{statusOptions.map(state=><option key={state} value={state}>{paymentBusinessLabel(String(state))}</option>)}</select></label><Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} /></>:null}
               {displayedPaymentPanel==='DISBURSEMENT'?<CanonicalDisbursementWorkspace actor={actor} payrollSources={data.paymentInstructions||[]} period={periodFilter} clientId={clientFilter} projectId={projectFilter} query={query} compact onChanged={async()=>{await load(true);setCanonicalDecisionRefresh(v=>v+1);}} />:null}
               {displayedPaymentPanel==='FUNDING'&&['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role)?<div className="funding-integrated-panel">
                 <details className="funding-provider-settings"><summary>Pengaturan jalur pembayaran</summary>
