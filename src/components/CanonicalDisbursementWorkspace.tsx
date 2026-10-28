@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import E2PaySupportJson from '@/components/E2PaySupportJson';
 import { formatIDR } from '@/lib/format';
 import { fetchWithSecurityStepUp } from '@/lib/security-step-up';
 import { refreshE2PayMasterBalance } from '@/lib/e2pay-api';
@@ -153,6 +154,7 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
       {checker&&selected.status==='PENDING_APPROVAL'?<div className="canonical-review-actions"><button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>{if(window.confirm(`Setujui DR ${selected.clientReference} sebesar ${formatIDR(selected.amount)}? Approval membutuhkan MFA terbaru dan funding READY.`))void run('APPROVE',{action:'APPROVE_REQUEST',id:selected.id},'Disbursement Request disetujui oleh Controller.');}}>Approve DR</button><label className="ui-form-field">Alasan penolakan<input value={reason} onChange={e=>setReason(e.target.value)} maxLength={500} placeholder="Minimal 10 karakter"/></label><button type="button" className="btn" disabled={reason.trim().length<10||Boolean(busy)} onClick={()=>void run('REJECT',{action:'REJECT_REQUEST',id:selected.id,reason},'Disbursement Request ditolak.')}>Reject DR</button></div>:null}
       <div className="ui-table-wrap"><table className="ui-data-table"><thead><tr><th>Penerima</th><th>Bank</th><th>Rekening</th><th>Nominal</th></tr></thead><tbody>{(selected.items||[]).slice((recipientPage-1)*25,recipientPage*25).map(item=><tr key={item.id}><td>{item.beneficiaryName}</td><td>{item.bankCode}</td><td>••••{item.accountLast4}</td><td>{formatIDR(item.amount)}</td></tr>)}</tbody></table></div>
 
+      <E2PaySupportJson key={selected.id} requestId={selected.id}/>
       {(selected.items?.length||0)>25?<nav className="canonical-recipient-pages" aria-label="Halaman penerima"><span>{(recipientPage-1)*25+1}–{Math.min(recipientPage*25,selected.items?.length||0)} dari {selected.items?.length} penerima</span><button type="button" className="btn" disabled={recipientPage<=1} onClick={()=>setRecipientPage(page=>page-1)}>Sebelumnya</button><button type="button" className="btn" disabled={recipientPage*25>=(selected.items?.length||0)} onClick={()=>setRecipientPage(page=>page+1)}>Berikutnya</button></nav>:null}
     </div>:null}
     <small style={{color:'var(--text3)'}}>Transfer riil tidak pernah dijalankan otomatis. Hanya Payroll Controller yang bisa menekan Process Payment setelah approval, verifikasi MFA, limit, dan liquidity.</small>
