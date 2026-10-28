@@ -106,7 +106,7 @@ export default function E2PayFundingLimitControl({role,scopeClientId='ALL',scope
     <div className="e2pay-funding-summary">
       <div className="ui-metric-card"><span>Balance E2Pay Master</span><strong>{balance===null?'Belum tersinkron':formatIDR(balance)}</strong>
         <small>{master?.parent?.ready?'Saldo tervalidasi':'Perlu validasi saldo terbaru'}</small></div>
-      <div className="ui-metric-card"><span>Approved Limit Aktif</span><strong>{formatIDR(requests.filter(row=>row.status==='ACTIVE').reduce((sum,row)=>sum+row.remainingAmount,0))}</strong>
+      <div className="ui-metric-card"><span>Approved Limit Aktif</span><strong>{requests.some(row=>row.status==='ACTIVE'&&row.approvedAmount==null)?'Belum tersedia':formatIDR(requests.filter(row=>row.status==='ACTIVE').reduce((sum,row)=>sum+Number(row.approvedAmount),0))}</strong>
         <small>Akumulasi alokasi dari seluruh klien</small></div>
       <div className="ui-metric-card"><span>Koneksi Master</span><strong>{masterReady?'Tervalidasi':'Perlu tindakan'}</strong>
         <small>{master?.environment||'UAT'} · {master?.parent?.ready?'Saldo terbaru':master?.parent?.state==='STALE'?'Perbarui saldo':'Perlu validasi'}</small></div>
