@@ -968,7 +968,7 @@ function Exceptions({ rows, payRuns, role, canResolve, act }: { rows: any[]; pay
       </div>
       <div className="readiness-pagination"><span>Halaman {Math.min(page,pageCount)} dari {pageCount}</span><div><button className="btn" aria-label="Halaman sebelumnya" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>←</button><button className="btn" aria-label="Halaman berikutnya" disabled={page>=pageCount} onClick={()=>setPage(p=>Math.min(pageCount,p+1))}>→</button></div></div>
     </>:<div className="card readiness-empty-filter"><strong>Tidak ada temuan sesuai filter</strong><span>Ubah pencarian, severity, status, atau kelompok readiness untuk melihat item lain.</span><button type="button" className="btn" onClick={()=>{setQuery('');setSeverity('ALL');setStatus(clientMode?'CLIENT_ACTION_REQUIRED':'ACTIVE');setGroup('ALL');}}>Reset filter</button></div>}
-    {selected ? <div className="directory-modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)setSelected(null);}}><div ref={dialogRef} className="directory-modal readiness-exception-modal" role="dialog" aria-modal="true" aria-label="Detail exception payroll">
+    {selected ? createPortal(<div className="directory-modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)setSelected(null);}}><div ref={dialogRef} className="directory-modal readiness-exception-modal" role="dialog" aria-modal="true" aria-label="Detail exception payroll">
       <div className="directory-modal-title"><div><span>{clientMode?'PERBAIKAN PAYROLL':'READINESS DECISION'}</span><h3>{clientMode?'Perlu diperbaiki':selected.reason || selected.category}</h3></div><button aria-label="Tutup detail exception" onClick={()=>setSelected(null)}>✕</button></div>
       <div className="readiness-decision-hero">
         <div><span>Decision status</span><strong>{isClosed(selected)?'Selesai':selected.status==='CLIENT_ACTION_REQUIRED'?'Menunggu klien':'Perlu keputusan'}</strong></div>
@@ -1015,7 +1015,7 @@ function Exceptions({ rows, payRuns, role, canResolve, act }: { rows: any[]; pay
         {canResolve && !isClosed(selected) ? <button className="btn" disabled={!evidenceReviewed || resolutionNote.trim().length<10} onClick={()=>void act({action:'RESOLVE_EXCEPTION',exceptionId:selected.id,status:clientMode?'ACCEPTED':'RESOLVED',resolutionNote:resolutionNote.trim()},clientMode?'Perbaikan dikonfirmasi':'Exception diselesaikan').then(()=>setSelected(null))}>{clientMode?'Konfirmasi sudah diperbaiki':'Tandai selesai'}</button> : null}
       </div>
       {selected.resolution_note ? <div className="directory-message" style={{marginTop:14,whiteSpace:'pre-wrap'}}>{selected.resolution_note}</div> : null}
-    </div></div> : null}
+    </div></div>, document.body) : null}
   </div>;
 }
 function Payments({ phase, instructions, proofs, reconciliations, role, simplified, canRecordProof, canReconcile, canApprove, gatewayCanView, period, act }: { phase:'payment'|'reconcile'; instructions:any[]; proofs:PaymentProofRecord[]; reconciliations:ReconciliationRecord[]; role:string; simplified:boolean; canRecordProof:boolean; canReconcile:boolean; canApprove:boolean; gatewayCanView:boolean; period:string; act:(p:Record<string,unknown>,s:string)=>Promise<void> }) {
