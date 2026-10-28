@@ -22,8 +22,8 @@ test('Cross-period queues retain the selected PI period for financial execution'
     read('src/components/PaymentGatewayExecutionActions.tsx'),
     read('src/lib/payment-gateway-api.ts'),
   ]);
-  assert.match(workspace,/<OperatingWorkspace mode="payruns" period="ALL"/);
-  assert.match(workspace,/<OperatingWorkspace mode="payments" period="ALL"/);
+  assert.match(workspace,/<OperatingWorkspace mode="payruns" period=\{workspacePeriod\}/);
+  assert.match(workspace,/<OperatingWorkspace mode="payments" period=\{workspacePeriod\}/);
   assert.match(operating,/disabled=\{Boolean\(period && period !== 'ALL'\)\}/);
   assert.match(operating,/PaymentGatewayExecutionActions/);
   assert.match(operating,/expectedPeriod=\{String\(detail\.paymentInstruction\.payroll_period \|\| period\)\}/);

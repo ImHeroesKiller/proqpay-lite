@@ -152,7 +152,8 @@ test('operational navigation ignores stale global months while report filters re
   assert.match(router,/<PayrollControlTowerAdapter actor=\{actor\} period="ALL"/);
   assert.doesNotMatch(header,/Global payroll period/);
   assert.match(header,/listOperatingDashboard\(undefined, 'ALL'\)/);
-  for(const mode of ['payruns','payments','reconcile','billing']) assert.ok(workspace.includes(`mode="${mode}" period="ALL"`));
+  for(const mode of ['payruns','payments','reconcile','billing']) assert.ok(workspace.includes(`mode="${mode}" period={workspacePeriod}`));
+  assert.match(workspace,/routeValue\('workspacePeriod'\)\|\|'ALL'/);
   assert.match(operating,/period === 'ALL' \? 'ALL'/);
   assert.match(reports,/<option value="ALL">Semua periode/);
   assert.match(intake,/type="month"/);

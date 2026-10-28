@@ -33,3 +33,6 @@ wrangler.toml
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local browser evidence (uploaded as CI artifacts)
+/artifacts/

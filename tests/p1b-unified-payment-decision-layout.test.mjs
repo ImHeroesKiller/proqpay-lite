@@ -42,11 +42,11 @@ test('P1.B Canonical DR actionable statuses and sorting respect Maker/Checker au
 test('P1.B payment workbench has exactly one visible PI, DR or Funding content surface per selection',async()=>{
  const source=await read('src/components/OperatingWorkspace.tsx');
  assert.match(source,/aria-label="Unified Payment Workbench"/);
- assert.match(source,/displayedPaymentPanel==='PI'\?<Payments phase="payment"/);
+ assert.match(source,/displayedPaymentPanel==='PI'\?<><label[\s\S]*?<Payments phase="payment"/);
  assert.match(source,/displayedPaymentPanel==='DISBURSEMENT'\?<CanonicalDisbursementWorkspace/);
  assert.match(source,/displayedPaymentPanel==='FUNDING'&&\['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'\]/);
  assert.match(source,/mode !== 'billing' && mode !== 'payments'/);
- assert.match(source,/mode!=='payments' \? <OperationalFocus/);
+ assert.match(source,/mode!=='payments' && !\(embedded && mode==='payruns'\) \? <OperationalFocus/);
  assert.match(source,/const displayedPaymentPanel=activePaymentPanel\|\|defaultPaymentPanel/);
  assert.match(source,/patchRoute\(\{paymentPanel:next\}\)/);
  assert.match(source,/subscribeRoute\(onRoute\)/);

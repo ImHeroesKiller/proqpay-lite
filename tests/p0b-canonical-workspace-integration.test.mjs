@@ -39,7 +39,7 @@ test('P0.B UI uses canonical DR API for all three business intents with role-bas
  assert.match(ui,/actor\?\.role==='PAYROLL_PROCESSOR'/);assert.match(ui,/actor\?\.role==='PAYROLL_CONTROLLER'/);
  assert.match(ui,/window\.prompt/);assert.match(ui,/Ketik BAYAR/);
  assert.match(ui,/MFA_STEP_UP_REQUIRED/);assert.match(ui,/window\.confirm/);
- assert.match(workspace,/CanonicalDisbursementWorkspace actor=\{actor\} payrollSources=\{visibleInstructions\}/);
+ assert.match(workspace,/CanonicalDisbursementWorkspace actor=\{actor\} payrollSources=\{data.paymentInstructions\|\|\[\]\} period=\{periodFilter\}/);
  assert.match(workspace,/executionStrategy==='canonical'/);
  assert.match(workspace,/executionStrategy==='legacy'/);
  assert.match(inbox,/CanonicalDisbursementWorkspace actor=\{actor\} sourceType="EWA_REQUEST"/);

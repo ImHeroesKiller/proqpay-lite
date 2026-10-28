@@ -18,6 +18,7 @@ import "./styles/polish-people-reports.css";
 import "./employee-services.css";
 import "./audit-console.css";
 import "./e2pay-wallet.css";
+import "./styles/workspace-v2.css";
 import "./styles/accessibility.css";
 import PwaRegister from "@/components/PwaRegister";
 

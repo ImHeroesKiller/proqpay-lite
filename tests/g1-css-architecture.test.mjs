@@ -25,7 +25,7 @@ test('G1 layout defines the exact modular cascade and keeps feature-specific CSS
  assert.deepEqual(imports,orderedGlobalCss);
  assert.equal(globalFoundationCss.length,6);
  assert.equal(domainPolishCss.length,7);
- assert.deepEqual(featureCss,['src/app/employee-services.css','src/app/audit-console.css','src/app/e2pay-wallet.css']);
+ assert.deepEqual(featureCss,['src/app/employee-services.css','src/app/audit-console.css','src/app/e2pay-wallet.css','src/app/styles/workspace-v2.css']);
  for(const [index,path] of orderedGlobalCss.entries()){
   assert.equal(imports[index],path);
   const css=await read(path);
