@@ -94,3 +94,70 @@ test('Employee profile popup preserves edits, handles nested focus, reports save
  await opener.click();await profile.getByRole('tab',{name:'Rekening Pembayaran',exact:true}).click();await profile.getByRole('button',{name:'Edit rekening',exact:true}).click();await profile.getByLabel('Nama bank',{exact:true}).fill('BNI');await profile.getByRole('button',{name:'Tutup profil',exact:true}).click();await discard.getByRole('button',{name:'Buang perubahan',exact:true}).click();await expect(profile).toHaveCount(0);await expect(opener).toBeFocused();
  await expect.poll(()=>page.evaluate(()=>document.body.style.overflow)).not.toBe('hidden');
 });
+
+async function supportJsonFixture(){
+ const source=`import React from 'react';import{createRoot}from'react-dom/client';
+ import E2PaySupportJson from './src/components/E2PaySupportJson.tsx';
+ const root=document.createElement('div');root.id='support-json-fixture';document.body.appendChild(root);
+ createRoot(root).render(<E2PaySupportJson requestId="DR-SUPPORT-TEST"/>);`;
+ const output=await build({stdin:{contents:source,loader:'tsx',resolveDir:process.cwd(),sourcefile:'support-json-fixture.tsx'},bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"production"'}});
+ return output.outputFiles[0].text;
+}
+
+test('support JSON loads stored provider evidence, copies and downloads the same JSON without financial writes',async({page,context})=>{
+ await context.grantPermissions(['clipboard-read','clipboard-write']);
+ let reads=0;
+ const writes=[];
+ await page.route('**/api/disbursement-requests?*',async route=>{
+  if(route.request().method()!=='GET'){writes.push(route.request().method());return route.abort();}
+  reads++;
+  await route.fulfill({json:{ok:true,request:{id:'DR-SUPPORT-TEST',clientReference:'PQP-DR-SUPPORT-TEST',provider:'E2PAY',environment:'UAT',sourceDocumentType:'PAYMENT_INSTRUCTION',sourceDocumentId:'PI-SUPPORT-TEST',status:'RECONCILED',amount:15000,recipientCount:1}}});
+ });
+ await page.route('**/api/disbursement-executions?*',async route=>{
+  if(route.request().method()!=='GET'){writes.push(route.request().method());return route.abort();}
+  reads++;
+  await route.fulfill({json:{ok:true,execution:{id:'DX-SUPPORT-TEST',disbursement_request_id:'DR-SUPPORT-TEST',status:'SUCCEEDED',currency:'IDR',execution_lock_token:'SECRET-LOCK'},items:[{disbursement_execution_id:'DX-SUPPORT-TEST',client_ref:'REF-SUPPORT-TEST',amount:15000,fee_amount:2500,status:'SUCCEEDED',response_code:'00',response_message:'Success',journal_id:'JOURNAL-SUPPORT-TEST',account_last4:'1234',requestDiagnostics:{password:'SECRET-PASSWORD'}}]}});
+ });
+ await page.goto('/',{waitUntil:'domcontentloaded'});
+ await page.addScriptTag({content:await supportJsonFixture()});
+ const panel=page.getByRole('region',{name:'JSON untuk E2Pay'});
+ await panel.getByRole('button',{name:'Lihat JSON',exact:true}).click();
+ const output=panel.getByRole('textbox',{name:'JSON hasil transaksi E2Pay'});
+ await expect(output).toBeVisible();
+ const json=await output.inputValue();
+ const evidence=JSON.parse(json);
+ expect(evidence.recipients[0].journalId).toBe('JOURNAL-SUPPORT-TEST');
+ expect(evidence.summary.succeeded).toBe(1);
+ expect(evidence.environment).toBe('UAT');
+ expect(json).not.toContain('SECRET-');
+ await panel.getByRole('button',{name:'Salin JSON',exact:true}).click();
+ await expect(panel.getByRole('status')).toHaveText('JSON berhasil disalin.');
+ expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(json);
+ const downloadPromise=page.waitForEvent('download');
+ await panel.getByRole('button',{name:'Unduh JSON',exact:true}).click();
+ const download=await downloadPromise;
+ expect(download.suggestedFilename()).toBe('PQP-DR-SUPPORT-TEST-e2pay.json');
+ const stream=await download.createReadStream();
+ const chunks=[];for await(const chunk of stream)chunks.push(chunk);
+ expect(Buffer.concat(chunks).toString('utf8')).toBe(json);
+ expect(reads).toBe(2);expect(writes).toEqual([]);
+});
+
+test('support JSON handles missing execution and retries instead of exporting an empty success',async({page})=>{
+ let available=false;
+ await page.route('**/api/disbursement-requests?*',route=>route.fulfill({json:{request:{id:'DR-SUPPORT-TEST',clientReference:'PQP-DR-SUPPORT-TEST'}}}));
+ await page.route('**/api/disbursement-executions?*',route=>available
+  ?route.fulfill({json:{execution:{id:'DX-SUPPORT-TEST',disbursement_request_id:'DR-SUPPORT-TEST',status:'PROCESSING'},items:[]}})
+  :route.fulfill({status:404,json:{error:'Execution ledger belum tersedia'}}));
+ await page.goto('/',{waitUntil:'domcontentloaded'});
+ await page.addScriptTag({content:await supportJsonFixture()});
+ const panel=page.getByRole('region',{name:'JSON untuk E2Pay'});
+ await panel.getByRole('button',{name:'Lihat JSON',exact:true}).click();
+ await expect(panel.getByRole('alert')).toContainText('Belum ada ledger');
+ await expect(panel.getByRole('button',{name:'Unduh JSON',exact:true})).toBeDisabled();
+ available=true;
+ await panel.getByRole('button',{name:'Coba lagi',exact:true}).click();
+ const output=panel.getByRole('textbox',{name:'JSON hasil transaksi E2Pay'});
+ await expect(output).toBeVisible();
+ expect(JSON.parse(await output.inputValue()).execution.status).toBe('PROCESSING');
+});
