@@ -13,11 +13,11 @@ test('P2 makes operational priority explicit in payroll stages',async()=>{
   assert.match(source,/toReconcile/);
 });
 
-test('P2 orders payment queue by action priority and removes low-value created column',async()=>{
+test('v2 orders payment queue by action priority and exposes PI audit columns',async()=>{
   const source=await read('src/components/OperatingWorkspace.tsx');
   assert.match(source,/PAYMENT_APPROVAL_PENDING:0/);
   assert.match(source,/PAYMENT_EXCEPTION:0/);
-  assert.match(source,/headers=\{\['Instruction \/ Periode','Nilai','Status','Next action'\]\}/);
+  assert.match(source,/headers=\{\['PI Number','Klien \/ Project','Periode','Total Nominal','Penerima','Approval Status','Dibuat','Action'\]\}/);
   assert.doesNotMatch(source,/headers=\{\['Instruction \/ Periode','Nilai','Status','Dibuat','Aksi'\]\}/);
 });
 

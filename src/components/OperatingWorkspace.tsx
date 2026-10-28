@@ -399,7 +399,7 @@ export default function OperatingWorkspace({
       : [...new Set(submissions.map((row) => row.state))].sort();
 
   return (
-    <section>
+    <section className={`enterprise-operating-workspace enterprise-${mode}`}>
       {!embedded ? <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <WorkspaceTitle level="h2" eyebrow={profile.eyebrow} eyebrowClassName="workspace-eyebrow"
           title={profile.title} description={profile.description}
@@ -418,7 +418,7 @@ export default function OperatingWorkspace({
         {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setLocalQuery(event.target.value)} placeholder={profile.search} /></label>:null}
       </div> : null}
 
-      {mode !== 'billing' && mode !== 'payments' ? <div className={`operations-summary-grid${simplifiedInternal?' operations-summary-decision':''}`}>
+      {mode !== 'billing' && mode !== 'payments' && !(embedded && mode==='payruns') ? <div className={`operations-summary-grid${simplifiedInternal?' operations-summary-decision':''}`}>
         {mode === 'payruns' ? clientExperience ? <>
           <div><span>Payroll</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
           <div><span>Needs attention</span><strong>{clientCorrections.length}</strong><small>Perlu koreksi atau konfirmasi</small></div>
@@ -459,7 +459,7 @@ export default function OperatingWorkspace({
         </>}
       </div> : null}
 
-      {simplifiedInternal && operationalFocus && mode!=='payments' ? <OperationalFocus {...operationalFocus} /> : null}
+      {simplifiedInternal && operationalFocus && mode!=='payments' && !(embedded && mode==='payruns') ? <OperationalFocus {...operationalFocus} /> : null}
 
       {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message)?<button type="button" className="btn btn-quiet" onClick={()=>void load()}>Coba lagi</button>:null}<button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
       {loading ? <WorkspaceLoading /> : ((mode==='payments'||mode==='reconcile')&&!uatArchiveVerified)
@@ -469,20 +469,28 @@ export default function OperatingWorkspace({
           {mode === 'payruns' && clientExperience ? <section style={{display:'grid',gap:10,marginTop:18}}><div className="control-panel-title"><div><span>ACTION REQUIRED</span><h2>Perbaikan Payroll</h2></div><small>{clientCorrections.length} item</small></div>{clientCorrections.length?<Exceptions rows={clientCorrections} payRuns={visibleSubmissions} role={role} canResolve act={act} />:<div className="card control-empty">Tidak ada koreksi payroll yang membutuhkan tindakan Anda.</div>}</section>:null}
           {mode === 'actions' && <Exceptions rows={visibleExceptions} payRuns={visibleSubmissions} role={role} canResolve={isProcessor || isClient} act={act} />}
           {mode === 'payments' ? <section className="payment-decision-workbench" aria-label="Unified Payment Workbench">
-            <nav className="payment-decision-tabs" role="tablist" aria-label="Kategori Payment Instructions" style={{display:'flex',gap:8,flexWrap:'wrap',borderBottom:'1px solid var(--border)',paddingBottom:10}}>
-              <button type="button" role="tab" id="pi-tab-instructions" aria-controls="pi-tab-panel" aria-selected={displayedPaymentPanel==='PI'} tabIndex={displayedPaymentPanel==='PI'?0:-1} className={displayedPaymentPanel==='PI'?'btn btn-primary':'btn'} onClick={()=>selectPaymentPanel('PI')}>Payment Instructions ({paymentDecision.primaryCount})</button>
-              <button type="button" role="tab" id="pi-tab-disbursement" aria-controls="pi-tab-panel" aria-selected={displayedPaymentPanel==='DISBURSEMENT'} tabIndex={displayedPaymentPanel==='DISBURSEMENT'?0:-1} className={displayedPaymentPanel==='DISBURSEMENT'?'btn btn-primary':'btn'} onClick={()=>selectPaymentPanel('DISBURSEMENT')}>Disbursement{canonicalDecisionKnown?` (${canonicalDecisionActions})`:''}</button>
-              <button type="button" role="tab" id="pi-tab-funding" aria-controls="pi-tab-panel" aria-selected={displayedPaymentPanel==='FUNDING'} tabIndex={displayedPaymentPanel==='FUNDING'?0:-1} className={displayedPaymentPanel==='FUNDING'?'btn btn-primary':'btn'} onClick={()=>selectPaymentPanel('FUNDING')}>Funding & Limit</button>
+            <nav className="payment-decision-tabs" role="tablist" aria-label="Kategori Payment Instructions" onKeyDown={event=>{
+              const tabs=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+              const index=tabs.indexOf(document.activeElement as HTMLButtonElement);
+              const next=event.key==='ArrowRight'?(index+1)%tabs.length:event.key==='ArrowLeft'?(index+tabs.length-1)%tabs.length:event.key==='Home'?0:event.key==='End'?tabs.length-1:-1;
+              if(next>=0){event.preventDefault();tabs[next].focus();tabs[next].click();}
+            }}>
+              <button type="button" role="tab" id="pi-tab-instructions" aria-controls="pi-tab-panel" aria-selected={displayedPaymentPanel==='PI'} tabIndex={displayedPaymentPanel==='PI'?0:-1} className="workspace-payment-tab" onClick={()=>selectPaymentPanel('PI')}>Payment Instructions ({paymentDecision.primaryCount})</button>
+              <button type="button" role="tab" id="pi-tab-disbursement" aria-controls="pi-tab-panel" aria-selected={displayedPaymentPanel==='DISBURSEMENT'} tabIndex={displayedPaymentPanel==='DISBURSEMENT'?0:-1} className="workspace-payment-tab" onClick={()=>selectPaymentPanel('DISBURSEMENT')}>Disbursement{canonicalDecisionKnown?` (${canonicalDecisionActions})`:''}</button>
+              <button type="button" role="tab" id="pi-tab-funding" aria-controls="pi-tab-panel" aria-selected={displayedPaymentPanel==='FUNDING'} tabIndex={displayedPaymentPanel==='FUNDING'?0:-1} className="workspace-payment-tab" onClick={()=>selectPaymentPanel('FUNDING')}>Funding & Limit</button>
             </nav>
             <div id="pi-tab-panel" className="payment-decision-main" role="tabpanel" tabIndex={0} aria-label={displayedPaymentPanel==='PI'?'Payment Instruction Queue':displayedPaymentPanel==='DISBURSEMENT'?'Canonical Disbursement Queue':'Funding and Limit Control'}>
-              {displayedPaymentPanel==='PI'?<Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} />:null}
-              {displayedPaymentPanel==='DISBURSEMENT'?<CanonicalDisbursementWorkspace actor={actor} payrollSources={visibleInstructions} clientId={clientFilter} projectId={projectFilter} query={query} compact onChanged={async()=>{await load(true);setCanonicalDecisionRefresh(v=>v+1);}} />:null}
+              {displayedPaymentPanel==='PI'?<><label className="ui-form-field pi-status-filter"><span>Status approval</span><select value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="ALL">Semua status</option>{statusOptions.map(state=><option key={state} value={state}>{paymentBusinessLabel(String(state))}</option>)}</select></label><Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} /></>:null}
+              {displayedPaymentPanel==='DISBURSEMENT'?<CanonicalDisbursementWorkspace actor={actor} payrollSources={data.paymentInstructions||[]} period={periodFilter} clientId={clientFilter} projectId={projectFilter} query={query} compact onChanged={async()=>{await load(true);setCanonicalDecisionRefresh(v=>v+1);}} />:null}
               {displayedPaymentPanel==='FUNDING'&&['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role)?<div className="funding-integrated-panel">
+                <details className="funding-provider-settings"><summary>Pengaturan jalur pembayaran</summary>
                 <div className="funding-integrated-tabs" role="group" aria-label="Funding and Provider Routing">
                   <button className={fundingPanel==='LIQUIDITY'?'active':''} type="button" aria-pressed={fundingPanel==='LIQUIDITY'} onClick={()=>setFundingPanel('LIQUIDITY')}>Saldo & Disbursement Limit</button>
                   <button className={fundingPanel==='CHANNEL'?'active':''} type="button" aria-pressed={fundingPanel==='CHANNEL'} onClick={()=>setFundingPanel('CHANNEL')}>Jalur Pembayaran</button>
                 </div>
-                {fundingPanel==='LIQUIDITY'?<E2PayFundingLimitControl role={role} />:<ProviderChannelControl role={role} />}
+                {fundingPanel==='CHANNEL'?<ProviderChannelControl role={role} />:null}
+                </details>
+                <E2PayFundingLimitControl role={role} scopeClientId={clientFilter} scopeProjectId={projectFilter} query={query} />
               </div>:null}
             </div>
             <p className="payment-decision-footnote">Persetujuan final, execution, dan maker-checker tetap dikendalikan backend. Informasi funding harus diverifikasi sebelum pembayaran; membuka panel tidak melakukan transfer.</p>
@@ -566,7 +574,9 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
   const [runDetailLoading,setRunDetailLoading]=useState(false);
   const [workflowDialog,setWorkflowDialog]=useState<{kind:'DELETE'|'REFRESH'|'REOPEN'|'CONTROLLER_REVISION'|'CLIENT_REVISION'|'CLOSE';value:string}>({kind:'REFRESH',value:''});
   const [workflowDialogOpen,setWorkflowDialogOpen]=useState(false);
-  const [runGroup,setRunGroup]=useState<'ALL'|'PREPARE'|'REVIEW'|'APPROVE'|'PAY'|'CLOSE'|'BLOCKED'>('ALL');
+  const [runGroup,setRunGroup]=useState<'ALL'|'PREPARE'|'REVIEW'|'APPROVE'|'PAY'|'CLOSE'|'BLOCKED'>(()=>{const value=routeValue('payrollGroup');return ['PREPARE','REVIEW','APPROVE','PAY','CLOSE','BLOCKED'].includes(value||'')?value as 'PREPARE'|'REVIEW'|'APPROVE'|'PAY'|'CLOSE'|'BLOCKED':'ALL';});
+  useEffect(()=>subscribeRoute(()=>{const value=routeValue('payrollGroup');setRunGroup(['PREPARE','REVIEW','APPROVE','PAY','CLOSE','BLOCKED'].includes(value||'')?value as typeof runGroup:'ALL');}),[]);
+  function selectRunGroup(value:typeof runGroup){setRunGroup(value);patchRoute({payrollGroup:value==='ALL'?null:value});}
   const reviewDialogRef=useRef<HTMLDivElement>(null);
   const previousFocusRef=useRef<HTMLElement|null>(null);
   const instructionBySubmission=new Map(instructions.map((row)=>[row.submission_id,row]));
@@ -640,7 +650,7 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
   const readyForPaymentCount=rows.filter((row)=>['APPROVE','PAY'].includes(businessFor(row).stage)&&!Number(row.blocking_count||0)).length;
 
   if (!rows.length) return <Empty title="Belum ada Pay Run pada scope ini" detail={role==='CLIENT_USER'?'Payroll akan muncul setelah data periode diproses oleh payroll team.':'Buat Pay Run baru atau ubah filter periode/klien untuk melihat payroll yang tersedia.'} />;
-  const simpleHeaders=role==='CLIENT_USER'?['Payroll','Stage','Net / THP','Payment','Next']:['Klien / Periode','Stage','Net / THP','Next action'];
+  const simpleHeaders=role==='CLIENT_USER'?['Payroll','Stage','Net / THP','Payment','Next']:['Klien / Pay Run','Periode','Stage','Net / THP','Penerima','Next action'];
   const desktopTable = <div className="pay-run-desktop-list"><CardTable headers={simplified?simpleHeaders:['Klien / Periode','Tier','Status','Ringkasan','Aksi']} rows={groupedRows.map((r) => {
     const nextAction=nextActionFor(r);
     const business=businessFor(r);
@@ -658,9 +668,11 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
       <div key="payment"><strong>{instruction?paymentBusinessLabel(instruction.status):'Belum masuk pembayaran'}</strong><small style={small}>{instruction?.status==='COMPLETED'?'Pembayaran selesai':'Pantau dari stage payroll'}</small></div>,
       <div key="next">{actionCell}<small style={small}>{nextAction.actionable?'Perlu tindakan':'Pantau status'}</small></div>,
     ] : [
-      <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id}</small>{String(r.run_type||'REGULAR')==='ADJUSTMENT'?<span className="pay-run-mini-badge">Adjustment</span>:null}</div>,
+      <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>{r.project_name || r.id}</small>{String(r.run_type||'REGULAR')==='ADJUSTMENT'?<span className="pay-run-mini-badge">Adjustment</span>:null}</div>,
+      <div key="period"><strong>{r.period}</strong><small style={small}>Bayar {r.payment_period || r.period}</small></div>,
       <div key="stage"><span className="stage-pill">{business.label}</span><small style={small}>{String(business.status).replaceAll('_',' ')}</small></div>,
-      <div key="summary"><strong>{formatIDR(Number(r.total_net || 0))}</strong><small style={small}>{Number(r.employee_count || 0)} karyawan{Number(r.blocking_count||0)?` · ${r.blocking_count} blocker`:''}</small></div>,
+      <div key="summary"><strong>{formatIDR(Number(r.total_net || 0))}</strong></div>,
+      <div key="recipients">{Number(r.employee_count || 0)} karyawan{Number(r.blocking_count||0)?<small style={small}>{r.blocking_count} blocker</small>:null}</div>,
       <div key="next">{actionCell}<small style={small}>{nextAction.actionable?'Action required':'Monitor only'}</small></div>,
     ] : [
       <div key="id"><strong>{r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small><small style={small}>{r.project_name || r.id} · {payRunTypeLabel(r.run_type)}</small></div>,
@@ -699,9 +711,9 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
         ['PAY','Pay',groupCounts.PAY],
         ['CLOSE','Close',groupCounts.CLOSE],
         ['BLOCKED','Blocker',groupCounts.BLOCKED],
-      ].map(([value,label,count])=><button key={String(value)} type="button" className={runGroup===value?'active':''} onClick={()=>setRunGroup(value as typeof runGroup)}><span>{label}</span><b>{count}</b></button>)}
+      ].map(([value,label,count])=><button key={String(value)} type="button" className={runGroup===value?'active':''} aria-pressed={runGroup===value} onClick={()=>selectRunGroup(value as typeof runGroup)}><span>{label}</span><b>{count}</b></button>)}
     </div>:null}
-    {groupedRows.length?<>{desktopTable}{mobileList}</>:<div className="card pay-run-filter-empty"><strong>Tidak ada Pay Run pada kelompok ini</strong><span>Pilih stage lain atau kembali ke Semua untuk melihat Pay Run lainnya.</span><button type="button" className="btn" onClick={()=>setRunGroup('ALL')}>Tampilkan semua</button></div>}
+    {groupedRows.length?<>{desktopTable}{mobileList}</>:<div className="card pay-run-filter-empty"><strong>Tidak ada Pay Run pada kelompok ini</strong><span>Pilih stage lain atau kembali ke Semua untuk melihat Pay Run lainnya.</span><button type="button" className="btn" onClick={()=>selectRunGroup('ALL')}>Tampilkan semua</button></div>}
   </div>;
   if (!selected) return table;
   const nextAction=nextActionFor(selected);
@@ -1140,7 +1152,7 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
     || String(b.created_at||'').localeCompare(String(a.created_at||'')));
   if (!phaseInstructions.length && !detail && !detailLoading && !detailError) return <Empty title={phase==='payment'?'Belum ada payment yang perlu diproses':'Belum ada payment untuk direkonsiliasi'} detail={phase==='payment'?'PI akan muncul setelah payroll siap untuk approval/payment.':'Payment akan muncul setelah PI approved atau execution dimulai.'} />;
   return <div style={{ display:'grid', gap:16 }}>
-    <CardTable flat={phase==='payment'} headers={['Instruction / Periode','Nilai','Status','Next action']} rows={phaseInstructions.map((r) => {
+    <CardTable flat={phase==='payment'} headers={['PI Number','Klien / Project','Periode','Total Nominal','Penerima','Approval Status','Dibuat','Action']} rows={phaseInstructions.map((r) => {
       let action: React.ReactNode = <span style={small}>Menunggu tahap berikutnya</span>;
       if (r.status === 'PAYMENT_INSTRUCTION_READY') action = ['SUPER_ADMIN','PAYROLL_PROCESSOR'].includes(role)
         ? <span style={{display:'inline-flex',gap:8,flexWrap:'wrap'}}><button style={actionButton} onClick={() => void openDetail(r.id)}>Preview PI</button><button style={actionButton} onClick={() => void act({action:'SUBMIT_PAYMENT_INSTRUCTION',paymentInstructionId:r.id,confirmation:'SUBMIT PI'},'PI dikirim ke Controller untuk approval')}>Submit PI</button></span>
@@ -1155,7 +1167,7 @@ function Payments({ phase, instructions, proofs, reconciliations, role, simplifi
         ? <a className="btn btn-primary" href={`?view=operations&submissionId=${encodeURIComponent(r.submission_id)}`}>Perbaiki Pay Run</a>
         : <button style={actionButton} onClick={() => void openDetail(r.id)}>Lihat alasan reject</button>;
       else action = <button style={actionButton} onClick={() => void openDetail(r.id)}>Detail PI</button>;
-      return [<div key="id"><strong>{r.document_no || r.client_name || r.id}</strong><small style={small}>{r.client_name || '-'} · Payroll {r.payroll_period || '-'} · Bayar {r.payment_period || r.payroll_period || '-'}</small>{r.status === 'REVISION_REQUIRED' && r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, formatIDR(Number(r.expected_total || 0)), <Badge key="status" text={simplified?paymentBusinessLabel(r.status):r.status} />, <span key="action">{action}</span>];
+      return [<div key="id"><strong>{r.document_no || r.id}</strong>{r.status === 'REVISION_REQUIRED' && r.rejection_reason?<small style={{...small,color:'#b91c1c'}}>Reject: {r.rejection_reason}</small>:null}</div>, <div key="client"><strong>{r.client_name || r.client_id || '-'}</strong><small style={small}>{r.project_name || r.project_id || '-'}</small></div>,<div key="period">{r.payroll_period || '-'}<small style={small}>Bayar {r.payment_period || r.payroll_period || '-'}</small></div>,formatIDR(Number(r.expected_total || 0)),Number(r.recipient_count || 0),<Badge key="status" text={simplified?paymentBusinessLabel(r.status):r.status} />,date(r.created_at),<span key="action">{action}</span>];
     })} />
     {detailLoading ? <div className="card" style={{padding:18}}>Memuat snapshot Payment Instruction…</div> : null}
     {detailError ? <div className="app-notice-bubble app-notice-error" role="alert"><strong>Detail PI gagal</strong><span>{detailError}</span></div> : null}
@@ -1311,7 +1323,12 @@ function WorkspaceLoading() {
   </div>;
 }
 
-function CardTable({ headers, rows, flat=false }: { headers:string[]; rows:React.ReactNode[][]; flat?:boolean }) { return <div className={flat?'payment-instruction-table-flat':'card'} style={{ overflowX:'auto' }}><table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}><thead><tr>{headers.map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i) => <tr key={i} style={{ borderBottom:'1px solid var(--border-soft)' }}>{row.map((cell,j) => <td key={j} style={td}>{cell}</td>)}</tr>)}</tbody></table></div>; }
+function CardTable({ headers, rows, flat=false }: { headers:string[]; rows:React.ReactNode[][]; flat?:boolean }) {
+  const [page,setPage]=useState(1);
+  const pages=Math.max(1,Math.ceil(rows.length/25));
+  const current=Math.min(page,pages);
+  return <div className={flat?'payment-instruction-table-flat':'card'} style={{ overflowX:'auto' }}><table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}><thead><tr>{headers.map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead><tbody>{rows.slice((current-1)*25,current*25).map((row,i) => <tr key={i} style={{ borderBottom:'1px solid var(--border-soft)' }}>{row.map((cell,j) => <td key={j} style={td}>{cell}</td>)}</tr>)}</tbody></table>{pages>1?<nav className="workspace-table-pagination" aria-label="Halaman tabel"><span>{(current-1)*25+1}–{Math.min(current*25,rows.length)} dari {rows.length}</span><button type="button" className="btn" disabled={current===1} onClick={()=>setPage(current-1)}>Sebelumnya</button><button type="button" className="btn" disabled={current===pages} onClick={()=>setPage(current+1)}>Berikutnya</button></nav>:null}</div>;
+}
 function Empty({ title, detail }: { title:string; detail?:string }) { return <div className="card" style={{ padding:'34px 24px', textAlign:'center' }}><strong>{title}</strong>{detail && <p style={{ color:'var(--text3)', fontSize:13, margin:'8px auto 0', maxWidth:520 }}>{detail}</p>}</div>; }
 function Summary({ title,value,note }: { title:string; value:number; note:string }) { return <div className="card" style={{ padding:18 }}><span style={small}>{title}</span><div style={{ fontSize:26, fontWeight:750, margin:'6px 0' }}>{value}</div><span style={small}>{note}</span></div>; }
 function Badge({ text }: { text:string }) { return <span style={{ display:'inline-block', color:stateTone(text), background:`${stateTone(text)}14`, borderRadius:999, padding:'4px 9px', fontWeight:700, fontSize:10 }}>{text.replaceAll('_',' ')}</span>; }

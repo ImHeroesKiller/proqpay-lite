@@ -25,7 +25,7 @@ test('P5.8.6 Payment Instructions has compact filters, inline decisions, flat PI
  assert.match(payment,/payment-instruction-table-flat/);
  assert.match(payment,/flat=\{phase==='payment'\}/);
  assert.match(payment,/mode==='payments'\?' operations-control-bar-payments':''/);
- assert.match(payment,/displayedPaymentPanel==='PI'\?<Payments phase="payment"/);
+ assert.match(payment,/displayedPaymentPanel==='PI'\?<><label[\s\S]*?<Payments phase="payment"/);
  assert.match(payment,/canonicalDecisionKnown\?` \(\$\{canonicalDecisionActions\}\)`/);
 });
 

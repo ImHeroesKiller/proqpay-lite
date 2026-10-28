@@ -9,7 +9,7 @@ const hash=data=>createHash('sha256').update(data).digest('hex');
 test('G4 accessibility CSS is explicit final cascade module; G1 base signatures remain immutable',async()=>{
  assert.deepEqual(accessibilityCss,['src/app/styles/accessibility.css']);
  assert.equal(orderedGlobalCss.at(-1),accessibilityCss[0]);
- assert.deepEqual(orderedGlobalCss.slice(-4,-1),featureCss);
+ assert.deepEqual(orderedGlobalCss.slice(-featureCss.length-1,-1),featureCss);
  const [global,polish]=await Promise.all([
   Promise.all(globalFoundationCss.map(read)).then(p=>p.join('')),
   Promise.all(domainPolishCss.map(read)).then(p=>p.join('')),

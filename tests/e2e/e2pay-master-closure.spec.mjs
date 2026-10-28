@@ -98,6 +98,7 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
  }
  if(role!=='CLIENT_USER'){
   const before=[...actions];
+  await page.getByText('Pengaturan jalur pembayaran',{exact:true}).click();
   await page.getByRole('button',{name:'Jalur Pembayaran',exact:true}).click();
   const routing=page.getByRole('region',{name:'Jalur Pembayaran Otomatis',exact:true});
   await routing.getByRole('heading',{name:'Payroll → Rekening Karyawan',exact:true}).waitFor();
@@ -113,6 +114,7 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
   await page.goto(base+'/?view=payments&paymentPanel=DISBURSEMENT',{waitUntil:'networkidle'});
   await page.getByRole('button',{name:'Ajukan ulang',exact:true}).click();
   await page.getByText('DR pengganti berhasil dibuat. Klik Submit untuk persetujuan Controller.',{exact:true}).waitFor();
+  await page.getByRole('dialog',{name:'Immutable Disbursement Snapshot'}).getByRole('button',{name:'Tutup Immutable Disbursement Snapshot'}).click();
   await page.getByRole('button',{name:'Submit',exact:true}).click();
   await page.getByText('DR dikirim ke Payroll Controller.',{exact:true}).waitFor();
   assert.equal(drStatus,'PENDING_APPROVAL');assert.deepEqual(actions.slice(-2),['REISSUE_FAILED','SUBMIT_REQUEST']);
@@ -146,6 +148,7 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
   assert.equal(drStatus,'APPROVED');
   assert.equal(balanceReads,4,'Each approval attempt must refresh Master balance, including DR');
   assert.deepEqual(actions.slice(-5),['APPROVE_PAYMENT','APPROVE_PAYMENT','APPROVE_REQUEST','STEP_UP','APPROVE_REQUEST']);
+  await snapshot.getByRole('button',{name:'Tutup Immutable Disbursement Snapshot'}).click();
   await page.getByRole('button',{name:'Process Payment',exact:true}).click();
   await page.getByText(/Synthetic inquiry rejected/).waitFor();
   assert.equal(executionCalls,2);assert.equal(drStatus,'FAILED');

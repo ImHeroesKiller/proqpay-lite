@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import OperatingWorkspace, { type WorkspaceFilterState } from '@/components/OperatingWorkspace';
 import type {AppView} from '@/components/Sidebar';
 import {PAYROLL_STAGE_VIEW,payrollStage,type PayrollStage} from '@/lib/workspace-navigation';
-import {routeValue,subscribeRoute,workspaceRouteFilters,patchWorkspaceFilters} from '@/lib/route-state';
+import {routeValue,subscribeRoute,workspaceRouteFilters,patchWorkspaceFilters,patchRoute} from '@/lib/route-state';
 import { listAllOperatingSubmissions } from '@/lib/operating-model-api';
 
 type Stage = PayrollStage;
@@ -56,6 +56,7 @@ export default function UnifiedPayrollWorkspace({
   const initialUrlStage=typeof window==='undefined'?null:stageFromUrl(routeValue('stage'));
   const [stage,setStage]=useState<Stage>(initialUrlStage || initialStage);
   const [filters,setFilters]=useState<WorkspaceFilterState>(urlFilters);
+  const [workspacePeriod,setWorkspacePeriod]=useState(()=>typeof window==='undefined'?'ALL':routeValue('workspacePeriod')||'ALL');
   const [submissions,setSubmissions]=useState<any[]>([]);
   const [submissionsReady,setSubmissionsReady]=useState(false);
 
@@ -79,6 +80,7 @@ export default function UnifiedPayrollWorkspace({
     const onRoute=()=>{
       setStage(stageFromUrl(routeValue('stage')) || initialStage);
       setFilters(workspaceRouteFilters());
+      setWorkspacePeriod(routeValue('workspacePeriod')||'ALL');
     };
     return subscribeRoute(onRoute);
   },[initialStage]);
@@ -122,7 +124,7 @@ export default function UnifiedPayrollWorkspace({
   return (
     <section className="unified-payroll-workspace">
       <header className="unified-payroll-head">
-        <WorkspaceTitle eyebrowClassName="workspace-eyebrow" eyebrow="END-TO-END PAYROLL" title="Payroll Workspace"
+        <WorkspaceTitle eyebrowClassName="workspace-eyebrow" eyebrow="END-TO-END PAYROLL" title={stage==='PAYMENT'?'Approval & Payment':'Payroll Workspace'}
           description={isController?'Selesaikan keputusan payroll, payment, reconciliation, dan close dari satu workspace.':'Siapkan payroll, selesaikan exception, dan kirim Payment Instruction tanpa berpindah-pindah halaman.'} />
         {canUpload ? (
           <Link className="btn btn-primary" href={`/data-intake?period=${encodeURIComponent(period)}`}>
@@ -150,7 +152,7 @@ export default function UnifiedPayrollWorkspace({
       </nav>
 
       <div className={`payroll-shared-filter${stage==='PAYMENT'?' payroll-shared-filter-payments':' card'}`} aria-label="Filter Payroll Workspace">
-        <div className="directory-hint">Semua periode · pekerjaan lintas bulan tetap terlihat</div>
+        <label><span>Periode</span><select aria-label="Periode workspace" value={workspacePeriod} onChange={event=>{setWorkspacePeriod(event.target.value);patchRoute({workspacePeriod:event.target.value==='ALL'?null:event.target.value});}}><option value="ALL">Semua periode</option>{[...new Set([...submissions.map(row=>String(row.period||'')),workspacePeriod==='ALL'?'':workspacePeriod])].filter(Boolean).sort().reverse().map(value=><option key={value} value={value}>{value}</option>)}</select></label>
         <label><span>Klien</span><select value={filters.clientId} onChange={(event)=>patchFilters({clientId:event.target.value})}><option value="ALL">Semua klien</option>{clients.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
         <label><span>Project</span><select value={filters.projectId} disabled={!projects.length} onChange={(event)=>patchFilters({projectId:event.target.value})}><option value="ALL">Semua project</option>{projects.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
         <label className="payroll-shared-search"><span>Pencarian</span><input value={filters.query} onChange={(event)=>patchFilters({query:event.target.value})} placeholder="Klien, project, pay run, PI…" /></label>
@@ -160,27 +162,9 @@ export default function UnifiedPayrollWorkspace({
         <div className="unified-payroll-stage">
           {initialPanel==='EXCEPTIONS'?<>
             <div className="control-panel-title"><div><span>DATA READINESS</span><h2>Exception Center</h2></div><button type="button" className="btn" onClick={()=>changeStage('PAYROLL')}>Kembali ke Payroll</button></div>
-            <OperatingWorkspace mode="actions" period="ALL" filters={filters} embedded />
+            <OperatingWorkspace mode="actions" period={workspacePeriod} filters={filters} embedded />
           </>:<>
-          {canUpload ? (
-            <div className="workflow-shortcut card">
-              <div>
-                <span>1 · DATA & PAYROLL</span>
-                <strong>Client atau Payroll Processor upload, ProQPay memvalidasi dan menyiapkan payroll</strong>
-                <small>Readiness dan exception tetap tersedia sebagai detail kerja, bukan langkah navigasi tambahan.</small>
-              </div>
-              <Link className="btn" href={`/data-intake?period=${encodeURIComponent(period)}`}>Upload / Review Data</Link>
-            </div>
-          ) : (
-            <div className="workflow-shortcut card">
-              <div>
-                <span>1 · DATA & PAYROLL</span>
-                <strong>Data disiapkan Client / Payroll Processor</strong>
-                <small>Controller memonitor hasil payroll tanpa menjadi uploader normal.</small>
-              </div>
-            </div>
-          )}
-          <OperatingWorkspace mode="payruns" period="ALL" filters={filters} embedded />
+          <OperatingWorkspace mode="payruns" period={workspacePeriod} filters={filters} embedded />
           </>}
         </div>
       ) : null}
@@ -188,8 +172,8 @@ export default function UnifiedPayrollWorkspace({
       {stage==='PAYMENT' ? (
         <div className="unified-payroll-stage">
           <h2 className="visually-hidden">Payment Instructions, disbursement, dan funding</h2>
-          <p className="payment-stage-safety-note">Satu workspace untuk PI, Canonical DR, dan Funding. Maker menyiapkan; final execution hanya Payroll Controller.</p>
-          <OperatingWorkspace mode="payments" period="ALL" filters={filters} embedded gatewayCanView={gatewayCanView} />
+          <p className="payment-stage-safety-note">Maker menyiapkan; final execution hanya Payroll Controller.</p>
+          <OperatingWorkspace mode="payments" period={workspacePeriod} filters={filters} embedded gatewayCanView={gatewayCanView} />
         </div>
       ) : null}
 
@@ -202,8 +186,8 @@ export default function UnifiedPayrollWorkspace({
               <small>Reconciliation tidak lagi bercampur dengan approval/payment execution.</small>
             </div>
           </div>
-          <div id="reconcile-work"><OperatingWorkspace mode="reconcile" period="ALL" filters={filters} embedded /></div>
-          <div id="billing-close" className="payroll-close-section"><OperatingWorkspace mode="billing" period="ALL" filters={filters} embedded /></div>
+          <div id="reconcile-work"><OperatingWorkspace mode="reconcile" period={workspacePeriod} filters={filters} embedded /></div>
+          <div id="billing-close" className="payroll-close-section"><OperatingWorkspace mode="billing" period={workspacePeriod} filters={filters} embedded /></div>
         </div>
       ) : null}
     </section>
