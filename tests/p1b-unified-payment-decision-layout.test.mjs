@@ -46,7 +46,7 @@ test('P1.B payment workbench has exactly one visible PI, DR or Funding content s
  assert.match(source,/displayedPaymentPanel==='DISBURSEMENT'\?<CanonicalDisbursementWorkspace/);
  assert.match(source,/displayedPaymentPanel==='FUNDING'&&\['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'\]/);
  assert.match(source,/mode !== 'billing' && mode !== 'payments'/);
- assert.match(source,/mode!=='payments' && !\(embedded && mode==='payruns'\) \? <OperationalFocus/);
+ assert.match(source,/mode!=='payments' && !\(embedded && \(mode==='payruns'\|\|mode==='reconcile'\)\) \? <OperationalFocus/);
  assert.match(source,/const displayedPaymentPanel=activePaymentPanel\|\|defaultPaymentPanel/);
  assert.match(source,/patchRoute\(\{paymentPanel:next\}\)/);
  assert.match(source,/subscribeRoute\(onRoute\)/);
@@ -90,5 +90,5 @@ test('P1.B mobile payment navigation retains compact legible buttons, no fixed-w
  assert.match(css,/@media\(max-width:760px\)/);
  assert.match(css,/\.canonical-queue-switch/);
  assert.match(css,/\.payment-decision-main\{display:grid;gap:12px;min-width:0\}/);
- assert.match(workspace,/final execution hanya Payroll Controller/);
+ assert.match(await read('src/components/CanonicalDisbursementWorkspace.tsx'),/const executor=actor\?\.role==='PAYROLL_CONTROLLER'/);
 });

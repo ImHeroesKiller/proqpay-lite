@@ -1,0 +1,20 @@
+import {test,expect} from '@playwright/test';
+import {build} from 'esbuild';
+test.use({bypassCSP:true});
+test('v21 shared table sorts financial values, pages, searches and distinguishes loading and error',async({page})=>{
+ const code=`import React,{useState} from 'react';import{createRoot}from'react-dom/client';import Table from './src/components/layout/WorkspaceTable.tsx';import Ref from './src/components/layout/ReferenceValue.tsx';
+ function Demo(){const[query,setQuery]=useState(''),[mode,setMode]=useState('data');const rows=Array.from({length:26},(_,i)=>[<Ref value={'REF-'+String(i+1).padStart(2,'0')}/>,<div>{i===0?'Rp 10.000':'Rp 2.000'}<small>200 recipients</small></div>]);return <><label>Search fixture<input value={query} onChange={e=>setQuery(e.target.value)}/></label><button onClick={()=>setMode('loading')}>Load fixture</button><button onClick={()=>setMode('error')}>Error fixture</button><Table label="Financial fixture" headers={['Reference','Nominal']} rows={rows} query={query} loading={mode==='loading'} error={mode==='error'?'Synthetic API unavailable':''} onRetry={()=>setMode('data')}/></>};createRoot(document.getElementById('fixture')).render(<Demo/>);`;
+ const result=await build({stdin:{contents:code,loader:'tsx',resolveDir:process.cwd()},bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"production"'}});
+ await page.route('**/*',route=>route.fulfill({contentType:'text/html',body:'<html><body><div id="fixture"></div></body></html>'}));
+ await page.goto('/');await page.addScriptTag({content:result.outputFiles[0].text});
+ const table=page.getByRole('table',{name:'Financial fixture'});
+ await expect(table.locator('tbody tr')).toHaveCount(25);
+ await page.getByRole('button',{name:'Berikutnya',exact:true}).click();await expect(table.locator('tbody tr')).toHaveCount(1);
+ await page.getByRole('button',{name:'Nominal'}).click();await expect(table.locator('tbody tr').first()).toContainText('Rp 2.000');
+ await page.getByRole('button',{name:'Nominal'}).click();await expect(table.locator('tbody tr').first()).toContainText('Rp 10.000');
+ await page.getByRole('button',{name:'Reference'}).click();await expect(table.locator('tbody tr').first()).toContainText('REF-01');
+ await page.getByLabel('Search fixture').fill('REF-26');await expect(table.locator('tbody tr')).toHaveCount(1);
+ await page.getByRole('button',{name:'Load fixture'}).click();await expect(page.getByRole('status')).toContainText('Memuat');await expect(table).toHaveCount(0);
+ await page.getByRole('button',{name:'Error fixture'}).click();await expect(page.getByRole('alert')).toContainText('Synthetic API unavailable');await expect(page.getByText('Tidak ada data pada filter ini')).toHaveCount(0);
+ await page.getByRole('button',{name:'Coba lagi'}).click();await expect(table.locator('tbody tr')).toHaveCount(1);
+});

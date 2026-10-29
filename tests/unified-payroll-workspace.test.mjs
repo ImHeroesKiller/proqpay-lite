@@ -34,7 +34,7 @@ test('Payroll Processor and Controller navigation collapses operational modules 
   assert.match(workspace,/Data & Payroll/);
   assert.match(workspace,/Approval & Payment/);
   assert.match(workspace,/Reconcile & Close/);
-  assert.match(workspace,/final execution hanya Payroll Controller/);
+  assert.match(await readFile(new URL('../src/components/CanonicalDisbursementWorkspace.tsx',import.meta.url),'utf8'),/const executor=actor\?\.role==='PAYROLL_CONTROLLER'/);
 });
 
 test('Data Intake hands off directly to the unified Payroll Workspace',async()=>{

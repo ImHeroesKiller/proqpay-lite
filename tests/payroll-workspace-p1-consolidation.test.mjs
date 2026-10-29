@@ -52,8 +52,9 @@ test('P1 places proof and reconciliation only in Reconcile & Close stage',async(
     read('src/components/UnifiedPayrollWorkspace.tsx'),
     read('src/components/OperatingWorkspace.tsx'),
   ]);
-  assert.match(workspace,/mode="reconcile"/);
-  assert.match(workspace,/mode="billing"/);
+  const close=await read('src/components/ReconcileCloseWorkspace.tsx');
+  assert.match(close,/mode="reconcile"/);
+  assert.match(close,/surface="BILLING"/);
   assert.match(operating,/phase:'payment'\|'reconcile'/);
   assert.match(operating,/phase==='reconcile' \? <PaymentReconciliationControl/);
   assert.match(operating,/phase==='reconcile' \? <>/);

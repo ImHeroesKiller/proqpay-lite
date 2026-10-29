@@ -42,7 +42,8 @@ test('P2 gives clean reconciliation a direct handoff to billing and close',async
     read('src/components/OperatingWorkspace.tsx'),
     read('src/components/UnifiedPayrollWorkspace.tsx'),
   ]);
-  assert.match(source,/href:toReconcile\?undefined:'#billing-close'/);
+  assert.match(source,/href:toReconcile\?undefined:'\?view=billing&closePanel=BILLING'/);
   assert.match(source,/Lanjut Billing & AR/);
-  assert.match(workspace,/id="billing-close"/);
+  assert.match(workspace,/ReconcileCloseWorkspace/);
+  assert.match(await read('src/components/ReconcileCloseWorkspace.tsx'),/surface="BILLING"/);
 });

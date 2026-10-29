@@ -1,8 +1,9 @@
 "use client";
 
+import WorkspaceTable from '@/components/layout/WorkspaceTable';
 import {billingDateLabel} from '@/lib/billing-ui';
 import {
-  DataTable as UiDataTable, EmptyState as UiEmptyState,
+  EmptyState as UiEmptyState,
   FormActions as UiFormActions, FormField as UiFormField,
   MetricCard as UiMetricCard, ModalShell as UiModalShell,
   SectionCard as UiSectionCard, StatusBadge as UiStatusBadge,
@@ -19,7 +20,7 @@ export function Metric({ label, value, note, danger = false }: any) {
   return <UiMetricCard label={label} value={value} note={note} tone={danger ? "danger" : "neutral"} />;
 }
 export function Table({ headers, rows }: any) {
-  return <UiDataTable headers={headers} rows={rows} />;
+  return <WorkspaceTable headers={headers} rows={rows} />;
 }
 export function Empty({ text }: any) {
   return <UiEmptyState title={text} />;
@@ -84,8 +85,9 @@ export const button: any = {
   borderRadius: 8,
   background: "var(--accent)",
   color: "var(--accent-contrast)",
-  padding: "7px 10px",
-  fontSize: 11,
+  minHeight: 36,
+  padding: "8px 12px",
+  fontSize: 13,
   fontWeight: 650,
   cursor: "pointer",
   whiteSpace: "nowrap",
@@ -99,7 +101,7 @@ export const secondary: any = {
 export const linkButton: any = {
   border: 0,
   background: "transparent",
-  color: "var(--accent)",
+  color: "var(--workspace-accent-ink, var(--text))",
   fontWeight: 700,
   cursor: "pointer",
   padding: 0,

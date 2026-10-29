@@ -47,18 +47,18 @@ test('G2 URL patch preserves period, payment deep link, fragment and unrelated h
  }finally{b.restore();}
 });
 
-test('G2 client switch resets stale project, preserves unrelated payment/funding query',()=>{
+test('G2 client switch retains selected project until explicit reset and preserves payment/funding query',()=>{
  const b=mockBrowser('/?view=payments&stage=payment&clientId=C1&projectId=P1&q=lag&fundingAccountId=0190');try{
   assert.deepEqual(workspaceRouteFilters(),{clientId:'C1',projectId:'P1',query:'lag'});
   const next=patchWorkspaceFilters(workspaceRouteFilters(),{clientId:'C2'});
-  assert.deepEqual(next,{clientId:'C2',projectId:'ALL',query:'lag'});
-  assert.equal(routeValue('projectId'),null);
+  assert.deepEqual(next,{clientId:'C2',projectId:'P1',query:'lag'});
+  assert.equal(routeValue('projectId'),'P1');
   assert.equal(routeValue('clientId'),'C2');
   assert.equal(routeValue('fundingAccountId'),'0190');
   assert.equal(routeValue('stage'),'payment');
   const search=patchWorkspaceFilters(next,{query:'  '});
   assert.equal(search.query,'  ');assert.equal(routeValue('q'),null);
-  const cleared=patchWorkspaceFilters(search,{clientId:'ALL'});
+  const cleared=patchWorkspaceFilters(search,{clientId:'ALL',projectId:'ALL'});
   assert.equal(cleared.projectId,'ALL');assert.equal(routeValue('clientId'),null);
   assert.equal(routeParams().get('view'),'payments');
  }finally{b.restore();}
@@ -104,7 +104,8 @@ test('G2 single URL contract and async loader safety are integrated in all finan
  assert.match(home,/patchRoute\(\{view:safeView,period,/);assert.match(home,/subscribeRoute\(onPopState\)/);
  assert.doesNotMatch(home,/window\.history\.pushState|window\.history\.replaceState/);
  assert.match(unified,/patchWorkspaceFilters\(filters,patch\)/);
- assert.match(unified,/if\(!submissionsReady\)return/);
+ assert.match(unified,/Klien terpilih \(tidak tersedia\)/);
+ assert.match(unified,/Reset filter/);
  assert.match(unified,/subscribeRoute\(onRoute\)/);
  assert.doesNotMatch(unified,/window\.history\.pushState|window\.history\.replaceState/);
  assert.match(operations,/const generation=\+\+requestGeneration\.current/);

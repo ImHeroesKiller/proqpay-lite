@@ -135,10 +135,10 @@ test('Close & Billing workspace exposes rollout-ready close controls',async()=>{
   const billing=await readFile(new URL('../src/components/BillingWorkspace.tsx',import.meta.url),'utf8');
   const workspace=await readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
   assert.match(billing,/Cycle Close/);
-  assert.match(billing,/Payroll Cycle Close/);
+  assert.match(billing,/Period Close Readiness/);
   assert.match(billing,/action: "CLOSE_PAY_RUN"/);
   assert.match(billing,/confirmation: "TUTUP PERIODE"/);
-  assert.match(billing,/AR tetap dipantau/);
+  assert.match(billing,/closeReadinessChecks/);
   assert.match(workspace,/Close readiness/);
   assert.doesNotMatch(workspace,/\['PAYROLL_FINALIZED','COMPLETED'\]\.includes\(selected\.state\)/);
 });
