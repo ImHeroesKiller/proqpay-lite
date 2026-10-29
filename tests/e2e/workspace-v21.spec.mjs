@@ -11,7 +11,7 @@ const pi={id:'PI-TEST',submission_id:'RUN-TEST',document_no:'PI-202610-001',clie
 const submissions=[{id:'RUN-TEST',client_id:'C-TEST',client_name:'Klien Pengujian',project_id:'P-TEST',project_name:'Project Pengujian',period:'2026-10',payment_period:'2026-10',state:'PAYMENT_APPROVAL_PENDING',total_net:3000000,employee_count:200,blocking_count:0,source_mode:'MASTER_CURRENT',run_type:'REGULAR'},{id:'RUN-OLD',client_id:'C-TEST',client_name:'Klien Pengujian',project_id:'P-TEST',project_name:'Project Pengujian',period:'2026-09',state:'DRAFT',total_net:150000,employee_count:10,blocking_count:0,source_mode:'MASTER_CURRENT'}];
 const closed={...submissions[0],id:'RUN-CLOSED',state:'COMPLETED',input_status:'READY',payment_status:'COMPLETED',reconciliation_status:'MATCHED',invoice_status:'ISSUED',period_status:'CLOSED',closed_by:'controller@example.test',closed_at:'2026-10-28'};
 submissions.push({...closed,id:'RUN-READY',period_status:'OPEN'},closed);
-const register={disbursementRequestId:'DR-REGISTER',clientId:'C-TEST',projectId:'P-TEST',clientReference:'DR-202610-REGISTER',sourceDocumentId:'PI-202610-001',provider:'E2PAY',amount:3000000,recipientCount:200,status:'SETTLED',executionStatus:'SUCCESS',reconciliationStatus:'MATCHED',settledAmount:3000000,lastReconciledAt:'2026-10-28T05:00:00Z'};
+const register={purpose:'PAYROLL',destinationMode:'DIRECT_EMPLOYEE',beneficiaryType:'EMPLOYEE',sourceDocumentType:'PAYMENT_INSTRUCTION',currency:'IDR',succeededItems:200,failedItems:0,unresolvedItems:0,failedAmount:0,createdAt:'2026-10-28T05:00:00Z',disbursementRequestId:'DR-REGISTER',clientId:'C-TEST',projectId:'P-TEST',clientReference:'DR-202610-REGISTER',sourceDocumentId:'PI-202610-001',provider:'E2PAY',amount:3000000,recipientCount:200,status:'SETTLED',executionStatus:'SUCCESS',reconciliationStatus:'MATCHED',settledAmount:3000000,lastReconciledAt:'2026-10-28T05:00:00Z'};
 const dr={id:'DR-TEST',clientId:'C-TEST',projectId:'P-TEST',sourceDocumentType:'PAYMENT_INSTRUCTION',sourceDocumentId:'PI-TEST',purpose:'PAYROLL',destinationMode:'DIRECT_EMPLOYEE',clientReference:'DR-202610-001',status:'PENDING_APPROVAL',provider:'E2PAY',environment:'UAT',amount:3000000,recipientCount:200,items:[]};
 for(const width of [1440,1280,1024,768,390,360])test(`workspace v21 layout and state at ${width}px`,async()=>{
  if(!['localhost','127.0.0.1'].includes(new URL(base).hostname))throw new Error('Local only');
@@ -35,6 +35,7 @@ for(const width of [1440,1280,1024,768,390,360])test(`workspace v21 layout and s
   await route.fulfill({status:200,json:body});
  });
  async function shot(options){
+  await expect(page.locator('.module-error-boundary')).toHaveCount(0);
   if(!before&&[1440,390].includes(width)){
    await page.addScriptTag({path:fileURLToPath(new URL('../../node_modules/axe-core/axe.min.js',import.meta.url))});
    const violations=await page.evaluate(async()=>{const report=await window.axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21a','wcag21aa']}});return report.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}));});
