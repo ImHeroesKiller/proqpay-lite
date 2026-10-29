@@ -86,11 +86,11 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
  });
  await page.goto(base+'/?view=payments&paymentPanel=FUNDING',{waitUntil:'networkidle'});
  if(role==='SUPER_ADMIN'){
-  await page.getByRole('button',{name:'Validasi & Aktifkan Master'}).click();await page.getByText('Identitas Master tervalidasi dan aktivasi tersimpan.').waitFor();assert.deepEqual(actions,['BIND_MASTER_ACCOUNT','STEP_UP','BIND_MASTER_ACCOUNT']);assert.equal(prompts,1);
+  await page.getByText('Lihat Detail Pemeriksaan Master',{exact:true}).click();await page.getByRole('button',{name:'Validasi & Aktifkan Master'}).click();await page.getByText('Identitas Master tervalidasi dan aktivasi tersimpan.').waitFor();assert.deepEqual(actions,['BIND_MASTER_ACCOUNT','STEP_UP','BIND_MASTER_ACCOUNT']);assert.equal(prompts,1);
   assert.equal(await page.getByRole('button',{name:'Ajukan ke Controller'}).count(),0);
  }else if(role==='PAYROLL_PROCESSOR'){
   assert.equal(await page.getByRole('button',{name:'Validasi & Aktifkan Master'}).count(),0);
-  await page.getByLabel('Nominal (IDR)').fill('2000');await page.getByRole('button',{name:'Ajukan ke Controller'}).click();await page.getByText('Permintaan limit dikirim ke Payroll Controller.').waitFor();assert.deepEqual(actions,['REQUEST_LIMIT']);
+  await page.getByText('Ajukan limit',{exact:true}).click();await page.getByLabel('Nominal (IDR)').fill('2000');await page.getByRole('button',{name:'Ajukan ke Controller'}).click();await page.getByText('Permintaan limit dikirim ke Payroll Controller.').waitFor();assert.deepEqual(actions,['REQUEST_LIMIT']);
  }else if(role==='PAYROLL_CONTROLLER'){
   assert.equal(await page.getByRole('button',{name:'Ajukan ke Controller'}).count(),0);await page.getByRole('button',{name:'Setujui',exact:true}).click();await page.getByText('Limit disetujui.').waitFor();assert.deepEqual(actions,['APPROVE_LIMIT']);
  }else{
@@ -99,7 +99,6 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
  if(role!=='CLIENT_USER'){
   const before=[...actions];
   await page.getByText('Pengaturan jalur pembayaran',{exact:true}).click();
-  await page.getByRole('button',{name:'Jalur Pembayaran',exact:true}).click();
   const routing=page.getByRole('region',{name:'Jalur Pembayaran Otomatis',exact:true});
   await routing.getByRole('heading',{name:'Payroll → Rekening Karyawan',exact:true}).waitFor();
   await routing.getByRole('heading',{name:'Payroll → Rekening Perusahaan Klien',exact:true}).waitFor();

@@ -1,15 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import DetailDrawer from '@/components/layout/DetailDrawer';
+import {canRequestPeriodClose,closeReadinessChecks,invoicePaymentState} from '@/lib/workspace-progress';
+import {patchRoute,routeValue} from '@/lib/route-state';
 import { ApiRequestError, parseApiResponse } from "@/lib/api-client";
 import { formatIDR } from "@/lib/format";
 import {
   Modal, Panel, Metric, Table, Empty, Badge, Form, Field, Select, Info,
   date, csvCell, button, secondary, linkButton,
-  input, labelStyle, tabStyle,
+  labelStyle,
 } from '@/components/billing/BillingViewPrimitives';
-import { executeOperatingAction, getPayRunDetail, listOperatingResource } from "@/lib/operating-model-api";
-import { arControlSummary, billingModalTitle, billingPermission, type ArRecord, type BillablePayment, type BillingActor, type BillingClient, type BillingData, type BillingModalState, type BillingSection, type BillingSubmission, type InvoiceRecord } from "@/lib/billing-ui";
+import { executeOperatingAction, getPayRunDetail, listAllOperatingSubmissions } from "@/lib/operating-model-api";
+import { arControlSummary, billingModalTitle, billingPermission, type ArRecord, type BillingActor, type BillingData, type BillingModalState, type BillingSection, type BillingSubmission, type InvoiceRecord } from "@/lib/billing-ui";
 import { PROQPAY_ICON_JPEG_BASE64, PROQPAY_LOGO_JPEG_BASE64 } from "../../functions/api/proqpay-invoice-assets.js";
 import {
   FormGrid as UiFormGrid,
@@ -91,6 +94,7 @@ type BillingWorkspaceProps = {
   period?: string;
   filters?: { clientId:string; projectId:string; query:string };
   embedded?: boolean;
+  surface?: "ALL" | "SETTLEMENT" | "BILLING";
 };
 
 export default function BillingWorkspace({
@@ -101,8 +105,12 @@ export default function BillingWorkspace({
   period = "ALL",
   filters,
   embedded = false,
+  surface = "ALL",
 }: BillingWorkspaceProps) {
-  const [section, setSection] = useState<BillingSection>(focusSection || "invoice");
+  const [section, setSection] = useState<BillingSection>(surface==="SETTLEMENT"?"close":focusSection || (["invoice","tax","ar","setup"].includes(routeValue("billingSection")||"")?routeValue("billingSection") as BillingSection:"invoice"));
+  const generation=useRef(0);
+  const [loadError,setLoadError]=useState("");
+  const [invoiceStatus,setInvoiceStatus]=useState(()=>routeValue("invoiceStatus")||"ALL");
   const [data, setData] = useState<BillingData>(initialData);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
@@ -116,11 +124,12 @@ export default function BillingWorkspace({
   const canManageIssuer = role === "SUPER_ADMIN";
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const request=++generation.current;
+    setLoading(true);setLoadError("");
     try {
       const [body, operating, focused] = await Promise.all([
         loadAllBillingPages(focusSubmissionId),
-        listOperatingResource("submissions"),
+        listAllOperatingSubmissions(),
         focusSubmissionId
           ? getPayRunDetail(focusSubmissionId).catch(() => null)
           : Promise.resolve(null),
@@ -132,21 +141,20 @@ export default function BillingWorkspace({
       ) {
         submissions.unshift(focused.submission);
       }
-      setData({ ...initialData, ...body, submissions });
+      if(request===generation.current)setData({ ...initialData, ...body, submissions });
     } catch (error) {
-      setNotice(
-        error instanceof Error ? error.message : "Gagal memuat Billing & AR",
-      );
+      if(request===generation.current)setLoadError(error instanceof Error ? error.message : "Gagal memuat Billing & AR");
     } finally {
-      setLoading(false);
+      if(request===generation.current)setLoading(false);
     }
   }, [focusSubmissionId]);
 
   useEffect(() => {
-    void load();
+    void load();return()=>{generation.current+=1;};
   }, [load]);
 
   useEffect(() => {
+    if(surface!=="ALL"){setSection(surface==="SETTLEMENT"?"close":"invoice");return;}
     if (focusSection) {
       setSection(focusSection);
       return;
@@ -160,7 +168,7 @@ export default function BillingWorkspace({
     setSection(
       submission.period_status === "CLOSED" || closingInvoice ? "close" : "invoice",
     );
-  }, [data.submissions, focusSection, focusSubmissionId]);
+  }, [data.submissions, focusSection, focusSubmissionId,surface]);
 
   const focusedData = useMemo(() => {
     if (!focusSubmissionId) return data;
@@ -323,19 +331,15 @@ export default function BillingWorkspace({
 
   const totals = useMemo(() => {
     const open = scopedData.arItems.filter((r) => Number(r.balance) > 0);
-    const closeReady = scopedData.submissions.filter((r) =>
-      r.period_status !== "CLOSED" &&
-      r.state === "COMPLETED" &&
-      r.payment_status === "COMPLETED" &&
-      r.reconciliation_status === "MATCHED" &&
-      ["ISSUED", "PARTIALLY_PAID", "PAID"].includes(String(r.invoice_status || "")),
-    ).length;
+    const closeReady = scopedData.submissions.filter(row=>canRequestPeriodClose(row)).length;
     return {
       billable: scopedData.billablePayments.length,
       review: scopedData.invoices.filter((r) =>
         ["DRAFT", "UNDER_REVIEW"].includes(String(r.status || "")),
       ).length,
       closeReady,
+      issued:scopedData.invoices.filter(row=>["ISSUED","PARTIALLY_PAID","PAID"].includes(String(row.status))).length,
+      matched:scopedData.submissions.filter(row=>row.payment_status==='COMPLETED'&&row.reconciliation_status==='MATCHED'),
       outstanding: open.reduce((n, r) => n + Number(r.balance || 0), 0),
       overdue: open
         .filter((r) => Number(r.aging_days) > 0)
@@ -466,6 +470,8 @@ export default function BillingWorkspace({
     URL.revokeObjectURL(url);
   }
 
+  const ActiveModal=modal?.kind==='detail'||modal?.kind==='ar-history'?BillingDetailDrawer:Modal;
+  if(loadError)return <div className="workspace-inline-error" role="alert"><strong>{surface==='SETTLEMENT'?'Settlement':'Billing & AR'} belum dapat dimuat</strong><p>{loadError}</p><button type="button" className="btn" onClick={()=>void load()}>Coba lagi</button></div>;
   if (loading)
     return (
       <Panel
@@ -475,7 +481,7 @@ export default function BillingWorkspace({
     );
 
   return (
-    <div className="billing-workspace ui-workspace-stack">
+    <div className={`billing-workspace ui-workspace-stack billing-surface-${surface.toLowerCase()}`}>
       {!embedded && (focusSubmissionId || focusSection) && (
         <div className="dashboard-focus-banner" role="status">
           <span>
@@ -486,41 +492,16 @@ export default function BillingWorkspace({
           ) : null}
         </div>
       )}
-      <UiMetricGrid>
-        <Metric
-          label="Siap ditagihkan"
-          value={String(totals.billable)}
-          note="Payment completed"
-        />
-        <Metric
-          label="Draft / review"
-          value={String(totals.review)}
-          note="Menunggu tindakan"
-        />
-        <Metric
-          label="Ready to close"
-          value={String(totals.closeReady)}
-          note="Reconcile + invoice complete"
-        />
-        <Metric
-          label="Outstanding AR"
-          value={formatIDR(totals.outstanding)}
-          note="Saldo piutang"
-        />
-        <Metric
-          label="Overdue"
-          value={formatIDR(totals.overdue)}
-          note="Lewat jatuh tempo"
-          danger={totals.overdue > 0}
-        />
-      </UiMetricGrid>
-
-      <UiTabs
-        items={(Object.keys(sections) as BillingSection[]).map((key) => ({ value: key, label: sections[key] }))}
-        value={section}
-        onChange={(value) => setSection(value as BillingSection)}
-        ariaLabel="Billing & AR sections"
-      />
+      {surface==='SETTLEMENT'?<div className="workspace-inline-summary" aria-label="Ringkasan settlement"><div><span>Payroll matched</span><strong>{totals.matched.some(row=>row.total_net==null)?'Belum tersedia':formatIDR(totals.matched.reduce((sum,row)=>sum+Number(row.total_net||0),0))}</strong></div><div><span>Belum matched</span><strong>{scopedData.submissions.filter(row=>row.period_status!=='CLOSED'&&row.reconciliation_status!=='MATCHED').length}</strong></div><div><span>Prasyarat close terpenuhi</span><strong>{totals.closeReady}</strong></div><div><span>Blocked / belum terverifikasi</span><strong>{scopedData.submissions.filter(row=>row.period_status!=='CLOSED'&&!canRequestPeriodClose(row)).length}</strong></div></div>:<UiMetricGrid>
+        <Metric label="Siap ditagihkan" value={String(totals.billable)} note="Payment completed"/>
+        <Metric label="Issued" value={String(totals.issued)} note="Invoice diterbitkan"/>
+        <Metric label="Outstanding AR" value={formatIDR(totals.outstanding)} note="Saldo piutang"/>
+        <Metric label="Overdue" value={formatIDR(totals.overdue)} note="Lewat jatuh tempo" danger={totals.overdue>0}/>
+      </UiMetricGrid>}
+      {surface==='ALL'?<UiTabs items={(Object.keys(sections) as BillingSection[]).map(key=>({value:key,label:sections[key]}))} value={section} onChange={value=>setSection(value as BillingSection)} ariaLabel="Billing & AR sections"/>:surface==='BILLING'?<>
+        <div className="workspace-local-filter"><label>Status invoice<select value={invoiceStatus} onChange={event=>{setInvoiceStatus(event.target.value);patchRoute({invoiceStatus:event.target.value==='ALL'?null:event.target.value});}}><option value="ALL">Semua status</option>{[...new Set(scopedData.invoices.map(row=>String(row.status||'UNKNOWN')))].sort().map(status=><option key={status} value={status}>{status.replaceAll('_',' ')}</option>)}</select></label>{section!=='invoice'?<button type="button" className="btn" onClick={()=>{setSection('invoice');patchRoute({billingSection:null});}}>Kembali ke invoice & AR</button>:null}</div>
+        <details className="workspace-secondary"><summary>Faktur pajak dan pengaturan billing</summary><div className="ui-cluster">{(['tax','setup'] as BillingSection[]).map(value=><button key={value} type="button" className="btn" onClick={()=>{setSection(value);patchRoute({billingSection:value});}}>{sections[value]}</button>)}</div></details>
+      </>:null}
 
       {notice && (
         <div
@@ -537,7 +518,7 @@ export default function BillingWorkspace({
 
       {section === "invoice" && (
         <InvoiceSection
-          data={scopedData}
+          data={{...scopedData,invoices:scopedData.invoices.filter(row=>invoiceStatus==='ALL'||row.status===invoiceStatus)}}
           canPrepare={canPrepare}
           canControl={canControl}
           act={act}
@@ -557,9 +538,10 @@ export default function BillingWorkspace({
           exportCoretax={exportCoretax}
         />
       )}
-      {section === "ar" && (
+      {(section === "ar" || (surface==='BILLING'&&section==='invoice')) && (
         <ARSection
           rows={scopedData.arItems}
+          compact={surface==='BILLING'}
           canControl={canWriteAr}
           canFollow={canWriteAr}
           payment={openPayment}
@@ -586,7 +568,7 @@ export default function BillingWorkspace({
       )}
 
       {modal && (
-        <Modal
+        <ActiveModal
           title={billingModalTitle(modal.kind)}
           close={() => {
             setModal(null);
@@ -711,49 +693,37 @@ export default function BillingWorkspace({
               submit={() => confirmClose(modal.row as BillingSubmission)}
             />
           )}
-        </Modal>
+        </ActiveModal>
       )}
     </div>
   );
 }
 
+function BillingDetailDrawer({title,close,children}:any){return <DetailDrawer title={title} onClose={close}>{children}</DetailDrawer>;}
+
 function CloseSection({ rows, canControl, close }: any) {
-  const closeRows = rows
-    .filter((r: any) => r.state === "COMPLETED" || r.period_status === "CLOSED")
-    .sort((a: any, b: any) => String(b.period || "").localeCompare(String(a.period || "")));
-  const readiness = (r: any) => {
-    if (r.period_status === "CLOSED") return { ready: false, label: "Closed", detail: "Period sudah ditutup." };
-    if (r.payment_status !== "COMPLETED") return { ready: false, label: "Payment", detail: "Payment belum completed." };
-    if (r.reconciliation_status !== "MATCHED") return { ready: false, label: "Reconcile", detail: "Reconciliation belum matched." };
-    if (!r.invoice_status) return { ready: false, label: "Invoice", detail: "Invoice belum dibuat." };
-    if (["DRAFT","UNDER_REVIEW","APPROVED"].includes(r.invoice_status)) return { ready: false, label: "Invoice", detail: `Invoice masih ${String(r.invoice_status).replaceAll("_"," ")}.` };
-    if (!["ISSUED","PARTIALLY_PAID","PAID"].includes(r.invoice_status)) return { ready: false, label: "Review", detail: "Status invoice belum memenuhi close readiness." };
-    return { ready: true, label: "Ready", detail: "Payment matched dan invoice sudah diterbitkan." };
-  };
-  return <Panel
-    title="Payroll Cycle Close"
-    detail="Close dilakukan setelah payment completed, reconciliation matched, dan invoice issued. Outstanding AR tetap dipantau terpisah."
-  >
-    {closeRows.length ? <Table
-      headers={["Klien / Project","Periode","Payment","Reconcile","Invoice","Period","Aksi"]}
-      rows={closeRows.map((r:any)=>{
-        const status=readiness(r);
-        return [
-          <div key="c"><strong>{r.client_name||r.client_id}</strong><small>{r.project_name||"-"}</small></div>,
-          r.period||"-",
-          <Badge key="p" text={r.payment_status||"PENDING"} />,
-          <Badge key="r" text={r.reconciliation_status||"PENDING"} />,
-          <Badge key="i" text={r.invoice_status||"NOT_CREATED"} />,
-          <Badge key="s" text={r.period_status||"OPEN"} />,
-          r.period_status==="CLOSED"
-            ? <small key="a">Closed by {r.closed_by||"-"}</small>
-            : status.ready && canControl
-              ? <button key="a" style={button} onClick={()=>close(r)}>Close period</button>
-              : <small key="a">{status.detail}</small>,
-        ];
-      })}
-    /> : <Empty text="Belum ada payroll pada tahap close." />}
-  </Panel>;
+  const [selected,setSelected]=useState<any>(null);
+  const [detail,setDetail]=useState<any>(null);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState('');
+  const [reload,setReload]=useState(0);
+  useEffect(()=>{
+    if(!selected)return;
+    let active=true;
+    void getPayRunDetail(selected.id).then(body=>{if(active)setDetail(body);}).catch(error=>{if(active)setError(error instanceof Error?error.message:'Detail close gagal dimuat');}).finally(()=>{if(active)setLoading(false);});
+    return ()=>{active=false;};
+  },[selected,reload]);
+  function open(row:any){setSelected(row);setDetail(null);setError('');setLoading(true);setReload(value=>value+1);}
+  const current=detail?.submission||{};
+  const closeRows=rows.filter((row:any)=>row.period_status!=='CLOSED');
+  const history=rows.filter((row:any)=>row.period_status==='CLOSED');
+  const headers=['Klien / Project','Periode','Payment','Reconcile','Invoice','Period','Aksi'];
+  const cells=(list:any[])=>list.map(r=>[
+    <div key="client"><strong>{r.client_name||r.client_id}</strong><small>{r.project_name||'—'}</small></div>,r.period||'—',<Badge key="payment" text={r.payment_status||'UNKNOWN'}/>,<Badge key="reconcile" text={r.reconciliation_status||'UNKNOWN'}/>,<Badge key="invoice" text={r.invoice_status||'NOT_CREATED'}/>,<Badge key="period" text={r.period_status||'UNKNOWN'}/>,<button key="action" type="button" className="btn" onClick={()=>open(r)}>{r.period_status==='CLOSED'?'Lihat closed cycle':'Review & Close'}</button>
+  ]);
+  return <><Panel title="Period Close Readiness" detail="Review prasyarat aktual sebelum mengajukan penutupan periode.">{closeRows.length?<Table headers={headers} rows={cells(closeRows)}/>:<Empty text="Tidak ada periode terbuka pada filter ini."/>}</Panel><details className="workspace-secondary"><summary>Closed Cycle History ({history.length})</summary>{history.length?<Table headers={headers} rows={cells(history)}/>:<Empty text="Belum ada periode yang ditutup."/>}</details>
+    {selected?<DetailDrawer title="Settlement & Close Detail" onClose={()=>setSelected(null)}><Info label="Klien / periode" value={`${current.client_name||current.client_id} · ${current.period||'—'}`}/>{loading?<p role="status">Memuat close readiness…</p>:error?<div role="alert"><p>{error}</p><button type="button" className="btn" onClick={()=>open(selected)}>Coba lagi</button></div>:<><ul className="workspace-readiness-checks">{closeReadinessChecks(current).map(check=><li key={check.label}><span aria-hidden="true">{check.ready?'✓':'○'}</span>{check.label}<strong>{check.ready?'Terpenuhi':'Belum terverifikasi'}</strong></li>)}</ul>{current.period_status==='CLOSED'?<><Info label="Closed by" value={String(current.closed_by||'—')}/><Info label="Closed at" value={String(current.closed_at||'—')}/></>:<button type="button" className="btn btn-primary" disabled={!canControl||!canRequestPeriodClose(current)} onClick={()=>{setSelected(null);close(current);}}>Close Period</button>}<p className="ui-subtle-copy">Server memeriksa kembali semua prasyarat dan hak akses saat konfirmasi.</p></> }</DetailDrawer>:null}
+  </>;
 }
 
 function InvoiceSection({
@@ -817,8 +787,8 @@ function InvoiceSection({
               "Klien",
               "Periode",
               "Nilai",
-              "Faktur",
-              "Status",
+              "Invoice Status",
+              "Payment Status",
               "Delivery",
               "Aksi",
             ]}
@@ -832,15 +802,8 @@ function InvoiceSection({
               </div>,
               r.period || "-",
               formatIDR(Number(r.total_amount || 0)),
-              <Badge
-                key="t"
-                text={
-                  r.tax_status === "PKP"
-                    ? r.tax_invoice_status || "PENDING"
-                    : "NON_PKP"
-                }
-              />,
-              <Badge key="s" text={r.status} />,
+              <Badge key="s" text={r.status}/>,
+              <Badge key="payment" text={invoicePaymentState(r.status,data.arItems.find((ar:any)=>ar.invoice_id===r.id))}/>,
               <div key="d" className="billing-cell-stack">
                 <Badge text={r.email_status === "SENT" ? "EMAIL SENT" : r.email_status || "NOT SENT"} />
                 {r.email_recipient ? <small>{r.email_recipient}</small> : <small>{r.billing_email || "Email belum diatur"}</small>}
@@ -976,7 +939,7 @@ function TaxSection({ rows, canControl, openTax, exportCoretax }: any) {
   );
 }
 
-function ARSection({ rows, canControl, canFollow, payment, follow, history }: any) {
+function ARSection({ rows, canControl, canFollow, payment, follow, history, compact=false }: any) {
   const buckets = ["BELUM_JATUH_TEMPO", "1-30", "31-60", "61-90", ">90"];
   const totals = Object.fromEntries(
     buckets.map((b) => [
@@ -990,6 +953,7 @@ function ARSection({ rows, canControl, canFollow, payment, follow, history }: an
   const appliedVariance = control.variance;
   return (
     <div className="ui-panel-grid">
+      <details className="workspace-secondary" open={compact?undefined:true}><summary>Rincian saldo & aging AR</summary>
       <div className="billing-metric-grid">
         <Metric label="Invoice total" value={formatIDR(control.invoice)} note="Nilai AR terbentuk" />
         <Metric label="Applied payment" value={formatIDR(control.paid)} note="Sudah dialokasikan" />
@@ -1008,6 +972,7 @@ function ARSection({ rows, canControl, canFollow, payment, follow, history }: an
           />
         ))}
       </div>
+      </details>
       <Panel
         title="Monitoring piutang & payment gate"
         detail="Outstanding dipantau per jatuh tempo. Warning muncul sebelum due date dan payment baru diblokir sesuai policy klien."

@@ -1,6 +1,8 @@
 'use client';
 import {exceptionCenterUrl} from '@/lib/workspace-navigation';
 import {patchRoute,routeValue,subscribeRoute} from '@/lib/route-state';
+import WorkspaceTable from '@/components/layout/WorkspaceTable';
+import {StatusBadge as UiStatusBadge} from '@/components/ui/UnifiedSystem';
 import {WorkspaceTitle,InlineSummary} from '@/components/layout/WorkspacePrimitives';
 import {isAbortedRequest} from '@/lib/api-client';
 
@@ -44,9 +46,6 @@ const profiles: Record<WorkspaceMode, { title:string; eyebrow:string; descriptio
   reconcile: { title:'Payment Reconciliation', eyebrow:'RECONCILE', description:'Catat proof, reconcile provider result, dan pastikan payment matched.', search:'Dokumen PI, klien, project…' },
   billing: { title:'Billing & AR', eyebrow:'FINANCE OPERATIONS', description:'Kelola invoice layanan, jatuh tempo, dan pelunasan piutang.', search:'Invoice, klien, periode…' },
 };
-
-const stateTone = (state: string) => state.includes('EXCEPTION') || state.includes('REJECT') || state.includes('REVISION') ? '#dc2626'
-  : state.includes('APPROVED') || state === 'COMPLETED' || state === 'MATCHED' ? '#059669' : 'var(--accent)';
 
 function clientActionLabel(code:string,label:string) {
   const labels:Record<string,string>={
@@ -93,6 +92,7 @@ export default function OperatingWorkspace({
   const [loading, setLoading] = useState(true);
   const [uatClosedPiIds,setUatClosedPiIds] = useState<Set<string>>(new Set());
   const [uatArchiveVerified,setUatArchiveVerified] = useState(false);
+  const [loadError,setLoadError]=useState('');
   const [message, setMessage] = useState('');
   const [periodFilter, setPeriodFilter] = useState(()=>period === 'ALL' ? 'ALL' : period && period !== 'ALL'
     ? period
@@ -106,19 +106,19 @@ export default function OperatingWorkspace({
   const query = filters?.query ?? localQuery;
   const [focusSubmissionId, setFocusSubmissionId] = useState(()=>typeof window==='undefined'?'':routeValue('submissionId')||'');
   const [dashboardStage, setDashboardStage] = useState(()=>typeof window==='undefined'?'':routeValue('dashboardStage')||'');
+  useEffect(()=>subscribeRoute(()=>{setFocusSubmissionId(routeValue('submissionId')||'');setDashboardStage(routeValue('dashboardStage')||'');}),[]);
   const [createOpen, setCreateOpen] = useState(false);
   const [activePaymentPanel,setActivePaymentPanel]=useState<PaymentPanel|null>(()=>typeof window==='undefined'?null:paymentPanel(routeValue('paymentPanel')));
   const [canonicalDecisionRows,setCanonicalDecisionRows]=useState<Array<{status:string;projectId?:string|null;clientReference?:string;sourceDocumentId?:string}>>([]);
   const [canonicalDecisionKnown,setCanonicalDecisionKnown]=useState(false);
   const [canonicalDecisionRefresh,setCanonicalDecisionRefresh]=useState(0);
-  const [fundingPanel,setFundingPanel]=useState<'LIQUIDITY'|'CHANNEL'>('LIQUIDITY');
 
   const load = useCallback(async (background=false) => {
     const generation=++requestGeneration.current;
     const current=()=>requestGeneration.current===generation;
     if(!background)setLoading(true);
     if(!background&&(mode==='payments'||mode==='reconcile'))setUatArchiveVerified(false);
-    setMessage('');
+    setMessage('');setLoadError('');
     try {
       const resources: OperatingResource[] = mode === 'payruns' ? ['submissions','pay-run-setup','payment-instructions','exceptions']
         : mode === 'actions' ? ['submissions','exceptions']
@@ -154,7 +154,7 @@ export default function OperatingWorkspace({
       setData(merged);
     } catch (error) {
       if(current()&&!isAbortedRequest(error)) {
-        setMessage(error instanceof Error ? error.message : 'Gagal memuat workspace');
+        setLoadError(error instanceof Error ? error.message : 'Gagal memuat workspace');
         if(mode==='payments'||mode==='reconcile')setUatArchiveVerified(false);
       }
     } finally {
@@ -373,7 +373,7 @@ export default function OperatingWorkspace({
             detail:toReconcile?'Selesaikan evidence dan settlement mismatch sebelum menutup payroll.':'Lanjutkan ke Billing & AR untuk invoice, collection, dan close period.',
             count:toReconcile,
             tone:toReconcile?'attention':'ready',
-            href:toReconcile?undefined:'#billing-close',
+            href:toReconcile?undefined:'?view=billing&closePanel=BILLING',
             actionLabel:toReconcile?undefined:'Lanjut Billing & AR',
           }
         : null;
@@ -418,7 +418,7 @@ export default function OperatingWorkspace({
         {mode!=='actions'?<label className="operations-search"><span>Pencarian</span><input value={query} onChange={(event) => setLocalQuery(event.target.value)} placeholder={profile.search} /></label>:null}
       </div> : null}
 
-      {mode !== 'billing' && mode !== 'payments' && !(embedded && mode==='payruns') ? <div className={`operations-summary-grid${simplifiedInternal?' operations-summary-decision':''}`}>
+      {mode !== 'billing' && mode !== 'payments' && !(embedded && (mode==='payruns'||mode==='reconcile')) ? <div className={`operations-summary-grid${simplifiedInternal?' operations-summary-decision':''}`}>
         {mode === 'payruns' ? clientExperience ? <>
           <div><span>Payroll</span><strong>{visibleSubmissions.length}</strong><small>{periodFilter === 'ALL' ? `${periods.length} periode` : periodFilter}</small></div>
           <div><span>Needs attention</span><strong>{clientCorrections.length}</strong><small>Perlu koreksi atau konfirmasi</small></div>
@@ -459,10 +459,10 @@ export default function OperatingWorkspace({
         </>}
       </div> : null}
 
-      {simplifiedInternal && operationalFocus && mode!=='payments' && !(embedded && mode==='payruns') ? <OperationalFocus {...operationalFocus} /> : null}
+      {simplifiedInternal && operationalFocus && mode!=='payments' && !(embedded && (mode==='payruns'||mode==='reconcile')) ? <OperationalFocus {...operationalFocus} /> : null}
 
       {message && <div className={`app-notice-bubble ${/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'app-notice-error' : 'app-notice-info'}`} role="status"><strong>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message) ? 'Perlu perhatian' : 'Informasi'}</strong><span>{message}</span>{/gagal|error|tidak|unavailable|belum siap|invalid/i.test(message)?<button type="button" className="btn btn-quiet" onClick={()=>void load()}>Coba lagi</button>:null}<button type="button" aria-label="Tutup pesan" onClick={() => setMessage('')}>✕</button></div>}
-      {loading ? <WorkspaceLoading /> : ((mode==='payments'||mode==='reconcile')&&!uatArchiveVerified)
+      {loading ? <WorkspaceLoading /> : loadError?<div className="workspace-inline-error" role="alert"><strong>Workspace belum dapat dimuat</strong><p>{loadError}</p><button type="button" className="btn" onClick={()=>void load()}>Coba lagi</button></div>: ((mode==='payments'||mode==='reconcile')&&!uatArchiveVerified)
         ? <div role="alert" className="app-notice-bubble app-notice-error">Validasi arsip UAT belum tersedia. Antrean pembayaran ditutup sementara untuk mencegah pemrosesan ulang PI simulasi. Muat ulang setelah koneksi pulih.</div> : (
         <>
           {mode === 'payruns' && <Submissions rows={visibleSubmissions} instructions={data.paymentInstructions||[]} role={role} permissions={actor?.permissions||[]} simplified={simplifiedWorkspace} act={act} />}
@@ -484,19 +484,15 @@ export default function OperatingWorkspace({
               {displayedPaymentPanel==='DISBURSEMENT'?<CanonicalDisbursementWorkspace actor={actor} payrollSources={data.paymentInstructions||[]} period={periodFilter} clientId={clientFilter} projectId={projectFilter} query={query} compact onChanged={async()=>{await load(true);setCanonicalDecisionRefresh(v=>v+1);}} />:null}
               {displayedPaymentPanel==='FUNDING'&&['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role)?<div className="funding-integrated-panel">
                 <details className="funding-provider-settings"><summary>Pengaturan jalur pembayaran</summary>
-                <div className="funding-integrated-tabs" role="group" aria-label="Funding and Provider Routing">
-                  <button className={fundingPanel==='LIQUIDITY'?'active':''} type="button" aria-pressed={fundingPanel==='LIQUIDITY'} onClick={()=>setFundingPanel('LIQUIDITY')}>Saldo & Disbursement Limit</button>
-                  <button className={fundingPanel==='CHANNEL'?'active':''} type="button" aria-pressed={fundingPanel==='CHANNEL'} onClick={()=>setFundingPanel('CHANNEL')}>Jalur Pembayaran</button>
-                </div>
-                {fundingPanel==='CHANNEL'?<ProviderChannelControl role={role} />:null}
+                <ProviderChannelControl role={role} />
                 </details>
-                <E2PayFundingLimitControl role={role} scopeClientId={clientFilter} scopeProjectId={projectFilter} query={query} />
+                <E2PayFundingLimitControl role={role} scopeClientId={clientFilter} scopeProjectId={projectFilter} query={query} sharedScope />
               </div>:null}
             </div>
-            <p className="payment-decision-footnote">Persetujuan final, execution, dan maker-checker tetap dikendalikan backend. Informasi funding harus diverifikasi sebelum pembayaran; membuka panel tidak melakukan transfer.</p>
+
           </section>:null}
           {mode === 'reconcile' && <Payments phase="reconcile" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={isPaymentController} canReconcile={isPaymentController && Boolean(actor?.permissions?.includes('reconciliation:write'))} canApprove={false} gatewayCanView={false} period={periodFilter} act={act} />}
-          {mode === 'reconcile' && <CanonicalTransactionRegister actor={actor} clientId={clientFilter==='ALL'?'':clientFilter} projectId={projectFilter==='ALL'?'':projectFilter} period={periodFilter==='ALL'?'':periodFilter} query={query} />}
+          {mode === 'reconcile' && !embedded && <CanonicalTransactionRegister actor={actor} clientId={clientFilter==='ALL'?'':clientFilter} projectId={projectFilter==='ALL'?'':projectFilter} period={periodFilter==='ALL'?'':periodFilter} query={query} />}
           {mode === 'billing' && actor && <BillingWorkspace
             actor={actor}
             focusSubmissionId={focusSubmissionId}
@@ -659,7 +655,7 @@ function Submissions({ rows, instructions, role, permissions, simplified, act }:
     const targetView=role==='CLIENT_USER'&&nextAction.view==='billing'?'reports':nextAction.view;
     const actionCell=nextAction.view==='operations'||nextAction.view==='exceptions'
       ? <button key="action" style={actionButton} onClick={() => openReview(r)}>{label}</button>
-      : <a key="action" className="btn" href={`?view=${targetView}`}>{label}</a>;
+      : <a key="action" className="btn" href={`?view=${targetView}${targetView==='billing'?`&closePanel=${['VIEW_CLOSED_CYCLE','CLOSE_PAY_RUN','WAIT_PERIOD_CLOSE'].includes(nextAction.code)?'SETTLEMENT':'BILLING'}&submissionId=${encodeURIComponent(r.id)}`:''}`}>{label}</a>;
     const instruction=instructionBySubmission.get(r.id);
     return simplified ? role==='CLIENT_USER' ? [
       <div key="id"><strong>{r.project_name || r.client_name || r.client_id}</strong><small style={small}>Payroll {r.period} · Bayar {r.payment_period || r.period}</small>{String(r.run_type||'REGULAR')==='ADJUSTMENT'?<span className="pay-run-mini-badge">Adjustment</span>:null}</div>,
@@ -1324,18 +1320,16 @@ function WorkspaceLoading() {
 }
 
 function CardTable({ headers, rows, flat=false }: { headers:string[]; rows:React.ReactNode[][]; flat?:boolean }) {
-  const [page,setPage]=useState(1);
-  const pages=Math.max(1,Math.ceil(rows.length/25));
-  const current=Math.min(page,pages);
-  return <div className={flat?'payment-instruction-table-flat':'card'} style={{ overflowX:'auto' }}><table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}><thead><tr>{headers.map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead><tbody>{rows.slice((current-1)*25,current*25).map((row,i) => <tr key={i} style={{ borderBottom:'1px solid var(--border-soft)' }}>{row.map((cell,j) => <td key={j} style={td}>{cell}</td>)}</tr>)}</tbody></table>{pages>1?<nav className="workspace-table-pagination" aria-label="Halaman tabel"><span>{(current-1)*25+1}–{Math.min(current*25,rows.length)} dari {rows.length}</span><button type="button" className="btn" disabled={current===1} onClick={()=>setPage(current-1)}>Sebelumnya</button><button type="button" className="btn" disabled={current===pages} onClick={()=>setPage(current+1)}>Berikutnya</button></nav>:null}</div>;
+  return <WorkspaceTable headers={headers} rows={rows} className={flat?'payment-instruction-table-flat':'card'} />;
 }
-function Empty({ title, detail }: { title:string; detail?:string }) { return <div className="card" style={{ padding:'34px 24px', textAlign:'center' }}><strong>{title}</strong>{detail && <p style={{ color:'var(--text3)', fontSize:13, margin:'8px auto 0', maxWidth:520 }}>{detail}</p>}</div>; }
+
+function Empty({ title, detail }: { title:string; detail?:string }) { return <div className="card" style={{ padding:'16px', textAlign:'center' }}><strong>{title}</strong>{detail && <p style={{ color:'var(--text3)', fontSize:13, margin:'8px auto 0', maxWidth:520 }}>{detail}</p>}</div>; }
 function Summary({ title,value,note }: { title:string; value:number; note:string }) { return <div className="card" style={{ padding:18 }}><span style={small}>{title}</span><div style={{ fontSize:26, fontWeight:750, margin:'6px 0' }}>{value}</div><span style={small}>{note}</span></div>; }
-function Badge({ text }: { text:string }) { return <span style={{ display:'inline-block', color:stateTone(text), background:`${stateTone(text)}14`, borderRadius:999, padding:'4px 9px', fontWeight:700, fontSize:10 }}>{text.replaceAll('_',' ')}</span>; }
+function Badge({ text }: { text:string }) { const state=text.toUpperCase();return <UiStatusBadge tone={/EXCEPTION|REJECT|REVISION|FAILED/.test(state)?'danger':/^(APPROVED|COMPLETED|MATCHED)$/.test(state)?'success':/PENDING|REVIEW/.test(state)?'warning':'neutral'}>{text.replaceAll('_',' ')}</UiStatusBadge>; }
 const date = (value:string) => value ? new Date(value).toLocaleDateString('id-ID') : '-';
 const dateTime = (value:string) => value ? new Date(value).toLocaleString('id-ID',{dateStyle:'medium',timeStyle:'short'}) : '-';
 const small: React.CSSProperties = { display:'block', color:'var(--text3)', fontSize:11, marginTop:3 };
 const th: React.CSSProperties = { textAlign:'left', padding:'11px 14px', background:'var(--bg-subtle)', color:'var(--text2)', fontSize:10.5, textTransform:'uppercase', whiteSpace:'nowrap' };
 const td: React.CSSProperties = { padding:'12px 14px', verticalAlign:'middle' };
-const actionButton: React.CSSProperties = { border:0, borderRadius:8, background:'var(--accent)', color:'var(--accent-contrast)', padding:'7px 11px', fontSize:11, fontWeight:650, cursor:'pointer', whiteSpace:'nowrap' };
+const actionButton: React.CSSProperties = { border:0, borderRadius:8, background:'var(--accent)', color:'var(--accent-contrast)', minHeight:36, padding:'8px 12px', fontSize:13, fontWeight:650, cursor:'pointer', whiteSpace:'nowrap' };
 const input: React.CSSProperties = { border:'1px solid var(--border)', borderRadius:8, background:'var(--bg-surface)', color:'var(--text)', padding:'9px 10px', fontSize:12, minWidth:0 };

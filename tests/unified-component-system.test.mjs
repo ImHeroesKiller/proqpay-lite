@@ -19,7 +19,7 @@ test('P1 unified component system is shared by priority workspaces',async()=>{
     assert.match(ui,new RegExp('function '+token));
   }
   assert.match(billing,/UiSectionCard/);
-  assert.match(billing,/UiDataTable/);
+  assert.match(billing,/WorkspaceTable/);
   assert.match(billing,/UiModalShell/);
   assert.match(portal,/UiWorkspaceHeader/);
   assert.match(portal,/UiTabs/);

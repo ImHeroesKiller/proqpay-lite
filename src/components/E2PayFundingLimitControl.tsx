@@ -1,6 +1,7 @@
 'use client';
 
 import {useCallback,useEffect,useMemo,useState} from 'react';
+import WorkspaceTable from '@/components/layout/WorkspaceTable';
 import DetailDrawer from '@/components/layout/DetailDrawer';
 import {formatIDR} from '@/lib/format';
 import DismissibleBubble from '@/components/ui/DismissibleBubble';
@@ -21,7 +22,7 @@ import {
 } from '@/lib/e2pay-api';
 
 type ClientOption={id:string;name:string};
-export default function E2PayFundingLimitControl({role,scopeClientId='ALL',scopeProjectId='ALL',query=''}:{role:string;scopeClientId?:string;scopeProjectId?:string;query?:string}){
+export default function E2PayFundingLimitControl({role,scopeClientId='ALL',scopeProjectId='ALL',query='',sharedScope=false}:{role:string;scopeClientId?:string;scopeProjectId?:string;query?:string;sharedScope?:boolean}){
   const [selectedLimit,setSelectedLimit]=useState<E2PayDisbursementLimitRequest|null>(null);
   const [activation,setActivation]=useState<E2PayMasterActivation|null>(null);
   const [projects,setProjects]=useState<Array<{id:string;client_id?:string;clientId?:string;name:string}>>([]);
@@ -58,11 +59,11 @@ export default function E2PayFundingLimitControl({role,scopeClientId='ALL',scope
   useEffect(()=>{void load();},[load]);
   const master=funding.find(row=>row.providerAccountRegistryId===activation?.registryId && !row.clientId)||null;
   useEffect(()=>{if(scopeClientId!=='ALL'&&clients.some(client=>client.id===scopeClientId)){setClientId(scopeClientId);setProjectId(scopeProjectId==='ALL'?'':scopeProjectId);}},[scopeClientId,scopeProjectId,clients]);
-  const selectedRequests=useMemo(()=>requests.filter(row=>(!clientId||row.clientId===clientId)&&(scopeProjectId==='ALL'||row.projectId===scopeProjectId)&&(!query.trim()||[row.id,row.clientName,row.projectName,row.status].join(' ').toLowerCase().includes(query.trim().toLowerCase()))),[requests,clientId,scopeProjectId,query]);
+  const selectedRequests=useMemo(()=>requests.filter(row=>(scopeClientId!=='ALL'?row.clientId===scopeClientId:sharedScope||!clientId||row.clientId===clientId)&&(scopeProjectId==='ALL'||row.projectId===scopeProjectId)&&(!query.trim()||[row.id,row.clientName,row.projectName,row.status].join(' ').toLowerCase().includes(query.trim().toLowerCase()))),[requests,clientId,scopeClientId,scopeProjectId,query,sharedScope]);
   const pending=selectedRequests.filter(row=>row.status==='PENDING_APPROVAL');
   const active=selectedRequests.filter(row=>row.status==='ACTIVE');
   const balance=master?.parent?.balance??null;
-  const masterReady=Boolean(activation?.connectionReady && master?.parent?.ready && master?.accountReadiness?.ready);
+  const masterReady=Boolean(activation?.connectionReady && master?.parent?.ready && master?.accountReadiness?.ready && !errorMessage);
   const visibleProjects=projects.filter(p=>(p.client_id||p.clientId)===clientId);
 
   async function execute(key:string,action:()=>Promise<unknown>,success:string){
@@ -112,7 +113,42 @@ export default function E2PayFundingLimitControl({role,scopeClientId='ALL',scope
         <small>{master?.environment||'UAT'} · {master?.parent?.ready?'Saldo terbaru':master?.parent?.state==='STALE'?'Perbarui saldo':'Perlu validasi'}</small></div>
     </div>
     {!master&&!loading?<p className="ui-notice" role="status">Master Account belum aktif. Super Admin perlu melakukan validasi identitas E2Pay.</p>:null}
-    {activation?<details className="e2pay-funding-verification" aria-label="Pemeriksaan Master" open={!masterReady}><summary>Detail pemeriksaan koneksi Master</summary>
+    <div className="e2pay-funding-limits"><div className="e2pay-funding-section-head"><div><h3>Alokasi Limit per Klien</h3><p>{pending.length} menunggu Controller · {active.length} limit aktif pada scope ini.</p></div></div>
+      {loading?<p role="status">Memuat alokasi limit…</p>:null}
+      {!loading&&!errorMessage&&!selectedRequests.length?<div className="e2pay-funding-empty"><IconShieldCheck aria-hidden="true"/><div><strong>Belum ada pengajuan limit</strong><p>Payroll Processor dapat mengajukan limit untuk klien ini, kemudian Payroll Controller menyetujuinya.</p></div></div>:null}
+      {selectedRequests.length?<WorkspaceTable label='Alokasi Limit per Klien' headers={['Klien', 'Approved Limit', 'Used Limit', 'Available Limit', 'Status', 'Diperbarui', 'Tindakan']} rows={selectedRequests.map(row=>[
+<div key="cell-0"><strong>{row.clientName||row.clientCode||row.clientId}</strong>{row.projectName||row.projectCode||row.projectId?<small>{row.projectName||row.projectCode||row.projectId}</small>:null}</div>,
+<div key="cell-1">{row.approvedAmount==null?'—':formatIDR(row.approvedAmount)}</div>,
+<div key="cell-2">{row.committedAmount==null?'—':formatIDR(row.committedAmount)}</div>,
+<div key="cell-3">{formatIDR(row.remainingAmount)}</div>,
+<div key="cell-4"><span className="e2pay-funding-status">{({PENDING_APPROVAL:'Menunggu persetujuan',ACTIVE:'Aktif',REJECTED:'Ditolak',REVOKED:'Dicabut',EXHAUSTED:'Habis',EXPIRED:'Kedaluwarsa'} as Record<string,string>)[row.status]||row.status}</span></div>,
+<div key="cell-5">{row.approvedAt||row.requestedAt?new Date(row.approvedAt||row.requestedAt).toLocaleDateString('id-ID'):'—'}</div>,
+<div key="cell-6"><div className="e2pay-funding-actions"><button type="button" className="btn" onClick={()=>setSelectedLimit(row)}>Lihat detail</button>
+        {canApprove&&row.status==='PENDING_APPROVAL'?<>
+          <button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void respond(row.id,'APPROVE')}>Setujui</button>
+          <button type="button" className="btn" disabled={Boolean(busy)} onClick={()=>void respond(row.id,'REJECT')}>Tolak</button>
+        </>:null}
+        {canApprove&&row.status==='ACTIVE'?<button type="button" className="btn" disabled={Boolean(busy)} onClick={()=>void respond(row.id,'REVOKE')}>Cabut</button>:null}
+        {!(canApprove&&['PENDING_APPROVAL','ACTIVE'].includes(row.status))?<span className="e2pay-funding-muted">—</span>:null}
+      </div></div>
+])}/>:null}
+    </div>
+    {(!sharedScope||canRequest)?<details className="workspace-secondary funding-request-panel"><summary>{canRequest?'Ajukan limit':'Pilih klien'}</summary><div className="e2pay-funding-filters">
+      <label className="ui-form-field"><span>Klien untuk pengajuan limit</span><select value={clientId} onChange={e=>{setClientId(e.target.value);setProjectId('');}}>
+        {!clients.length?<option value="">Belum ada klien</option>:clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+      </select></label>
+    {canRequest?<label className="ui-form-field"><span>Project untuk limit</span><select value={projectId} onChange={e=>setProjectId(e.target.value)}><option value="">Seluruh klien</option>{visibleProjects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>:null}
+    </div>
+    {canRequest?<div className="e2pay-funding-request">
+      <div className="e2pay-funding-section-head"><div><h3>Ajukan Disbursement Limit</h3><p>Pengajuan akan diperiksa oleh Payroll Controller.</p></div></div>
+      <div className="e2pay-funding-form">
+        <label className="ui-form-field"><span>Nominal (IDR)</span><input inputMode="numeric" type="number" min="1" value={amount} onChange={e=>setAmount(e.target.value)}/></label>
+        <label className="ui-form-field"><span>Alasan</span><input value={reason} onChange={e=>setReason(e.target.value)}/></label>
+      </div>
+      <button type="button" className="btn btn-primary" disabled={!masterReady||!clientId||Boolean(busy)} onClick={()=>void submitLimit()}><IconArrowUpRight aria-hidden="true"/>Ajukan ke Controller</button>
+    </div>:null}
+    </details>:null}
+    {activation?<details className="e2pay-funding-verification" aria-label="Pemeriksaan Master"><summary>Lihat Detail Pemeriksaan Master</summary>
       <div className="e2pay-funding-section-head"><div><h3>Pemeriksaan Master</h3><p>Pastikan koneksi dan saldo tervalidasi sebelum mengajukan limit.</p></div>
         <span className="e2pay-funding-environment">{activation.environment}</span>
       </div>
@@ -127,35 +163,7 @@ export default function E2PayFundingLimitControl({role,scopeClientId='ALL',scope
       {role==='SUPER_ADMIN'?<button type="button" className="btn btn-primary" disabled={Boolean(busy)||loading||!activation.checks.credentialConfigured} onClick={()=>void execute('BIND_MASTER',()=>runE2PayAction('BIND_MASTER_ACCOUNT'),'Identitas Master tervalidasi dan aktivasi tersimpan.')}><IconShieldCheck aria-hidden="true"/>{busy==='BIND_MASTER'?'Memvalidasi…':'Validasi & Aktifkan Master'}</button>:null}
       </div>
     </details>:null}
-    <div className="e2pay-funding-filters">
-      <label className="ui-form-field"><span>Klien</span><select value={clientId} onChange={e=>{setClientId(e.target.value);setProjectId('');}}>
-        {!clients.length?<option value="">Belum ada klien</option>:clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-      </select></label>
-    {canRequest?<label className="ui-form-field"><span>Project untuk limit</span><select value={projectId} onChange={e=>setProjectId(e.target.value)}><option value="">Seluruh klien</option>{visibleProjects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>:null}
-    </div>
-    {canRequest?<div className="e2pay-funding-request">
-      <div className="e2pay-funding-section-head"><div><h3>Ajukan Disbursement Limit</h3><p>Pengajuan akan diperiksa oleh Payroll Controller.</p></div></div>
-      <div className="e2pay-funding-form">
-        <label className="ui-form-field"><span>Nominal (IDR)</span><input inputMode="numeric" type="number" min="1" value={amount} onChange={e=>setAmount(e.target.value)}/></label>
-        <label className="ui-form-field"><span>Alasan</span><input value={reason} onChange={e=>setReason(e.target.value)}/></label>
-      </div>
-      <button type="button" className="btn btn-primary" disabled={!masterReady||!clientId||Boolean(busy)} onClick={()=>void submitLimit()}><IconArrowUpRight aria-hidden="true"/>Ajukan ke Controller</button>
-    </div>:null}
-    <div className="e2pay-funding-limits"><div className="e2pay-funding-section-head"><div><h3>Permintaan dan Alokasi Limit</h3><p>{pending.length} menunggu Controller · {active.length} limit aktif untuk klien terpilih.</p></div></div>
-      {!selectedRequests.length?<div className="e2pay-funding-empty"><IconShieldCheck aria-hidden="true"/><div><strong>Belum ada pengajuan limit</strong><p>Payroll Processor dapat mengajukan limit untuk klien ini, kemudian Payroll Controller menyetujuinya.</p></div></div>:null}
-      {selectedRequests.length?<div className="ui-table-wrap"><table className="ui-data-table"><thead><tr><th scope="col">Klien</th><th scope="col">Project</th><th scope="col">Status</th><th scope="col" className="e2pay-funding-amount">Pengajuan</th><th scope="col" className="e2pay-funding-amount">Approved Limit</th><th scope="col" className="e2pay-funding-amount">Used Limit</th><th scope="col" className="e2pay-funding-amount">Sisa limit</th><th scope="col">Diperbarui</th><th scope="col">Tindakan</th></tr></thead><tbody>
-      {selectedRequests.map(row=><tr key={row.id}>
-        <td>{row.clientName||row.clientCode||row.clientId}</td><td>{row.projectName||row.projectCode||row.projectId||'Seluruh klien'}</td><td><span className="e2pay-funding-status">{({PENDING_APPROVAL:'Menunggu persetujuan',ACTIVE:'Aktif',REJECTED:'Ditolak',REVOKED:'Dicabut',EXHAUSTED:'Habis',EXPIRED:'Kedaluwarsa'} as Record<string,string>)[row.status]||row.status}</span></td><td className="e2pay-funding-amount">{formatIDR(row.requestedAmount)}</td><td className="e2pay-funding-amount">{row.approvedAmount==null?'—':formatIDR(row.approvedAmount)}</td><td className="e2pay-funding-amount">{row.committedAmount==null?'—':formatIDR(row.committedAmount)}</td><td className="e2pay-funding-amount">{formatIDR(row.remainingAmount)}</td><td>{row.approvedAt||row.requestedAt?new Date(row.approvedAt||row.requestedAt).toLocaleDateString('id-ID'):'—'}</td><td><div className="e2pay-funding-actions"><button type="button" className="btn" onClick={()=>setSelectedLimit(row)}>Lihat detail</button>
-        {canApprove&&row.status==='PENDING_APPROVAL'?<>
-          <button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void respond(row.id,'APPROVE')}>Setujui</button>
-          <button type="button" className="btn" disabled={Boolean(busy)} onClick={()=>void respond(row.id,'REJECT')}>Tolak</button>
-        </>:null}
-        {canApprove&&row.status==='ACTIVE'?<button type="button" className="btn" disabled={Boolean(busy)} onClick={()=>void respond(row.id,'REVOKE')}>Cabut</button>:null}
-        {!(canApprove&&['PENDING_APPROVAL','ACTIVE'].includes(row.status))?<span className="e2pay-funding-muted">—</span>:null}
-      </div></td></tr>)}
-      </tbody></table></div>:null}
-    </div>
     {selectedLimit?<DetailDrawer title="Detail alokasi limit" onClose={()=>setSelectedLimit(null)}><dl className="limit-detail-list">{Object.entries({ID:selectedLimit.id,Klien:selectedLimit.clientName||selectedLimit.clientId,Project:selectedLimit.projectName||selectedLimit.projectId||'Seluruh klien',Status:selectedLimit.status,Pengajuan:formatIDR(selectedLimit.requestedAmount),Disetujui:selectedLimit.approvedAmount==null?'Belum disetujui':formatIDR(selectedLimit.approvedAmount),Terpakai:selectedLimit.committedAmount==null?'Belum tersedia':formatIDR(selectedLimit.committedAmount),Tersedia:formatIDR(selectedLimit.remainingAmount),Alasan:selectedLimit.reason||'—','Diajukan oleh':selectedLimit.requestedByEmail,'Waktu pengajuan':selectedLimit.requestedAt,'Disetujui oleh':selectedLimit.approvedByEmail||'—','Waktu persetujuan':selectedLimit.approvedAt||'—','Alasan penolakan':selectedLimit.rejectedReason||'—'}).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value||'—'}</dd></div>)}</dl></DetailDrawer>:null}
-    <p className="e2pay-funding-footnote">Eksekusi pembayaran tetap melalui Payment Instruction yang telah disetujui.</p>
+
   </section>;
 }

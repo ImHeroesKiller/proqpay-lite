@@ -14,7 +14,7 @@ test('Employee Services UI P1: Advance Salary uses canonical payout workspace an
   assert.match(inbox,/aria-label="Filter status"/);
   assert.match(inbox,/es-sticky-left/);
   assert.match(styles,/position:sticky/);
-  assert.match(canonical,/Review snapshot/);
+  assert.match(canonical,/Lihat Detail/);
   assert.match(canonical,/Process Payment/);
   assert.match(canonical,/Reconcile/);
 });

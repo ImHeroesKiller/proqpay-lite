@@ -49,7 +49,6 @@ export function patchWorkspaceFilters(
   change:Partial<{clientId:string;projectId:string;query:string}>,
 ):{clientId:string;projectId:string;query:string}{
   const next={...current,...change};
-  if(change.clientId && change.clientId!==current.clientId)next.projectId='ALL';
   patchRoute({
     clientId:next.clientId==='ALL'?null:next.clientId,
     projectId:next.projectId==='ALL'?null:next.projectId,

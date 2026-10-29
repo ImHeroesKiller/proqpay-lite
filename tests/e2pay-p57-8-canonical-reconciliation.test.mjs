@@ -49,7 +49,8 @@ test('P5.7.8 reconciliation API enforces Controller + MFA and adjusts funding by
 test('P5.7.8 register output is masked and has no beneficiary ciphertext fields',()=>{
   assert.match(api,/providerSubAccountIdMasked/);
   assert.doesNotMatch(api,/account_number_ciphertext|account_number_iv|account_number_hash/);
-  assert.match(ui,/Payroll Direct · Corporate · EWA/);
+  assert.match(ui,/Disbursement Register/);
+  assert.match(ui,/value="PAYROLL"[\s\S]*value="EWA"/);
   assert.match(ui,/Reconcile Provider/);
 });
 

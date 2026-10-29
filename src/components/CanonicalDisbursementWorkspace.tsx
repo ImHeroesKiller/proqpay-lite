@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {patchRoute,routeValue} from '@/lib/route-state';
+import WorkspaceTable from '@/components/layout/WorkspaceTable';
 import DetailDrawer from '@/components/layout/DetailDrawer';
 import E2PaySupportJson from '@/components/E2PaySupportJson';
 import { formatIDR } from '@/lib/format';
@@ -25,6 +26,7 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
   const [requests,setRequests]=useState<DR[]>([]);
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState('');
+  const [loadError,setLoadError]=useState('');
   const [notice,setNotice]=useState('');
   const [sourceId,setSourceId]=useState(focusSourceId);
   const [destination,setDestination]=useState<'DIRECT_EMPLOYEE'|'CLIENT_ACCOUNT'>('DIRECT_EMPLOYEE');
@@ -47,7 +49,7 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
   const load=useCallback(async()=>{
     const generation=++loadGeneration.current;
     if(!allowed){setLoading(false);return;}
-    setLoading(true);
+    setLoading(true);setLoadError('');
     try{
       const search=new URLSearchParams();if(clientId&&clientId!=='ALL')search.set('clientId',clientId);
       if(sourceType&&focusSourceId){search.set('sourceDocumentType',sourceType);search.set('sourceDocumentId',focusSourceId);}
@@ -56,7 +58,7 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
       const rows=body.requests||[];
       setRequests(rows);
       setSelected(previous=>{const fresh=rows.find(row=>row.id===previous?.id);return previous&&fresh?{...previous,...fresh,items:previous.items}:previous;});
-    }catch(error){if(generation===loadGeneration.current)setNotice(error instanceof Error?error.message:'Canonical DR tidak dapat dimuat');}
+    }catch(error){if(generation===loadGeneration.current)setLoadError(error instanceof Error?error.message:'Canonical DR tidak dapat dimuat');}
     finally{if(generation===loadGeneration.current)setLoading(false);}
   },[allowed,clientId,sourceType,focusSourceId]);
   useEffect(()=>{void load();return()=>{loadGeneration.current+=1;};},[load]);
@@ -112,7 +114,7 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
   async function create(){
     if(!sourceId||!maker)return;
     const kind=sourceType||'PAYMENT_INSTRUCTION';
-    if(!window.confirm(`Buat Canonical DR untuk ${kind==='EWA_REQUEST'?'EWA':'Payroll'} ${sourceId}? Nominal dan rekening akan diambil dari snapshot backend, tidak dapat diubah dari UI.`))return;
+    if(!window.confirm(`Buat DR untuk ${kind==='EWA_REQUEST'?'EWA':'Payroll'} ${sourceId}? Nominal dan rekening akan diambil dari snapshot backend, tidak dapat diubah dari UI.`))return;
     await run('CREATE',{action:'CREATE',sourceDocumentType:kind,sourceDocumentId:sourceId,destinationMode:kind==='EWA_REQUEST'?'DIRECT_EMPLOYEE':destination},'Canonical Disbursement Request dibuat. Lanjutkan submit ke Controller.');
   }
   async function execute(row:DR){
@@ -127,7 +129,7 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
   if(!allowed)return null;
   return <section className={`canonical-disbursement-workspace${compact?' canonical-disbursement-compact':''}`} aria-label="Canonical Disbursement Control">
     <div className="canonical-disbursement-heading">
-      <div><span className="page-eyebrow">CANONICAL PAYMENT CONTROL</span><h3>Disbursement Request & Execution</h3><small>Payroll Direct · Payroll Corporate · EWA Direct — satu approval dan provider reconciliation.</small></div>
+      <div><span className="page-eyebrow">CANONICAL PAYMENT CONTROL</span><h3>Disbursement Request & Execution</h3><small>Pantau permintaan dan eksekusi pembayaran.</small></div>
       <button className="btn" type="button" disabled={loading||Boolean(busy)} onClick={()=>void load()}>Refresh status</button>
     </div>
     {!compact?<div className="directory-detail-grid"><div><span>Ready to submit</span><strong>{ready}</strong></div><div><span>Waiting Controller</span><strong>{pending}</strong></div><div><span>Approved to execute</span><strong>{executionQueue}</strong></div></div>:<div className="canonical-queue-bar" aria-label="Antrean Canonical DR"><span><strong>{actionable.length}</strong> memerlukan tindakan</span><span>{pending} menunggu Controller</span><span>{executionQueue} approved untuk eksekusi</span><div className="canonical-queue-switch"><button type="button" className={queueFilter==='ACTION'?'active':''} aria-pressed={queueFilter==='ACTION'} onClick={()=>{setQueueFilter('ACTION');patchRoute({drQueue:null});}}>Tindakan saya</button><button type="button" className={queueFilter==='ALL'?'active':''} aria-pressed={queueFilter==='ALL'} onClick={()=>{setQueueFilter('ALL');patchRoute({drQueue:'ALL'});}}>Semua status</button></div></div>}
@@ -135,28 +137,28 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
       {sourceType==='EWA_REQUEST'?<label className="ui-form-field">EWA Request<input value={sourceId} readOnly placeholder="Pilih pengajuan EWA yang APPROVED"/></label>
       :<label className="ui-form-field">Payment Instruction<select value={sourceId} onChange={e=>setSourceId(e.target.value)}><option value="">Pilih PI siap pembayaran</option>{availableSources.map(row=><option key={row.id} value={row.id}>{row.document_no||row.id} · {row.client_name||row.client_id} · {formatIDR(Number(row.expected_total||0))}</option>)}</select></label>}
       {sourceType!=='EWA_REQUEST'?<label className="ui-form-field">Tujuan pembayaran<select value={destination} disabled={Boolean(existingForSource)} onChange={e=>setDestination(e.target.value as typeof destination)}><option value="DIRECT_EMPLOYEE">Ke rekening karyawan</option><option value="CLIENT_ACCOUNT">Ke rekening perusahaan klien</option></select></label>:null}
-      <button type="button" className="btn btn-primary" disabled={!sourceId||Boolean(busy)||Boolean(existingForSource)} onClick={()=>void create()}>{existingForSource?'DR sudah dibuat':'Buat Canonical DR'}</button>
+      <button type="button" className="btn btn-primary" disabled={!sourceId||Boolean(busy)||Boolean(existingForSource)} onClick={()=>void create()}>{existingForSource?'DR sudah dibuat':'Buat DR'}</button>
     </div>:null}
     <label className="ui-form-field canonical-status-filter"><span>Status eksekusi</span><select value={statusFilter} onChange={event=>{setStatusFilter(event.target.value);patchRoute({drStatus:event.target.value==='ALL'?null:event.target.value});}}><option value="ALL">Semua status</option>{[...new Set(requests.map(row=>row.status))].sort().map(status=><option key={status} value={status}>{status.replaceAll('_',' ')}</option>)}</select></label>
     {notice?<div className={`app-notice-bubble ${/gagal|tidak|blocked|wajib|invalid|mismatch|belum|ditolak/i.test(notice)?'app-notice-error':'app-notice-info'}`} role="status"><span>{notice}</span></div>:null}
-    {loading?<p>Memuat Canonical DR…</p>:shown.length?<div className="ui-table-wrap"><table className="ui-data-table"><thead><tr><th>DR Number</th><th>PI / Source</th><th>Klien / Project</th><th>Payment Method</th><th>Total Nominal</th><th>Execution Status</th><th>Dibuat</th><th>Action</th></tr></thead><tbody>{shown.map(row=><tr key={row.id}>
-      <td><strong>{row.clientReference}</strong><small>{row.id}</small></td>
-      <td>{row.sourceDocumentType==='EWA_REQUEST'?'EWA':'PI'} · {payrollSources.find(source=>source.id===row.sourceDocumentId)?.document_no||row.sourceDocumentId}</td>
-      <td>{payrollSources.find(source=>source.id===row.sourceDocumentId)?.client_name||row.clientId}<small style={{display:'block'}}>{row.projectId||'—'}</small></td>
-      <td>{row.provider} · {row.purpose}<small style={{display:'block'}}>{row.destinationMode==='CLIENT_ACCOUNT'?'Corporate settlement':'Employee direct'}</small></td>
-      <td><strong>{formatIDR(row.amount)}</strong><small style={{display:'block'}}>{row.recipientCount} recipient</small></td>
-      <td><span className="stage-pill">{row.status.replaceAll('_',' ')}</span></td>
-      <td>{row.createdAt?new Date(row.createdAt).toLocaleDateString('id-ID'):'—'}</td>
-      <td><div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-        <button className="btn" type="button" disabled={Boolean(busy)} onClick={()=>void openDetail(row.id)}>Review snapshot</button>
+    {loading?<p role="status">Memuat Disbursement…</p>:loadError?<div className="workspace-inline-error" role="alert"><strong>Disbursement belum dapat dimuat</strong><p>{loadError}</p><button type="button" className="btn" onClick={()=>void load()}>Coba lagi</button></div>:shown.length?<WorkspaceTable label='Disbursement' headers={['DR Number', 'PI / Source', 'Klien / Project', 'Payment Method', 'Total Nominal', 'Execution Status', 'Dibuat', 'Action']} rows={shown.map(row=>[
+<div key="cell-0"><strong>{row.clientReference}</strong><small>{row.id}</small></div>,
+<div key="cell-1">{row.sourceDocumentType==='EWA_REQUEST'?'EWA':'PI'} · {payrollSources.find(source=>source.id===row.sourceDocumentId)?.document_no||row.sourceDocumentId}</div>,
+<div key="cell-2">{payrollSources.find(source=>source.id===row.sourceDocumentId)?.client_name||row.clientId}<small style={{display:'block'}}>{row.projectId||'—'}</small></div>,
+<div key="cell-3">{row.provider} · {row.purpose}<small style={{display:'block'}}>{row.destinationMode==='CLIENT_ACCOUNT'?'Corporate settlement':'Employee direct'}</small></div>,
+<div key="cell-4"><strong>{formatIDR(row.amount)}</strong><small style={{display:'block'}}>{row.recipientCount} recipient</small></div>,
+<div key="cell-5"><span className="stage-pill">{row.status.replaceAll('_',' ')}</span></div>,
+<div key="cell-6">{row.createdAt?new Date(row.createdAt).toLocaleDateString('id-ID'):'—'}</div>,
+<div key="cell-7"><div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+        <button className="btn" type="button" disabled={Boolean(busy)} onClick={()=>void openDetail(row.id)}>Lihat Detail</button>
         {maker&&row.status==='FAILED'?<button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>{if(window.confirm('Ajukan ulang DR dari PI yang sama? Sistem memverifikasi belum ada transfer, mempertahankan riwayat gagal, dan membuat DR pengganti untuk approval Controller.'))void run('REISSUE',{action:'REISSUE_FAILED',id:row.id},'DR pengganti berhasil dibuat. Klik Submit untuk persetujuan Controller.');}}>Ajukan ulang</button>:null}
         {maker&&row.status==='READY'?<button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void run('SUBMIT',{action:'SUBMIT_REQUEST',id:row.id},'DR dikirim ke Payroll Controller.')}>Submit</button>:null}
         {checker&&row.status==='PENDING_APPROVAL'?<><button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void openDetail(row.id)}>Review & Approve</button></>:null}
         {executor&&['APPROVED','PROCESSING'].includes(row.status)?<button type="button" className="btn btn-primary" disabled={Boolean(busy)} onClick={()=>void execute(row)}>{row.status==='PROCESSING'?'Lanjutkan proses':'Process Payment'}</button>:null}
         {executor&&['EXECUTING','PROCESSING'].includes(row.status)?<button type="button" className="btn" disabled={Boolean(busy)} onClick={()=>{if(window.confirm('Periksa dan tutup status eksekusi yang terputus? Tindakan ini tidak mengirim pembayaran. Proses aktif akan ditolak oleh server.'))void run('RECOVER_INTERRUPTED',{action:'RECOVER_INTERRUPTED',disbursementRequestId:row.id},'Status diperbarui. Tinjau kegagalan atau lanjutkan rekonsiliasi.');}}>Pulihkan status</button>:null}
         {canReconcile&&['RECONCILIATION_REQUIRED','PROCESSING','PARTIALLY_SETTLED','FAILED','SETTLED'].includes(row.status)?<button type="button" className="btn" disabled={Boolean(busy)} onClick={()=>void run('RECONCILE',{action:'RECONCILE',disbursementRequestId:row.id},'Provider reconciliation dijalankan.')}>Reconcile</button>:null}
-      </div></td>
-    </tr>)}</tbody></table></div>:<p style={{margin:0,color:'var(--text3)'}}>{compact&&queueFilter==='ACTION'&&visible.length?'Tidak ada tindakan yang memerlukan keputusan Anda. Pilih Semua status untuk monitoring.':'Belum ada Canonical DR pada filter ini.'} {maker?'Pilih PI / EWA yang telah siap untuk dibuatkan DR.':'Menunggu Payroll Processor membuat dan mengirim request.'}</p>}
+      </div></div>
+])}/>:<p className="workspace-empty" role="status">Tidak ada disbursement yang memerlukan tindakan.</p>}
     {selected?<DetailDrawer title="Immutable Disbursement Snapshot" onClose={()=>setSelected(null)}><div className="canonical-snapshot">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><strong>Snapshot · {selected.clientReference}</strong><button type="button" className="btn" onClick={()=>setSelected(null)}>Tutup detail</button></div>
       <p style={{margin:0}}>Sumber: {selected.sourceDocumentId} · {selected.purpose}/{selected.destinationMode} · {formatIDR(selected.amount)} · {selected.status}</p>
@@ -167,6 +169,6 @@ export default function CanonicalDisbursementWorkspace({actor,payrollSources=[],
       <E2PaySupportJson key={selected.id} requestId={selected.id}/>
       {(selected.items?.length||0)>25?<nav className="canonical-recipient-pages" aria-label="Halaman penerima"><span>{(recipientPage-1)*25+1}–{Math.min(recipientPage*25,selected.items?.length||0)} dari {selected.items?.length} penerima</span><button type="button" className="btn" disabled={recipientPage<=1} onClick={()=>setRecipientPage(page=>page-1)}>Sebelumnya</button><button type="button" className="btn" disabled={recipientPage*25>=(selected.items?.length||0)} onClick={()=>setRecipientPage(page=>page+1)}>Berikutnya</button></nav>:null}
     </div></DetailDrawer>:null}
-    <small style={{color:'var(--text3)'}}>Transfer riil tidak pernah dijalankan otomatis. Hanya Payroll Controller yang bisa menekan Process Payment setelah approval, verifikasi MFA, limit, dan liquidity.</small>
+
   </section>;
 }
