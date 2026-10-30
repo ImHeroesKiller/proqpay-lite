@@ -260,7 +260,8 @@ export async function buildEmployeePortalPayload(database, actor) {
     database,
     `SELECT s.id, s.period, s.state, s.payment_period, s.created_at,
             pi.id AS pi_id, pi.document_no, pi.status AS pi_status, pi.execution_date,
-            r.status AS rec_status
+            r.status AS rec_status,
+            (SELECT MAX(p.transaction_date) FROM payment_proofs p WHERE p.payment_instruction_id=pi.id) AS paid_on
        FROM payroll_submissions s
        LEFT JOIN payment_instructions pi ON pi.id=(
          SELECT pi2.id FROM payment_instructions pi2
@@ -472,6 +473,9 @@ export async function buildEmployeePortalPayload(database, actor) {
         period: periodToLabel(periodRaw),
         ref: latest?.document_no || latest?.id || periodRaw,
         stage,
+        paymentStatus: stage >= 5 ? 'PAID' : 'UNPAID',
+        paidOn: stage >= 5 ? (latest?.paid_on || null) : null,
+        estimatedPayOn: latest?.execution_date || latest?.payment_period || null,
         payday: payday.payday || '—',
         paydayShort: payday.paydayShort || '',
       },
