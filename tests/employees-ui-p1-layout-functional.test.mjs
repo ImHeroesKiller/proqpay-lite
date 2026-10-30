@@ -16,21 +16,21 @@ test('Employees UI P1: employee management controls require employees:write perm
   assert.match(source,/actor\.permissions\?\.includes\('employees:write'\)/);
 });
 
-test('Employees UI P1: active KPI is independent from contract-expired KPI',async()=>{
-  const source=await read('src/components/EmployeeDirectory.tsx');
-  assert.match(source,/if\(Number\.isFinite\(end\)&&end<now\) expired\+=1;\s*if\(employee\.isActive===true\) active\+=1;/s);
-  assert.doesNotMatch(source,/else if\(employee\.isActive===true\)/);
+test('Employees directory uses canonical activity and ESS state without completeness checks',async()=>{
+ const directory=await read('src/components/EmployeeDirectory.tsx');
+ assert.match(directory,/employee.isActive===true/);
+ assert.match(directory,/employeeEssStatus/);
+ assert.doesNotMatch(directory,/employeeIssues|Kelengkapan|Perlu dilengkapi|<th>Kontrak<\/th>/);
+ assert.match(directory,/<th>Status ESS<\/th>/);
 });
 
-test('Employees UI P1: ESS credential management is a secondary header action modal',async()=>{
-  const directory=await read('src/components/EmployeeDirectory.tsx');
-  const credential=await read('src/components/EmployeeCredentialsPanel.tsx');
-  assert.match(directory,/employee-page-actions/);
-  assert.match(directory,/EmployeeCredentialsPanel actor=\{actor\}/);
-  assert.match(credential,/Kelola akses ESS/);
-  assert.match(credential,/employee-ess-modal/);
-  assert.doesNotMatch(credential,/portal-credentials-card card/);
-  assert.match(credential,/disabled=\{busy \|\| loading \|\| summary == null \|\| summary\.pending === 0\}/);
+test('Employees ESS generation is individual in the profile, with no bulk management panel',async()=>{
+ const directory=await read('src/components/EmployeeDirectory.tsx');
+ const detail=await read('src/components/EmployeeDetailDrawer.tsx');
+ assert.doesNotMatch(directory,/EmployeeCredentialsPanel|Kelola akses ESS/);
+ assert.match(detail,/Generate password ESS/);
+ assert.match(detail,/action:'RESET',employeeId:employee.id/);
+ assert.match(detail,/Password ESS<input type="text" value=\{portalPassword\} readOnly/);
 });
 
 test('Employees UI P1: mobile uses employee cards instead of 940px desktop table',async()=>{

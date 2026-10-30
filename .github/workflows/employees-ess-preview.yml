@@ -1,0 +1,71 @@
+name: Employee Directory & ESS Preview
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'functions/**'
+      - 'scripts/css-manifest.mjs'
+      - 'tests/**'
+      - '.github/workflows/employees-ess-preview.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: employees-ess-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'feat/employees-ess')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test && npm run typecheck && npm run lint && npm run cloudflare:preflight
+      - name: Stamp preview release
+        env:
+          PREVIEW_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node -e 'require("fs").writeFileSync("public/release.json",JSON.stringify({commit:process.env.PREVIEW_SHA,environment:"preview"}))'
+      - run: npm run build
+      - name: Install isolated browser tests
+        run: |
+          npm install --no-save --package-lock=false @playwright/test@1.56.1 axe-core@4.12.1
+          npx playwright install --with-deps chromium
+      - name: UI and payment safety regression with synthetic local APIs
+        env:
+          BASE_URL: http://127.0.0.1:39822
+        run: |
+          python3 -m http.server 39822 --bind 127.0.0.1 --directory out >/tmp/employees-ess-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          npx playwright test tests/e2e/employees-ess.spec.mjs tests/e2e/e2pay-master-closure.spec.mjs tests/e2e/g4-accessibility-matrix.spec.mjs tests/e2e/g4-theme-accessibility.spec.mjs tests/e2e/g4-tabs-keyboard.spec.mjs tests/e2e/g3-shared-modal-focus.spec.mjs --config playwright.uat.config.mjs
+      - name: Upload visual and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: employees-ess-uat-${{ github.event.pull_request.head.sha }}
+          path: artifacts/
+          retention-days: 30
+      - name: Deploy feature branch preview only
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PREVIEW_BRANCH: ${{ github.head_ref }}
+          PREVIEW_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$PREVIEW_BRANCH" != main
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          npx wrangler pages deploy out --project-name=proqpay-lite --branch="$PREVIEW_BRANCH" --commit-hash="$PREVIEW_SHA" 2>&1 | tee /tmp/workspace-preview-deploy.log
+          grep -q 'Deployment complete' /tmp/workspace-preview-deploy.log
+          cat /tmp/workspace-preview-deploy.log >> "$GITHUB_STEP_SUMMARY"

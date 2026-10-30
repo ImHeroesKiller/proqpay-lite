@@ -1,0 +1,21 @@
+/* Employee directory and per-employee ESS controls. Legacy cascade stays unchanged. */
+.employee-directory .employee-col-person{width:31%}
+.employee-directory .employee-col-placement{width:22%}
+.employee-directory .employee-col-status{width:12%}
+.employee-directory .employee-col-ess{width:17%}
+.employee-directory .employee-col-salary{width:14%}
+/* Per-employee ESS issuance; generated passwords stay in drawer memory only. */
+.employee-ess-access{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:12px;padding:16px;border:1px solid var(--border);border-radius:10px;background:var(--bg-surface)}
+.employee-ess-access h3{margin:0 0 4px;font-size:16px}
+.employee-ess-access span,.employee-ess-access p{color:var(--text2);font-size:12px}
+.employee-ess-access label{display:grid;min-width:0;gap:6px;font-size:12px;color:var(--text2)}
+.employee-ess-access input{width:100%;min-width:0;min-height:38px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-subtle);color:var(--text);font:14px var(--app-font-sans)}
+.employee-ess-access p{grid-column:1/-1;margin:0;line-height:1.5}
+@media(max-width:760px){.employee-ess-access{grid-template-columns:minmax(0,1fr)}.employee-mobile-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.employee-profile-modal .employee-edit-footer{position:static;backdrop-filter:none}
+.employee-profile-modal .ui-tabs button[role=tab]{color:var(--text2)}
+.employee-profile-modal .ui-tabs button[role=tab][aria-selected=true],.employee-directory .employee-mobile-open{color:#9c3d0b}
+.app-shell.theme-dark .employee-directory .employee-mobile-open{color:var(--text)}
+.employee-profile-modal .employee-profile-body{display:flex;flex-direction:column}
+.employee-profile-modal .employee-profile-body>*{flex-shrink:0}
+.employee-profile-modal .employee-edit-shell{overflow:visible}

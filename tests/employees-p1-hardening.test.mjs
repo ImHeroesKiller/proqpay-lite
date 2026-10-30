@@ -187,3 +187,54 @@ test('Employees P1: ESS issuance uses high-entropy random temporary password and
   assert.ok(credential.password_hash);
   assert.equal(String(credential.password_hash).includes(issued.password),false);
 });
+
+test('ESS directory reports credential lifecycle without disclosing password material',async()=>{
+ const DB=new D1Mock();seed(DB);
+ const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+ const actor=await createSession(DB,'USR-P1-P',env);
+ const status=async()=>{const {response,payload}=await getEmployees(env,actor.token);assert.equal(response.status,200);const row=payload.employees[0];assert.equal(Object.keys(row).some(key=>/password|salt|locked_until/.test(key)),false);return row.essStatus;};
+ assert.equal(await status(),'NOT_ISSUED');
+ const issued=await postCredentials(env,actor.token,{action:'RESET',employeeId:'EMP-P1'});
+ assert.equal(issued.response.status,200);assert.ok(issued.payload.employee.password);
+ assert.equal(await status(),'PASSWORD_CHANGE_REQUIRED');
+ DB.sqlite.exec("UPDATE employee_credentials SET must_change_password=0 WHERE employee_id='EMP-P1'");
+ assert.equal(await status(),'ACTIVE');
+ DB.sqlite.exec("UPDATE employee_credentials SET locked_until=datetime('now','+1 hour') WHERE employee_id='EMP-P1'");
+ assert.equal(await status(),'LOCKED');
+ DB.sqlite.exec("UPDATE employee_credentials SET locked_until=datetime('now','-1 hour') WHERE employee_id='EMP-P1'");
+ assert.equal(await status(),'ACTIVE');
+ DB.sqlite.exec("UPDATE employees SET status_aktif='RESIGN' WHERE id='EMP-P1'");
+ assert.equal(await status(),'INACTIVE');
+});
+
+test('Individual ESS generate supports initial access and reset, revokes old sessions and never persists plaintext',async()=>{
+ const {createEmployeeSession,verifyEmployeeSecret}=await import('../functions/api/_employee-auth.js');
+ const DB=new D1Mock();seed(DB);
+ const env={DB,AUTH_MODE:'session',DEFAULT_ORG_ID:'ORG-OTSINDO'};
+ const actor=await createSession(DB,'USR-P1-P',env);
+ const first=await postCredentials(env,actor.token,{action:'RESET',employeeId:'EMP-P1'});
+ assert.equal(first.response.status,200);
+ const oldPassword=first.payload.employee.password;
+ const readCredential=()=>DB.sqlite.prepare("SELECT * FROM employee_credentials WHERE employee_id='EMP-P1'").get();
+ assert.equal(await verifyEmployeeSecret(oldPassword,readCredential()),true);
+ await createEmployeeSession(DB,'EMP-P1',env);
+ assert.equal(DB.sqlite.prepare("SELECT COUNT(*) n FROM employee_portal_sessions WHERE employee_id='EMP-P1'").get().n,1);
+ const second=await postCredentials(env,actor.token,{action:'RESET',employeeId:'EMP-P1'});
+ assert.equal(second.response.status,200);const newPassword=second.payload.employee.password;
+ assert.notEqual(newPassword,oldPassword);
+ assert.equal(await verifyEmployeeSecret(oldPassword,readCredential()),false);
+ assert.equal(await verifyEmployeeSecret(newPassword,readCredential()),true);
+ assert.equal(readCredential().must_change_password,1);
+ assert.equal(DB.sqlite.prepare("SELECT COUNT(*) n FROM employee_portal_sessions WHERE employee_id='EMP-P1'").get().n,0);
+ const audit=JSON.stringify(DB.sqlite.prepare("SELECT detail FROM audit_logs WHERE entity='employee'").all());
+ assert.equal(audit.includes(oldPassword)||audit.includes(newPassword),false);
+ const listed=await getEmployees(env,actor.token);
+ assert.equal(JSON.stringify(listed.payload).includes(newPassword),false);
+ for(const userId of ['USR-P1-C','USR-P1-U']){
+  const deniedActor=await createSession(DB,userId,env);
+  const denied=await postCredentials(env,deniedActor.token,{action:'RESET',employeeId:'EMP-P1'});
+  assert.equal(denied.response.status,403);
+ }
+ DB.sqlite.exec("UPDATE employees SET status_aktif='RESIGN' WHERE id='EMP-P1'");
+ assert.equal((await postCredentials(env,actor.token,{action:'RESET',employeeId:'EMP-P1'})).response.status,409);
+});

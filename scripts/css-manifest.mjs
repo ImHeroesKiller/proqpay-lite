@@ -21,6 +21,7 @@ export const featureCss=[
   'src/app/audit-console.css',
   'src/app/e2pay-wallet.css',
   'src/app/styles/workspace-v2.css',
+  'src/app/styles/employee-directory.css',
 ];
 export const accessibilityCss=['src/app/styles/accessibility.css'];
 export const orderedGlobalCss=[...globalFoundationCss,...domainPolishCss,...featureCss,...accessibilityCss];
