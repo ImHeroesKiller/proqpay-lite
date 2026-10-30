@@ -36,7 +36,7 @@ export default function EmployeeDirectory({
   const [client,setClient]=useState('ALL');
   const [region,setRegion]=useState(initialRegion);
   const [essFilter,setEssFilter]=useState('ALL');
-  const [essUpdates,setEssUpdates]=useState<Record<string,EmployeeEssStatus>>({});
+  const [essUpdates,setEssUpdates]=useState<Record<string,{source:EmployeeRecord;status:EmployeeEssStatus}>>({});
   const [filtersOpen,setFiltersOpen]=useState(false);
   const [page,setPage]=useState(1);
   const [selected,setSelected]=useState<EmployeeRecord|null>(null);
@@ -47,7 +47,7 @@ export default function EmployeeDirectory({
     regions:[...new Set(employees.map((employee)=>employeeText(employee.region||employee.province)).filter(Boolean))].sort(),
   }),[employees]);
 
-  const scopedEmployees=useMemo(()=>employees.map(employee=>essUpdates[employee.id]?{...employee,essStatus:essUpdates[employee.id]}:employee),[employees,essUpdates]);
+  const scopedEmployees=useMemo(()=>employees.map(employee=>{const update=essUpdates[employee.id];return update?.source===employee?{...employee,essStatus:update.status}:employee;}),[employees,essUpdates]);
   const summary=useMemo(()=>({
     total:scopedEmployees.length,
     active:scopedEmployees.filter(employee=>employee.isActive===true).length,
@@ -178,7 +178,7 @@ export default function EmployeeDirectory({
         />
       </div>
 
-      {selected?<EmployeeDetailDrawer employee={selected} actor={actor} maskSensitiveData={maskSensitiveData} onEssGenerated={()=>setEssUpdates(current=>({...current,[selected.id]:'PASSWORD_CHANGE_REQUIRED'}))} onClose={()=>setSelected(null)} onSaved={async()=>{setSelected(null);await onChanged?.();}}/>:null}
+      {selected?<EmployeeDetailDrawer employee={selected} actor={actor} maskSensitiveData={maskSensitiveData} onEssGenerated={()=>{const source=employees.find(employee=>employee.id===selected.id);if(source)setEssUpdates(current=>({...current,[selected.id]:{source,status:'PASSWORD_CHANGE_REQUIRED'}}));}} onClose={()=>setSelected(null)} onSaved={async()=>{setSelected(null);await onChanged?.();}}/>:null}
     </section>
   );
 }

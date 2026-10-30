@@ -15,7 +15,7 @@ Baseline: main `69b7e02f8bd1b05d1dba570c6f0b8ad30bd536ca`.
 
 - 1,110 node tests passed, including real D1-mock credential lifecycle, initial issuance/reset, invalidation of the old password, session revocation, non-disclosure, role denial and inactive-account rejection.
 - Typecheck and production build/CSS/CSP passed. Lint: 0 errors; existing warnings remain. Cloudflare preflight: 9/9 passed.
-- Six local browser tests passed: desktop/mobile generation, cancellation, API error/retry, clipboard copy, transient password lifetime, ESS filters/status updates, inactive action, axe contrast, profile account editing, nested modal focus and existing support evidence.
+- Seven local browser tests passed: desktop/mobile generation, cancellation, API error/retry, clipboard copy, transient password lifetime, ESS filters/status updates, fresh backend state replacing optimistic state, inactive action, axe contrast, profile account editing, nested modal focus and existing support evidence.
 - Dedicated preview CI repeats the role, accessibility and modal regression gates before deployment.
 
 All screenshots use synthetic employees and a synthetic password. No production credentials were generated or reset during implementation.

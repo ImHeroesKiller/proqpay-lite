@@ -2,6 +2,7 @@ import {test,expect,chromium} from '@playwright/test';
 import {permissionsForRole} from '../../shared/authority-matrix.js';
 import {mkdir} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
+test.use({bypassCSP:true});
 const base=process.env.BASE_URL||'http://127.0.0.1:39822';
 const employees=[
  {id:'EMP-ESS-TEST',employeeCode:'TEST-001',name:'Karyawan Pengujian',company:'Klien Pengujian',project:'Project Pengujian',isActive:true,status:'ACTIVE',salaryGross:5000000,bankName:'BCA',accountNo:'1234567890',essStatus:'NOT_ISSUED'},
@@ -62,4 +63,23 @@ for(const width of [1440,390])test(`employee ESS individual generation, errors, 
  await page.screenshot({path:`artifacts/employees-ess/directory-${width}.png`,fullPage:true});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();expect(writes).toBe(2);expect(errors).toEqual([]);
  }finally{await browser.close();}
+});
+
+test('fresh backend ESS status replaces the optimistic status after generation',async({page})=>{
+ if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw new Error('Local synthetic APIs only');
+ const {build}=await import('esbuild');
+ const source=`import React,{useState} from 'react';import{createRoot}from'react-dom/client';import Directory from './src/components/EmployeeDirectory.tsx';
+ const original={id:'ESS-REFRESH',employeeCode:'TEST-REFRESH',name:'ESS Refresh Test',status:'ACTIVE',isActive:true,essStatus:'NOT_ISSUED'};
+ function Demo(){const[employees,setEmployees]=useState([original]);return <><button id="ess-refetch" onClick={()=>setEmployees([{...original,essStatus:'ACTIVE'}])}>Fresh backend data</button><Directory employees={employees} actor={{role:'PAYROLL_PROCESSOR',permissions:['employees:write']}}/></>};const root=document.createElement('div');root.id='ess-refetch-fixture';document.body.append(root);createRoot(root).render(<Demo/>);`;
+ const bundle=await build({stdin:{contents:source,loader:'tsx',resolveDir:process.cwd()},bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"production"'}});
+ await page.route('**/api/**',route=>new URL(route.request().url()).pathname==='/api/employee-credentials'?route.fulfill({json:{ok:true,employee:{password:'Synthetic-Refresh-Pw!'}}}):route.fulfill({json:{authenticated:false}}));
+ await page.goto(base,{waitUntil:'domcontentloaded'});await page.addScriptTag({content:bundle.outputFiles[0].text});
+ await page.locator('#ess-refetch-fixture').getByRole('button',{name:'Lihat detail ESS Refresh Test'}).click();
+ const profile=page.getByRole('dialog',{name:'Profil Karyawan',exact:true});await profile.getByRole('button',{name:'Generate password ESS',exact:true}).click();
+ await page.getByRole('dialog',{name:'Generate password ESS?',exact:true}).getByRole('button',{name:'Ya, generate password'}).click();
+ await expect(profile.getByLabel('Password ESS',{exact:true})).toHaveValue('Synthetic-Refresh-Pw!');
+ await profile.getByRole('button',{name:'Tutup profil',exact:true}).click();
+ const status=page.locator('#ess-refetch-fixture .employee-table tbody tr').first().locator('td').nth(3);
+ await expect(status).toHaveText('Wajib ganti password');
+ await page.locator('#ess-refetch').click();await expect(status).toHaveText('Aktif');
 });
