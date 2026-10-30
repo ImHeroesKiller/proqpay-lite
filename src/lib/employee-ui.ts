@@ -15,6 +15,7 @@ export type EmployeeRecord = {
   name?: string | null;
   status?: string | null;
   isActive?: boolean;
+  essStatus?: EmployeeEssStatus;
   employmentType?: string | null;
   joinDate?: string | null;
   contractStart?: string | null;
@@ -39,28 +40,8 @@ export type EmployeeRecord = {
 };
 
 export type EmployeeAdminForm = {
-  nik: string;
-  email: string;
   bankName: string;
   accountNo: string;
-  bpjsKesehatanNo: string;
-  jamsostekNo: string;
-};
-
-export type PortalCredentialRow = {
-  employeeId: string;
-  employeeCode: string;
-  name: string;
-  projectCode: string;
-  password: string;
-  scheme?: string;
-};
-
-export type PortalCredentialSummary = {
-  total: number;
-  issued: number;
-  pending: number;
-  formula?: string;
 };
 
 export function employeeText(value: unknown) {
@@ -74,13 +55,17 @@ export function employeeDateLabel(value: unknown) {
   return new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(timestamp));
 }
 
-export function employeeIssues(employee: EmployeeRecord) {
-  const issues: string[] = [];
-  if (!employeeText(employee.accountNo || employee.bankAccount)) issues.push('Rekening');
-  if (!employeeText(employee.nik)) issues.push('NIK');
-  if (!employeeText(employee.bpjsKesehatanNo)) issues.push('BPJS Kes');
-  if (!employeeText(employee.jamsostekNo)) issues.push('BPJS TK');
-  return issues;
+export type EmployeeEssStatus = 'NOT_ISSUED'|'PASSWORD_CHANGE_REQUIRED'|'ACTIVE'|'LOCKED'|'INACTIVE'|'UNKNOWN';
+export function employeeEssStatus(employee:EmployeeRecord):EmployeeEssStatus {
+  if(employee.isActive===false)return 'INACTIVE';
+  const status=employeeText(employee.essStatus);
+  return ['NOT_ISSUED','PASSWORD_CHANGE_REQUIRED','ACTIVE','LOCKED','INACTIVE'].includes(status)?status as EmployeeEssStatus:'UNKNOWN';
+}
+export function employeeEssLabel(status:EmployeeEssStatus){
+  return {NOT_ISSUED:'Belum dibuat',PASSWORD_CHANGE_REQUIRED:'Wajib ganti password',ACTIVE:'Aktif',LOCKED:'Terkunci',INACTIVE:'Nonaktif',UNKNOWN:'Belum tersedia'}[status];
+}
+export function employeeEssTone(status:EmployeeEssStatus){
+  return status==='ACTIVE'?'success':status==='LOCKED'||status==='INACTIVE'?'danger':status==='PASSWORD_CHANGE_REQUIRED'?'warning':'neutral';
 }
 
 export function employeeStatusTone(status: unknown) {

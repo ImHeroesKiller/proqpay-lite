@@ -2,21 +2,20 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { formatIDR } from '@/lib/format';
-import EmployeeCredentialsPanel from '@/components/EmployeeCredentialsPanel';
 import {WorkspaceTitle} from '@/components/layout/WorkspacePrimitives';
 import EmployeeDetailDrawer from '@/components/EmployeeDetailDrawer';
 import { EmptyState as UiEmptyState, Pagination as UiPagination } from '@/components/ui/UnifiedSystem';
 import {
-  employeeDateLabel,
   employeeInitials,
-  employeeIssues,
+  employeeEssStatus,
+  employeeEssLabel,
+  employeeEssTone,
+  type EmployeeEssStatus,
   employeeStatusTone,
   employeeText,
   type EmployeeActor,
   type EmployeeRecord,
 } from '@/lib/employee-ui';
-
-const REFERENCE_TIME = Date.now();
 
 export default function EmployeeDirectory({
   employees,
@@ -36,7 +35,8 @@ export default function EmployeeDirectory({
   const [query,setQuery]=useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('employeeQuery')||'');
   const [client,setClient]=useState('ALL');
   const [region,setRegion]=useState(initialRegion);
-  const [quality,setQuality]=useState('ALL');
+  const [essFilter,setEssFilter]=useState('ALL');
+  const [essUpdates,setEssUpdates]=useState<Record<string,{source:EmployeeRecord;status:EmployeeEssStatus}>>({});
   const [filtersOpen,setFiltersOpen]=useState(false);
   const [page,setPage]=useState(1);
   const [selected,setSelected]=useState<EmployeeRecord|null>(null);
@@ -47,30 +47,25 @@ export default function EmployeeDirectory({
     regions:[...new Set(employees.map((employee)=>employeeText(employee.region||employee.province)).filter(Boolean))].sort(),
   }),[employees]);
 
-  const summary=useMemo(()=>{
-    const now=REFERENCE_TIME;
-    let missing=0,expired=0,active=0;
-    employees.forEach((employee)=>{
-      if(employeeIssues(employee).length) missing+=1;
-      const end=employee.contractEnd?Date.parse(employee.contractEnd):Number.NaN;
-      if(Number.isFinite(end)&&end<now) expired+=1;
-      if(employee.isActive===true) active+=1;
-    });
-    return{total:employees.length,active,expired,missing};
-  },[employees]);
+  const scopedEmployees=useMemo(()=>employees.map(employee=>{const update=essUpdates[employee.id];return update?.source===employee?{...employee,essStatus:update.status}:employee;}),[employees,essUpdates]);
+  const summary=useMemo(()=>({
+    total:scopedEmployees.length,
+    active:scopedEmployees.filter(employee=>employee.isActive===true).length,
+    issued:scopedEmployees.filter(employee=>['ACTIVE','LOCKED','PASSWORD_CHANGE_REQUIRED'].includes(employeeEssStatus(employee))).length,
+    pending:scopedEmployees.filter(employee=>employeeEssStatus(employee)==='NOT_ISSUED').length,
+  }),[scopedEmployees]);
 
-  const filtered=useMemo(()=>employees.filter((employee)=>{
+  const filtered=useMemo(()=>scopedEmployees.filter((employee)=>{
     const haystack=[employee.id,employee.name,employee.company,employee.project,employee.position,employee.region]
       .map(employeeText).join(' ').toLocaleLowerCase('id-ID');
     if(deferredQuery&&!haystack.includes(deferredQuery)) return false;
     if(client!=='ALL'&&employeeText(employee.company)!==client) return false;
     if(region!=='ALL'&&employeeText(employee.region||employee.province)!==region) return false;
-    if(quality==='ISSUE'&&!employeeIssues(employee).length) return false;
-    if(quality==='COMPLETE'&&employeeIssues(employee).length) return false;
+    if(essFilter!=='ALL'&&employeeEssStatus(employee)!==essFilter)return false;
     return true;
-  }).sort((a,b)=>employeeText(a.name).localeCompare(employeeText(b.name),'id-ID')),[employees,deferredQuery,client,region,quality]);
+  }).sort((a,b)=>employeeText(a.name).localeCompare(employeeText(b.name),'id-ID')),[scopedEmployees,deferredQuery,client,region,essFilter]);
 
-  const activeFilterCount=[client!=='ALL',region!=='ALL',quality!=='ALL'].filter(Boolean).length;
+  const activeFilterCount=[client!=='ALL',region!=='ALL',essFilter!=='ALL'].filter(Boolean).length;
   const pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));
   const safePage=Math.min(page,pageCount);
   const visible=filtered.slice((safePage-1)*pageSize,safePage*pageSize);
@@ -88,16 +83,15 @@ export default function EmployeeDirectory({
   function resetFilters(){
     setClient('ALL');
     setRegion(initialRegion);
-    setQuality('ALL');
+    setEssFilter('ALL');
     setPage(1);
   }
 
   return(
     <section className="employee-directory">
       <div className="page-heading employee-page-heading">
-        <WorkspaceTitle eyebrow="People operations" title="Data Karyawan" description="Telusuri profil, penempatan, kontrak, payroll, dan kelengkapan administrasi." />
+        <WorkspaceTitle eyebrow="People operations" title="Data Karyawan" description="Telusuri identitas, penempatan, rekening, payroll, dan status ESS karyawan." />
         <div className="employee-page-actions">
-          <EmployeeCredentialsPanel actor={actor}/>
           <span className="role-access-chip">Akses: {actor?.role?.replaceAll('_',' ')||'CLIENT USER'}</span>
         </div>
       </div>
@@ -105,8 +99,8 @@ export default function EmployeeDirectory({
       <div className="employee-summary-grid">
         <div><span>Total karyawan</span><strong>{summary.total}</strong><small>record dalam scope Anda</small></div>
         <div><span>Status aktif</span><strong>{summary.active}</strong><small>sesuai lifecycle payroll/ESS</small></div>
-        <div><span>Kontrak berakhir</span><strong>{summary.expired}</strong><small>berdasarkan tanggal akhir</small></div>
-        <div><span>Perlu dilengkapi</span><strong>{summary.missing}</strong><small>NIK, BPJS, atau rekening</small></div>
+        <div><span>Akun ESS dibuat</span><strong>{summary.issued}</strong><small>credential ESS sudah diterbitkan</small></div>
+        <div><span>ESS belum dibuat</span><strong>{summary.pending}</strong><small>karyawan aktif tanpa credential ESS</small></div>
       </div>
 
       <div className="employee-toolbar card">
@@ -122,7 +116,7 @@ export default function EmployeeDirectory({
         {filtersOpen?<div className="employee-filter-panel">
           <label><span>Klien</span><select value={client} onChange={(event)=>updateFilter(setClient,event.target.value)}><option value="ALL">Semua klien</option>{options.clients.map((item)=><option key={item}>{item}</option>)}</select></label>
           <label><span>Wilayah</span><select value={region} onChange={(event)=>updateFilter(setRegion,event.target.value)}><option value="ALL">Semua wilayah</option>{options.regions.map((item)=><option key={item}>{item}</option>)}</select></label>
-          <label><span>Kualitas</span><select value={quality} onChange={(event)=>updateFilter(setQuality,event.target.value)}><option value="ALL">Semua data</option><option value="COMPLETE">Lengkap</option><option value="ISSUE">Perlu dilengkapi</option></select></label>
+          <label><span>Status ESS</span><select aria-label="Status ESS" value={essFilter} onChange={(event)=>updateFilter(setEssFilter,event.target.value)}><option value="ALL">Semua status ESS</option>{(['NOT_ISSUED','PASSWORD_CHANGE_REQUIRED','ACTIVE','LOCKED','INACTIVE','UNKNOWN'] as EmployeeEssStatus[]).map(status=><option key={status} value={status}>{employeeEssLabel(status)}</option>)}</select></label>
         </div>:null}
       </div>
 
@@ -134,20 +128,18 @@ export default function EmployeeDirectory({
               <col className="employee-col-person"/>
               <col className="employee-col-placement"/>
               <col className="employee-col-status"/>
-              <col className="employee-col-contract"/>
-              <col className="employee-col-quality"/>
+              <col className="employee-col-ess"/>
               <col className="employee-col-salary"/>
               <col className="employee-col-action"/>
             </colgroup>
-            <thead><tr><th>Karyawan</th><th>Penempatan</th><th>Status</th><th>Kontrak</th><th>Kelengkapan</th><th>Gaji pokok</th><th scope="col"><span className="visually-hidden">Aksi</span></th></tr></thead>
+            <thead><tr><th>Karyawan</th><th>Penempatan</th><th>Status</th><th>Status ESS</th><th>Gaji pokok</th><th scope="col"><span className="visually-hidden">Aksi</span></th></tr></thead>
             <tbody>{visible.map((employee)=>{
-              const issues=employeeIssues(employee);
+              const ess=employeeEssStatus(employee);
               return <tr key={employee.id} onClick={()=>setSelected(employee)} tabIndex={0} onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' ') {event.preventDefault();setSelected(employee);}}}>
                 <td><div className="employee-identity"><span>{employeeInitials(employee.name)}</span><div><strong>{employee.name}</strong><small>{employee.employeeCode||employee.id} · NRK {employee.id} · {employee.position||'Posisi belum diisi'}</small></div></div></td>
                 <td><strong className="cell-primary">{employee.company||'-'}</strong><small>{employee.project||employee.region||'-'}</small></td>
                 <td><span className={`status-pill status-${employeeStatusTone(employee.status)}`}>{employee.status||'Belum diisi'}</span></td>
-                <td><strong className="cell-primary">{employeeDateLabel(employee.contractEnd)}</strong><small>{employee.employmentType||'Tipe belum diisi'}</small></td>
-                <td>{issues.length?<span className="quality-pill quality-issue">{issues.length} isu</span>:<span className="quality-pill quality-complete">Lengkap</span>}<small>{issues.slice(0,2).join(', ')||'Data utama siap'}</small></td>
+                <td><span className={`status-pill status-${employeeEssTone(ess)}`}>{employeeEssLabel(ess)}</span></td>
                 <td><strong className="cell-primary">{formatIDR(Number(employee.salaryGross||0))}</strong><small>{employee.bankName||'Bank belum diisi'}</small></td>
                 <td><button type="button" aria-label={`Lihat detail ${employee.name||employee.id}`} onClick={(event)=>{event.stopPropagation();setSelected(employee);}}>→</button></td>
               </tr>;
@@ -155,7 +147,7 @@ export default function EmployeeDirectory({
           </table>
           <div className="employee-mobile-list">
             {visible.map((employee)=>{
-              const issues=employeeIssues(employee);
+              const ess=employeeEssStatus(employee);
               return <button key={employee.id} type="button" className="employee-mobile-card" onClick={()=>setSelected(employee)}>
                 <div className="employee-mobile-card-head">
                   <span className="employee-mobile-avatar">{employeeInitials(employee.name)}</span>
@@ -167,8 +159,7 @@ export default function EmployeeDirectory({
                   <div><span>Project</span><strong>{employee.project||employee.region||'-'}</strong></div>
                 </div>
                 <div className="employee-mobile-metrics">
-                  <div><span>Kontrak</span><strong>{employeeDateLabel(employee.contractEnd)}</strong></div>
-                  <div><span>Kelengkapan</span><strong>{issues.length?`${issues.length} isu`:'Lengkap'}</strong></div>
+                  <div><span>Status ESS</span><strong>{employeeEssLabel(ess)}</strong></div>
                   <div><span>Gaji pokok</span><strong>{formatIDR(Number(employee.salaryGross||0))}</strong></div>
                 </div>
                 <span className="employee-mobile-open">Lihat detail →</span>
@@ -187,7 +178,7 @@ export default function EmployeeDirectory({
         />
       </div>
 
-      {selected?<EmployeeDetailDrawer employee={selected} actor={actor} maskSensitiveData={maskSensitiveData} onClose={()=>setSelected(null)} onSaved={async()=>{setSelected(null);await onChanged?.();}}/>:null}
+      {selected?<EmployeeDetailDrawer employee={selected} actor={actor} maskSensitiveData={maskSensitiveData} onEssGenerated={()=>{const source=employees.find(employee=>employee.id===selected.id);if(source)setEssUpdates(current=>({...current,[selected.id]:{source,status:'PASSWORD_CHANGE_REQUIRED'}}));}} onClose={()=>setSelected(null)} onSaved={async()=>{setSelected(null);await onChanged?.();}}/>:null}
     </section>
   );
 }

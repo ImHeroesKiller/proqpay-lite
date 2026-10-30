@@ -8,6 +8,8 @@ import {
   canManageEmployees,
   employeeIntakePayroll,
   employeeInitials,
+  employeeEssStatus,
+  employeeEssLabel,
   employeeMasked,
   employeeStatusTone,
   employeeText,
@@ -22,12 +24,14 @@ export default function EmployeeDetailDrawer({
   maskSensitiveData,
   onClose,
   onSaved,
+  onEssGenerated,
 }: {
   employee: EmployeeRecord;
   actor: EmployeeActor | null;
   maskSensitiveData: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  onEssGenerated?: () => void;
 }) {
   const tabId=useId();
   const tabs=[['identity','Identitas & Penempatan'],['bank','Rekening Pembayaran'],['payroll','Payroll per Periode']] as const;
@@ -39,17 +43,14 @@ export default function EmployeeDetailDrawer({
   const [resetting,setResetting]=useState(false);
   const [message,setMessage]=useState('');
   const [portalPassword,setPortalPassword]=useState('');
+  const [essState,setEssState]=useState(()=>employeeEssStatus(employee));
   const [resetConfirm,setResetConfirm]=useState(false);
   const [discardConfirm,setDiscardConfirm]=useState(false);
   const [discardTarget,setDiscardTarget]=useState<'close'|'cancel'|'identity'|'bank'|'payroll'>('close');
   const [copyMessage,setCopyMessage]=useState('');
   const initialForm:EmployeeAdminForm={
-    nik:employeeText(employee.nik),
-    email:employeeText(employee.email),
     bankName:employeeText(employee.bankName),
     accountNo:employeeText(employee.accountNo),
-    bpjsKesehatanNo:employeeText(employee.bpjsKesehatanNo),
-    jamsostekNo:employeeText(employee.jamsostekNo),
   };
   const [form,setForm]=useState<EmployeeAdminForm>(initialForm);
   const dirty=editing && (form.bankName!==initialForm.bankName||form.accountNo!==initialForm.accountNo);
@@ -113,7 +114,10 @@ export default function EmployeeDetailDrawer({
         body:JSON.stringify({action:'RESET',employeeId:employee.id}),
       });
       const result=await parseApiResponse<{employee?:{password?:string}}>(response);
-      setPortalPassword(String(result.employee?.password||''));
+      if(!result.employee?.password)throw new Error('Password ESS tidak diterima. Coba generate kembali.');
+      setPortalPassword(result.employee.password);
+      setEssState('PASSWORD_CHANGE_REQUIRED');
+      onEssGenerated?.();
       setResetConfirm(false);
     }catch(error){setMessage(error instanceof Error?error.message:'Gagal mereset password portal');}
     finally{setResetting(false);}
@@ -145,8 +149,7 @@ export default function EmployeeDetailDrawer({
             }}>{label}</button>)}
           </div>
           {message&&!resetConfirm?<p className="employee-profile-error" role="alert">{message}</p>:null}
-          {(activeTab==='bank'&&canEdit)||canResetPortal?<div className="employee-drawer-actions">
-            {canResetPortal?<button className="btn" type="button" disabled={saving||resetting||dirty} onClick={()=>{setMessage('');setResetConfirm(true);}}>{resetting?'Menerbitkan…':'Reset password portal'}</button>:null}
+          {activeTab==='bank'&&canEdit?<div className="employee-drawer-actions">
             {canEdit&&activeTab==='bank'?<button className="btn" type="button" disabled={saving||resetting} onClick={()=>editing?cancelEditing():setEditing(true)}>{editing?'Batal edit':'Edit rekening'}</button>:null}
           </div>:null}
 
@@ -155,13 +158,19 @@ export default function EmployeeDetailDrawer({
             <div><button type="button" className="btn" onClick={()=>setDiscardConfirm(false)}>Lanjut edit</button><button type="button" className="btn btn-danger" onClick={discardChanges}>Buang perubahan</button></div>
           </ModalShell>:null}
 
-          {resetConfirm?<ModalShell title="Terbitkan ulang password portal?" onClose={()=>{if(!resetting)setResetConfirm(false);}} className="employee-profile-confirm">
-            <p>Password lama akan langsung tidak berlaku. Password baru hanya ditampilkan sekali.</p>
+          {resetConfirm?<ModalShell title="Generate password ESS?" onClose={()=>{if(!resetting)setResetConfirm(false);}} className="employee-profile-confirm">
+            <p>Password sementara akan dibuat untuk login awal atau reset ESS karyawan ini. Jika sudah ada, password lama dan sesi ESS akan dinonaktifkan. Karyawan wajib menggantinya saat login.</p>
             {message?<p className="employee-profile-error" role="alert">{message}</p>:null}
-            <div><button type="button" className="btn" disabled={resetting} onClick={()=>setResetConfirm(false)}>Batal</button><button type="button" className="btn btn-primary" disabled={resetting} onClick={()=>void resetPortalPassword()}>{resetting?'Menerbitkan…':'Reset password'}</button></div>
+            <div><button type="button" className="btn" disabled={resetting} onClick={()=>setResetConfirm(false)}>Batal</button><button type="button" className="btn btn-primary" disabled={resetting} onClick={()=>void resetPortalPassword()}>{resetting?'Menerbitkan…':'Ya, generate password'}</button></div>
           </ModalShell>:null}
 
-          {portalPassword?<div className="account-credential employee-portal-password" role="status"><div><strong>Password portal — hanya sekali</strong><span>{employee.employeeCode||employee.id}</span></div><code>{portalPassword}</code><button type="button" className="btn" onClick={()=>void copyPassword()}>Salin</button></div>:null}
+          {canResetPortal?<section className="employee-ess-access" aria-label="Akses ESS karyawan">
+            <div><h3>Akses ESS</h3><span role="status">Status ESS: {employeeEssLabel(essState)}</span></div>
+            <button className="btn" type="button" disabled={saving||resetting||dirty||essState==='INACTIVE'} onClick={()=>{setMessage('');setResetConfirm(true);}}>{resetting?'Menerbitkan…':'Generate password ESS'}</button>
+            <label>Password ESS<input type="text" value={portalPassword} readOnly autoComplete="off" spellCheck={false} placeholder="Belum ada password baru pada sesi ini"/></label>
+            {portalPassword?<button type="button" className="btn" onClick={()=>void copyPassword()}>Salin password</button>:null}
+            <p>{essState==='INACTIVE'?'Akses ESS karyawan nonaktif tidak dapat diterbitkan.':'Untuk login awal dan reset. Password hanya tampil setelah generate sampai detail ditutup; password tersimpan tidak dapat dibaca kembali.'}</p>
+          </section>:null}
 
           {copyMessage?<p role="status">{copyMessage}</p>:null}
           {editing&&activeTab==='bank'?<div className="employee-edit-shell">

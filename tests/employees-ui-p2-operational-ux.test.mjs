@@ -26,14 +26,14 @@ test('Employees UI P2: desktop table has stable columns and bounded vertical scr
   assert.match(css,/\.employee-table th \{[\s\S]*position:sticky/);
 });
 
-test('Employees UI P2: ESS credential summary exposes loading, error and retry states',async()=>{
-  const source=await read('src/components/EmployeeCredentialsPanel.tsx');
-  assert.match(source,/const \[loading, setLoading\]/);
-  assert.match(source,/async function loadSummary/);
-  assert.match(source,/if \(!response\.ok \|\| !data\?\.ok\)/);
-  assert.match(source,/employee-ess-error/);
-  assert.match(source,/Coba lagi/);
-  assert.match(source,/disabled=\{busy \|\| loading \|\| summary == null \|\| summary\.pending === 0\}/);
+test('Employees ESS generation preserves explicit confirmation, errors and pending state',async()=>{
+ const source=await read('src/components/EmployeeDetailDrawer.tsx');
+ assert.match(source,/Generate password ESS\?/);
+ assert.match(source,/setResetting\(true\)/);
+ assert.match(source,/parseApiResponse/);
+ assert.match(source,/employee-profile-error/);
+ assert.match(source,/if\(!result.employee\?\.password\)throw new Error/);
+ assert.match(source,/disabled=\{saving\|\|resetting\|\|dirty\|\|essState==='INACTIVE'\}/);
 });
 
 test('Employees UI P2: drawer protects dirty admin edits from close, backdrop, Escape and cancel',async()=>{

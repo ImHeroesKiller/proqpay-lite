@@ -160,6 +160,13 @@ export async function onRequest(context) {
         SELECT
           e.id,
           CASE WHEN ${activeEmployeeSql('e')} THEN 1 ELSE 0 END AS "isActive",
+          CASE
+            WHEN NOT (${activeEmployeeSql('e')}) THEN 'INACTIVE'
+            WHEN ess.employee_id IS NULL THEN 'NOT_ISSUED'
+            WHEN ess.locked_until IS NOT NULL AND julianday(ess.locked_until)>julianday('now') THEN 'LOCKED'
+            WHEN ess.must_change_password=1 THEN 'PASSWORD_CHANGE_REQUIRED'
+            ELSE 'ACTIVE'
+          END AS "essStatus",
           e.employee_code AS "employeeCode",
           e.client_id AS "clientId",
           c.name AS company,
@@ -196,6 +203,7 @@ export async function onRequest(context) {
           hm.fj_input_user AS "fjInputUser",hm.es_input_at AS "esInputAt",hm.es_input_user AS "esInputUser",hm.hris_user AS "hrisUser",
           1 AS pph21
         FROM employees e
+        LEFT JOIN employee_credentials ess ON ess.employee_id=e.id
         LEFT JOIN clients c ON c.id=e.client_id
         LEFT JOIN projects p ON p.id=e.project_id
         LEFT JOIN branches b ON b.id=e.branch_id
