@@ -1,3 +1,4 @@
+import { employeeEwaConfiguration, configuredEwaPolicy } from './_ewa-entitlement.js';
 import { d1All, d1First } from './_d1.js';
 import { loadPortalPresentation } from './_portal-settings.js';
 import {
@@ -413,6 +414,13 @@ export async function buildEmployeePortalPayload(database, actor) {
         status: row.status,
       })),
     };
+    const configuration=await employeeEwaConfiguration(database,empId,actor.orgId,actor.clientId);
+    if(configuration.settings){
+      const effectivePolicy=configuredEwaPolicy(policy,configuration);
+      ewa={...ewa,rules:policyToRules(effectivePolicy),emp:{...ewa.emp,net:configuration.basis.salary},
+        configurationVersion:configuration.settings.version,salaryReference:configuration.basis.salary,salarySource:configuration.basis.source,salarySourcePeriod:configuration.basis.period,
+        plafond:configuration.limit,...(configuration.basis.salary<=0 ? {eligible:false,reason:"Gaji acuan belum tersedia. Hubungi klien atau Payroll Processor."} : ewaEligibility({policy:effectivePolicy,plafond:configuration.limit,openRequest:open,active:true}))};
+    }
   } catch {
     ewa = {
       rules: policyToRules(DEFAULT_EWA_POLICY),

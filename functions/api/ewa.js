@@ -1,3 +1,4 @@
+import { employeeEwaConfiguration } from './_ewa-entitlement.js';
 import { d1All, d1First, d1Run, hasD1 } from './_d1.js';
 import { authorize, clientIdsFor, projectIdsFor, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { canonicalDrForEwa } from './_payment-source-guard.js';
@@ -135,6 +136,12 @@ export async function onRequest({ request, env }) {
       const employee = await d1First(env.DB, 'SELECT project_id FROM employees WHERE id=?', [current.employee_id]);
       if (!(clientIdsFor(actor, env) || []).includes(String(current.client_id)) ||
           !(projectIdsFor(actor) || []).includes(String(employee?.project_id))) return respond({error:'Pengajuan tidak ditemukan'},404);
+    if(action==='APPROVE' && current.configuration_version != null){
+      const configuration=await employeeEwaConfiguration(env.DB,current.employee_id,organizationId,current.client_id);
+      if(!configuration.enabled || configuration.settings?.version!==current.configuration_version || Number(current.amount)>configuration.limit){
+        return respond({error:'Pengaturan EWA berubah. Batalkan dan ajukan ulang memakai limit terbaru.',code:'EWA_CONFIGURATION_CHANGED'},409);
+      }
+    }
       if (!['APPROVE','REJECT'].includes(action) || current.status !== 'SUBMITTED' || current.client_approval_status !== 'PENDING') {
         return respond({error:'Keputusan klien sudah diproses atau aksi tidak valid'},409);
       }
@@ -143,13 +150,20 @@ export async function onRequest({ request, env }) {
       const result = await d1Run(env.DB, `UPDATE ewa_requests SET client_approval_status=?,client_approved_by=?,
         client_decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),client_decision_note=?,
         status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        WHERE id=? AND org_id=? AND status='SUBMITTED' AND client_approval_status='PENDING'`,
-        [clientStatus,actorId,String(body.note || '').slice(0,240) || null,action === 'REJECT' ? 'REJECTED' : 'SUBMITTED',requestId,organizationId]);
+        WHERE id=? AND org_id=? AND status='SUBMITTED' AND client_approval_status='PENDING'
+        AND (?='REJECT' OR configuration_version IS NULL OR EXISTS(SELECT 1 FROM ewa_employee_settings cfg WHERE cfg.employee_id=ewa_requests.employee_id AND cfg.org_id=ewa_requests.org_id AND cfg.client_id=ewa_requests.client_id AND cfg.enabled=1 AND cfg.version=ewa_requests.configuration_version))`,
+        [clientStatus,actorId,String(body.note || '').slice(0,240) || null,action === 'REJECT' ? 'REJECTED' : 'SUBMITTED',requestId,organizationId,action]);
       if (Number(result?.meta?.changes ?? result?.changes ?? 0) !== 1) return respond({error:'Status berubah. Muat ulang.'},409);
       await d1Run(env.DB, `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
         VALUES (?,?,?,'CLIENT_USER',?,?,'ewa_request',?)`,
         [`AUD-${crypto.randomUUID()}`,organizationId,actorId,`EWA_CLIENT_${clientStatus}`,requestId,requestId]);
       return respond({ok:true,request:await d1First(env.DB,'SELECT * FROM ewa_requests WHERE id=? AND org_id=?',[requestId,organizationId])});
+    }
+    if(action==='APPROVE' && current.configuration_version != null){
+      const configuration=await employeeEwaConfiguration(env.DB,current.employee_id,organizationId,current.client_id);
+      if(!configuration.enabled || configuration.settings?.version!==current.configuration_version || Number(current.amount)>configuration.limit){
+        return respond({error:'Pengaturan EWA berubah. Batalkan dan ajukan ulang memakai limit terbaru.',code:'EWA_CONFIGURATION_CHANGED'},409);
+      }
     }
     if (action === 'APPROVE' && (current.client_approval_status !== 'APPROVED' || !current.client_approved_by)) {
       return respond({error:'Persetujuan klien wajib sebelum proses internal',code:'EWA_CLIENT_APPROVAL_REQUIRED'},409);
@@ -167,7 +181,8 @@ export async function onRequest({ request, env }) {
           SET status='APPROVED', approved_by=?, approved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
               decision_note=?, decided_by=?, decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
               updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-          WHERE id=? AND org_id=? AND status='SUBMITTED' AND client_approval_status='APPROVED' AND client_approved_by IS NOT NULL`,
+          WHERE id=? AND org_id=? AND status='SUBMITTED' AND client_approval_status='APPROVED' AND client_approved_by IS NOT NULL
+            AND (configuration_version IS NULL OR EXISTS(SELECT 1 FROM ewa_employee_settings cfg WHERE cfg.employee_id=ewa_requests.employee_id AND cfg.org_id=ewa_requests.org_id AND cfg.client_id=ewa_requests.client_id AND cfg.enabled=1 AND cfg.version=ewa_requests.configuration_version))`,
         [actorId, note || null, actorId, requestId, organizationId],
       );
     } else if (action === 'REJECT' && current.status === 'SUBMITTED') {

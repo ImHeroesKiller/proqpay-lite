@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import EwaEnrollment from "./EwaEnrollment";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import {
   EwaDetailPanel,
@@ -198,6 +199,8 @@ export default function EwaInbox() {
         action={<button type="button" className="btn" onClick={() => void load()} disabled={loading}>{loading ? "Memuat…" : "Refresh data"}</button>}
       />
 
+      <EwaEnrollment />
+
       <UiMetricGrid>
         {visibleSummary.map((item) => (
           <UiMetricCard
@@ -253,7 +256,7 @@ export default function EwaInbox() {
                 {rows.map((row) => (
                   <tr key={row.id}>
                     <td className="es-sticky-left ewa-employee-cell"><strong>{row.employee_name || row.employee_id}</strong><div className="ewa-muted">{row.employee_code} · {row.client_name} · {row.period}</div></td>
-                    <td align="right"><strong>{IDR.format(row.amount || 0)}</strong><div className="ewa-muted">Fee {IDR.format(row.fee || 0)}</div></td>
+                    <td align="right"><strong>{IDR.format(row.amount || 0)}</strong><div className="ewa-muted">Fee {IDR.format(row.fee || 0)}</div>{row.salary_reference_snapshot != null ? <div className="ewa-muted">Gaji acuan {IDR.format(row.salary_reference_snapshot)} · {row.salary_source_period_snapshot || "—"}</div> : null}</td>
                     <td align="right">{IDR.format(row.repayment || 0)}</td>
                     <td className="ewa-status"><EwaStatusBadge status={row.status} /><div className="ewa-muted ewa-status-note">{row.status === "SUBMITTED" ? row.client_approval_status === "APPROVED" ? "Klien menyetujui · Menunggu proses internal" : "Menunggu persetujuan klien" : ewaMeta(row.status).note}</div></td>
                     <td>{formatPortalDate(row.disbursed_at || row.approved_at || row.created_at)}</td>
