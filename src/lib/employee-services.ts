@@ -91,6 +91,8 @@ export function formatPortalDate(value?: string) {
 
 
 export type EwaRow = {
+  salary_reference_snapshot?: number;
+  salary_source_period_snapshot?: string;
   client_approval_status?: "PENDING" | "APPROVED" | "REJECTED";
   client_approved_by?: string;
   client_decided_at?: string;

@@ -1,3 +1,4 @@
+import { employeeEwaConfiguration, configuredEwaPolicy } from '../_ewa-entitlement.js';
 import { EMPLOYEE_SERVICES_CONTRACT_VERSION } from '../_employee-contract.js';
 import { authenticateEmployee, employeeHandlePreflight, employeeJson, isActiveEmployee, portalMutationAllowed } from '../_employee-auth.js';
 import { d1All, d1First, d1Run, hasD1 } from '../_d1.js';
@@ -48,7 +49,7 @@ async function loadNet(database, employeeId, period) {
 
 async function snapshot(database, actor) {
   const orgId = actor.orgId;
-  const policy = await loadPolicy(database, orgId, actor.clientId);
+  let policy = await loadPolicy(database, orgId, actor.clientId);
   const contract = await d1First(
     database,
     'SELECT join_date, accepted_date FROM employee_contracts WHERE employee_id=? AND is_current=1 LIMIT 1',
@@ -58,8 +59,10 @@ async function snapshot(database, actor) {
   const earned = earnedDaysInPeriod(new Date(), joinDate);
   const tenureMonths = tenureMonthsFromJoin(joinDate);
   const tenureDays = tenureDaysFromJoin(joinDate);
-  const net = await loadNet(database, actor.id, earned.period);
-  const plafond = ewaPlafond({
+  const configuration = await employeeEwaConfiguration(database,actor.id,orgId,actor.clientId);
+  const net = configuration.settings ? configuration.basis.salary : await loadNet(database, actor.id, earned.period);
+  if(configuration.settings) policy=configuredEwaPolicy(policy,configuration);
+  const plafond = configuration.settings ? configuration.limit : ewaPlafond({
     net, daysWorked: earned.daysWorked, daysInMonth: earned.daysInMonth, maxPercent: policy.max_percent,
   });
   const open = await d1First(
@@ -90,7 +93,7 @@ async function snapshot(database, actor) {
     ? payrollStageIndex(submission.state, submission.pi_status, submission.rec_status)
     : 1;
   const paid = stage >= 5;
-  const eligibility = ewaEligibility({
+  const eligibility = configuration.settings && net<=0 ? {eligible:false,reason:'Gaji acuan belum tersedia. Hubungi klien atau Payroll Processor.'} : ewaEligibility({
     policy, daysWorked: earned.daysWorked, tenureMonths, tenureDays, joinDate,
     plafond, openRequest: open, paid, active: true,
   });
@@ -103,7 +106,7 @@ async function snapshot(database, actor) {
     [actor.id],
   );
   return {
-    policy, earned, joinDate, tenureMonths, tenureDays, net, plafond, open, paid, eligibility, history, period: earned.period,
+    configuration, policy, earned, joinDate, tenureMonths, tenureDays, net, plafond, open, paid, eligibility, history, period: earned.period,
   };
 }
 
@@ -141,6 +144,10 @@ export async function onRequest({ request, env }) {
           joinDate: state.joinDate || '',
           net: state.net,
         },
+        salaryReference: state.configuration.basis.salary,
+        salarySource: state.configuration.basis.source,
+        salarySourcePeriod: state.configuration.basis.period,
+        configurationVersion: state.configuration.settings?.version || null,
         plafond: state.plafond,
         eligible: state.eligibility.eligible,
         reason: state.eligibility.reason,
@@ -198,13 +205,13 @@ export async function onRequest({ request, env }) {
       `INSERT INTO ewa_requests (
         id, org_id, client_id, employee_id, period, amount, fee, repayment, method, tenor_months, status,
         plafond_snapshot, days_worked_snapshot, tenure_months_snapshot, employee_note,
-        destination_bank_name, destination_account_last4
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?, ?)`,
+        destination_bank_name, destination_account_last4,configuration_version,salary_reference_snapshot,salary_source_period_snapshot
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id, actor.orgId, actor.clientId, actor.id, state.period, amount, fee, amount + fee,
         String(body.method || 'SALARY_ACCOUNT').slice(0, 40), Number(state.policy.max_tenor_months || 1),
         state.plafond, state.earned.daysWorked, state.tenureMonths, String(body.note || '').slice(0, 240) || null,
-        bankName || null, accountLast4 || null,
+        bankName || null, accountLast4 || null,state.configuration.settings?.version || null,state.net,state.configuration.basis.period,
       ],
     );
     await d1Run(
