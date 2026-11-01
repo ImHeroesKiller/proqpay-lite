@@ -55,7 +55,7 @@ function insertDisbursed(DB, { id = 'EWA-1', employeeId = 'EMP-A', period = '202
 test('FINALIZE_PAY_RUN_INPUT deducts disbursed EWA then PI uses the new net', async () => {
   const DB = new D1Mock();
   seedPayRun(DB);
-  insertDisbursed(DB);
+  insertDisbursed(DB, { period: '2026-06' });
   const created = await action(DB, {
     action: 'CREATE_PAY_RUN', clientId: 'CLI-RUN', projectId: 'PRJ-RUN', servicePlanId: 'SP-RUN',
     period: '2026-07', paymentPeriod: '2026-07', paymentDate: '2026-07-25',

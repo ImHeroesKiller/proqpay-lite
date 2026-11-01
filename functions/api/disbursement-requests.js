@@ -100,6 +100,7 @@ async function ewaSource(db,org,sourceId,env){
     JOIN employees e ON e.id=er.employee_id WHERE er.id=? AND er.org_id=? LIMIT 1`,[sourceId,org]);
   if(!ewa) return {error:'EWA Request tidak ditemukan',status:404,code:'DISBURSEMENT_SOURCE_NOT_FOUND'};
   if(String(ewa.status)!=='APPROVED') return {error:'EWA Request harus APPROVED sebelum dibuatkan Disbursement Request',status:409,code:'DISBURSEMENT_EWA_NOT_APPROVED'};
+  if(ewa.client_approval_status!=='APPROVED'||!ewa.client_approved_by) return {error:'Persetujuan klien wajib',status:409,code:'EWA_CLIENT_APPROVAL_REQUIRED'};
   const runtime=await gatewayRuntimeEnv(db,env,org);
   const environment=String(runtime.E2PAY_ENV||'UAT').toUpperCase();
   const account=await activeProviderAccount(db,org,ewa.client_id,'E2PAY',environment,ewa.project_id||null);

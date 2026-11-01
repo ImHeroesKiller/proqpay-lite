@@ -144,7 +144,7 @@ export async function onRequest({ request, env }) {
         plafond: state.plafond,
         eligible: state.eligibility.eligible,
         reason: state.eligibility.reason,
-        app: state.open || null,
+        app: state.open ? { ...state.open, ref: state.open.id, date: String(state.open.created_at || '').slice(0,10), inst: Number(state.open.tenor_months || 1) } : null,
         history: state.history,
       });
     }

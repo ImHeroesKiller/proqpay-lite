@@ -51,7 +51,7 @@ function EwaActionButtons({
       <button type="button" className="btn" onClick={() => onDetail(row)}>
         Detail
       </button>
-      {row.status === "SUBMITTED" && role === "SUPER_ADMIN" ? (
+      {row.status === "SUBMITTED" && ((role === "CLIENT_USER" && row.client_approval_status === "PENDING") || (["SUPER_ADMIN","PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role) && row.client_approval_status === "APPROVED")) ? (
         <>
           <button type="button" className="btn btn-primary" disabled={busy} onClick={() => onAction(row.id, "APPROVE")}>
             Setujui
@@ -255,7 +255,7 @@ export default function EwaInbox() {
                     <td className="es-sticky-left ewa-employee-cell"><strong>{row.employee_name || row.employee_id}</strong><div className="ewa-muted">{row.employee_code} · {row.client_name} · {row.period}</div></td>
                     <td align="right"><strong>{IDR.format(row.amount || 0)}</strong><div className="ewa-muted">Fee {IDR.format(row.fee || 0)}</div></td>
                     <td align="right">{IDR.format(row.repayment || 0)}</td>
-                    <td className="ewa-status"><EwaStatusBadge status={row.status} /><div className="ewa-muted ewa-status-note">{ewaMeta(row.status).note}</div></td>
+                    <td className="ewa-status"><EwaStatusBadge status={row.status} /><div className="ewa-muted ewa-status-note">{row.status === "SUBMITTED" ? row.client_approval_status === "APPROVED" ? "Klien menyetujui · Menunggu proses internal" : "Menunggu persetujuan klien" : ewaMeta(row.status).note}</div></td>
                     <td>{formatPortalDate(row.disbursed_at || row.approved_at || row.created_at)}</td>
                     <td className="es-sticky-right">
                       <EwaActionButtons
@@ -285,6 +285,7 @@ export default function EwaInbox() {
                   <div><small>Cair</small><strong>{IDR.format(row.amount || 0)}</strong></div>
                   <div><small>Potong gaji</small><strong>{IDR.format(row.repayment || 0)}</strong></div>
                 </div>
+                <div className="ewa-muted">{row.status === "SUBMITTED" ? row.client_approval_status === "APPROVED" ? "Klien menyetujui · Menunggu proses internal" : "Menunggu persetujuan klien" : ""}</div>
                 <div className="ewa-muted ewa-mobile-meta">{row.period} · {formatPortalDate(row.disbursed_at || row.approved_at || row.created_at)}</div>
                 <EwaActionButtons
                   row={row}

@@ -71,7 +71,7 @@ test('P0.B EWA legacy manual DISBURSE remains blocked while Processor/Controller
  assert.equal(response.status,200,await response.clone().text());
  assert.equal((await response.json()).requests[0].id,'EWA-P0B');
  const post=await ewaApi({request:new Request('https://proqpay.test/api/ewa',{method:'POST',headers:{Cookie:`proqpay_session=${session.token}`,Origin:'https://proqpay.test','Content-Type':'application/json'},body:JSON.stringify({action:'DISBURSE',id:'EWA-P0B'})}),env});
- assert.equal(post.status,403);
+ assert.equal(post.status,409);
 });
 
 test('P0.B EWA cannot mark paid unless every provider execution item is confirmed SUCCEEDED',async()=>{
