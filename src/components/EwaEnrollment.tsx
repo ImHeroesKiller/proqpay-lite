@@ -1,20 +1,22 @@
 "use client";
 import { useEffect, useState } from "react";
 
-type Employee={id:string;name:string;employee_code?:string;client_name?:string;ewa_enabled?:number};
+type Employee={id:string;name:string;employee_code?:string;client_name?:string;ewa_enabled?:number;project_name?:string};
 type Configuration={enabled:number;limit_mode:"PERCENT"|"FIXED";limit_percent:number;fixed_limit:number;salary_mode:"AUTO"|"MANUAL";manual_salary:number|null;manual_period:string|null;version:number};
 type Details={settings:Configuration|null;basis:{salary:number;period:string|null;source:string};limit:number};
 const rupiah=(n:number)=>new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(n);
-export default function EwaEnrollment(){
- const [projects,setProjects]=useState<{id:string;name:string}[]>([]),[newName,setNewName]=useState(""),[newCode,setNewCode]=useState(""),[newProject,setNewProject]=useState(""),[newReason,setNewReason]=useState("");
+export default function EwaEnrollment({refreshKey=0}:{refreshKey?:number}){
+ const [clients,setClients]=useState<{id:string;name:string}[]>([]),[clientId,setClientId]=useState(""),[projectId,setProjectId]=useState(""),[loading,setLoading]=useState(true);
+ const [projects,setProjects]=useState<{id:string;name:string;client_id:string}[]>([]),[newName,setNewName]=useState(""),[newCode,setNewCode]=useState(""),[newProject,setNewProject]=useState(""),[newReason,setNewReason]=useState("");
  const [employees,setEmployees]=useState<Employee[]>([]),[q,setQ]=useState(""),[offset,setOffset]=useState(0),[more,setMore]=useState(false);
  const [id,setId]=useState(""),[details,setDetails]=useState<Details|null>(null),[message,setMessage]=useState(""),[busy,setBusy]=useState(false),[canWrite,setCanWrite]=useState(false);
  const [enabled,setEnabled]=useState(false),[mode,setMode]=useState("PERCENT"),[percent,setPercent]=useState("30"),[fixed,setFixed]=useState("0"),[salaryMode,setSalaryMode]=useState("AUTO"),[salary,setSalary]=useState(""),[period,setPeriod]=useState(""),[reason,setReason]=useState("");
  useEffect(()=>{
   const controller=new AbortController();
-  const timer=setTimeout(()=>{void fetch(`/api/ewa-enrollment?q=${encodeURIComponent(q)}&offset=${offset}`,{signal:controller.signal,cache:"no-store"}).then(async r=>{const data=await r.json();if(!r.ok)throw Error(data.error);return data;}).then(data=>{setEmployees(data.employees);setProjects(data.projects);setMore(data.hasMore);setCanWrite(data.canWrite);}).catch(e=>{if(e.name!=="AbortError")setMessage(e.message);});},250);
+  setLoading(true);
+  const timer=setTimeout(()=>{void fetch(`/api/ewa-enrollment?q=${encodeURIComponent(q)}&offset=${offset}&clientId=${encodeURIComponent(clientId)}&projectId=${encodeURIComponent(projectId)}`,{signal:controller.signal,cache:"no-store"}).then(async r=>{const data=await r.json();if(!r.ok)throw Error(data.error);return data;}).then(data=>{setEmployees(data.employees);setClients(data.clients||[]);setProjects(data.projects);setMore(data.hasMore);setCanWrite(data.canWrite);}).catch(e=>{if(e.name!=="AbortError")setMessage(e.message);}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});},250);
   return()=>{clearTimeout(timer);controller.abort();};
- },[q,offset]);
+ },[q,offset,clientId,projectId,refreshKey]);
  async function selectEmployee(employeeId:string){
   setId(employeeId);setDetails(null);setMessage("");setReason("");if(!employeeId)return;setBusy(true);
   try{const r=await fetch(`/api/ewa-enrollment?employeeId=${encodeURIComponent(employeeId)}`,{cache:"no-store"});const data=await r.json();if(!r.ok)throw Error(data.error);setDetails(data);const s=data.settings as Configuration|null;setEnabled(Boolean(s?.enabled));setMode(s?.limit_mode||"PERCENT");setPercent(String((s?.limit_percent??.3)*100));setFixed(String(s?.fixed_limit??0));setSalaryMode(s?.salary_mode||"AUTO");setSalary(s?.manual_salary?String(s.manual_salary):"");setPeriod(s?.manual_period||"");}
@@ -31,20 +33,10 @@ export default function EwaEnrollment(){
   catch(e){setMessage(e instanceof Error?e.message:"Gagal menyimpan pengaturan");}finally{setBusy(false);}
  }
  return <section className="card ewa-enrollment" aria-label="Pendaftaran dan pengaturan EWA">
-  <h2>Daftarkan &amp; Atur EWA Karyawan</h2>
-  <p>Klien dan Payroll Processor dapat menetapkan gaji acuan, limit, serta aktivasi. Persetujuan klien tetap wajib untuk setiap pengajuan.</p>
-  {canWrite?<details><summary>Daftarkan karyawan baru</summary><form onSubmit={e=>void register(e)}><fieldset disabled={busy}>
-   <label>Nama karyawan<input className="input" minLength={2} maxLength={150} required value={newName} onChange={e=>setNewName(e.target.value)} /></label>
-   <label>Kode karyawan<input className="input" pattern="[-A-Za-z0-9_.]{1,60}" required value={newCode} onChange={e=>setNewCode(e.target.value)} /></label>
-   <label>Project<select aria-label="Project" className="input" required value={newProject} onChange={e=>setNewProject(e.target.value)}><option value="">Pilih project</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-   <label>Alasan pendaftaran<textarea className="input" minLength={5} maxLength={240} required value={newReason} onChange={e=>setNewReason(e.target.value)} /></label>
-   <button className="btn" type="submit">Daftarkan karyawan</button>
-  </fieldset></form></details>:null}
-  <label>Cari karyawan<input className="input" value={q} disabled={busy} onChange={e=>{setQ(e.target.value);setOffset(0);setId("");setDetails(null);}} placeholder="Nama atau kode karyawan" /></label>
-  <label>Karyawan<select aria-label="Karyawan" className="input" value={id} disabled={busy} onChange={e=>void selectEmployee(e.target.value)}><option value="">Pilih karyawan terdaftar</option>{employees.map(e=><option key={e.id} value={e.id}>{e.name} · {e.employee_code||e.id} · {e.ewa_enabled?"EWA aktif":"Belum aktif"}</option>)}</select></label>
-  <div className="ewa-row-actions"><button type="button" className="btn" disabled={offset===0||busy} onClick={()=>{setOffset(n=>Math.max(0,n-50));setId("");setDetails(null);}}>Sebelumnya</button><button type="button" className="btn" disabled={!more||busy} onClick={()=>{setOffset(n=>n+50);setId("");setDetails(null);}}>Berikutnya</button></div>
-  {message?<p role="status">{message}</p>:null}
-  {details?<form onSubmit={e=>void save(e)}>
+  <h2>Karyawan &amp; Limit</h2>
+  <p>Pilih karyawan yang sudah terdaftar untuk mengatur gaji acuan, limit, dan aktivasi EWA.</p>
+  {details?<form className="ewa-setting-editor" onSubmit={e=>void save(e)}>
+   <div className="ewa-editor-heading"><h3>{employees.find(e=>e.id===id)?.name||"Pengaturan EWA"}</h3><button className="btn" type="button" onClick={()=>{setId("");setDetails(null);}}>Tutup</button></div>
    <p>Gaji acuan tersimpan: <strong>{rupiah(details.basis.salary)}</strong> · Periode {details.basis.period||"belum tersedia"} · {details.basis.source==="MANUAL_CONFIRMED"?"Input terkonfirmasi":details.basis.source==="MISSING"?"Perlu input gaji":"Riwayat payroll"}</p>
    <p>Limit tersimpan: <strong>{rupiah(details.limit)}</strong></p>
    <fieldset disabled={!canWrite||busy}>
@@ -58,5 +50,24 @@ export default function EwaEnrollment(){
     <button className="btn btn-primary" type="submit">{busy?"Menyimpan…":"Simpan pengaturan EWA"}</button>
    </fieldset>
   </form>:null}
+  <div className="ewa-directory-filters">
+   <label>Cari karyawan<input className="input" disabled={busy} value={q} onChange={e=>{setQ(e.target.value);setOffset(0);setId("");setDetails(null);}} placeholder="Nama atau kode karyawan" /></label>
+   <label>Klien<select aria-label="Klien karyawan" disabled={busy} value={clientId} onChange={e=>{setClientId(e.target.value);setProjectId("");setOffset(0);setId("");setDetails(null);}}><option value="">Semua klien</option>{clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+   <label>Project<select aria-label="Project karyawan" disabled={busy} value={projectId} onChange={e=>{setProjectId(e.target.value);setOffset(0);setId("");setDetails(null);}}><option value="">Semua project</option>{projects.filter(p=>!clientId||p.client_id===clientId).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+  </div>
+  <div className="es-table-wrap" aria-busy={loading}><table className="data-table ewa-directory-table"><thead><tr><th>Karyawan</th><th>Klien / Project</th><th>Status EWA</th><th><span className="sr-only">Aksi</span></th></tr></thead><tbody>
+   {employees.map(employee=><tr key={employee.id}><td><strong>{employee.name}</strong><small>{employee.employee_code||employee.id}</small></td><td>{employee.client_name}<small>{employee.project_name||"—"}</small></td><td><span className={`ewa-directory-status ${employee.ewa_enabled?"is-active":""}`}>{employee.ewa_enabled?"Aktif":"Belum aktif"}</span></td><td><button className="btn" type="button" disabled={busy} onClick={()=>void selectEmployee(employee.id)}>{canWrite?"Atur limit":"Lihat detail"}</button></td></tr>)}
+  </tbody></table></div>
+  {!employees.length?<p role="status">{loading?"Memuat karyawan…":"Tidak ada karyawan sesuai filter."}</p>:null}
+  {offset>0||more?<div className="ewa-row-actions"><button type="button" className="btn" disabled={offset===0||busy||loading} onClick={()=>{setOffset(n=>Math.max(0,n-50));setId("");setDetails(null);}}>Sebelumnya</button><button type="button" className="btn" disabled={!more||busy||loading} onClick={()=>{setOffset(n=>n+50);setId("");setDetails(null);}}>Berikutnya</button></div>:null}
+  {message?<p role="status">{message}</p>:null}
+
+  {canWrite?<details><summary>Daftarkan karyawan baru</summary><form onSubmit={e=>void register(e)}><fieldset disabled={busy}>
+   <label>Nama karyawan<input className="input" minLength={2} maxLength={150} required value={newName} onChange={e=>setNewName(e.target.value)} /></label>
+   <label>Kode karyawan<input className="input" pattern="[-A-Za-z0-9_.]{1,60}" required value={newCode} onChange={e=>setNewCode(e.target.value)} /></label>
+   <label>Project<select aria-label="Project" className="input" required value={newProject} onChange={e=>setNewProject(e.target.value)}><option value="">Pilih project</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+   <label>Alasan pendaftaran<textarea className="input" minLength={5} maxLength={240} required value={newReason} onChange={e=>setNewReason(e.target.value)} /></label>
+   <button className="btn" type="submit">Daftarkan karyawan</button>
+  </fieldset></form></details>:null}
  </section>;
 }

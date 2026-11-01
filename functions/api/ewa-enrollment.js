@@ -7,8 +7,10 @@ function scope(actor,env){
  const clauses=['e.org_id=?'];const values=[actor.orgId || env.DEFAULT_ORG_ID || 'ORG-OTSINDO'];
  if(actor.role==='CLIENT_USER'){
   const clients=clientIdsFor(actor,env)||[],projects=projectIdsFor(actor)||[];
-  if(!clients.length||!projects.length)clauses.push('1=0');
-  else{clauses.push(`e.client_id IN (${clients.map(()=>'?').join(',')}) AND e.project_id IN (${projects.map(()=>'?').join(',')})`);values.push(...clients,...projects);}
+  // Empty project scopes mean all projects inside explicitly assigned clients.
+  if(!clients.length)clauses.push('1=0');
+  else{clauses.push(`e.client_id IN (${clients.map(()=>'?').join(',')})`);values.push(...clients);
+   if(projects.length){clauses.push(`e.project_id IN (${projects.map(()=>'?').join(',')})`);values.push(...projects);}}
  }
  return {where:clauses.join(' AND '),values};
 }
@@ -33,12 +35,14 @@ export async function onRequest({request,env}){
     return respond({ok:true,employee,...await employeeEwaConfiguration(env.DB,id,employee.org_id||scoped.values[0],employee.client_id)});
    }
    const q=String(params.get('q')||'').trim().slice(0,80),offset=Math.max(0,Number.parseInt(params.get('offset')||'0',10)||0);
-   const where=scoped.where+" AND (e.name LIKE ? OR e.employee_code LIKE ?)";const values=[...scoped.values,`%${q}%`,`%${q}%`];
-   const employees=await d1All(env.DB,`SELECT e.id,e.name,e.employee_code,e.client_id,e.project_id,c.name AS client_name,COALESCE(s.enabled,0) AS ewa_enabled
-    FROM employees e LEFT JOIN clients c ON c.id=e.client_id LEFT JOIN ewa_employee_settings s ON s.employee_id=e.id AND s.org_id=e.org_id AND s.client_id=e.client_id
+   let where=scoped.where+" AND (e.name LIKE ? OR e.employee_code LIKE ?)";const values=[...scoped.values,`%${q}%`,`%${q}%`];
+   for(const [param,column] of [['clientId','e.client_id'],['projectId','e.project_id']]){const value=params.get(param);if(value){where+=` AND ${column}=?`;values.push(value.slice(0,100));}}
+   const employees=await d1All(env.DB,`SELECT e.id,e.name,e.employee_code,e.client_id,e.project_id,c.name AS client_name,p.name AS project_name,COALESCE(s.enabled,0) AS ewa_enabled
+    FROM employees e LEFT JOIN clients c ON c.id=e.client_id LEFT JOIN projects p ON p.id=e.project_id LEFT JOIN ewa_employee_settings s ON s.employee_id=e.id AND s.org_id=e.org_id AND s.client_id=e.client_id
     WHERE ${where} ORDER BY e.name,e.id LIMIT 50 OFFSET ?`,[...values,offset]);
    const projects=await d1All(env.DB,`SELECT e.id,e.name,e.client_id FROM projects e WHERE ${scoped.where.replaceAll('e.project_id','e.id')} ORDER BY e.name LIMIT 200`,scoped.values);
-   return respond({ok:true,employees,projects,offset,hasMore:employees.length===50,canWrite:WRITERS.has(actor.role)});
+   const clients=await d1All(env.DB,`SELECT DISTINCT c.id,c.name FROM clients c LEFT JOIN projects e ON e.client_id=c.id AND e.org_id=c.org_id WHERE ${scoped.where.replaceAll('e.org_id','c.org_id').replaceAll('e.client_id','c.id').replaceAll('e.project_id','e.id')} ORDER BY c.name`,scoped.values);
+   return respond({ok:true,employees,projects,clients,offset,hasMore:employees.length===50,canWrite:WRITERS.has(actor.role)});
   }
   let body;try{body=await request.json();}catch{return respond({error:'JSON tidak valid'},400);}
   if(body.action==='REGISTER'){

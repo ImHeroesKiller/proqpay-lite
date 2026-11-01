@@ -24,6 +24,6 @@ test('Employee Services final UAT: admin dialogs and drawers support Escape clos
 
 test('Employee Services final UAT: admin workspace naming is consistent',async()=>{
   const inbox=await read('src/components/EwaInbox.tsx');
-  assert.match(inbox,/EMPLOYEE SERVICES · FINANCIAL CONTROL/);
+  assert.match(inbox,/eyebrow="EMPLOYEE SERVICES"/);
   assert.doesNotMatch(inbox,/page-eyebrow">Employee portal/);
 });

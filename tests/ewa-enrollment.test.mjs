@@ -29,7 +29,7 @@ async function fixture(){
  const employeeSession=await createEmployeeSession(DB,'E',env);
  const emp=(body)=>employeeEwa({env,request:new Request('https://proqpay.test/api/employee/ewa',{method:body?'POST':'GET',headers:{Authorization:`Bearer ${employeeSession.token}`,Origin:'https://proqpay.test','Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})})});
  const approve=(role,id)=>approval({env,request:request('/api/ewa',cookies[role],{action:'APPROVE',id})});
- return {DB,env,call,emp,approve};
+ return {DB,env,call,emp,approve,cookies,request};
 }
 const settings=(extra={})=>({employeeId:'E',enabled:true,limitMode:'PERCENT',limitPercent:.3,fixedLimit:0,salaryMode:'AUTO',manualSalary:0,reason:'Activate using latest payroll',version:0,...extra});
 test('client and processor configure/enroll; scope and controller write denial remain enforced',async()=>{
@@ -78,4 +78,29 @@ test('salary reference selects finalized payroll, ignores newer draft and never 
  let r=await call('OPS',settings());assert.equal(r.status,200,await r.clone().text());let data=await r.json();assert.equal(data.basis.source,'FINAL_PAYROLL');assert.equal(data.basis.period,'2026-02');assert.equal(data.limit,600000);
  DB.sqlite.exec("UPDATE employee_compensation SET imported_net=3000000,payroll_source_period='2026-03' WHERE employee_id='E'");
  r=await call('OPS',null,'/api/ewa-enrollment?employeeId=E');data=await r.json();assert.equal(data.basis.salary,3000000);assert.equal(data.basis.source,'IMPORTED_PAYROLL');
+});
+
+test('client-wide scope reads existing directory without enrollments or requests, filters and approvals remain bounded',async()=>{
+ const {DB,env,call,emp,approve,cookies,request}=await fixture();
+ DB.sqlite.exec("DELETE FROM user_project_scopes WHERE user_id='CLIENT'; INSERT INTO projects(id,org_id,client_id,name,code,created_by) VALUES('P2','O','C','Second','P2','seed'); INSERT INTO employees(id,org_id,client_id,project_id,name,status_aktif) VALUES('E2','O','C','P2','Second','ACTIVE');");
+ const directory=await (await call('CLIENT',null)).json();
+ assert.deepEqual(directory.clients.map(c=>c.id),['C']);
+ assert.deepEqual(directory.projects.map(p=>p.id),['P','P2']);
+ assert.deepEqual(directory.employees.map(e=>e.id),['E','E2']);
+ assert.deepEqual((await (await call('CLIENT',null,'/api/ewa-enrollment?projectId=P2')).json()).employees.map(e=>e.id),['E2']);
+ assert.equal((await call('CLIENT',settings({employeeId:'F'}))).status,404);
+ assert.equal((await (await call('CLIENT',null,'/api/ewa-enrollment?clientId=X')).json()).employees.length,0);
+ const inbox=await (await approval({env,request:request('/api/ewa',cookies.CLIENT)})).json();
+ assert.deepEqual(inbox.clients.map(c=>c.id),['C']);assert.equal(inbox.total,0);
+ assert.equal((await call('CLIENT',settings())).status,200);
+ const loan=await (await emp({amount:200000,agreed:true})).json();
+ assert.equal((await approve('CLIENT',loan.request.id)).status,200);
+ const noScope=await (await call('EMPTY',null)).json();assert.deepEqual(noScope.clients,[]);assert.deepEqual(noScope.projects,[]);assert.deepEqual(noScope.employees,[]);
+});
+
+test('explicit project restriction excludes other projects within the assigned client',async()=>{
+ const {DB,call}=await fixture();
+ DB.sqlite.exec("INSERT INTO projects(id,org_id,client_id,name,code,created_by) VALUES('P2','O','C','Second','P2','seed'); INSERT INTO employees(id,org_id,client_id,project_id,name,status_aktif) VALUES('E2','O','C','P2','Second','ACTIVE');");
+ const data=await (await call('CLIENT',null)).json();assert.deepEqual(data.projects.map(p=>p.id),['P']);assert.deepEqual(data.employees.map(e=>e.id),['E']);
+ assert.equal((await call('CLIENT',settings({employeeId:'E2'}))).status,404);
 });

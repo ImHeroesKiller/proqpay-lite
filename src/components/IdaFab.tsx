@@ -1,5 +1,7 @@
 'use client';
 
+import { databaseActorRole } from "@/lib/database";
+
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { loadDatabase, saveDatabase, databaseActorScope } from '@/lib/database';
@@ -301,7 +303,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           });
         }
       });
-    syncDatabaseFromCloudflare(localDb, { signal: controller.signal })
+    syncDatabaseFromCloudflare(localDb, { role: databaseActorRole(), signal: controller.signal })
       .then((result) => {
         if (!result.synced) return;
         if(!saveDatabase(result.db,actorScope))return;
@@ -508,7 +510,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
       const inserted = data.inserted || 0;
       const updated = data.updated || 0;
       const errors = data.errors || 0;
-      const synced = await syncDatabaseFromCloudflare(db, { requireData: true });
+      const synced = await syncDatabaseFromCloudflare(db, { role: databaseActorRole(), requireData: true });
       const newDb = {
         ...synced.db,
         meta: { ...synced.db.meta },
@@ -673,7 +675,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           return;
         }
         const deletedName = pendingClientDelete.name;
-        const synced = await syncDatabaseFromCloudflare(db, { requireData: true });
+        const synced = await syncDatabaseFromCloudflare(db, { role: databaseActorRole(), requireData: true });
         if(!saveDatabase(synced.db,operationScope))return;
         setDb(synced.db);
         emitDbChange();
@@ -724,7 +726,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           await pushIda(`Penghapusan ditolak: **${reason}**. Tidak ada data yang berubah.`, true, ['Verifikasi gagal']);
           return;
         }
-        const synced = await syncDatabaseFromCloudflare(db, { requireData: true });
+        const synced = await syncDatabaseFromCloudflare(db, { role: databaseActorRole(), requireData: true });
         if(!saveDatabase(synced.db,operationScope))return;
         setDb(synced.db);
         emitDbChange();
@@ -829,7 +831,7 @@ export default function IdaFab({ openSignal = 0 }: { openSignal?: number }) {
           await pushIda(`Pengisian email ditolak: **${reason}**. Tidak ada perubahan parsial.`, true, ['Transaksi dibatalkan']);
           return;
         }
-        const synced = await syncDatabaseFromCloudflare(db, { requireData: true });
+        const synced = await syncDatabaseFromCloudflare(db, { role: databaseActorRole(), requireData: true });
         if(!saveDatabase(synced.db,operationScope))return;
         setDb(synced.db);
         emitDbChange();

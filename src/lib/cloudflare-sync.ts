@@ -1,4 +1,5 @@
 type SyncOptions = {
+  role?: string | null;
   requireData?: boolean;
   signal?: AbortSignal;
 };
@@ -67,7 +68,7 @@ async function fetchAllEmployees(signal?: AbortSignal) {
 export async function syncDatabaseFromCloudflare(db: any, options: SyncOptions = {}) {
   const [employees, stateResponse, directoryResponse, planResponse] = await Promise.all([
     fetchAllEmployees(options.signal),
-    fetch('/api/state', {
+    options.role === 'CLIENT_USER' ? Promise.resolve(new Response('{}')) : fetch('/api/state', {
       method: 'GET',
       headers: { Accept: 'application/json' },
       signal: options.signal,
@@ -77,7 +78,7 @@ export async function syncDatabaseFromCloudflare(db: any, options: SyncOptions =
       headers: { Accept: 'application/json' },
       signal: options.signal,
     }),
-    fetch('/api/operating-model?resource=service-plans', {
+    options.role === 'CLIENT_USER' ? Promise.resolve(null) : fetch('/api/operating-model?resource=service-plans', {
       method: 'GET',
       headers: { Accept: 'application/json' },
       signal: options.signal,

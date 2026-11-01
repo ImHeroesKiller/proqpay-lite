@@ -31,3 +31,23 @@ Migration0073 adds settings and request snapshot fields only. No existing employ
 - ESS companion:33 tests and typecheck/build passed; browser checks for zero and250,000 limits confirm consistent amounts, fees, range and button state.
 
 Deploy in order: backup -> reviewed migration0073 -> Lite -> ESS. Actual client policy values remain an explicit operator input after deployment.
+
+### Existing directory and client scope
+
+EWA reads clients/projects/employees from the existing master directory, even when
+there are no requests or enrollment settings. CLIENT_USER must have an explicit
+client grant. An empty project grant list means all projects in the granted
+clients; a nonempty project list narrows that access. Client and project filters
+intersect this server-side scope. Registration, configuration writes and client
+approval use the same scope rules. No permission records are auto-created.
+
+The workspace defaults to Pengajuan. Karyawan & Limit contains the scoped
+employee list, client/project filters and an on-demand settings editor. New
+employee registration is collapsed by default. On mobile employee rows become
+cards so status and the settings action remain visible. Client mirror refreshes
+skip internal state/service-plan endpoints; their backend role checks remain.
+
+Regression coverage: `tests/ewa-enrollment.test.mjs`,
+`tests/g0-security-state-correctness.test.mjs`, and synthetic localhost browser
+scenarios in `tests/e2e/ewa-directory.spec.mjs` for Client/Processor at 390/1440px.
+No database migration is needed for this correction.

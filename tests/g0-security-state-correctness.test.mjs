@@ -167,3 +167,9 @@ test('G0 /api/me supplies tenant identity for client cache and mirror scoping',a
  assert.match(cache,/generation!==cacheGeneration/);
  assert.match(cache,/orgId:actor\.orgId\|\|''/);
 });
+
+test('client mirror sync reads the scoped master directory without requesting internal-only endpoints',async()=>{
+ const mirror=await transpiled('src/lib/cloudflare-sync.ts');const previousFetch=globalThis.fetch;const urls=[];
+ globalThis.fetch=async url=>{urls.push(url);if(url.startsWith('/api/employees'))return Response.json({employees:[],meta:{nextOffset:null}});if(url==='/api/client-projects')return Response.json({clients:[{id:'C',name:'Existing client'}],projects:[{id:'P',name:'Existing project',client_id:'C'}]});throw Error('Unexpected internal request '+url);};
+ try{const result=await mirror.syncDatabaseFromCloudflare({meta:{}},{role:'CLIENT_USER'});assert.equal(result.synced,true);assert.equal(result.db.companies[0].id,'C');assert.equal(result.db.projects[0].id,'P');assert.equal(urls.length,2);}finally{globalThis.fetch=previousFetch;}
+});

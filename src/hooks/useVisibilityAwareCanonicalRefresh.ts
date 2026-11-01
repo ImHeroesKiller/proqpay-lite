@@ -1,5 +1,7 @@
 'use client';
 
+import { databaseActorRole } from "@/lib/database";
+
 import { useEffect } from 'react';
 import { loadDatabase, saveDatabase, databaseActorScope } from '@/lib/database';
 import { syncDatabaseFromCloudflare } from '@/lib/cloudflare-sync';
@@ -20,7 +22,7 @@ export function useVisibilityAwareCanonicalRefresh(
       const scope=databaseActorScope();
       if(!scope)return;
       const current = loadDatabase();
-      void syncDatabaseFromCloudflare(current)
+      void syncDatabaseFromCloudflare(current, { role: databaseActorRole() })
         .then(({ db:canonical }) => {
           if(saveDatabase(canonical,scope))onDatabase(canonical);
         })

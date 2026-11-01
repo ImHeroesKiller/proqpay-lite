@@ -71,6 +71,8 @@ function EwaActionButtons({
 }
 
 export default function EwaInbox() {
+  const [directoryRevision,setDirectoryRevision]=useState(0);
+  const [panel, setPanel] = useState("requests");
   const [rows, setRows] = useState<EwaRow[]>([]);
   const [pending, setPending] = useState(0);
   const [total, setTotal] = useState(0);
@@ -188,18 +190,23 @@ export default function EwaInbox() {
 
 
       <UiWorkspaceHeader
-        eyebrow="EMPLOYEE SERVICES · FINANCIAL CONTROL"
-        title="Advance Salary Control Center"
-        description="Kelola seluruh lifecycle advance dalam satu layar: review, approval, pencairan, potong payroll, hingga lunas setelah rekonsiliasi."
+        eyebrow="EMPLOYEE SERVICES"
+        title="Advance Salary"
+        description="Tinjau pengajuan dan kelola limit advance karyawan."
         meta={<>
           <span><strong>{pending}</strong> perlu review</span>
           <span><strong>{total}</strong> total pengajuan</span>
-          <span>Maker-checker aktif</span>
+
         </>}
-        action={<button type="button" className="btn" onClick={() => void load()} disabled={loading}>{loading ? "Memuat…" : "Refresh data"}</button>}
+        action={<button type="button" className="btn" onClick={() => {void load();setDirectoryRevision(n=>n+1);}} disabled={loading}>{loading ? "Memuat…" : "Refresh data"}</button>}
       />
 
-      <EwaEnrollment />
+      <nav className="ewa-workspace-tabs" aria-label="Menu advance salary">
+        <button type="button" aria-pressed={panel==="requests"} onClick={()=>setPanel("requests")}>Pengajuan <span>{pending}</span></button>
+        <button type="button" aria-pressed={panel==="employees"} onClick={()=>setPanel("employees")}>Karyawan &amp; Limit</button>
+      </nav>
+      {panel==="employees" ? <EwaEnrollment refreshKey={directoryRevision} /> : <>
+
 
       <UiMetricGrid>
         {visibleSummary.map((item) => (
@@ -319,6 +326,7 @@ export default function EwaInbox() {
         <button type="button" className="btn" style={{justifySelf:'start'}} onClick={()=>setDisbursementTarget(null)}>Tutup canonical payment</button>
         <CanonicalDisbursementWorkspace actor={actor} sourceType="EWA_REQUEST" focusSourceId={disbursementTarget.id} clientId={disbursementTarget.client_id||''} onChanged={()=>void load()} />
       </div> : null}
+      </>}
     </section>
   );
 }
