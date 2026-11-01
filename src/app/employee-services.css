@@ -723,7 +723,7 @@
 /* EWA uses separate request and employee workspaces. */
 .ewa-workspace-tabs{display:flex;gap:8px;border-bottom:1px solid var(--border);margin:12px 0 20px}
 .ewa-workspace-tabs button{padding:12px 18px;border:0;border-bottom:3px solid transparent;background:transparent;font:inherit;font-weight:600;color:var(--text3);cursor:pointer}
-.ewa-workspace-tabs button[aria-pressed=true]{color:var(--accent,#f97316);border-bottom-color:currentColor}
+.ewa-workspace-tabs button[aria-pressed=true]{color:var(--text);border-bottom-color:var(--accent,#f97316)}
 .ewa-workspace-tabs span{margin-left:6px;padding:2px 7px;border-radius:12px;background:var(--bg-subtle)}
 .ewa-directory-filters{display:grid;grid-template-columns:minmax(180px,2fr) repeat(2,minmax(150px,1fr));gap:14px}
 .ewa-directory-table{width:100%;text-align:left}
