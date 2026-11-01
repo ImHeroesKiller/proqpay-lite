@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 import {permissionsForRole} from '../../shared/authority-matrix.js';
-const base=process.env.EWA_TEST_URL||'http://127.0.0.1:8137';
+const base=process.env.EWA_TEST_URL||process.env.BASE_URL||'http://127.0.0.1:8137';
 for(const width of [390,1440])for(const role of ['CLIENT_USER','PAYROLL_PROCESSOR'])test(`EWA directory ${role} ${width}`,async({page})=>{
  if(!['localhost','127.0.0.1'].includes(new URL(base).hostname))throw Error('Synthetic localhost only');
  await page.setViewportSize({width,height:1000});const errors=[],calls=[];let saved=null;page.on('pageerror',e=>errors.push(e.message));
