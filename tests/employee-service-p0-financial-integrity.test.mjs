@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { beforeEach, afterEach, mock } from 'node:test';
+beforeEach(()=>mock.timers.enable({apis:['Date'],now:new Date(Date.UTC(new Date().getUTCFullYear(),new Date().getUTCMonth(),Math.max(20,new Date().getUTCDate()),23,59,59))}));
+afterEach(()=>mock.timers.reset());
 import { passwordRecord } from '../functions/api/_account-auth.js';
 import { markEwaRepaid } from '../functions/api/_ewa.js';
 import { onRequest as employeeEwa } from '../functions/api/employee/ewa.js';
@@ -61,6 +63,7 @@ test('Employee Services P0: legacy EWA manual disbursement stays blocked until c
   const cookieA=await opsCookie(DB,'ewa.a@proqpay.test');
   const cookieB=await opsCookie(DB,'ewa.b@proqpay.test');
 
+  DB.sqlite.exec("UPDATE ewa_requests SET client_approval_status='APPROVED',client_approved_by='client@uat.test' WHERE id='EWA-P0'");
   const approve=await ewaOps({request:request('/api/ewa',{method:'POST',headers:{Cookie:cookieA},body:JSON.stringify({id:'EWA-P0',action:'APPROVE'})}),env});
   assert.equal(approve.status,200,await approve.clone().text());
   assert.equal((await approve.json()).request.approved_by,'ewa.a@proqpay.test');

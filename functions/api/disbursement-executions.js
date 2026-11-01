@@ -108,6 +108,11 @@ export async function onRequest({request,env}){
     if(execution?.status==='FAILED') return secureJson({error:'Execution sebelumnya gagal. Blind retry diblokir; review/reconciliation diperlukan.',code:'DISBURSEMENT_CONTROLLED_RECOVERY_REQUIRED',execution:safeExecution(execution)},409,request,env,METHODS);
     if(!['APPROVED','EXECUTING','PROCESSING'].includes(String(dr.status))) return secureJson({error:`DR berstatus ${dr.status} belum dapat dieksekusi`,code:'DISBURSEMENT_NOT_APPROVED'},409,request,env,METHODS);
 
+    if(dr.source_document_type==='EWA_REQUEST'){
+      const consent=await d1First(env.DB,'SELECT client_approval_status,client_approved_by FROM ewa_requests WHERE id=? AND org_id=?',[dr.source_document_id,organizationId]);
+      if(consent?.client_approval_status!=='APPROVED'||!consent.client_approved_by)
+        return secureJson({error:'Persetujuan klien wajib sebelum pencairan advance',code:'EWA_CLIENT_APPROVAL_REQUIRED'},409,request,env,METHODS);
+    }
     const route=await validateProviderChannelSnapshot(env.DB,dr,env);
     if(!route.ok) return secureJson({error:'Provider channel snapshot tidak valid untuk execution',code:route.code},409,request,env,METHODS);
     const account=await d1First(env.DB,`SELECT * FROM payment_provider_accounts WHERE id=? AND org_id=? AND provider=? AND environment=? AND status='ACTIVE' LIMIT 1`,[dr.provider_account_registry_id,organizationId,dr.provider,dr.provider_environment]);

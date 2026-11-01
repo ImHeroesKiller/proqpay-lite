@@ -16,7 +16,7 @@ export const ROLE_VIEWS = Object.freeze({
   PAYROLL_CONTROLLER: Object.freeze([
     'dashboard','operations','exceptions','payments','billing','reports','ewa',
   ]),
-  CLIENT_USER: Object.freeze(['dashboard','operations','reports']),
+  CLIENT_USER: Object.freeze(['dashboard','operations','reports','ewa']),
 });
 
 export const ROLE_PERMISSIONS = Object.freeze({

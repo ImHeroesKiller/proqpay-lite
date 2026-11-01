@@ -12,7 +12,7 @@ test('Employee Service admin surfaces and APIs share Super Admin authority',asyn
   const audit=await read('functions/api/portal-audit.js');
   assert.match(sidebar,/canManageEmployeeServices/);
   assert.match(authority,/SUPER_ADMIN:[\s\S]*?'employee-services:manage'/);
-  assert.match(ewa,/const OPS = new Set\(\['SUPER_ADMIN'\]\)/);
+  assert.match(ewa,/EWA_CLIENT_APPROVAL_REQUIRED/);
   assert.match(settings,/const READERS = new Set\(\['SUPER_ADMIN'\]\)/);
   assert.match(settings,/const WRITERS = new Set\(\['SUPER_ADMIN'\]\)/);
   assert.match(audit,/const OPS = new Set\(\['SUPER_ADMIN'\]\)/);

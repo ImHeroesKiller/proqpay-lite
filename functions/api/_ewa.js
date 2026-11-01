@@ -113,12 +113,10 @@ export function ewaEligibility({
   joinDate,
   plafond,
   openRequest,
-  paid,
   active = true,
 }) {
   if (!active) return { eligible: false, reason: 'Karyawan tidak aktif' };
   if (!Number(policy.enabled)) return { eligible: false, reason: 'Advance salary belum diaktifkan' };
-  if (paid) return { eligible: false, reason: 'Payroll periode ini sudah dibayar' };
   if (openRequest) return { eligible: false, reason: 'Masih ada pengajuan yang berjalan' };
   const days = Number.isFinite(Number(tenureDays)) ? Number(tenureDays) : 0;
   const months = Number(tenureMonths) || 0;
@@ -165,7 +163,8 @@ export async function applyEwaRepayments(database, submissionId) {
     rows = await d1All(database, `SELECT r.id,r.amount,r.fee,r.repayment,r.status,r.employee_id,
       l.deduction_amount,l.net_amount,l.components FROM ewa_requests r
       JOIN payroll_run_lines l ON l.submission_id=? AND l.employee_id=r.employee_id AND l.included=1
-      WHERE r.status IN ('DISBURSED','REPAYING') AND r.period=?`, [submissionId, submission.period]);
+      WHERE r.status IN ('DISBURSED','REPAYING') AND r.period<=?
+        AND (r.payroll_submission_id IS NULL OR r.payroll_submission_id=?)`, [submissionId, submission.period, submissionId]);
   } catch (error) {
     if (/no such table/i.test(String(error?.message || error))) return { applied: 0 };
     throw error;

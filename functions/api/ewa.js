@@ -1,9 +1,9 @@
 import { d1All, d1First, d1Run, hasD1 } from './_d1.js';
-import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
+import { authorize, clientIdsFor, projectIdsFor, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { canonicalDrForEwa } from './_payment-source-guard.js';
 
 const METHODS = 'GET, POST, OPTIONS';
-const OPS = new Set(['SUPER_ADMIN']);
+const OPS = new Set(['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER']);
 
 function orgId(env, actor) {
   return String(env.DEFAULT_ORG_ID || actor?.orgId || 'ORG-OTSINDO');
@@ -15,7 +15,7 @@ export async function onRequest({ request, env }) {
     return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
   }
   const authorization = await authorize(request, env, {
-    roles: ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'],
+    roles: ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER'],
     mutating: request.method === 'POST',
     methods: METHODS,
   });
@@ -43,6 +43,17 @@ export async function onRequest({ request, env }) {
       const limit = Math.min(100, Math.max(1, Number.parseInt(params.get('limit') || '50', 10) || 50));
       const clauses = ['r.org_id=?'];
       const bindings = [organizationId];
+      if (actor.role === 'CLIENT_USER') {
+        const clients = clientIdsFor(actor, env) || [];
+        const projects = projectIdsFor(actor) || [];
+        if (!clients.length || !projects.length) clauses.push('1=0');
+        else {
+          clauses.push(`r.client_id IN (${clients.map(()=>'?').join(',')}) AND e.project_id IN (${projects.map(()=>'?').join(',')})`);
+          bindings.push(...clients, ...projects);
+        }
+      }
+      const scopeWhere = clauses.join(' AND ');
+      const scopeBindings = [...bindings];
       if (status) { clauses.push('r.status=?'); bindings.push(status); }
       if (clientId) { clauses.push('r.client_id=?'); bindings.push(clientId); }
       if (period) { clauses.push('r.period=?'); bindings.push(period); }
@@ -73,28 +84,28 @@ export async function onRequest({ request, env }) {
       const summary = await d1First(
         env.DB,
         `SELECT
-          SUM(CASE WHEN status='SUBMITTED' THEN 1 ELSE 0 END) AS pending,
+          SUM(CASE WHEN r.status='SUBMITTED' THEN 1 ELSE 0 END) AS pending,
           COUNT(*) AS total
-         FROM ewa_requests WHERE org_id=?`,
-        [organizationId],
+         FROM ewa_requests r JOIN employees e ON e.id=r.employee_id WHERE ${scopeWhere}`,
+        scopeBindings,
       );
       const statusRows = await d1All(
         env.DB,
-        `SELECT status, COUNT(*) AS count
-          FROM ewa_requests
-          WHERE org_id=?
-          GROUP BY status`,
-        [organizationId],
+        `SELECT r.status, COUNT(*) AS count
+          FROM ewa_requests r JOIN employees e ON e.id=r.employee_id
+          WHERE ${scopeWhere}
+          GROUP BY r.status`,
+        scopeBindings,
       );
       const clients = await d1All(
         env.DB,
         `SELECT DISTINCT c.id,c.name
           FROM ewa_requests r
-          JOIN clients c ON c.id=r.client_id
-          WHERE r.org_id=?
+          JOIN clients c ON c.id=r.client_id JOIN employees e ON e.id=r.employee_id
+          WHERE ${scopeWhere}
           ORDER BY c.name ASC
           LIMIT 200`,
-        [organizationId],
+        scopeBindings,
       );
       const statusCounts = Object.fromEntries(statusRows.map((row) => [String(row.status || ''), Number(row.count || 0)]));
       const filteredTotal = Number(filtered?.total || 0);
@@ -120,6 +131,29 @@ export async function onRequest({ request, env }) {
     const current = await d1First(env.DB, 'SELECT * FROM ewa_requests WHERE id=? AND org_id=? LIMIT 1', [requestId, organizationId]);
     if (!current) return respond({ error: 'Pengajuan tidak ditemukan' }, 404);
 
+    if (actor.role === 'CLIENT_USER') {
+      const employee = await d1First(env.DB, 'SELECT project_id FROM employees WHERE id=?', [current.employee_id]);
+      if (!(clientIdsFor(actor, env) || []).includes(String(current.client_id)) ||
+          !(projectIdsFor(actor) || []).includes(String(employee?.project_id))) return respond({error:'Pengajuan tidak ditemukan'},404);
+      if (!['APPROVE','REJECT'].includes(action) || current.status !== 'SUBMITTED' || current.client_approval_status !== 'PENDING') {
+        return respond({error:'Keputusan klien sudah diproses atau aksi tidak valid'},409);
+      }
+      const clientStatus = action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+      const actorId = String(actor.email || actor.id || '').trim();
+      const result = await d1Run(env.DB, `UPDATE ewa_requests SET client_approval_status=?,client_approved_by=?,
+        client_decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),client_decision_note=?,
+        status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id=? AND org_id=? AND status='SUBMITTED' AND client_approval_status='PENDING'`,
+        [clientStatus,actorId,String(body.note || '').slice(0,240) || null,action === 'REJECT' ? 'REJECTED' : 'SUBMITTED',requestId,organizationId]);
+      if (Number(result?.meta?.changes ?? result?.changes ?? 0) !== 1) return respond({error:'Status berubah. Muat ulang.'},409);
+      await d1Run(env.DB, `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
+        VALUES (?,?,?,'CLIENT_USER',?,?,'ewa_request',?)`,
+        [`AUD-${crypto.randomUUID()}`,organizationId,actorId,`EWA_CLIENT_${clientStatus}`,requestId,requestId]);
+      return respond({ok:true,request:await d1First(env.DB,'SELECT * FROM ewa_requests WHERE id=? AND org_id=?',[requestId,organizationId])});
+    }
+    if (action === 'APPROVE' && (current.client_approval_status !== 'APPROVED' || !current.client_approved_by)) {
+      return respond({error:'Persetujuan klien wajib sebelum proses internal',code:'EWA_CLIENT_APPROVAL_REQUIRED'},409);
+    }
     const actorId = String(actor.email || actor.id || '').trim();
     const note = String(body.note || '').slice(0, 240);
     let nextStatus = '';
@@ -133,7 +167,7 @@ export async function onRequest({ request, env }) {
           SET status='APPROVED', approved_by=?, approved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
               decision_note=?, decided_by=?, decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
               updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-          WHERE id=? AND org_id=? AND status='SUBMITTED'`,
+          WHERE id=? AND org_id=? AND status='SUBMITTED' AND client_approval_status='APPROVED' AND client_approved_by IS NOT NULL`,
         [actorId, note || null, actorId, requestId, organizationId],
       );
     } else if (action === 'REJECT' && current.status === 'SUBMITTED') {

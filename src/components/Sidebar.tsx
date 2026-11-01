@@ -83,7 +83,7 @@ export default function Sidebar({
   const clientExperience = role === "CLIENT_USER";
   const canManageSettings = roleHasCapability(role || "", "settings");
   const canViewAudit = roleHasCapability(role || "", "audit:view");
-  const canManageEmployeeServices = roleHasCapability(role || "", "employee-services:manage") || ["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role || "");
+  const canManageEmployeeServices = roleHasCapability(role || "", "employee-services:manage") || ["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER","CLIENT_USER"].includes(role || "");
   const employeeServicesActive = view === "ewa";
   const systemActive = ["integrations", "logs"].includes(view);
 
@@ -173,6 +173,7 @@ export default function Sidebar({
             ) : null}
             <NavBtn active={view === "operations"} icon={<IconWallet />} title={getViewLabel("operations", role)} onClick={() => go("operations")} />
             <NavBtn active={view === "reports"} icon={<IconFile />} title={getViewLabel("reports", role)} onClick={() => go("reports")} />
+            <NavBtn active={view === "ewa"} icon={<IconWallet />} title="Persetujuan Advance Salary" onClick={() => go("ewa")} />
           </NavGroup>
         ) : (
           <>

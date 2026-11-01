@@ -91,6 +91,9 @@ export function formatPortalDate(value?: string) {
 
 
 export type EwaRow = {
+  client_approval_status?: "PENDING" | "APPROVED" | "REJECTED";
+  client_approved_by?: string;
+  client_decided_at?: string;
   id: string;
   employee_id: string;
   employee_name?: string;
