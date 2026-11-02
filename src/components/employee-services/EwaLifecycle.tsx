@@ -41,6 +41,7 @@ export function EwaDetailPanel({
         <EwaLifecycleProgress status={row.status} />
         <p className="ewa-lifecycle-note">{meta.note}</p>
         <div className="ewa-detail-grid es-detail-grid">
+          <div><span>Periode pengajuan</span>{row.period || "—"}</div>
           <div><span>Gaji acuan</span>{row.salary_reference_snapshot != null ? IDR.format(row.salary_reference_snapshot) : "—"} · {row.salary_source_period_snapshot || "Belum tercatat"}</div>
           <div><span>Total potong payroll</span>{IDR.format(row.repayment || 0)}</div>
           <div><span>Keputusan klien</span>{row.client_approval_status || "PENDING"} · {row.client_approved_by || "—"}<br/>{formatPortalDate(row.client_decided_at)}</div>
@@ -52,7 +53,8 @@ export function EwaDetailPanel({
           <div><span>Rekening tujuan</span>{row.destination_bank_name || "—"} · •••• {row.destination_account_last4 || "—"}</div>
           <div><span>Nilai</span>{IDR.format(row.amount || 0)} + fee {IDR.format(row.fee || 0)}</div>
         </div>
-        {row.client_decision_note || row.decision_note ? <p className="ewa-detail-note"><strong>Catatan keputusan</strong><br/>{row.client_decision_note || row.decision_note}</p> : null}
+        {row.client_decision_note ? <p className="ewa-detail-note"><strong>Catatan klien</strong><br/>{row.client_decision_note}</p> : null}
+        {row.decision_note ? <p className="ewa-detail-note"><strong>Catatan Processor</strong><br/>{row.decision_note}</p> : null}
         <p className="ewa-detail-note">Persetujuan Controller dan eksekusi dana dicatat melalui menu Pembayaran. Transfer tetap menunggu persetujuan, funding, dan limit yang tervalidasi.</p>
     </ModalShell>
   );
