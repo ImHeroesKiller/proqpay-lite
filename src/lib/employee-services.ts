@@ -94,6 +94,11 @@ export type EwaRow = {
   salary_reference_snapshot?: number;
   salary_source_period_snapshot?: string;
   client_approval_status?: "PENDING" | "APPROVED" | "REJECTED";
+  client_decision_note?: string;
+  decision_note?: string;
+  decided_by?: string;
+  decided_at?: string;
+  updated_at?: string;
   client_approved_by?: string;
   client_decided_at?: string;
   id: string;

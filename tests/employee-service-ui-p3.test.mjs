@@ -13,7 +13,7 @@ test('Employee Services UI P3 centralizes admin visual primitives',async()=>{
   assert.match(styles,/\.es-table/);
   assert.match(styles,/\.es-drawer/);
   assert.match(styles,/\.es-modal/);
-  assert.match(inbox,/es-sticky-left/);
+  assert.match(inbox,/ewa-col-employee/);
   assert.match(audit,/audit-table-wrap/);
   assert.doesNotMatch(inbox,/<style>/);
   assert.doesNotMatch(audit,/<style>/);
@@ -23,8 +23,8 @@ test('Employee Services UI P3 reuses drawer and modal primitives across lifecycl
   const lifecycle=await read('src/components/employee-services/EwaLifecycle.tsx');
   const dialog=await read('src/components/employee-services/DisbursementDialog.tsx');
   const unified=await read('src/components/ui/UnifiedSystem.tsx');
-  assert.match(lifecycle,/es-drawer-backdrop/);
-  assert.match(lifecycle,/es-drawer/);
+  assert.match(lifecycle,/ModalShell/);
+  assert.match(lifecycle,/ewa-approval-detail/);
   assert.match(dialog,/UiModalShell/);
   assert.match(dialog,/className="es-modal"/);
   assert.match(dialog,/UiFormGrid/);

@@ -53,7 +53,7 @@ jobs:
       - name: 60-view WCAG/ARIA/contrast audit and keyboard tests (no financial writes)
         run: npx playwright test tests/e2e/g4-accessibility-matrix.spec.mjs tests/e2e/g4-theme-accessibility.spec.mjs tests/e2e/g4-tabs-keyboard.spec.mjs tests/e2e/g3-shared-modal-focus.spec.mjs --config playwright.uat.config.mjs
       - name: Synthetic Master and EWA directory role matrix (provider blocked)
-        run: npx playwright test tests/e2e/e2pay-master-closure.spec.mjs tests/e2e/ewa-directory.spec.mjs --config playwright.uat.config.mjs
+        run: npx playwright test tests/e2e/e2pay-master-closure.spec.mjs tests/e2e/ewa-directory.spec.mjs tests/e2e/ewa-approval.spec.mjs --config playwright.uat.config.mjs
       - name: Publish no-credentials regression summary
         if: always()
         shell: bash

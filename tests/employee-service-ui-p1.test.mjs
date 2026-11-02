@@ -13,7 +13,7 @@ test('Employee Services UI P1: Advance Salary uses canonical payout workspace an
   assert.match(inbox,/Buka pembayaran/);
   assert.doesNotMatch(inbox,/DisbursementDialog/);
   assert.match(inbox,/aria-label="Filter status"/);
-  assert.match(inbox,/es-sticky-left/);
+  assert.match(inbox,/ewa-col-employee/);
   assert.match(styles,/position:sticky/);
   assert.match(canonical,/Lihat Detail/);
   assert.match(canonical,/Process Payment/);
@@ -23,10 +23,10 @@ test('Employee Services UI P1: Advance Salary uses canonical payout workspace an
 test('Employee Services UI P1: Advance detail uses a side drawer dialog',async()=>{
   const detail=await read('src/components/employee-services/EwaLifecycle.tsx');
   const styles=await read('src/app/employee-services.css');
-  assert.match(detail,/es-drawer-backdrop/);
+  assert.match(detail,/ModalShell/);
   assert.match(styles,/justify-content:flex-end/);
-  assert.match(detail,/aria-modal="true"/);
-  assert.match(detail,/className="ewa-detail-panel es-drawer"/);
+  assert.match(await read("src/components/ui/UnifiedSystem.tsx"),/aria-modal="true"/);
+  assert.match(detail,/className="ewa-approval-detail"/);
 });
 
 test('Employee Services UI P1: Portal Configuration protects unsaved changes and structures business sections',async()=>{
