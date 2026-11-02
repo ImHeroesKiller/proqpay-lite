@@ -173,6 +173,7 @@ export default function Sidebar({
             ) : null}
             <NavBtn active={view === "operations"} icon={<IconWallet />} title={getViewLabel("operations", role)} onClick={() => go("operations")} />
             <NavBtn active={view === "reports"} icon={<IconFile />} title={getViewLabel("reports", role)} onClick={() => go("reports")} />
+            <NavBtn active={view === "employees"} icon={<IconUsers />} title="Data Karyawan Payroll" onClick={() => go("employees")} />
             <NavBtn active={view === "ewa"} icon={<IconWallet />} title="Persetujuan Advance Salary" onClick={() => go("ewa")} />
           </NavGroup>
         ) : (

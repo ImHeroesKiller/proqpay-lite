@@ -108,6 +108,8 @@ export default function OperatingWorkspace({
   const [dashboardStage, setDashboardStage] = useState(()=>typeof window==='undefined'?'':routeValue('dashboardStage')||'');
   useEffect(()=>subscribeRoute(()=>{setFocusSubmissionId(routeValue('submissionId')||'');setDashboardStage(routeValue('dashboardStage')||'');}),[]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [ewaRequest,setEwaRequest]=useState(()=>routeValue('ewaRequest')||'');
+  useEffect(()=>subscribeRoute(()=>setEwaRequest(routeValue('ewaRequest')||'')),[]);
   const [activePaymentPanel,setActivePaymentPanel]=useState<PaymentPanel|null>(()=>typeof window==='undefined'?null:paymentPanel(routeValue('paymentPanel')));
   const [canonicalDecisionRows,setCanonicalDecisionRows]=useState<Array<{status:string;projectId?:string|null;clientReference?:string;sourceDocumentId?:string}>>([]);
   const [canonicalDecisionKnown,setCanonicalDecisionKnown]=useState(false);
@@ -481,7 +483,8 @@ export default function OperatingWorkspace({
             </nav>
             <div id="pi-tab-panel" className="payment-decision-main" role="tabpanel" tabIndex={0} aria-label={displayedPaymentPanel==='PI'?'Payment Instruction Queue':displayedPaymentPanel==='DISBURSEMENT'?'Canonical Disbursement Queue':'Funding and Limit Control'}>
               {displayedPaymentPanel==='PI'?<><label className="ui-form-field pi-status-filter"><span>Status approval</span><select value={statusFilter} onChange={event=>{setStatusFilter(event.target.value);patchRoute({piStatus:event.target.value==='ALL'?null:event.target.value});}}><option value="ALL">Semua status</option>{statusOptions.map(state=><option key={state} value={state}>{paymentBusinessLabel(String(state))}</option>)}</select></label><Payments phase="payment" instructions={visibleInstructions} proofs={visibleProofs} reconciliations={visibleReconciliations} role={role} simplified={simplifiedInternal} canRecordProof={false} canReconcile={false} canApprove={canApprovePayment} gatewayCanView={gatewayCanView} period={periodFilter} act={act} /></>:null}
-              {displayedPaymentPanel==='DISBURSEMENT'?<CanonicalDisbursementWorkspace actor={actor} payrollSources={data.paymentInstructions||[]} period={periodFilter} clientId={clientFilter} projectId={projectFilter} query={query} compact onChanged={async()=>{await load(true);setCanonicalDecisionRefresh(v=>v+1);}} />:null}
+              {displayedPaymentPanel==='DISBURSEMENT'&&ewaRequest?<div className="canonical-queue-bar"><span>Pembayaran EWA · {ewaRequest}</span><button className="btn" type="button" onClick={()=>patchRoute({ewaRequest:null})}>Semua pembayaran</button></div>:null}
+              {displayedPaymentPanel==='DISBURSEMENT'?<CanonicalDisbursementWorkspace actor={actor} payrollSources={data.paymentInstructions||[]} period={periodFilter} key={ewaRequest||'payroll'} sourceType={ewaRequest?'EWA_REQUEST':undefined} focusSourceId={ewaRequest} clientId={clientFilter} projectId={projectFilter} query={query} compact onChanged={async()=>{await load(true);setCanonicalDecisionRefresh(v=>v+1);}} />:null}
               {displayedPaymentPanel==='FUNDING'&&['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'].includes(role)?<div className="funding-integrated-panel">
                 <details className="funding-provider-settings"><summary>Pengaturan jalur pembayaran</summary>
                 <ProviderChannelControl role={role} />

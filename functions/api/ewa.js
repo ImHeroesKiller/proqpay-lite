@@ -159,6 +159,7 @@ export async function onRequest({ request, env }) {
         [`AUD-${crypto.randomUUID()}`,organizationId,actorId,`EWA_CLIENT_${clientStatus}`,requestId,requestId]);
       return respond({ok:true,request:await d1First(env.DB,'SELECT * FROM ewa_requests WHERE id=? AND org_id=?',[requestId,organizationId])});
     }
+    if(action==='APPROVE' && actor.role==='PAYROLL_CONTROLLER')return respond({error:'Processor menyiapkan pengajuan terlebih dahulu. Controller menyetujui eksekusi melalui Disbursement.',code:'EWA_PROCESSOR_REVIEW_REQUIRED'},403);
     if(action==='APPROVE' && current.configuration_version != null){
       const configuration=await employeeEwaConfiguration(env.DB,current.employee_id,organizationId,current.client_id);
       if(!configuration.enabled || configuration.settings?.version!==current.configuration_version || Number(current.amount)>configuration.limit){

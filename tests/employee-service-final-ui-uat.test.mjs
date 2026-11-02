@@ -4,12 +4,12 @@ import { readFile } from 'node:fs/promises';
 
 const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
-test('Employee Services final UAT: failed canonical EWA action keeps payment panel open for recovery',async()=>{
+test('Employee Services final UAT: EWA approvals hand off payments to the canonical payment workspace',async()=>{
   const inbox=await read('src/components/EwaInbox.tsx');
   assert.match(inbox,/Promise<boolean>/);
   assert.match(inbox,/return false/);
-  assert.match(inbox,/CanonicalDisbursementWorkspace/);
-  assert.match(inbox,/disbursementTarget \? <div/);
+  assert.doesNotMatch(inbox,/CanonicalDisbursementWorkspace|disbursementTarget/);
+  assert.match(inbox,/paymentPanel=DISBURSEMENT&ewaRequest=/);
   assert.doesNotMatch(inbox,/DisbursementDialog/);
 });
 

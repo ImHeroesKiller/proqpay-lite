@@ -19,7 +19,7 @@ test('canonical authority matrix keeps role navigation aligned with business res
   assert.ok(viewsForRole('SUPER_ADMIN').includes('logs'));
   assert.ok(viewsForRole('PAYROLL_PROCESSOR').includes('payments'));
   assert.ok(viewsForRole('PAYROLL_CONTROLLER').includes('payments'));
-  assert.deepEqual([...viewsForRole('CLIENT_USER')],['dashboard','operations','reports','ewa']);
+  assert.deepEqual([...viewsForRole('CLIENT_USER')],['dashboard','operations','employees','reports','ewa']);
   assert.ok(!viewsForRole('CLIENT_USER').includes('payments'));
 });
 

@@ -1,53 +1,56 @@
-# EWA enrollment and employee limits
+# EWA through payroll employee data
 
-## Operator workflow
+## Setup
 
-The Advance Salary workspace contains “Daftarkan & Atur EWA Karyawan”. Super Admin, Payroll Processor and client users may register employees and manage EWA settings. Client users are restricted to both assigned clients and projects. Payroll Controller may read settings but cannot change enrollment.
+Open Data Karyawan Payroll → existing employee detail → EWA. Super Admin,
+Payroll Processor and scoped client users can choose the salary reference,
+set a percentage/fixed nominal limit, and activate/deactivate EWA with a reason.
+Client access to this scoped view does not grant bank editing or ESS credential
+reset permissions. The existing payroll intake remains the employee source.
+There is no separate EWA employee registration; the legacy REGISTER action
+returns 410 without creating an employee, credentials or settings.
 
-New employee registration creates only the employee record and audit event. It does not issue credentials, enroll EWA automatically, invent contract dates, or create a salary bank account. Salary bank details and initial ESS access are completed through payroll administration.
+The approval page contains only requests, decisions and status. It has no
+registration/configuration or embedded payment execution. An approved request
+links to Payments → Disbursement, focused on that EWA source. The existing
+canonical API revalidates source status, client consent, bank snapshot and roles.
 
-For existing or newly registered employees:
+## Process
 
-1. Select latest payroll salary or explicitly enter/confirm a manual salary and period.
-2. Choose a percentage of salary or fixed nominal limit.
-3. Activate EWA and record the change reason.
-4. Every advance still requires client consent, internal processing and existing Controller/provider settlement gates.
+1. Employee submits through ESS after activation (current-month payroll is not required).
+2. Assigned client approves/rejects.
+3. Processor reviews the consented request and prepares/submits its canonical DR.
+4. Controller approves execution; provider settlement confirms transfer.
+5. Deduction joins a later payroll/PI; matched reconciliation closes repayment.
 
-## Salary and limits
+Controller cannot use EWA APPROVE to bypass Processor review. The existing
+Controller-only DR approval/execution and maker/checker controls remain.
 
-The automatic reference chooses the latest available payroll period between a finalized, matched payroll/PI net salary and imported net salary with an explicit valid source period. It does not use a newer draft payroll or silently replace net salary with basic salary. Missing salary requires explicit manual input before activation.
+## Scope and salary
 
-Enrollment replaces calendar proration and join-date/tenure/workday gates for that employee. The monthly request period and actual day counters are still recorded honestly. Existing legacy configurations remain unchanged until the employee is enrolled. Percentage limits follow reference salary; fixed limits stay as entered. Central fee policies remain separate.
+Client grants are mandatory. Empty project grants mean all projects within
+assigned clients; explicit project grants narrow access. Filters cannot expand
+these server-side grants. Clients/projects are read from existing master data
+and are available even without EWA requests or settings.
 
-Every settings write has optimistic version control and records actor, time, reason, prior settings and new settings. New requests snapshot settings version, salary, period and existing limit snapshot. Pending approvals reject a changed/disabled configuration and require resubmission; existing approved financial history is not rewritten.
+Automatic salary reference chooses the latest valid period between finalized,
+matched payroll/PI net salary and imported net salary with a source period.
+A draft payroll or basic salary cannot silently substitute net salary. Missing
+salary requires explicit confirmation of salary and period before activation.
+An enrolled employee uses configured limits without join-date/calendar-proration
+gates. Central fees, active employee, bank, consent and open-request guards remain.
 
-Migration0073 adds settings and request snapshot fields only. No existing employee is auto-activated and no production configuration/data is changed by this PR.
+Writes have optimistic version checks and an audit event with actor/reason.
+Requests snapshot configuration version, reference salary, source period and
+limit. Changed/disabled settings invalidate pending approval, requiring a fresh
+request; approved history is not rewritten.
 
-## Validation
+## Verification and deployment
 
-- 1,118 backend tests passed, including five new API scenarios for client/project scope, registration, controller denial, salary sources, missing join date/current-month payroll, fixed/manual limits, stale writes and approval version changes.
-- Typecheck, lint (0 errors,62 existing warnings), build/CSS/CSP and preflight9/9 passed.
-- Local browser checks: client and Processor at390/1440px can select employee, activate and save fixed limit.
-- ESS companion:33 tests and typecheck/build passed; browser checks for zero and250,000 limits confirm consistent amounts, fees, range and button state.
+API regression covers client-wide/project scope, cross-client denial, disabled
+independent registration, configured salary/limits, ESS submission, client consent
+and Controller bypass rejection. Browser scenarios cover Client/Processor at
+390/1440px, approval-only page, payroll employee editor and configuration save.
 
-Deploy in order: backup -> reviewed migration0073 -> Lite -> ESS. Actual client policy values remain an explicit operator input after deployment.
-
-### Existing directory and client scope
-
-EWA reads clients/projects/employees from the existing master directory, even when
-there are no requests or enrollment settings. CLIENT_USER must have an explicit
-client grant. An empty project grant list means all projects in the granted
-clients; a nonempty project list narrows that access. Client and project filters
-intersect this server-side scope. Registration, configuration writes and client
-approval use the same scope rules. No permission records are auto-created.
-
-The workspace defaults to Pengajuan. Karyawan & Limit contains the scoped
-employee list, client/project filters and an on-demand settings editor. New
-employee registration is collapsed by default. On mobile employee rows become
-cards so status and the settings action remain visible. Client mirror refreshes
-skip internal state/service-plan endpoints; their backend role checks remain.
-
-Regression coverage: `tests/ewa-enrollment.test.mjs`,
-`tests/g0-security-state-correctness.test.mjs`, and synthetic localhost browser
-scenarios in `tests/e2e/ewa-directory.spec.mjs` for Client/Processor at 390/1440px.
-No database migration is needed for this correction.
+No new migration is required; this correction uses production migration 0073.
+No employee is auto-activated and no production setting or transaction is changed.

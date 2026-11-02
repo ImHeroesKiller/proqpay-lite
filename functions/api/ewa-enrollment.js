@@ -32,7 +32,7 @@ export async function onRequest({request,env}){
    if(id){
     const employee=await d1First(env.DB,`SELECT e.id,e.name,e.client_id,e.project_id FROM employees e WHERE ${scoped.where} AND e.id=?`,[...scoped.values,id]);
     if(!employee)return respond({error:'Karyawan tidak ditemukan'},404);
-    return respond({ok:true,employee,...await employeeEwaConfiguration(env.DB,id,employee.org_id||scoped.values[0],employee.client_id)});
+    return respond({ok:true,canWrite:WRITERS.has(actor.role),employee,...await employeeEwaConfiguration(env.DB,id,employee.org_id||scoped.values[0],employee.client_id)});
    }
    const q=String(params.get('q')||'').trim().slice(0,80),offset=Math.max(0,Number.parseInt(params.get('offset')||'0',10)||0);
    let where=scoped.where+" AND (e.name LIKE ? OR e.employee_code LIKE ?)";const values=[...scoped.values,`%${q}%`,`%${q}%`];
@@ -45,16 +45,7 @@ export async function onRequest({request,env}){
    return respond({ok:true,employees,projects,clients,offset,hasMore:employees.length===50,canWrite:WRITERS.has(actor.role)});
   }
   let body;try{body=await request.json();}catch{return respond({error:'JSON tidak valid'},400);}
-  if(body.action==='REGISTER'){
-    const project=await d1First(env.DB,`SELECT e.* FROM projects e WHERE ${scoped.where.replaceAll('e.project_id','e.id')} AND e.id=?`,[...scoped.values,String(body.projectId||'')]);
-    if(!project)return respond({error:'Project tidak ditemukan'},404);
-    const name=String(body.name||'').trim(),code=String(body.employeeCode||'').trim(),reason=String(body.reason||'').trim();
-    if(name.length<2||name.length>150||!/^[-A-Za-z0-9_.]{1,60}$/.test(code)||reason.length<5||reason.length>240)return respond({error:'Nama, kode karyawan dan alasan pendaftaran wajib valid'},422);
-    const id=`EMP-${crypto.randomUUID()}`,actorId=String(actor.email||actor.id);
-    await d1Batch(env.DB,[{statement:`INSERT INTO employees(id,org_id,client_id,project_id,employee_code,name,status_aktif) VALUES(?,?,?,?,?,?,'ACTIVE')`,bindings:[id,project.org_id,project.client_id,project.id,code,name]},
-      {statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id) VALUES(?,?,?,?,?,?,'employee',?)`,bindings:[`AUD-${crypto.randomUUID()}`,project.org_id,actorId,actor.role,'EWA_EMPLOYEE_REGISTERED',JSON.stringify({name,code,reason,projectId:project.id}),id]}]);
-    return respond({ok:true,employee:{id,name,employee_code:code,client_id:project.client_id,project_id:project.id}},201);
-  }
+  if(body.action==='REGISTER')return respond({error:'Daftarkan karyawan melalui Data Karyawan Payroll / Data Intake.',code:'EWA_USE_PAYROLL_EMPLOYEE'},410);
   const employee=await d1First(env.DB,`SELECT e.* FROM employees e WHERE ${scoped.where} AND e.id=?`,[...scoped.values,String(body.employeeId||'')]);
   if(!employee)return respond({error:'Karyawan tidak ditemukan'},404);
   const reason=String(body.reason||'').trim();

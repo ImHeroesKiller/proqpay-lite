@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, useState } from 'react';
+import EwaEnrollment from './EwaEnrollment';
 import { ModalShell } from '@/components/ui/UnifiedSystem';
 import { parseApiResponse } from '@/lib/api-client';
 import { formatIDR } from '@/lib/format';
@@ -34,9 +35,9 @@ export default function EmployeeDetailDrawer({
   onEssGenerated?: () => void;
 }) {
   const tabId=useId();
-  const tabs=[['identity','Identitas & Penempatan'],['bank','Rekening Pembayaran'],['payroll','Payroll per Periode']] as const;
+  const tabs=[['identity','Identitas & Penempatan'],['bank','Rekening Pembayaran'],['payroll','Payroll per Periode'],...(['SUPER_ADMIN','PAYROLL_PROCESSOR','CLIENT_USER'].includes(actor?.role||'')?[['ewa','EWA'] as const]:[])] as const;
   const [editing,setEditing]=useState(false);
-  const [activeTab,setActiveTab]=useState<'identity'|'bank'|'payroll'>('identity');
+  const [activeTab,setActiveTab]=useState<'identity'|'bank'|'payroll'|'ewa'>('identity');
   const [selectedPeriod,setSelectedPeriod]=useState(String(employee.payrollSourcePeriod||''));
   const payroll=employeeIntakePayroll(employee,selectedPeriod);
   const [saving,setSaving]=useState(false);
@@ -46,7 +47,7 @@ export default function EmployeeDetailDrawer({
   const [essState,setEssState]=useState(()=>employeeEssStatus(employee));
   const [resetConfirm,setResetConfirm]=useState(false);
   const [discardConfirm,setDiscardConfirm]=useState(false);
-  const [discardTarget,setDiscardTarget]=useState<'close'|'cancel'|'identity'|'bank'|'payroll'>('close');
+  const [discardTarget,setDiscardTarget]=useState<'close'|'cancel'|'identity'|'bank'|'payroll'|'ewa'>('close');
   const [copyMessage,setCopyMessage]=useState('');
   const initialForm:EmployeeAdminForm={
     bankName:employeeText(employee.bankName),
@@ -187,8 +188,9 @@ export default function EmployeeDetailDrawer({
             </div>
           </div>:null}
 
-          <div role="tabpanel" id={`${tabId}-panel`} aria-labelledby={`${tabId}-${activeTab}`} aria-label={activeTab==='identity'?'Identitas & Penempatan':activeTab==='bank'?'Rekening Pembayaran':'Payroll per Periode'} className="employee-profile-groups">
+          <div role="tabpanel" id={`${tabId}-panel`} aria-labelledby={`${tabId}-${activeTab}`} aria-label={activeTab==='identity'?'Identitas & Penempatan':activeTab==='bank'?'Rekening Pembayaran':activeTab==='ewa'?'EWA':'Payroll per Periode'} className="employee-profile-groups">
             {activeTab==='identity'||activeTab==='bank'?groups.filter(group=>activeTab==='identity'?group.title==='Identitas & Penempatan':group.title==='Rekening Pembayaran').map(group=><section key={group.title}><h3>{group.title}</h3><dl>{group.fields.map(([label,value])=><div key={String(label)}><dt>{String(label)}</dt><dd>{employeeText(value)||'-'}</dd></div>)}</dl></section>):null}
+            {activeTab==='ewa'?<EwaEnrollment key={employee.id} employeeId={employee.id}/>:null}
             {activeTab==='payroll'?<section aria-label="Rincian payroll Data Intake">
               <h3>Payroll per Periode</h3>
               <label>Periode sumber data <input type="month" value={selectedPeriod} onChange={event=>setSelectedPeriod(event.target.value)}/></label>

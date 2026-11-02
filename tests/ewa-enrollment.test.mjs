@@ -41,13 +41,10 @@ test('client and processor configure/enroll; scope and controller write denial r
  r=await call('OPS',settings({version:1,limitMode:'FIXED',fixedLimit:450000}));assert.equal(r.status,200,await r.clone().text());assert.equal((await r.json()).limit,450000);
  assert.equal(DB.sqlite.prepare("SELECT COUNT(*) n FROM audit_logs WHERE action='EWA_ENROLLMENT_UPDATED'").get().n,2);
 });
-test('registration is project-scoped and does not auto-activate or create ESS credentials',async()=>{
- const {call,DB}=await fixture();const body={action:'REGISTER',name:'New employee',employeeCode:'NEW-1',projectId:'Q',reason:'New EWA registration'};
- assert.equal((await call('CLIENT',body)).status,404);
- const r=await call('CLIENT',{...body,projectId:'P'});assert.equal(r.status,201,await r.clone().text());const id=(await r.json()).employee.id;
- assert.equal(DB.sqlite.prepare('SELECT client_id FROM employees WHERE id=?').get(id).client_id,'C');
- assert.equal(DB.sqlite.prepare('SELECT COUNT(*) n FROM ewa_employee_settings WHERE employee_id=?').get(id).n,0);
- assert.equal(DB.sqlite.prepare('SELECT COUNT(*) n FROM employee_credentials WHERE employee_id=?').get(id).n,0);
+test('EWA cannot create separate employees outside payroll data',async()=>{
+ const {call,DB}=await fixture();const before=DB.sqlite.prepare('SELECT COUNT(*) n FROM employees').get().n;
+ for(const role of ['CLIENT','OPS']){const r=await call(role,{action:'REGISTER',name:'New',employeeCode:'NEW',projectId:'P',reason:'Test registration'});assert.equal(r.status,410);assert.equal((await r.json()).code,'EWA_USE_PAYROLL_EMPLOYEE');}
+ assert.equal(DB.sqlite.prepare('SELECT COUNT(*) n FROM employees').get().n,before);
 });
 test('no join date/current-month payroll needed after enrollment; amount is capped and client approval still required',async()=>{
  const {call,emp,approve,DB}=await fixture();await call('OPS',settings());
@@ -103,4 +100,13 @@ test('explicit project restriction excludes other projects within the assigned c
  DB.sqlite.exec("INSERT INTO projects(id,org_id,client_id,name,code,created_by) VALUES('P2','O','C','Second','P2','seed'); INSERT INTO employees(id,org_id,client_id,project_id,name,status_aktif) VALUES('E2','O','C','P2','Second','ACTIVE');");
  const data=await (await call('CLIENT',null)).json();assert.deepEqual(data.projects.map(p=>p.id),['P']);assert.deepEqual(data.employees.map(e=>e.id),['E']);
  assert.equal((await call('CLIENT',settings({employeeId:'E2'}))).status,404);
+});
+
+test('Controller cannot bypass Processor review of a client-approved ESS request',async()=>{
+ const {call,emp,approve,DB}=await fixture();await call('OPS',settings());
+ const loan=(await (await emp({amount:200000,agreed:true})).json()).request;
+ assert.equal((await approve('CLIENT',loan.id)).status,200);
+ const blocked=await approve('CTRL',loan.id);assert.equal(blocked.status,403);assert.equal((await blocked.json()).code,'EWA_PROCESSOR_REVIEW_REQUIRED');
+ assert.equal(DB.sqlite.prepare('SELECT status FROM ewa_requests WHERE id=?').get(loan.id).status,'SUBMITTED');
+ assert.equal((await approve('OPS',loan.id)).status,200);
 });

@@ -42,7 +42,9 @@ test('P0.B UI uses canonical DR API for all three business intents with role-bas
  assert.match(workspace,/CanonicalDisbursementWorkspace actor=\{actor\} payrollSources=\{data.paymentInstructions\|\|\[\]\} period=\{periodFilter\}/);
  assert.match(workspace,/executionStrategy==='canonical'/);
  assert.match(workspace,/executionStrategy==='legacy'/);
- assert.match(inbox,/CanonicalDisbursementWorkspace actor=\{actor\} sourceType="EWA_REQUEST"/);
+ assert.doesNotMatch(inbox,/CanonicalDisbursementWorkspace/);
+ assert.match(inbox,/paymentPanel=DISBURSEMENT&ewaRequest=/);
+ assert.match(workspace,/sourceType=\{ewaRequest\?'EWA_REQUEST':undefined\}/);
  assert.match(inbox,/role=\{actor\?\.role\|\|""\}/);
  assert.doesNotMatch(inbox,/DisbursementDialog/);
 });
