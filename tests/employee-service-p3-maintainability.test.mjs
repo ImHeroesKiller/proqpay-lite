@@ -43,8 +43,9 @@ test('Employee Services P3: accessibility semantics remain explicit',async()=>{
   assert.match(inbox,/UiPagination/);
   assert.match(unified,/aria-live="polite"/);
   assert.match(unified,/aria-label="Navigasi halaman"/);
-  assert.match(primitives,/role="dialog"/);
-  assert.match(primitives,/aria-labelledby/);
+  assert.match(primitives,/ModalShell/);
+  assert.match(await read("src/components/ui/UnifiedSystem.tsx"),/role="dialog"/);
+  assert.match(unified,/aria-labelledby/);
   assert.match(states,/UiNotice/);
   assert.match(unified,/tone === "error" \? "alert" : "status"/);
 });

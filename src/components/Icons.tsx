@@ -142,3 +142,10 @@ export function IconTerminal(props: React.SVGProps<SVGSVGElement>) {
 export function IconDownload(props: React.SVGProps<SVGSVGElement>) {
   return <svg {...s} {...props}><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>;
 }
+
+/** Lucide line geometry, kept with the existing shared vector icon family. */
+export function IconEye(props: React.SVGProps<SVGSVGElement>) { return <svg {...s} {...props}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>; }
+export function IconX(props: React.SVGProps<SVGSVGElement>) { return <svg {...s} {...props}><path d="m6 6 12 12M18 6 6 18"/></svg>; }
+export function IconFilter(props: React.SVGProps<SVGSVGElement>) { return <svg {...s} {...props}><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3Z"/></svg>; }
+export function IconCalendar(props: React.SVGProps<SVGSVGElement>) { return <svg {...s} {...props}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>; }
+export function IconList(props: React.SVGProps<SVGSVGElement>) { return <svg {...s} {...props}><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>; }

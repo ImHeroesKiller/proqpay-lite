@@ -29,8 +29,8 @@ test('Employee Service P2: EWA admin exposes lifecycle facets, retry and respons
   assert.match(states,/UiLoadingState/);
   assert.match(unified,/aria-busy="true"/);
   assert.match(ui,/ewa-mobile-card/);
-  assert.match(details,/ewa-detail-panel/);
-  assert.match(details,/Tutup detail advance/);
+  assert.match(details,/ewa-approval-detail/);
+  assert.match(details,/ModalShell/);
   assert.match(ui,/Perbarui|Refresh/);
 });
 

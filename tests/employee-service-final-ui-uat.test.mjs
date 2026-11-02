@@ -18,7 +18,8 @@ test('Employee Services final UAT: admin dialogs and drawers support Escape clos
   const detail=await read('src/components/employee-services/EwaLifecycle.tsx');
   const audit=await read('src/components/SystemLogs.tsx');
   assert.match(payout,/event\.key === "Escape"/);
-  assert.match(detail,/event\.key === "Escape"/);
+  assert.match(detail,/ModalShell/);
+  assert.match(await read("src/components/ui/UnifiedSystem.tsx"),/Escape/);
   assert.match(audit,/event\.key === "Escape"/);
 });
 

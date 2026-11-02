@@ -20,7 +20,7 @@ for(const width of [390,1440])for(const role of ['CLIENT_USER','PAYROLL_PROCESSO
   await route.fulfill({json:body});
  });
  await page.goto(base+'/?view=ewa',{waitUntil:'networkidle'});
- await expect(page.getByRole('heading',{name:'Advance Salary',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Persetujuan Advance Salary',exact:true})).toBeVisible();
  await expect(page.getByRole('button',{name:'Karyawan & Limit',exact:true})).toHaveCount(0);
  await expect(page.getByText('Daftarkan karyawan baru',{exact:true})).toHaveCount(0);
  await expect(page.getByLabel('Aktifkan EWA')).toHaveCount(0);

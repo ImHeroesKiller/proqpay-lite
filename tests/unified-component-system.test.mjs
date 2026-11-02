@@ -26,7 +26,8 @@ test('P1 unified component system is shared by priority workspaces',async()=>{
   assert.match(audit,/UiWorkspaceHeader/);
   assert.match(audit,/UiFilterBar/);
   assert.match(ewa,/UiWorkspaceHeader/);
-  assert.match(ewa,/UiMetricGrid/);
+  assert.match(ewa,/UiPagination/);
+  assert.match(ewa,/ModalShell/);
   assert.match(state,/UiEmptyState/);
   assert.match(dialog,/UiModalShell/);
   assert.match(lifecycle,/UiStatusBadge/);

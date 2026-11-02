@@ -720,3 +720,54 @@
 .ewa-enrollment fieldset:disabled{opacity:.65}
 @media(min-width:760px){.ewa-enrollment fieldset{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px}.ewa-enrollment fieldset>p,.ewa-enrollment fieldset>button,.ewa-enrollment label:has(textarea),.ewa-enrollment label:has(input[type=checkbox]){grid-column:1/-1}}
 .employee-profile-groups .ewa-enrollment .ewa-activation-toggle{display:flex;flex-direction:row;align-items:center;gap:10px}
+
+/* Advance approval dashboard: scoped to protect the other workspaces. */
+.ewa-approval-page{--ewa-orange:#ff5a1f;--ewa-navy:#14213d;--ewa-surface:var(--bg-surface,#fff);--ewa-line:var(--border,#e5eaf1);gap:20px;min-width:0;color:var(--text,#14213d)}
+.ewa-approval-page .ewa-approval-header{padding:0;margin:0;min-height:0;background:none;border:0;box-shadow:none;align-items:center}
+.ewa-approval-page .ewa-approval-header h1{font-size:clamp(22px,2.1vw,30px);line-height:1.2;letter-spacing:-.04em;margin:7px 0 10px}
+.ewa-approval-page .ewa-approval-header p{font-size:13px;line-height:1.6;margin:0}
+.ewa-approval-page .ui-header-meta{margin-top:12px;gap:10px}
+.ewa-approval-page .ui-header-meta>span{display:inline-flex;align-items:center;gap:6px;font-size:12px;min-height:30px;padding:6px 10px;background:var(--ewa-surface);border-radius:10px}
+.ewa-approval-page .ui-header-meta .ewa-new-badge{background:#fff1e9;color:#9a3412}
+.ewa-approval-page svg{width:18px;height:18px;flex-shrink:0}
+.ewa-approval-page .btn{display:inline-flex;justify-content:center;align-items:center;gap:6px;min-height:36px;padding:8px 11px;border:1px solid var(--ewa-line);border-radius:10px;background:var(--ewa-surface);color:var(--text);font-size:12px;font-weight:650;box-shadow:0 1px 3px #14213d06;white-space:nowrap}
+.ewa-approval-page .btn-primary,.ewa-approval-confirm .btn-primary{background:#ff5a1f;border-color:#ff5a1f;color:#14213d}
+.ewa-approval-page .btn:disabled{opacity:.55;cursor:not-allowed}
+.ewa-approval-page .btn:focus-visible,.ewa-approval-page .ewa-kpi:focus-visible{outline:3px solid var(--ewa-orange);outline-offset:3px}
+.ewa-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.ewa-kpi{display:flex;align-items:center;gap:14px;padding:20px 18px;border:1px solid var(--ewa-line);border-radius:16px;box-shadow:0 3px 10px #14213d06;background:var(--ewa-surface);text-align:left;font:inherit;color:inherit;cursor:pointer;min-width:0}
+.ewa-kpi[aria-pressed=true]{border-color:var(--ewa-orange);box-shadow:0 3px 12px #ff5a1f0c}
+.ewa-kpi-pending[aria-pressed=true]{background:color-mix(in srgb,var(--ewa-surface) 94%,#ff5a1f)}
+.ewa-kpi-icon{width:44px;height:44px;flex:0 0 44px;border-radius:50%;display:grid;place-items:center;background:#fff0e6;color:#9a3412}
+.ewa-kpi-icon svg{width:24px;height:24px}.ewa-kpi-ready .ewa-kpi-icon{background:#eaf1ff;color:#255ed5}.ewa-kpi-paid .ewa-kpi-icon{background:#e7f6ec;color:#18733c}.ewa-kpi-payroll .ewa-kpi-icon{background:#f0ebff;color:#6435b5}
+.ewa-kpi-copy{display:grid;gap:4px;min-width:0}.ewa-kpi-copy>span{font-size:13px;font-weight:700}.ewa-kpi-copy strong{font-size:29px;line-height:1.05;letter-spacing:-.04em;font-variant-numeric:tabular-nums}.ewa-kpi-pending strong{color:var(--text)}.ewa-kpi-copy small{font-size:11px;line-height:1.4;color:var(--text2)}
+.ewa-approval-page .ewa-filter-panel,.ewa-approval-page .ewa-list-card{padding:20px;border:1px solid var(--ewa-line);border-radius:16px;background:var(--ewa-surface);box-shadow:0 3px 12px #14213d05;min-width:0;margin:0}
+.ewa-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.ewa-section-heading>div:first-child{display:flex;align-items:center;gap:12px;min-width:0}.ewa-section-heading>div>svg{width:24px;height:24px}.ewa-section-heading h2{font-size:15px;line-height:1.4;letter-spacing:-.02em;margin:0}.ewa-section-heading p{font-size:12px;color:var(--text2);margin:3px 0 0}
+.ewa-filter-actions{display:flex;gap:8px}.ewa-approval-page .ewa-filter-toggle{display:none}
+.ewa-approval-filters{display:grid;grid-template-columns:minmax(140px,1.05fr) minmax(190px,1.7fr) minmax(130px,1fr) minmax(145px,1fr) 94px;gap:12px;align-items:end}
+.ewa-approval-filters label{display:flex;flex-direction:column;gap:7px;font-size:12px;font-weight:600;color:var(--text2);min-width:0}
+.ewa-approval-filters :is(input,select){height:40px;min-height:40px;min-width:0;width:100%;box-sizing:border-box;border:1px solid var(--border-strong);border-radius:9px;background:var(--ewa-surface);color:var(--text);padding:0 10px;font:inherit;font-size:12px;font-weight:400}
+.ewa-input-icon{position:relative;display:flex;align-items:center;min-width:0}.ewa-input-icon>svg{position:absolute;left:10px;color:var(--text2);width:16px;height:16px;pointer-events:none}.ewa-input-icon>input{padding-left:33px}
+.ewa-approval-filters :is(input,select):focus-visible{outline:2px solid var(--ewa-orange);outline-offset:2px}
+.ewa-approval-page .ewa-table{table-layout:fixed;width:100%;min-width:0;border-collapse:collapse}
+.ewa-approval-page .ewa-col-employee{width:21%}.ewa-approval-page .ewa-col-status{width:16%}.ewa-approval-page .ewa-col-actions{width:23%}
+.ewa-approval-page .ewa-table th{font-size:10px;font-weight:650;text-align:left;white-space:normal;background:var(--bg-subtle,#f7f9fc);padding:12px 9px;border:0;color:var(--text2)}
+.ewa-approval-page .ewa-table td{font-size:11px;padding:16px 9px;vertical-align:middle;border-bottom:1px solid var(--ewa-line);overflow-wrap:anywhere}
+.ewa-approval-page .ewa-table tr:hover td{background:var(--bg-subtle)}
+.ewa-approval-page .ewa-table .ewa-money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ewa-approval-page .ewa-table .ewa-money strong{font-size:12px}.ewa-approval-page small{display:block;font-size:10px;line-height:1.6;color:var(--text2);margin-top:3px}
+.ewa-person{display:flex;gap:10px;align-items:center;min-width:0}.ewa-person>div{min-width:0}.ewa-person strong{display:block;font-size:12px;line-height:1.4}.ewa-avatar{display:grid;place-items:center;width:34px;height:34px;flex:0 0 34px;border-radius:50%;background:#fff0e6;color:#9a3412;font-size:12px;font-weight:700}
+.ewa-approval-page .ewa-row-actions{display:flex;gap:5px;flex-wrap:wrap;align-items:center}.ewa-approval-page .ewa-row-actions .btn{min-height:32px;font-size:10px;padding:6px 8px}.ewa-row-actions .btn svg{width:14px;height:14px}
+.ewa-approval-page .ui-status-badge{font-size:10px;white-space:normal;line-height:1.4}
+.ewa-approval-page .ui-pagination{border-top:0;padding-top:18px;margin-top:0;font-size:12px}
+.ewa-approval-page .ewa-mobile{display:none}.ewa-success{display:flex;align-items:center;gap:8px;padding:12px 14px;border:1px solid #b6dec4;border-radius:10px;background:#eaf8ef;color:#166534;font-size:13px;margin:0}
+.ewa-mobile-values{display:grid;grid-template-columns:1fr 1fr;gap:14px 10px;margin:16px 0}.ewa-mobile-values div{min-width:0}.ewa-mobile-values dt{font-size:10px;color:var(--text2);margin-bottom:4px}.ewa-mobile-values dd{font-size:13px;font-weight:650;margin:0;font-variant-numeric:tabular-nums}.ewa-mobile-note{font-size:12px;color:var(--text2);margin:0 0 14px}
+.ewa-approval-confirm{max-width:520px}.ewa-approval-confirm p{font-size:13px;line-height:1.6;color:var(--text2)}.ewa-approval-confirm label{display:grid;gap:8px;font-size:13px}.ewa-approval-confirm textarea{width:100%;min-height:100px;resize:vertical;box-sizing:border-box;padding:10px;border:1px solid var(--border-strong);border-radius:10px;background:var(--bg-surface);color:var(--text);font:inherit}
+.ewa-confirm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.ewa-decision-error{color:var(--danger)}
+.ewa-approval-detail{max-width:650px}.ewa-approval-detail .es-detail-grid{grid-template-columns:1fr 1fr}.ewa-approval-detail .es-detail-grid>div{min-width:0;overflow-wrap:anywhere}.ewa-approval-detail .ewa-detail-note{padding:12px;border-radius:10px;background:var(--bg-subtle);font-size:13px;line-height:1.6}
+@media(max-width:1200px){.ewa-kpi-grid{gap:10px}.ewa-kpi{padding:16px 12px;gap:10px}.ewa-kpi-icon{width:36px;height:36px;flex-basis:36px}.ewa-kpi-copy>span{font-size:12px}.ewa-kpi-copy small{font-size:10px}.ewa-approval-filters{grid-template-columns:1fr 1.4fr 1fr}.ewa-approval-page .ewa-desktop{display:none}.ewa-approval-page .ewa-mobile{display:grid;gap:12px}}
+@media(max-width:900px){.ewa-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ewa-approval-page .ewa-approval-header{align-items:flex-start}.ewa-approval-page .ewa-approval-header h1{font-size:25px}}
+@media(max-width:600px){.ewa-approval-page{gap:14px}.ewa-approval-page .ewa-filter-panel,.ewa-approval-page .ewa-list-card{padding:14px}.ewa-approval-page .ewa-approval-header{display:grid;gap:12px}.ewa-approval-page .ewa-approval-header h1{font-size:24px}.ewa-approval-page .ewa-approval-header p{font-size:12px}.ewa-approval-page .ui-header-meta{gap:6px;flex-wrap:wrap}.ewa-approval-page .ui-header-meta>span{font-size:11px;padding:5px 8px}.ewa-approval-page .ewa-filter-toggle{display:inline-flex}.ewa-section-heading h2{font-size:14px}.ewa-section-heading p{font-size:11px}.ewa-filter-actions{gap:5px}.ewa-filter-actions .btn{font-size:10px;padding:6px}.ewa-approval-filters{grid-template-columns:1fr 1fr;gap:10px}.ewa-approval-filters>label{display:none}.ewa-approval-filters .ewa-filter-search{display:flex;grid-column:1/-1}.ewa-approval-filters.is-open>label{display:flex}.ewa-kpi{padding:14px 10px;gap:8px}.ewa-kpi-icon{width:30px;height:30px;flex-basis:30px}.ewa-kpi-icon svg{width:18px;height:18px}.ewa-kpi-copy strong{font-size:25px}.ewa-kpi-copy small{font-size:10px}.ewa-approval-page .ewa-mobile-card{padding:14px}.ewa-approval-page .ewa-mobile-top{flex-wrap:wrap}.ewa-approval-page .ewa-row-actions .btn{min-height:38px;font-size:12px;flex:1}.ewa-approval-page .ui-pagination{gap:10px;flex-wrap:wrap}.ewa-approval-detail .es-detail-grid{grid-template-columns:1fr}.ewa-confirm-actions{flex-wrap:wrap}}
+
+.ewa-approval-page .ewa-new-badge strong{color:inherit}

@@ -56,7 +56,6 @@ export async function onRequest({ request, env }) {
       }
       const scopeWhere = clauses.join(' AND ');
       const scopeBindings = [...bindings];
-      if (status) { clauses.push('r.status=?'); bindings.push(status); }
       if (clientId) { clauses.push('r.client_id=?'); bindings.push(clientId); }
       if (period) { clauses.push('r.period=?'); bindings.push(period); }
       if (q) {
@@ -64,6 +63,9 @@ export async function onRequest({ request, env }) {
         const like = `%${q.toLowerCase()}%`;
         bindings.push(like, like, like);
       }
+      const summaryWhere = clauses.join(' AND ');
+      const summaryBindings = [...bindings];
+      if (status) { clauses.push('r.status=?'); bindings.push(status); }
       const where = clauses.join(' AND ');
       const rows = await d1All(
         env.DB,
@@ -88,16 +90,16 @@ export async function onRequest({ request, env }) {
         `SELECT
           SUM(CASE WHEN r.status='SUBMITTED' THEN 1 ELSE 0 END) AS pending,
           COUNT(*) AS total
-         FROM ewa_requests r JOIN employees e ON e.id=r.employee_id WHERE ${scopeWhere}`,
-        scopeBindings,
+         FROM ewa_requests r JOIN employees e ON e.id=r.employee_id WHERE ${summaryWhere}`,
+        summaryBindings,
       );
       const statusRows = await d1All(
         env.DB,
         `SELECT r.status, COUNT(*) AS count
           FROM ewa_requests r JOIN employees e ON e.id=r.employee_id
-          WHERE ${scopeWhere}
+          WHERE ${summaryWhere}
           GROUP BY r.status`,
-        scopeBindings,
+        summaryBindings,
       );
       const clients = await d1All(
         env.DB,
@@ -136,6 +138,7 @@ export async function onRequest({ request, env }) {
       const employee = await d1First(env.DB, 'SELECT project_id FROM employees WHERE id=?', [current.employee_id]);
       if (!(clientIdsFor(actor, env) || []).includes(String(current.client_id)) ||
           ((projectIdsFor(actor) || []).length > 0 && !(projectIdsFor(actor) || []).includes(String(employee?.project_id)))) return respond({error:'Pengajuan tidak ditemukan'},404);
+    if(action==='REJECT' && (String(body.note||'').trim().length<5 || String(body.note||'').trim().length>240))return respond({error:'Alasan penolakan wajib 5–240 karakter',code:'EWA_REJECTION_REASON_REQUIRED'},422);
     if(action==='APPROVE' && current.configuration_version != null){
       const configuration=await employeeEwaConfiguration(env.DB,current.employee_id,organizationId,current.client_id);
       if(!configuration.enabled || configuration.settings?.version!==current.configuration_version || Number(current.amount)>configuration.limit){
@@ -156,21 +159,22 @@ export async function onRequest({ request, env }) {
       if (Number(result?.meta?.changes ?? result?.changes ?? 0) !== 1) return respond({error:'Status berubah. Muat ulang.'},409);
       await d1Run(env.DB, `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
         VALUES (?,?,?,'CLIENT_USER',?,?,'ewa_request',?)`,
-        [`AUD-${crypto.randomUUID()}`,organizationId,actorId,`EWA_CLIENT_${clientStatus}`,requestId,requestId]);
+        [`AUD-${crypto.randomUUID()}`,organizationId,actorId,`EWA_CLIENT_${clientStatus}`,JSON.stringify({requestId,decision:clientStatus,note:String(body.note||'').trim().slice(0,240)}),requestId]);
       return respond({ok:true,request:await d1First(env.DB,'SELECT * FROM ewa_requests WHERE id=? AND org_id=?',[requestId,organizationId])});
     }
-    if(action==='APPROVE' && actor.role==='PAYROLL_CONTROLLER')return respond({error:'Processor menyiapkan pengajuan terlebih dahulu. Controller menyetujui eksekusi melalui Disbursement.',code:'EWA_PROCESSOR_REVIEW_REQUIRED'},403);
+    if(['APPROVE','REJECT'].includes(action) && actor.role==='PAYROLL_CONTROLLER')return respond({error:'Processor menyiapkan pengajuan terlebih dahulu. Controller menyetujui eksekusi melalui Disbursement.',code:'EWA_PROCESSOR_REVIEW_REQUIRED'},403);
     if(action==='APPROVE' && current.configuration_version != null){
       const configuration=await employeeEwaConfiguration(env.DB,current.employee_id,organizationId,current.client_id);
       if(!configuration.enabled || configuration.settings?.version!==current.configuration_version || Number(current.amount)>configuration.limit){
         return respond({error:'Pengaturan EWA berubah. Batalkan dan ajukan ulang memakai limit terbaru.',code:'EWA_CONFIGURATION_CHANGED'},409);
       }
     }
-    if (action === 'APPROVE' && (current.client_approval_status !== 'APPROVED' || !current.client_approved_by)) {
+    if(action==='REJECT' && (String(body.note||'').trim().length<5 || String(body.note||'').trim().length>240))return respond({error:'Alasan penolakan wajib 5–240 karakter',code:'EWA_REJECTION_REASON_REQUIRED'},422);
+    if (['APPROVE','REJECT'].includes(action) && (current.client_approval_status !== 'APPROVED' || !current.client_approved_by)) {
       return respond({error:'Persetujuan klien wajib sebelum proses internal',code:'EWA_CLIENT_APPROVAL_REQUIRED'},409);
     }
     const actorId = String(actor.email || actor.id || '').trim();
-    const note = String(body.note || '').slice(0, 240);
+    const note = String(body.note || '').trim().slice(0, 240);
     let nextStatus = '';
     let result;
 
@@ -193,7 +197,7 @@ export async function onRequest({ request, env }) {
         `UPDATE ewa_requests
           SET status='REJECTED', decision_note=?, decided_by=?, decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
               updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-          WHERE id=? AND org_id=? AND status='SUBMITTED'`,
+          WHERE id=? AND org_id=? AND status='SUBMITTED' AND client_approval_status='APPROVED' AND client_approved_by IS NOT NULL`,
         [note || null, actorId, requestId, organizationId],
       );
     } else if (action === 'DISBURSE' && current.status === 'APPROVED') {
@@ -253,7 +257,7 @@ export async function onRequest({ request, env }) {
         `EWA_${nextStatus}`,
         nextStatus === 'DISBURSED'
           ? `${requestId} · ${current.employee_id} · ${String(body.source || body.disbursementSource || '').trim().slice(0, 40).toUpperCase()} · ${String(body.reference || body.disbursementReference || '').trim().slice(0, 100)}`
-          : `${requestId} · ${current.employee_id}`,
+          : JSON.stringify({requestId,employeeId:current.employee_id,decision:nextStatus,note}),
         requestId,
       ],
     );
