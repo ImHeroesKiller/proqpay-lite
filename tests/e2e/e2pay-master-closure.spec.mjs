@@ -14,13 +14,17 @@ for(const role of ['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIEN
    const page=await context.newPage();
 let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=false;let expired=false;const actions=[];const errors=[];let prompts=0;
  page.on('dialog',async dialog=>{if(dialog.type()==='confirm'){await dialog.accept();return;}assert.equal(dialog.type(),'prompt');prompts++;await dialog.accept(dialog.message().includes('Ketik BAYAR')?'BAYAR':'123456');});
- let approvalMode=false;let piStatus='PAYMENT_APPROVAL_PENDING';let drStatus='PENDING_APPROVAL';let piRejected=false;let balanceFails=true;let balanceReads=0;let balanceReady=false;let executionCalls=0;let reissueMode=false;let replacement=false;
+ let approvalMode=false;let piStatus='PAYMENT_APPROVAL_PENDING';let drStatus='PENDING_APPROVAL';let piRejected=false;let balanceFails=true;let balanceReads=0;let balanceReady=false;let executionCalls=0;let reissueMode=false;let replacement=false;let fundingRefreshAttempts=0;
  const pi=()=>({id:'PI-MOCK',client_id:'C-MOCK',project_id:'P-MOCK',document_no:'PI/MOCK',client_name:'Mock Client',payroll_period:'2026-10',payment_period:'2026-10',status:piStatus,expected_total:2000,recipient_count:26,content_hash:'MOCK-HASH',provider:'E2PAY',provider_environment:'UAT',provider_account_registry_id:'MASTER-MOCK',providerAccountScope:'MASTER',providerFunding:{ready:balanceReady,state:balanceReady?'AVAILABLE':'PARENT_STALE',parent:{ready:balanceReady,state:balanceReady?'READY':'STALE',balance:100000},subClient:{ready:balanceReady,state:balanceReady?'FUNDED':'PARENT_NOT_READY',availableBalance:balanceReady?100000:null},limit:{ready:true,state:'AVAILABLE',id:'LIMIT-MOCK',remainingAmount:2000,approvedAmount:2000}}});
  const dr=()=>({id:'DR-MOCK',clientId:'C-MOCK',projectId:'P-MOCK',sourceDocumentType:'PAYMENT_INSTRUCTION',sourceDocumentId:'PI-MOCK',purpose:'PAYROLL',destinationMode:'DIRECT_EMPLOYEE',clientReference:'DR/MOCK',status:drStatus,provider:'E2PAY',environment:'UAT',amount:2000,recipientCount:26,items:Array.from({length:26},(_,i)=>({id:'I-'+i,beneficiaryName:'Recipient '+(i+1),bankCode:'BCA',accountLast4:'1234',amount:2000/26}))});
  let requests=role==='PAYROLL_CONTROLLER'?[{id:'LIMIT-MOCK',clientId:'C-MOCK',clientName:'Mock Client',environment:'UAT',status:'PENDING_APPROVAL',requestedAmount:2000,remainingAmount:0}]:[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{const req=route.request();const url=new URL(req.url());if(url.origin!==base){await route.abort();return;}if(!url.pathname.startsWith('/api/'))return route.continue();
  if(approvalMode&&url.pathname==='/api/e2pay-subaccounts')throw new Error('Master approval must never use sub-account endpoint');
+ if(!approvalMode&&role==='PAYROLL_PROCESSOR'&&url.pathname==='/api/e2pay-operations'&&url.searchParams.get('refresh')==='1'){
+  assert.equal(url.searchParams.get('resource'),'account','Funding refresh must only read the Master balance');fundingRefreshAttempts++;
+  if(fundingRefreshAttempts===1){await route.fulfill({status:503,json:{error:'Konfigurasi koneksi tidak dapat dibaca',code:'E2PAY_CREDENTIALS_UNREADABLE',correlationId:'REFRESH-TEST'}});return;}
+ }
  if(approvalMode&&url.pathname==='/api/e2pay-operations'&&url.searchParams.get('resource')==='account'){
   assert.equal(url.searchParams.get('refresh'),'1');balanceReads++;
   if(balanceFails){balanceFails=false;await route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:'Synthetic Master balance unavailable'})});return;}
@@ -89,6 +93,12 @@ let dashboardMasterChecked=false;let bound=role!=='SUPER_ADMIN';let mfaVerified=
   await page.getByText('Lihat Detail Pemeriksaan Master',{exact:true}).click();await page.getByRole('button',{name:'Validasi & Aktifkan Master'}).click();await page.getByText('Identitas Master tervalidasi dan aktivasi tersimpan.').waitFor();assert.deepEqual(actions,['BIND_MASTER_ACCOUNT','STEP_UP','BIND_MASTER_ACCOUNT']);assert.equal(prompts,1);
   assert.equal(await page.getByRole('button',{name:'Ajukan ke Controller'}).count(),0);
  }else if(role==='PAYROLL_PROCESSOR'){
+  await page.getByRole('button',{name:'Refresh Saldo Master',exact:true}).click();
+  await page.getByText('Saldo Master belum berhasil diperbarui',{exact:true}).waitFor();
+  assert.equal(await page.getByText('Saldo Master berhasil diperbarui.',{exact:true}).count(),0);
+  await page.getByRole('button',{name:'Refresh Saldo Master',exact:true}).click();
+  await page.getByText('Saldo Master berhasil diperbarui.',{exact:true}).waitFor();
+  assert.equal(fundingRefreshAttempts,2);assert.deepEqual(actions,[]);
   assert.equal(await page.getByRole('button',{name:'Validasi & Aktifkan Master'}).count(),0);
   await page.getByText('Ajukan limit',{exact:true}).click();await page.getByLabel('Nominal (IDR)').fill('2000');await page.getByRole('button',{name:'Ajukan ke Controller'}).click();await page.getByText('Permintaan limit dikirim ke Payroll Controller.').waitFor();assert.deepEqual(actions,['REQUEST_LIMIT']);
  }else if(role==='PAYROLL_CONTROLLER'){

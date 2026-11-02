@@ -148,9 +148,11 @@ export async function onRequest({request,env}){
 
   const organizationId=orgId(env,authorization.actor);
   const correlationId=requestId(request);
+  let stage='CONFIGURATION';
 
   try{
     const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId);
+    stage='READINESS';
     if(String(runtimeEnv.PAYMENT_GATEWAY_PROVIDER||'').toUpperCase()!=='E2PAY'){
       return secureJson({error:'E2Pay bukan active payment gateway',code:'E2PAY_NOT_ACTIVE'},409,request,env,METHODS);
     }
@@ -204,9 +206,11 @@ export async function onRequest({request,env}){
       if(resource==='catalog') return secureJson({ok:true,catalog:CATALOG,environment:runtimeEnv.E2PAY_ENV||'UAT'},200,request,env,METHODS);
 
       if(resource==='overview' || resource==='account'){
+        stage='ACCOUNT_SNAPSHOT_READ';
         let row=await snapshot(env.DB,organizationId,String(runtimeEnv.E2PAY_ENV||'UAT'));
         const force=url.searchParams.get('refresh')==='1';
         if(readiness.configured && (force || !row || !isFresh(row.refreshed_at))){
+          stage='PROVIDER_BALANCE_REFRESH';
           row=await liveAccount(env.DB,runtimeEnv,organizationId,resource==='overview');
         }
         return secureJson({ok:true,account:publicSnapshot(row,readiness,runtimeEnv),catalogCount:CATALOG.length},200,request,env,METHODS);
@@ -342,11 +346,18 @@ export async function onRequest({request,env}){
     return secureJson({ok:true,action,...result,correlationId},200,request,env,METHODS);
   } catch(error){
     const code=clean(error?.code,100);
-    const status=code.startsWith('E2PAY_') ? 409 : 500;
+    const status=code==='E2PAY_CREDENTIALS_UNREADABLE' ? 503 : code.startsWith('E2PAY_') ? 409 : 500;
+    // Keep correlation evidence without credentials, provider bodies or raw
+    // exception messages. A diagnostics failure must not replace the API error.
+    try{
+      await d1Batch(env.DB,[audit(organizationId,authorization.actor,'E2PAY_OPERATION_FAILED',
+        JSON.stringify({code:code||'INTERNAL_ERROR',stage,errorType:clean(error?.name,80)}),correlationId)]);
+    }catch{}
     return secureJson({
       ...(status===500 ? publicError(error,correlationId) : {error:error instanceof Error?error.message:'E2Pay operation failed'}),
       code:code||undefined,
       correlationId,
+      stage,
     },status,request,env,METHODS);
   }
 }
