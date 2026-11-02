@@ -1,14 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import EwaEnrollment from "./EwaEnrollment";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import {
   EwaDetailPanel,
   EwaStatusBadge,
 } from "@/components/employee-services/EwaLifecycle";
 import { EmployeeServiceState } from "@/components/employee-services/OperationalState";
-import CanonicalDisbursementWorkspace from "@/components/CanonicalDisbursementWorkspace";
 import {
   FilterBar as UiFilterBar,
   MetricCard as UiMetricCard,
@@ -37,14 +35,12 @@ function EwaActionButtons({
   busy,
   role,
   onAction,
-  onDisburse,
   onDetail,
 }: {
   row: EwaRow;
   busy: boolean;
   role:string;
   onAction: (id: string, action: string) => void;
-  onDisburse: (id: string) => void;
   onDetail: (row: EwaRow) => void;
 }) {
   return (
@@ -52,7 +48,7 @@ function EwaActionButtons({
       <button type="button" className="btn" onClick={() => onDetail(row)}>
         Detail
       </button>
-      {row.status === "SUBMITTED" && ((role === "CLIENT_USER" && row.client_approval_status === "PENDING") || (["SUPER_ADMIN","PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role) && row.client_approval_status === "APPROVED")) ? (
+      {row.status === "SUBMITTED" && ((role === "CLIENT_USER" && row.client_approval_status === "PENDING") || (["SUPER_ADMIN","PAYROLL_PROCESSOR"].includes(role) && row.client_approval_status === "APPROVED")) ? (
         <>
           <button type="button" className="btn btn-primary" disabled={busy} onClick={() => onAction(row.id, "APPROVE")}>
             Setujui
@@ -62,9 +58,7 @@ function EwaActionButtons({
           </button>
         </>
       ) : row.status === "APPROVED" && ["PAYROLL_PROCESSOR","PAYROLL_CONTROLLER"].includes(role) ? (
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => onDisburse(row.id)}>
-          Canonical Disbursement
-        </button>
+        <a className="btn" href={`/?view=payments&stage=payment&paymentPanel=DISBURSEMENT&ewaRequest=${encodeURIComponent(row.id)}&clientId=${encodeURIComponent(row.client_id||"")}`}>Buka pembayaran</a>
       ) : null}
     </div>
   );
@@ -88,7 +82,6 @@ export default function EwaInbox() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
   const [selected, setSelected] = useState<EwaRow | null>(null);
-  const [disbursementTarget, setDisbursementTarget] = useState<EwaRow | null>(null);
   const [actor,setActor]=useState<{role:string;email?:string;permissions?:string[]}|null>(null);
   useEffect(()=>{void fetch("/api/me").then(r=>r.ok?r.json():null).then(data=>setActor(data?.user||null)).catch(()=>setActor(null));},[]);
 
@@ -166,11 +159,6 @@ export default function EwaInbox() {
     }
   }
 
-  async function disburse(id: string) {
-    const row = rows.find((item) => item.id === id);
-    if (row) setDisbursementTarget(row);
-  }
-
   const operationalState = (
     <EmployeeServiceState
       loading={loading && rows.length === 0}
@@ -188,18 +176,16 @@ export default function EwaInbox() {
 
 
       <UiWorkspaceHeader
-        eyebrow="EMPLOYEE SERVICES · FINANCIAL CONTROL"
-        title="Advance Salary Control Center"
-        description="Kelola seluruh lifecycle advance dalam satu layar: review, approval, pencairan, potong payroll, hingga lunas setelah rekonsiliasi."
+        eyebrow="EMPLOYEE SERVICES"
+        title="Advance Salary"
+        description="Tinjau dan setujui pengajuan EWA sesuai tahap persetujuan."
         meta={<>
           <span><strong>{pending}</strong> perlu review</span>
           <span><strong>{total}</strong> total pengajuan</span>
-          <span>Maker-checker aktif</span>
+
         </>}
         action={<button type="button" className="btn" onClick={() => void load()} disabled={loading}>{loading ? "Memuat…" : "Refresh data"}</button>}
       />
-
-      <EwaEnrollment />
 
       <UiMetricGrid>
         {visibleSummary.map((item) => (
@@ -266,7 +252,6 @@ export default function EwaInbox() {
                         busy={Boolean(busy)}
                         role={actor?.role||""}
                         onAction={(id, action) => void act(id, action)}
-                        onDisburse={(id) => void disburse(id)}
                         onDetail={setSelected}
                       />
                     </td>
@@ -295,7 +280,6 @@ export default function EwaInbox() {
                   busy={Boolean(busy)}
                   role={actor?.role||""}
                   onAction={(id, action) => void act(id, action)}
-                  onDisburse={(id) => void disburse(id)}
                   onDetail={setSelected}
                 />
               </article>
@@ -315,10 +299,6 @@ export default function EwaInbox() {
       />
 
       {selected ? <EwaDetailPanel row={selected} onClose={() => setSelected(null)} /> : null}
-      {disbursementTarget ? <div style={{marginTop:14,display:'grid',gap:8}}>
-        <button type="button" className="btn" style={{justifySelf:'start'}} onClick={()=>setDisbursementTarget(null)}>Tutup canonical payment</button>
-        <CanonicalDisbursementWorkspace actor={actor} sourceType="EWA_REQUEST" focusSourceId={disbursementTarget.id} clientId={disbursementTarget.client_id||''} onChanged={()=>void load()} />
-      </div> : null}
     </section>
   );
 }

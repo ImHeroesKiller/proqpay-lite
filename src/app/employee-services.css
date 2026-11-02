@@ -719,3 +719,4 @@
 .ewa-enrollment [role=status]{padding:10px 12px;background:var(--bg-subtle);border-radius:9px;color:inherit}
 .ewa-enrollment fieldset:disabled{opacity:.65}
 @media(min-width:760px){.ewa-enrollment fieldset{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px}.ewa-enrollment fieldset>p,.ewa-enrollment fieldset>button,.ewa-enrollment label:has(textarea),.ewa-enrollment label:has(input[type=checkbox]){grid-column:1/-1}}
+.employee-profile-groups .ewa-enrollment .ewa-activation-toggle{display:flex;flex-direction:row;align-items:center;gap:10px}

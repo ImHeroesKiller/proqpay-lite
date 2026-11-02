@@ -140,7 +140,7 @@ test('client correction next action remains exception-owned while Phase 4 routes
   const navigation=await fs.readFile(new URL('../src/lib/navigation-config.ts',import.meta.url),'utf8');
   const workspace=await fs.readFile(new URL('../src/components/OperatingWorkspace.tsx',import.meta.url),'utf8');
   assert.match(sidebar,/viewsForRole/);
-  assert.match(authority,/CLIENT_USER: Object\.freeze\(\['dashboard','operations','reports','ewa'\]\)/);
+  assert.match(authority,/CLIENT_USER: Object\.freeze\(\['dashboard','operations','employees','reports','ewa'\]\)/);
   assert.match(sidebar,/getViewLabel\("operations", role\)/);
   assert.match(navigation,/operations: "Payroll"/);
   assert.match(workspace,/role === 'CLIENT_USER' \? 'CLIENT_ACTION_REQUIRED' : 'ACTIVE'/);

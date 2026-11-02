@@ -9,7 +9,7 @@ test('Phase 4 limits client navigation to Home Payroll and Documents', async()=>
   const authority=await read('shared/authority-matrix.js');
   const navigation=await read('src/lib/navigation-config.ts');
   assert.match(sidebar,/viewsForRole/);
-  assert.match(authority,/CLIENT_USER: Object\.freeze\(\['dashboard','operations','reports','ewa'\]\)/);
+  assert.match(authority,/CLIENT_USER: Object\.freeze\(\['dashboard','operations','employees','reports','ewa'\]\)/);
   assert.match(sidebar,/const clientExperience = role === "CLIENT_USER"/);
   assert.match(sidebar,/getViewLabel\("dashboard", role\)/);
   assert.match(sidebar,/getViewLabel\("operations", role\)/);

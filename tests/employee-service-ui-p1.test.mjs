@@ -9,7 +9,8 @@ test('Employee Services UI P1: Advance Salary uses canonical payout workspace an
   const canonical=await read('src/components/CanonicalDisbursementWorkspace.tsx');
   const styles=await read('src/app/employee-services.css');
   assert.doesNotMatch(inbox,/window\.prompt/);
-  assert.match(inbox,/CanonicalDisbursementWorkspace/);
+  assert.doesNotMatch(inbox,/CanonicalDisbursementWorkspace/);
+  assert.match(inbox,/Buka pembayaran/);
   assert.doesNotMatch(inbox,/DisbursementDialog/);
   assert.match(inbox,/aria-label="Filter status"/);
   assert.match(inbox,/es-sticky-left/);

@@ -47,10 +47,11 @@ export async function onRequest({ request, env }) {
       if (actor.role === 'CLIENT_USER') {
         const clients = clientIdsFor(actor, env) || [];
         const projects = projectIdsFor(actor) || [];
-        if (!clients.length || !projects.length) clauses.push('1=0');
+        if (!clients.length) clauses.push('1=0');
         else {
-          clauses.push(`r.client_id IN (${clients.map(()=>'?').join(',')}) AND e.project_id IN (${projects.map(()=>'?').join(',')})`);
-          bindings.push(...clients, ...projects);
+          clauses.push(`r.client_id IN (${clients.map(()=>'?').join(',')})`);
+          bindings.push(...clients);
+          if(projects.length){clauses.push(`e.project_id IN (${projects.map(()=>'?').join(',')})`);bindings.push(...projects);}
         }
       }
       const scopeWhere = clauses.join(' AND ');
@@ -101,9 +102,8 @@ export async function onRequest({ request, env }) {
       const clients = await d1All(
         env.DB,
         `SELECT DISTINCT c.id,c.name
-          FROM ewa_requests r
-          JOIN clients c ON c.id=r.client_id JOIN employees e ON e.id=r.employee_id
-          WHERE ${scopeWhere}
+          FROM clients c LEFT JOIN projects e ON e.client_id=c.id AND e.org_id=c.org_id
+          WHERE ${scopeWhere.replaceAll('r.org_id','c.org_id').replaceAll('r.client_id','c.id').replaceAll('e.project_id','e.id')}
           ORDER BY c.name ASC
           LIMIT 200`,
         scopeBindings,
@@ -135,7 +135,7 @@ export async function onRequest({ request, env }) {
     if (actor.role === 'CLIENT_USER') {
       const employee = await d1First(env.DB, 'SELECT project_id FROM employees WHERE id=?', [current.employee_id]);
       if (!(clientIdsFor(actor, env) || []).includes(String(current.client_id)) ||
-          !(projectIdsFor(actor) || []).includes(String(employee?.project_id))) return respond({error:'Pengajuan tidak ditemukan'},404);
+          ((projectIdsFor(actor) || []).length > 0 && !(projectIdsFor(actor) || []).includes(String(employee?.project_id)))) return respond({error:'Pengajuan tidak ditemukan'},404);
     if(action==='APPROVE' && current.configuration_version != null){
       const configuration=await employeeEwaConfiguration(env.DB,current.employee_id,organizationId,current.client_id);
       if(!configuration.enabled || configuration.settings?.version!==current.configuration_version || Number(current.amount)>configuration.limit){
@@ -159,6 +159,7 @@ export async function onRequest({ request, env }) {
         [`AUD-${crypto.randomUUID()}`,organizationId,actorId,`EWA_CLIENT_${clientStatus}`,requestId,requestId]);
       return respond({ok:true,request:await d1First(env.DB,'SELECT * FROM ewa_requests WHERE id=? AND org_id=?',[requestId,organizationId])});
     }
+    if(action==='APPROVE' && actor.role==='PAYROLL_CONTROLLER')return respond({error:'Processor menyiapkan pengajuan terlebih dahulu. Controller menyetujui eksekusi melalui Disbursement.',code:'EWA_PROCESSOR_REVIEW_REQUIRED'},403);
     if(action==='APPROVE' && current.configuration_version != null){
       const configuration=await employeeEwaConfiguration(env.DB,current.employee_id,organizationId,current.client_id);
       if(!configuration.enabled || configuration.settings?.version!==current.configuration_version || Number(current.amount)>configuration.limit){

@@ -22,6 +22,8 @@ function purgeLegacyBrowserMirrors() {
 
 // The generation prevents stale responses from a previous login of the SAME
 // account being accepted after logout/re-login.
+export function databaseActorRole(): string | null { return actorScope ? JSON.parse(actorScope).role : null; }
+
 export function databaseActorScope() { return actorScope ? `${actorGeneration}:${actorScope}` : null; }
 
 export function setDatabaseActor(actor: { id?:string|null; role?:string|null; orgId?:string|null; clientIds?:string[]|null; projectIds?:string[]|null } | null) {

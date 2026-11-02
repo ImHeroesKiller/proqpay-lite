@@ -10,7 +10,7 @@ test('Advance Salary visible redesign has a distinct control-center hierarchy',a
   const css=await read('src/app/employee-services.css');
   const unified=await read('src/components/ui/UnifiedSystem.tsx');
   const globalCss=await readGlobalCss();
-  assert.match(ui,/Advance Salary Control Center/);
+  assert.match(ui,/title="Advance Salary"/);
   assert.match(ui,/UiWorkspaceHeader/);
   assert.match(ui,/UiMetricGrid/);
   assert.match(ui,/ewa-filter-panel/);

@@ -1,5 +1,7 @@
 'use client';
 
+import { databaseActorRole } from "@/lib/database";
+
 import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import AppWorkspaceRouter from '@/components/AppWorkspaceRouter';
@@ -128,7 +130,7 @@ export default function Home() {
         patchRoute({view:safeView,stage:safeView===route.view&&route.stage?PAYROLL_STAGE_URL[route.stage]:null,...cleared});
         setAuthRequired(false);
         setAuthChecked(true);
-        void syncDatabaseFromCloudflare(data, { signal: controller.signal })
+        void syncDatabaseFromCloudflare(data, { role: databaseActorRole(), signal: controller.signal })
           .then(({ db: canonical }) => {
             if(saveDatabase(canonical,authenticatedScope))setDb(canonical);
           })
@@ -202,7 +204,7 @@ export default function Home() {
   async function refreshCanonical() {
     if (!db) return;
     const scope=databaseActorScope();
-    const result = await syncDatabaseFromCloudflare(db, { requireData: true });
+    const result = await syncDatabaseFromCloudflare(db, { role: databaseActorRole(), requireData: true });
     if(saveDatabase(result.db,scope))setDb(result.db);
   }
 
