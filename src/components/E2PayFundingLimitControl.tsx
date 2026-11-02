@@ -10,7 +10,7 @@ import {
   approveE2PayDisbursementLimit,
   E2PayApiError,
   getE2PayDisbursementLimits,
-  getE2PayOverview,
+  refreshE2PayMasterBalance,
   getE2PayMasterActivation,
   runE2PayAction,
   type E2PayMasterActivation,
@@ -37,6 +37,7 @@ export default function E2PayFundingLimitControl({role,scopeClientId='ALL',scope
   const [busy,setBusy]=useState('');
   const [message,setMessage]=useState('');
   const [errorMessage,setErrorMessage]=useState('');
+  const [errorTitle,setErrorTitle]=useState('Proses limit belum berhasil');
   const canRequest=role==='PAYROLL_PROCESSOR';
   const canApprove=role==='PAYROLL_CONTROLLER';
   const load=useCallback(async()=>{
@@ -67,13 +68,14 @@ export default function E2PayFundingLimitControl({role,scopeClientId='ALL',scope
   const visibleProjects=projects.filter(p=>(p.client_id||p.clientId)===clientId);
 
   async function execute(key:string,action:()=>Promise<unknown>,success:string){
+    setErrorTitle(key==='SYNC'?'Saldo Master belum berhasil diperbarui':'Proses limit belum berhasil');
     setBusy(key);setMessage('');setErrorMessage('');
     try{await action();await load();setMessage(success);}
     catch(error){setErrorMessage((error instanceof Error?error.message:'Aksi gagal')+(error instanceof E2PayApiError&&error.code?` · Kode: ${error.code}`:''));}
     finally{setBusy('');}
   }
   async function refreshBalance(){
-    await execute('SYNC',()=>getE2PayOverview(true),'Saldo Master berhasil diperbarui.');
+    await execute('SYNC',()=>refreshE2PayMasterBalance(),'Saldo Master berhasil diperbarui.');
   }
   async function submitLimit(){
     if(!master||!clientId)return setMessage('Pilih klien dan pastikan Master Account tersedia.');
@@ -102,7 +104,7 @@ export default function E2PayFundingLimitControl({role,scopeClientId='ALL',scope
         <p>Satu saldo E2Pay Master. Processor mengajukan limit per klien, Controller menyetujui sebelum pembayaran.</p></div>
       <button type="button" className="btn" disabled={loading||Boolean(busy)} onClick={()=>void refreshBalance()}><IconRefresh aria-hidden="true"/>{busy==='SYNC'?'Menyinkronkan…':'Refresh Saldo Master'}</button>
     </div>
-    {errorMessage?<DismissibleBubble key={errorMessage+busy} className="app-notice-bubble app-notice-error" role="alert"><strong>Proses limit belum berhasil</strong><p>{errorMessage}</p></DismissibleBubble>:null}
+    {errorMessage?<DismissibleBubble key={errorMessage+busy} className="app-notice-bubble app-notice-error" role="alert"><strong>{errorTitle}</strong><p>{errorMessage}</p></DismissibleBubble>:null}
     {message?<DismissibleBubble key={message} className="app-notice-bubble app-notice-info" role="status"><span>{message}</span></DismissibleBubble>:null}
     <div className="e2pay-funding-summary">
       <div className="ui-metric-card"><span>Balance E2Pay Master</span><strong>{balance===null?'Belum tersinkron':formatIDR(balance)}</strong>

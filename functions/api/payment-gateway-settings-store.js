@@ -102,7 +102,16 @@ export async function readGatewaySecureSettings(database, env, organizationId) {
   const provider = normalizeProvider(row.provider);
   const draftEnvironment = normalizeEnvironment(row.draft_environment, environment);
   const draftProvider = normalizeProvider(row.draft_provider, provider);
-  const raw = await decryptCredentials(env, row);
+  let raw;
+  try {
+    raw = await decryptCredentials(env, row);
+  } catch {
+    // Fail closed. Never discard stored credentials or silently fall back to a
+    // different environment when the existing encrypted profile is unreadable.
+    const error = new Error('Konfigurasi koneksi E2Pay tidak dapat dibaca. Administrator perlu memeriksa kunci enkripsi konfigurasi. Data koneksi tidak diubah.');
+    error.code = 'E2PAY_CREDENTIALS_UNREADABLE';
+    throw error;
+  }
   const credentialProfiles = normalizeProfiles(raw, environment);
   return {
     exists:true,
