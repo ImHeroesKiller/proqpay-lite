@@ -1,7 +1,8 @@
 import { employeeEwaConfiguration } from './_ewa-entitlement.js';
-import { d1All, d1First, d1Run, hasD1 } from './_d1.js';
+import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import { authorize, clientIdsFor, projectIdsFor, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
-import { canonicalDrForEwa } from './_payment-source-guard.js';
+
+function decisionUpdate(statement, bindings) { return { statement, bindings }; }
 
 const METHODS = 'GET, POST, OPTIONS';
 const OPS = new Set(['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER','CLIENT_USER']);
@@ -150,16 +151,17 @@ export async function onRequest({ request, env }) {
       }
       const clientStatus = action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
       const actorId = String(actor.email || actor.id || '').trim();
-      const result = await d1Run(env.DB, `UPDATE ewa_requests SET client_approval_status=?,client_approved_by=?,
+      const [result] = await d1Batch(env.DB, [
+        { statement: `UPDATE ewa_requests SET client_approval_status=?,client_approved_by=?,
         client_decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),client_decision_note=?,
         status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
         WHERE id=? AND org_id=? AND status='SUBMITTED' AND client_approval_status='PENDING'
-        AND (?='REJECT' OR configuration_version IS NULL OR EXISTS(SELECT 1 FROM ewa_employee_settings cfg WHERE cfg.employee_id=ewa_requests.employee_id AND cfg.org_id=ewa_requests.org_id AND cfg.client_id=ewa_requests.client_id AND cfg.enabled=1 AND cfg.version=ewa_requests.configuration_version))`,
-        [clientStatus,actorId,String(body.note || '').slice(0,240) || null,action === 'REJECT' ? 'REJECTED' : 'SUBMITTED',requestId,organizationId,action]);
-      if (Number(result?.meta?.changes ?? result?.changes ?? 0) !== 1) return respond({error:'Status berubah. Muat ulang.'},409);
-      await d1Run(env.DB, `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
-        VALUES (?,?,?,'CLIENT_USER',?,?,'ewa_request',?)`,
-        [`AUD-${crypto.randomUUID()}`,organizationId,actorId,`EWA_CLIENT_${clientStatus}`,JSON.stringify({requestId,decision:clientStatus,note:String(body.note||'').trim().slice(0,240)}),requestId]);
+        AND (?='REJECT' OR configuration_version IS NULL OR EXISTS(SELECT 1 FROM ewa_employee_settings cfg WHERE cfg.employee_id=ewa_requests.employee_id AND cfg.org_id=ewa_requests.org_id AND cfg.client_id=ewa_requests.client_id AND cfg.enabled=1 AND cfg.version=ewa_requests.configuration_version))`, bindings: [clientStatus,actorId,String(body.note || '').slice(0,240) || null,action === 'REJECT' ? 'REJECTED' : 'SUBMITTED',requestId,organizationId,action] },
+        { statement: `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
+          SELECT ?,?,?,'CLIENT_USER',?,?,'ewa_request',? WHERE changes()=1`,
+          bindings: [`AUD-${crypto.randomUUID()}`,organizationId,actorId,`EWA_CLIENT_${clientStatus}`,JSON.stringify({requestId,decision:clientStatus,note:String(body.note||'').trim().slice(0,240)}),requestId] },
+      ]);
+      if (Number(result?.meta?.changes ?? 0) !== 1) return respond({error:'Status berubah. Muat ulang.'},409);
       return respond({ok:true,request:await d1First(env.DB,'SELECT * FROM ewa_requests WHERE id=? AND org_id=?',[requestId,organizationId])});
     }
     if(['APPROVE','REJECT'].includes(action) && actor.role==='PAYROLL_CONTROLLER')return respond({error:'Processor menyiapkan pengajuan terlebih dahulu. Controller menyetujui eksekusi melalui Disbursement.',code:'EWA_PROCESSOR_REVIEW_REQUIRED'},403);
@@ -176,12 +178,11 @@ export async function onRequest({ request, env }) {
     const actorId = String(actor.email || actor.id || '').trim();
     const note = String(body.note || '').trim().slice(0, 240);
     let nextStatus = '';
-    let result;
+    let transition;
 
     if (action === 'APPROVE' && current.status === 'SUBMITTED') {
       nextStatus = 'APPROVED';
-      result = await d1Run(
-        env.DB,
+      transition = decisionUpdate(
         `UPDATE ewa_requests
           SET status='APPROVED', approved_by=?, approved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
               decision_note=?, decided_by=?, decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
@@ -192,47 +193,12 @@ export async function onRequest({ request, env }) {
       );
     } else if (action === 'REJECT' && current.status === 'SUBMITTED') {
       nextStatus = 'REJECTED';
-      result = await d1Run(
-        env.DB,
+      transition = decisionUpdate(
         `UPDATE ewa_requests
           SET status='REJECTED', decision_note=?, decided_by=?, decided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
               updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
           WHERE id=? AND org_id=? AND status='SUBMITTED' AND client_approval_status='APPROVED' AND client_approved_by IS NOT NULL`,
         [note || null, actorId, requestId, organizationId],
-      );
-    } else if (action === 'DISBURSE' && current.status === 'APPROVED') {
-      // Legacy proof-only disbursement is never allowed to bypass a canonical E2Pay
-      // financial execution (nor to mark an integrated EWA paid without provider evidence).
-      const canonical=await canonicalDrForEwa(env.DB,organizationId,requestId);
-      if(canonical) return respond({error:'EWA sudah memakai Canonical Disbursement Request. Reconcile transaksi provider sebelum mengubah status pembayaran.',code:'EWA_CANONICAL_DISBURSEMENT_REQUIRED'},409);
-      const providerAccount=await d1First(env.DB,`SELECT id FROM payment_provider_accounts
-        WHERE org_id=? AND client_id=? AND provider='E2PAY' AND account_scope='SUB_ACCOUNT' AND status='ACTIVE' LIMIT 1`,
-        [organizationId,current.client_id]);
-      if(providerAccount) return respond({error:'EWA dengan sub-account E2Pay aktif wajib dicairkan lewat Canonical DR oleh Payroll Controller; pencatatan manual DISBURSED ditolak.',code:'EWA_PROVIDER_EXECUTION_REQUIRED'},409);
-      if (String(current.approved_by || '').trim().toLowerCase() === actorId.toLowerCase()) {
-        return respond({ error: 'Maker-checker: approver tidak boleh sekaligus mencairkan advance', code: 'EWA_SOD_REQUIRED' }, 409);
-      }
-      const source = String(body.source || body.disbursementSource || '').trim().slice(0, 40).toUpperCase();
-      const reference = String(body.reference || body.disbursementReference || '').trim().slice(0, 100);
-      const transactionDate = String(body.transactionDate || body.disbursementTransactionDate || '').trim().slice(0, 10);
-      if (!source || !reference || !/^\d{4}-\d{2}-\d{2}$/.test(transactionDate)) {
-        return respond({
-          error: 'Bukti pencairan wajib lengkap: source, reference, dan transactionDate (YYYY-MM-DD)',
-          code: 'EWA_DISBURSEMENT_EVIDENCE_REQUIRED',
-        }, 422);
-      }
-      if (!current.destination_bank_name || !current.destination_account_last4) {
-        return respond({ error: 'Snapshot rekening tujuan tidak tersedia. Pengajuan harus dibuat ulang.', code: 'EWA_DESTINATION_SNAPSHOT_REQUIRED' }, 409);
-      }
-      nextStatus = 'DISBURSED';
-      result = await d1Run(
-        env.DB,
-        `UPDATE ewa_requests
-          SET status='DISBURSED', disbursed_by=?, disbursed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-              disbursement_source=?, disbursement_reference=?, disbursement_transaction_date=?,
-              updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-          WHERE id=? AND org_id=? AND status='APPROVED' AND approved_by IS NOT NULL AND lower(approved_by)<>lower(?)`,
-        [actorId, source, reference, transactionDate, requestId, organizationId, actorId],
       );
     } else if (action === 'REPAY') {
       return respond({
@@ -243,24 +209,16 @@ export async function onRequest({ request, env }) {
       return respond({ error: 'Aksi tidak valid untuk status saat ini' }, 409);
     }
 
-    const changes = Number(result?.meta?.changes ?? result?.changes ?? 0);
-    if (changes !== 1) {
-      return respond({ error: 'Status pengajuan berubah. Muat ulang sebelum memproses kembali.', code: 'EWA_CONCURRENT_TRANSITION' }, 409);
+    const [result] = await d1Batch(env.DB, [transition, {
+      statement: `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
+        SELECT ?,?,?,?,?,?,'ewa_request',? WHERE changes()=1`,
+      bindings: [`AUD-${crypto.randomUUID()}`,organizationId,actorId,actor.role,`EWA_${nextStatus}`,
+        JSON.stringify({requestId,employeeId:current.employee_id,decision:nextStatus,note}),requestId],
+    }]);
+    if (Number(result?.meta?.changes || 0) !== 1) {
+      return respond({error:'Status pengajuan berubah. Muat ulang sebelum memproses kembali.',code:'EWA_CONCURRENT_TRANSITION'},409);
     }
 
-    await d1Run(
-      env.DB,
-      `INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
-        VALUES (?, ?, ?, ?, ?, ?, 'ewa_request', ?)`,
-      [
-        `AUD-${crypto.randomUUID()}`, organizationId, actorId, actor.role,
-        `EWA_${nextStatus}`,
-        nextStatus === 'DISBURSED'
-          ? `${requestId} · ${current.employee_id} · ${String(body.source || body.disbursementSource || '').trim().slice(0, 40).toUpperCase()} · ${String(body.reference || body.disbursementReference || '').trim().slice(0, 100)}`
-          : JSON.stringify({requestId,employeeId:current.employee_id,decision:nextStatus,note}),
-        requestId,
-      ],
-    );
     const updated = await d1First(env.DB, 'SELECT * FROM ewa_requests WHERE id=? AND org_id=?', [requestId, organizationId]);
     return respond({ ok: true, request: updated });
   } catch (error) {

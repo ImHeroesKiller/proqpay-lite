@@ -1,4 +1,4 @@
-import { d1All, d1Batch, d1First, d1Run } from './_d1.js';
+import { d1All, d1Batch } from './_d1.js';
 
 export const DEFAULT_EWA_POLICY = Object.freeze({
   enabled: 0,
@@ -145,83 +145,60 @@ function parseComponents(raw) {
   catch { return {}; }
 }
 function hasEwaComponent(components) {
-  if (Array.isArray(components)) return components.some((item) => /ewa/i.test(String(item?.name || item?.label || item?.code || '')));
-  return Object.keys(components || {}).some((key) => /ewa/i.test(key));
+  const names = Array.isArray(components) ? components.map(item => item?.code || item?.name || item?.label) : Object.keys(components || {});
+  return names.some(name => /^(ewaRepayment|ewaFee)$/i.test(String(name || '')));
 }
 function attachEwa(components, amount, fee) {
   if (Array.isArray(components)) return [...components, { name: 'ewaRepayment', amount: -Math.abs(amount) }, { name: 'ewaFee', amount: -Math.abs(fee) }];
   return { ...components, ewaRepayment: -Math.abs(amount), ewaFee: -Math.abs(fee) };
 }
 
-/** Deduct disbursed EWA from pay-run snapshot atomically. */
+/** Claim and apply a loan once; DB triggers keep allocation, line and audit atomic. */
 export async function applyEwaRepayments(database, submissionId) {
   if (!database || !submissionId) return { applied: 0 };
-  const submission = await d1First(database, 'SELECT id, period FROM payroll_submissions WHERE id=? LIMIT 1', [submissionId]);
-  if (!submission) return { applied: 0 };
-  let rows = [];
-  try {
-    rows = await d1All(database, `SELECT r.id,r.amount,r.fee,r.repayment,r.status,r.employee_id,
-      l.deduction_amount,l.net_amount,l.components FROM ewa_requests r
-      JOIN payroll_run_lines l ON l.submission_id=? AND l.employee_id=r.employee_id AND l.included=1
-      WHERE r.status IN ('DISBURSED','REPAYING') AND r.period<=?
-        AND (r.payroll_submission_id IS NULL OR r.payroll_submission_id=?)`, [submissionId, submission.period, submissionId]);
-  } catch (error) {
-    if (/no such table/i.test(String(error?.message || error))) return { applied: 0 };
-    throw error;
-  }
-
+  const rows = await d1All(database, `SELECT r.*,l.id AS line_id,l.deduction_amount,l.net_amount,l.components
+    FROM ewa_requests r JOIN payroll_submissions s ON s.id=? AND s.org_id=r.org_id AND s.client_id=r.client_id
+    JOIN payroll_run_lines l ON l.submission_id=s.id AND l.employee_id=r.employee_id AND l.included=1
+    WHERE r.status IN ('DISBURSED','REPAYING') AND r.period<=s.period
+      AND (r.payroll_submission_id IS NULL OR r.payroll_submission_id=s.id)
+      AND NOT EXISTS(SELECT 1 FROM ewa_repayment_allocations a WHERE a.ewa_request_id=r.id)`, [submissionId]);
   const operations = [];
-  let applied = 0;
   for (const row of rows) {
+    // Historical markers are not collection evidence. Never silently adopt them.
     const components = parseComponents(row.components);
-    const repayment = Math.max(0, Math.round(Number(row.repayment || (Number(row.amount) + Number(row.fee))) || 0));
-    if (hasEwaComponent(components)) {
-      if (row.status === 'DISBURSED') operations.push({ statement: `UPDATE ewa_requests SET status='REPAYING',payroll_submission_id=?,applied_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings: [submissionId, row.id] });
-      continue;
+    if (row.status !== 'DISBURSED' || row.payroll_submission_id || hasEwaComponent(components)) {
+      throw new Error(`EWA_REPAYMENT_REVIEW_REQUIRED:${row.id}`);
     }
-    const net = Number(row.net_amount || 0);
-    if (repayment <= 0) throw new Error(`EWA_REPAYMENT_INVALID:${row.id}`);
+    const principal = Number(row.amount), fee = Number(row.fee), repayment = Number(row.repayment);
+    if (![principal, fee, repayment].every(Number.isSafeInteger) || principal <= 0 || fee < 0 || repayment !== principal + fee) {
+      throw new Error(`EWA_REPAYMENT_INVALID:${row.id}`);
+    }
+    const net = Number(row.net_amount);
     if (net - repayment <= 0) throw new Error(`EWA_REPAYMENT_EXCEEDS_NET:${row.id}`);
-    const next = attachEwa(components, Number(row.amount) || 0, Number(row.fee) || 0);
-    operations.push({ statement: `UPDATE payroll_run_lines SET deduction_amount=?,net_amount=?,components=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE submission_id=? AND employee_id=? AND included=1`, bindings: [Number(row.deduction_amount || 0) + repayment, net - repayment, JSON.stringify(next), submissionId, row.employee_id] });
-    operations.push({ statement: `UPDATE ewa_requests SET status='REPAYING',payroll_submission_id=?,applied_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, bindings: [submissionId, row.id] });
-    applied += 1;
+    operations.push({statement: `INSERT INTO ewa_repayment_allocations
+      (ewa_request_id,org_id,client_id,submission_id,employee_id,line_id,principal,fee,total,
+       base_net,base_deduction,base_components,applied_net,applied_deduction,applied_components)
+      SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(
+        SELECT 1 FROM ewa_requests WHERE id=? AND status='DISBURSED' AND payroll_submission_id IS NULL)
+        AND NOT EXISTS(SELECT 1 FROM ewa_repayment_allocations WHERE ewa_request_id=?)`,
+      bindings: [row.id,row.org_id,row.client_id,submissionId,row.employee_id,row.line_id,principal,fee,repayment,
+        net,Number(row.deduction_amount),row.components ?? '{}',net-repayment,Number(row.deduction_amount)+repayment,
+        JSON.stringify(attachEwa(components,principal,fee)),row.id,row.id]});
   }
-  if (operations.length) await d1Batch(database, operations);
-  return { applied };
+  // D1 meta.changes includes trigger writes; SQLite changes() is the direct claim count.
+  const results = await d1Batch(database, operations.flatMap(operation => [operation,{statement:'SELECT changes() AS applied'}]));
+  return { applied: results.reduce((sum, r) => sum + Number(r.results?.[0]?.applied || 0), 0) };
 }
 
+/** Collect only allocations backed by this employee's paid immutable PI line. */
 export async function markEwaRepaid(database, submissionId) {
-  if (!database || !submissionId) return;
-  try {
-    const rows = await d1All(
-      database,
-      `SELECT id,org_id,employee_id,repayment FROM ewa_requests
-        WHERE payroll_submission_id=? AND status='REPAYING'`,
-      [submissionId],
-    );
-    if (!rows.length) return;
-    const operations = [{
-      statement: `UPDATE ewa_requests
-        SET status='REPAID',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        WHERE payroll_submission_id=? AND status='REPAYING'`,
-      bindings: [submissionId],
-    }];
-    for (const row of rows) {
-      operations.push({
-        statement: `INSERT INTO audit_logs (id,org_id,username,role,action,detail,entity,entity_id)
-          VALUES (?,?,'SYSTEM','SYSTEM','EWA_REPAID_RECONCILED',?,'ewa_request',?)`,
-        bindings: [
-          `AUD-${crypto.randomUUID()}`,
-          row.org_id,
-          `${row.id} · payroll ${submissionId} · repayment ${Number(row.repayment || 0)}`,
-          row.id,
-        ],
-      });
-    }
-    await d1Batch(database, operations);
-  } catch (error) {
-    if (/no such table|no such column/i.test(String(error?.message || error))) return;
-    throw error;
-  }
+  if (!database || !submissionId) return { collected: 0 };
+  const results = await d1Batch(database, [{statement: `UPDATE ewa_repayment_allocations
+    SET payment_instruction_id=(SELECT e.payment_instruction_id FROM ewa_repayment_collection_evidence e
+      WHERE e.ewa_request_id=ewa_repayment_allocations.ewa_request_id ORDER BY e.payment_instruction_id LIMIT 1),
+      collected_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE submission_id=? AND collected_at IS NULL
+      AND EXISTS(SELECT 1 FROM ewa_repayment_collection_evidence e WHERE e.ewa_request_id=ewa_repayment_allocations.ewa_request_id)`,bindings:[submissionId]},
+    {statement:'SELECT changes() AS collected'}]);
+  return { collected: Number(results[1]?.results?.[0]?.collected || 0) };
 }

@@ -1,3 +1,4 @@
+import { markEwaRepaid } from './_ewa.js';
 import { authorize, enforceRateLimit, handlePreflight, secureJson } from './_security.js';
 import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import { handleD1OperatingModel } from './operating-model-d1.js';
@@ -96,15 +97,7 @@ function contextWithJsonBody(context, body) {
 
 async function healCompletedPayment(env, payment) {
   if (!payment?.submission_id) return;
-  try {
-    await d1Batch(env.DB, [{
-      statement: `UPDATE ewa_requests SET status='REPAID',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        WHERE payroll_submission_id=? AND status='REPAYING'`,
-      bindings: [payment.submission_id],
-    }]);
-  } catch (error) {
-    if (!/no such table|no such column/i.test(String(error?.message || error))) throw error;
-  }
+  await markEwaRepaid(env.DB, payment.submission_id);
 }
 
 async function guardBusinessProcessActions(body, actor, env) {

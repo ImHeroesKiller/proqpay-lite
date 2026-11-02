@@ -256,7 +256,7 @@ test('GET /api/employee/init is scoped to the session and slips come from pay-ru
   assert.ok(!JSON.stringify(payload).includes('6_500_000') && !JSON.stringify(payload).includes('6500000'));
 });
 
-test('reconciliation MATCHED marks REPAYING EWA as REPAID', async () => {
+test('historical REPAYING without allocation and paid PI cannot be marked REPAID', async () => {
   const DB = new D1Mock();
   seedPayRun(DB);
   insertDisbursed(DB);
@@ -266,5 +266,5 @@ test('reconciliation MATCHED marks REPAYING EWA as REPAID', async () => {
   `);
   DB.sqlite.prepare("UPDATE ewa_requests SET status='REPAYING', payroll_submission_id='SUB-R' WHERE id='EWA-1'").run();
   await markEwaRepaid(DB, 'SUB-R');
-  assert.equal(DB.sqlite.prepare('SELECT status FROM ewa_requests WHERE id=?').get('EWA-1').status, 'REPAID');
+  assert.equal(DB.sqlite.prepare('SELECT status FROM ewa_requests WHERE id=?').get('EWA-1').status, 'REPAYING');
 });

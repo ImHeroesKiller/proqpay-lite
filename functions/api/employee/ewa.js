@@ -1,7 +1,7 @@
 import { employeeEwaConfiguration, configuredEwaPolicy } from '../_ewa-entitlement.js';
 import { EMPLOYEE_SERVICES_CONTRACT_VERSION } from '../_employee-contract.js';
 import { authenticateEmployee, employeeHandlePreflight, employeeJson, isActiveEmployee, portalMutationAllowed } from '../_employee-auth.js';
-import { d1All, d1First, d1Run, hasD1 } from '../_d1.js';
+import { d1All, d1Batch, d1First, hasD1 } from '../_d1.js';
 import {
   DEFAULT_EWA_POLICY, earnedDaysInPeriod, ewaEligibility, ewaFee, ewaPlafond,
   payrollStageIndex, policyToRules, tenureDaysFromJoin, tenureMonthsFromJoin,
@@ -164,18 +164,23 @@ export async function onRequest({ request, env }) {
       if (!state.open || state.open.status !== 'SUBMITTED') {
         return respond({ error: 'Tidak ada pengajuan yang bisa dibatalkan' }, 409);
       }
-      await d1Run(
-        env.DB,
-        `UPDATE ewa_requests SET status='CANCELLED', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,
-        [state.open.id],
-      );
+      const [cancelled] = await d1Batch(env.DB, [
+        {statement: `UPDATE ewa_requests SET status='CANCELLED',updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id=? AND org_id=? AND employee_id=? AND status='SUBMITTED' AND client_approval_status='PENDING'`,
+          bindings: [state.open.id,actor.orgId,actor.id]},
+        {statement: `INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id)
+          SELECT ?,?,?,'EMPLOYEE','EWA_CANCELLED',?,'ewa_request',? WHERE changes()=1`,
+          bindings: [`AUD-${crypto.randomUUID()}`,actor.orgId,actor.employeeCode,'Employee cancelled before client decision',state.open.id]},
+      ]);
+      if (Number(cancelled?.meta?.changes || 0)!==1) return respond({error:'Pengajuan sudah diproses. Muat ulang.',code:'EWA_CONCURRENT_TRANSITION'},409);
       return respond({ ok: true, contractVersion: EMPLOYEE_SERVICES_CONTRACT_VERSION, cancelled: state.open.id });
     }
 
+    if (action !== 'SUBMIT') return respond({error:'Aksi tidak dikenal'},422);
     if (actor.mustChangePassword) {
       return respond({ error: 'Ganti password terlebih dahulu' }, 409);
     }
-    if (!body.agreed) return respond({ error: 'Persetujuan potongan gaji wajib' }, 422);
+    if (body.agreed !== true) return respond({ error: 'Persetujuan potongan gaji wajib' }, 422);
     const amount = Math.round(Number(body.amount) || 0);
     if (amount < 100000) return respond({ error: 'Nominal minimal Rp 100.000' }, 422);
     if (!state.eligibility.eligible) return respond({ error: state.eligibility.reason }, 409);
@@ -200,26 +205,21 @@ export async function onRequest({ request, env }) {
     if (String(body.method || 'SALARY_ACCOUNT').toUpperCase() === 'SALARY_ACCOUNT' && (!bankName || accountLast4.length !== 4)) {
       return respond({ error: 'Rekening utama belum lengkap. Hubungi HR sebelum mengajukan advance.' }, 409);
     }
-    await d1Run(
-      env.DB,
-      `INSERT INTO ewa_requests (
+    await d1Batch(env.DB, [
+      {statement: `INSERT INTO ewa_requests (
         id, org_id, client_id, employee_id, period, amount, fee, repayment, method, tenor_months, status,
         plafond_snapshot, days_worked_snapshot, tenure_months_snapshot, employee_note,
         destination_bank_name, destination_account_last4,configuration_version,salary_reference_snapshot,salary_source_period_snapshot
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, ?, ?, ?, ?, ?)`, bindings: [
         id, actor.orgId, actor.clientId, actor.id, state.period, amount, fee, amount + fee,
         String(body.method || 'SALARY_ACCOUNT').slice(0, 40), Number(state.policy.max_tenor_months || 1),
         state.plafond, state.earned.daysWorked, state.tenureMonths, String(body.note || '').slice(0, 240) || null,
         bankName || null, accountLast4 || null,state.configuration.settings?.version || null,state.net,state.configuration.basis.period,
-      ],
-    );
-    await d1Run(
-      env.DB,
-      `INSERT INTO audit_logs (id, org_id, username, role, action, detail, entity, entity_id)
-        VALUES (?, ?, ?, 'EMPLOYEE', 'EWA_SUBMITTED', ?, 'ewa_request', ?)`,
-      [`AUD-${crypto.randomUUID()}`, actor.orgId, actor.employeeCode, `${id} · ${amount}`, id],
-    );
+      ]},
+      {statement: `INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id)
+        VALUES(?,?,?,'EMPLOYEE','EWA_SUBMITTED',?,'ewa_request',?)`,
+        bindings: [`AUD-${crypto.randomUUID()}`,actor.orgId,actor.employeeCode,`${id} · ${amount}`,id]},
+    ]);
     const created = await d1First(env.DB, 'SELECT * FROM ewa_requests WHERE id=?', [id]);
     return respond({ ok: true, contractVersion: EMPLOYEE_SERVICES_CONTRACT_VERSION, request: created });
   } catch (error) {

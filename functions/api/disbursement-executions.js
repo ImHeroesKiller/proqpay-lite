@@ -109,7 +109,9 @@ export async function onRequest({request,env}){
     if(!['APPROVED','EXECUTING','PROCESSING'].includes(String(dr.status))) return secureJson({error:`DR berstatus ${dr.status} belum dapat dieksekusi`,code:'DISBURSEMENT_NOT_APPROVED'},409,request,env,METHODS);
 
     if(dr.source_document_type==='EWA_REQUEST'){
-      const consent=await d1First(env.DB,'SELECT client_approval_status,client_approved_by FROM ewa_requests WHERE id=? AND org_id=?',[dr.source_document_id,organizationId]);
+      const consent=await d1First(env.DB,'SELECT status,client_id,amount,client_approval_status,client_approved_by FROM ewa_requests WHERE id=? AND org_id=?',[dr.source_document_id,organizationId]);
+      if(consent?.status!=='APPROVED' || consent.client_id!==dr.client_id || Number(consent.amount)!==Number(dr.amount))
+        return secureJson({error:'Status atau nominal sumber EWA berubah. Review ulang sebelum eksekusi.',code:'DISBURSEMENT_EWA_SOURCE_CHANGED'},409,request,env,METHODS);
       if(consent?.client_approval_status!=='APPROVED'||!consent.client_approved_by)
         return secureJson({error:'Persetujuan klien wajib sebelum pencairan advance',code:'EWA_CLIENT_APPROVAL_REQUIRED'},409,request,env,METHODS);
     }
@@ -208,6 +210,8 @@ export async function onRequest({request,env}){
     }
   }catch(error){
     const requestId=crypto.randomUUID();
+    if(String(error?.message||'').includes('DISBURSEMENT_EWA_SOURCE_CHANGED')) return secureJson({error:'Status atau persetujuan EWA berubah. Review ulang sebelum eksekusi.',code:'DISBURSEMENT_EWA_SOURCE_CHANGED',requestId},409,request,env,METHODS);
+    if(error?.code==='E2PAY_CREDENTIALS_UNREADABLE') return secureJson({error:'Konfigurasi pembayaran tidak dapat dibaca. Hubungi administrator.',code:error.code,requestId},503,request,env,METHODS);
     return secureJson(publicError(error,requestId),500,request,env,METHODS);
   }
 }
