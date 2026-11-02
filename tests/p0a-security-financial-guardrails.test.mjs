@@ -81,7 +81,8 @@ test('P0.A terminal legacy gateway transaction still blocks canonical replay',()
 test('P0.A EWA status update cannot bypass an active canonical DR',()=>{
   const {DB}=fixture();
   DB.sqlite.exec(`INSERT INTO employees(id,org_id,client_id,employee_code,name,status_aktif) VALUES('EMP-P0A','ORG-P0A','C-P0A-A','EP0A','Test','ACTIVE');
-    INSERT INTO ewa_requests(id,org_id,client_id,employee_id,period,amount,status) VALUES('EWA-P0A','ORG-P0A','C-P0A-A','EMP-P0A','2026-10',100,'APPROVED');`);
+    INSERT INTO ewa_requests(id,org_id,client_id,employee_id,period,amount,status) VALUES('EWA-P0A','ORG-P0A','C-P0A-A','EMP-P0A','2026-10',100,'APPROVED');
+ UPDATE ewa_requests SET client_approval_status='APPROVED',client_approved_by='client@test' WHERE status='APPROVED';`);
   DB.sqlite.exec(canonicalRow('DR-EWA-P0A','EWA_REQUEST','EWA-P0A'));
   assert.throws(()=>DB.sqlite.exec("UPDATE ewa_requests SET status='DISBURSED' WHERE id='EWA-P0A'"),/EWA_CANONICAL_DISBURSEMENT_REQUIRED/);
 });

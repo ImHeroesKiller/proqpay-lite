@@ -1,5 +1,5 @@
 import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
-import { authorize, enforceRateLimit, handlePreflight, secureJson } from './_security.js';
+import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { activeProviderAccount } from './payment-provider-routing.js';
 import { providerAccountCredentialState } from './payment-provider-account-credentials.js';
 import { canonicalBankCode, encryptAccountNumber, sha256Hex } from './payment-instruction-core.js';
@@ -19,9 +19,9 @@ const SOURCE_READY_PI=new Set(['PAYMENT_APPROVAL_PENDING','APPROVED_FOR_PAYMENT'
 
 function orgId(env,actor){ return String(actor?.orgId||env.DEFAULT_ORG_ID||'ORG-OTSINDO'); }
 function clean(value,limit=180){ return String(value??'').trim().replace(/[\r\n\t]+/g,' ').slice(0,limit); }
-function audit(org,actor,action,detail,entityId){
+function audit(org,actor,action,detail,entityId,changedOnly=false){
   return {statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id)
-    VALUES(?,?,?,?,?,?, 'disbursement_request',?)`,bindings:[`AUD-${crypto.randomUUID()}`,org,actor.email||actor.name||'system',actor.role,action,clean(detail,1000),entityId]};
+    ${changedOnly ? "SELECT ?,?,?,?,?,?,'disbursement_request',? WHERE changes()=1" : "VALUES(?,?,?,?,?,?,'disbursement_request',?)"}`,bindings:[`AUD-${crypto.randomUUID()}`,org,actor.email||actor.name||'system',actor.role,action,clean(detail,1000),entityId]};
 }
 async function requestWithItems(db,org,id){
   const row=await d1First(db,'SELECT * FROM disbursement_requests WHERE id=? AND org_id=? LIMIT 1',[id,org]);
@@ -135,7 +135,7 @@ export const FAILED_REISSUE_GUARD=`status='FAILED'
  AND (SELECT count(*) FROM disbursement_execution_items i JOIN disbursement_executions ex ON ex.id=i.disbursement_execution_id WHERE ex.disbursement_request_id=disbursement_requests.id)=recipient_count
  AND (SELECT sum(i.amount) FROM disbursement_execution_items i JOIN disbursement_executions ex ON ex.id=i.disbursement_execution_id WHERE ex.disbursement_request_id=disbursement_requests.id)=amount`;
 
-export async function onRequest({request,env}){
+async function handleRequest({request,env},correlationId){
   if(request.method==='OPTIONS') return handlePreflight(request,env,METHODS);
   if(!['GET','POST'].includes(request.method)) return secureJson({error:'Method not allowed'},405,request,env,METHODS);
   const authorization=await authorize(request,env,{roles:['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'],mutating:request.method==='POST',methods:METHODS});
@@ -145,7 +145,6 @@ export async function onRequest({request,env}){
   if(!hasD1(env)) return secureJson({error:'Cloudflare D1 unavailable'},503,request,env,METHODS);
   const actor=authorization.actor;
   const organizationId=orgId(env,actor);
-  const correlationId=crypto.randomUUID();
 
   if(request.method==='GET'){
     const url=new URL(request.url);
@@ -180,15 +179,22 @@ export async function onRequest({request,env}){
     const id=clean(body?.id,140);
     const current=await d1First(env.DB,'SELECT * FROM disbursement_requests WHERE id=? AND org_id=? LIMIT 1',[id,organizationId]);
     if(!current) return secureJson({error:'Disbursement Request tidak ditemukan'},404,request,env,METHODS);
+    if(action==='APPROVE_REQUEST' && current.source_document_type==='EWA_REQUEST') {
+      const source=await d1First(env.DB,`SELECT id FROM ewa_requests WHERE id=? AND org_id=? AND client_id=?
+        AND status='APPROVED' AND amount=? AND client_approval_status='APPROVED' AND client_approved_by IS NOT NULL`,
+        [current.source_document_id,organizationId,current.client_id,current.amount]);
+      if(!source) return secureJson({error:'Status atau persetujuan EWA berubah. Review ulang pengajuan.',code:'DISBURSEMENT_EWA_SOURCE_CHANGED'},409,request,env,METHODS);
+    }
     if(action==='REJECT_REQUEST'){
       if(current.status==='REJECTED') return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id),idempotentReplay:true},200,request,env,METHODS);
       if(current.status!=='PENDING_APPROVAL') return secureJson({error:'Disbursement Request tidak menunggu approval',code:'DISBURSEMENT_NOT_PENDING_APPROVAL'},409,request,env,METHODS);
       const reason=clean(body?.reason,500);
       if(reason.length<10) return secureJson({error:'Alasan reject minimal 10 karakter'},422,request,env,METHODS);
-      await d1Batch(env.DB,[
+      const [decision]=await d1Batch(env.DB,[
         {statement:`UPDATE disbursement_requests SET status='REJECTED',rejection_reason=?,updated_by_user_id=?,updated_by_email=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='PENDING_APPROVAL'`,bindings:[reason,actor.id||null,actor.email,id,organizationId]},
-        audit(organizationId,actor,'DISBURSEMENT_REQUEST_REJECTED',reason,id),
+        audit(organizationId,actor,'DISBURSEMENT_REQUEST_REJECTED',reason,id,true),
       ]);
+      if(Number(decision?.meta?.changes||0)!==1) return secureJson({error:'Status DR berubah. Muat ulang.',code:'DISBURSEMENT_CONCURRENT_TRANSITION'},409,request,env,METHODS);
       return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id)},200,request,env,METHODS);
     }
     if(current.status==='APPROVED') return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id),idempotentReplay:true},200,request,env,METHODS);
@@ -219,10 +225,11 @@ export async function onRequest({request,env}){
     if(mfaEnforcementMode(env)==='ENFORCE'&&!hasRecentMfa(actor,risk.limits.stepUpWindowSeconds)) return secureJson({error:'Verifikasi MFA terbaru diperlukan sebelum approval disbursement.',code:'MFA_STEP_UP_REQUIRED',stepUpWindowSeconds:risk.limits.stepUpWindowSeconds},428,request,env,METHODS);
     const funding=await readProviderFundingState(env.DB,organizationId,current.provider_account_registry_id,Number(current.amount),null,Date.now(),current.id,current.client_id,current.project_id||null);
     if(!funding.ready) return secureJson({error:'Funding & approved disbursement limit belum siap untuk approval DR.',code:`E2PAY_FUNDING_${funding.state}`,funding},409,request,env,METHODS);
-    await d1Batch(env.DB,[
+    const [decision]=await d1Batch(env.DB,[
       {statement:`UPDATE disbursement_requests SET status='APPROVED',approved_by_user_id=?,approved_by_email=?,approved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_by_user_id=?,updated_by_email=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='PENDING_APPROVAL'`,bindings:[actor.id||null,actor.email,actor.id||null,actor.email,id,organizationId]},
-      audit(organizationId,actor,'DISBURSEMENT_REQUEST_APPROVED',`amount=${current.amount} · recipients=${current.recipient_count} · channel=${routeValidation.snapshot.providerChannel} · funding=${funding.state} · mfa=${actor.mfaVerifiedAt?'verified':'audit'}`,id),
+      audit(organizationId,actor,'DISBURSEMENT_REQUEST_APPROVED',`amount=${current.amount} · recipients=${current.recipient_count} · channel=${routeValidation.snapshot.providerChannel} · funding=${funding.state} · mfa=${actor.mfaVerifiedAt?'verified':'audit'}`,id,true),
     ]);
+      if(Number(decision?.meta?.changes||0)!==1) return secureJson({error:'Status DR berubah. Muat ulang.',code:'DISBURSEMENT_CONCURRENT_TRANSITION'},409,request,env,METHODS);
     return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id),funding},200,request,env,METHODS);
   }
 
@@ -245,11 +252,12 @@ export async function onRequest({request,env}){
       error:'Jalur pembayaran otomatis belum siap. Periksa konfigurasi dan identitas Master E2Pay. Request tetap tersimpan.',
       code:route.code,intentKey:route.intentKey||null,
     },409,request,env,METHODS);
-    await d1Batch(env.DB,[
+    const [submitted]=await d1Batch(env.DB,[
       {statement:`UPDATE disbursement_requests SET status='PENDING_APPROVAL',provider_channel_mapping_id=?,provider_channel_snapshot=?,requested_by_user_id=?,requested_by_email=?,requested_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),updated_by_user_id=?,updated_by_email=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='READY'`,bindings:[route.mapping?.id||null,JSON.stringify(route.snapshot),actor.id||null,actor.email,actor.id||null,actor.email,id,organizationId]},
-      audit(organizationId,actor,'DISBURSEMENT_PROVIDER_CHANNEL_BOUND',`intent=${route.snapshot.intentKey} · providerChannel=${route.snapshot.providerChannel} · contract=${route.snapshot.contractVersion} · configHash=${route.snapshot.configHash}`,id),
-      audit(organizationId,actor,'DISBURSEMENT_REQUEST_SUBMITTED',`purpose=${current.purpose} · destination=${current.destination_mode} · amount=${current.amount} · channel=${route.snapshot.providerChannel}`,id),
+      audit(organizationId,actor,'DISBURSEMENT_PROVIDER_CHANNEL_BOUND',`intent=${route.snapshot.intentKey} · providerChannel=${route.snapshot.providerChannel} · contract=${route.snapshot.contractVersion} · configHash=${route.snapshot.configHash}`,id,true),
+      audit(organizationId,actor,'DISBURSEMENT_REQUEST_SUBMITTED',`purpose=${current.purpose} · destination=${current.destination_mode} · amount=${current.amount} · channel=${route.snapshot.providerChannel}`,id,true),
     ]);
+    if(Number(submitted?.meta?.changes||0)!==1) return secureJson({error:'Status DR berubah. Muat ulang.',code:'DISBURSEMENT_CONCURRENT_TRANSITION'},409,request,env,METHODS);
     return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id)},200,request,env,METHODS);
   }
 
@@ -338,4 +346,19 @@ export async function onRequest({request,env}){
     throw error;
   }
   return secureJson({ok:true,request:await requestWithItems(env.DB,organizationId,id)},201,request,env,METHODS);
+}
+
+// One boundary covers source resolution, encrypted configuration and mutations.
+export async function onRequest(context) {
+  const correlationId=crypto.randomUUID();
+  try { return await handleRequest(context,correlationId); }
+  catch(error) {
+    const code=String(error?.code||'');
+    const unavailable=code==='E2PAY_CREDENTIALS_UNREADABLE';
+    if(String(error?.message||'').includes('DISBURSEMENT_EWA_SOURCE_CHANGED')) return secureJson({error:'Status atau persetujuan EWA berubah. Review ulang pengajuan.',code:'DISBURSEMENT_EWA_SOURCE_CHANGED',correlationId},409,context.request,context.env,METHODS);
+    return secureJson(unavailable ? {
+      error:'Konfigurasi pembayaran tidak dapat dibaca. Hubungi administrator untuk memeriksa konfigurasi environment.',
+      code,correlationId,
+    } : {...publicError(error,correlationId),correlationId},unavailable?503:500,context.request,context.env,METHODS);
+  }
 }

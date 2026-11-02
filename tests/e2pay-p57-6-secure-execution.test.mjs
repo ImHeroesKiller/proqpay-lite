@@ -24,6 +24,9 @@ test('P5.7.6 canonical limit reservation is atomic, idempotent and prevents doub
       VALUES('PPA-576','ORG-576','CLI-576','E2PAY','UAT','SUB_ACCOUNT','SUB-576','Client','ACTIVE','seed');
     INSERT INTO e2pay_disbursement_limit_requests(id,org_id,provider_account_registry_id,client_id,environment,requested_amount,approved_amount,status,requested_by_email,approved_by_email,approved_at)
       VALUES('DLR-576','ORG-576','PPA-576','CLI-576','UAT',1000,1000,'ACTIVE','processor@test','controller@test','2026-10-12T00:00:00Z');
+    INSERT INTO employees(id,org_id,client_id,name) VALUES('EMP-576','ORG-576','CLI-576','EWA employee');
+    INSERT INTO ewa_requests(id,org_id,client_id,employee_id,period,amount,status,client_approval_status,client_approved_by)
+      VALUES('EWA-B','ORG-576','CLI-576','EMP-576','2026-10',400,'APPROVED','APPROVED','client@test');
     INSERT INTO disbursement_requests(id,org_id,client_id,provider,provider_account_registry_id,provider_sub_account_id_snapshot,provider_environment,purpose,destination_mode,beneficiary_type,source_document_type,source_document_id,amount,recipient_count,client_reference,correlation_id,idempotency_key,routing_hash,status,approved_by_email,approved_at,created_by_email)
       VALUES
       ('DR-576A','ORG-576','CLI-576','E2PAY','PPA-576','SUB-576','UAT','PAYROLL','DIRECT_EMPLOYEE','EMPLOYEE','PAYMENT_INSTRUCTION','PI-A',700,1,'REF-A','CORR-A','IDEM-A','HASH-A','APPROVED','controller@test','2026-10-12T00:00:00Z','processor@test'),

@@ -23,13 +23,19 @@ function setup(){
    INSERT INTO employees(id,org_id,client_id,employee_code,name,status_aktif)
    VALUES('EMP-P1C','ORG-P1C','CL-1','EMP1','Employee','ACTIVE');
    INSERT INTO ewa_requests(id,org_id,client_id,employee_id,period,amount,status)
-   VALUES('EWA-P1C','ORG-P1C','CL-1','EMP-P1C','2026-10',100,'APPROVED');
+   VALUES('EWA-P1C','ORG-P1C','CL-1','EMP-P1C','2026-10',12700,'APPROVED');
  `);
+ DB.sqlite.exec("UPDATE ewa_requests SET client_approval_status='APPROVED',client_approved_by='client@test'");
  const add=DB.sqlite.prepare(`INSERT INTO disbursement_requests(id,org_id,client_id,project_id,provider,provider_account_registry_id,provider_sub_account_id_snapshot,provider_environment,purpose,destination_mode,beneficiary_type,source_document_type,source_document_id,amount,recipient_count,client_reference,correlation_id,idempotency_key,routing_hash,status,created_by_email)
  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
  for(let index=1;index<=127;index++){
    const id=`DR-P1C-${String(index).padStart(3,'0')}`;
    const clientId=index===126?'CL-2':'CL-1';
+   if(index!==127){
+     DB.sqlite.prepare(`INSERT INTO employees(id,org_id,client_id,name,status_aktif) VALUES(?,'ORG-P1C',?,'Historical employee','ACTIVE')`).run(`EMP-OLD-${index}`,clientId);
+     DB.sqlite.prepare(`INSERT INTO ewa_requests(id,org_id,client_id,employee_id,period,amount,status,client_approval_status,client_approved_by)
+       VALUES(?,'ORG-P1C',?,?,'2025-01',?,'APPROVED','APPROVED','client@test')`).run(`EWA-OLD-${index}`,clientId,`EMP-OLD-${index}`,index*100);
+   }
    add.run(id,'ORG-P1C',clientId,index===127?'PR-1':null,'E2PAY','PPA-P1C','SUB-1','UAT','EWA','DIRECT_EMPLOYEE','EMPLOYEE','EWA_REQUEST',index===127?'EWA-P1C':`EWA-OLD-${index}`,index*100,1,`P1C-REF-${index}`,`CORR-${index}`,`IDEM-${index}`,`HASH-${index}`,'READY','processor@p1c.test');
  }
  const env={DB,DEFAULT_ORG_ID:'ORG-P1C',AUTH_MODE:'session',SESSION_SECRET:'p1c-session-secret-at-least-32-characters'};

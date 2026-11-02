@@ -25,7 +25,7 @@ test('stale balance is unknown, never a claimed available balance',async()=>{
 test('inactive clients, exhausted and missing limits show distinct block reasons',async()=>{
  const f=funded();f.database.sqlite.exec("UPDATE clients SET status='INACTIVE' WHERE id='C-FIX'");assert.ok((await rows(f))[0].reasons.some(x=>x.code==='CLIENT_INACTIVE'));
  f.database.sqlite.exec("UPDATE clients SET status='ACTIVE';UPDATE e2pay_disbursement_limit_usage SET reserved_amount=10000");assert.ok((await rows(f))[0].reasons.some(x=>x.code==='LIMIT_EXHAUSTED'));
- f.database.sqlite.exec("UPDATE e2pay_disbursement_limit_requests SET status='REVOKED'");assert.ok((await rows(f))[0].reasons.some(x=>x.code==='NO_AVAILABLE_LIMIT'));
+ f.database.sqlite.exec("UPDATE e2pay_disbursement_limit_usage SET status='RELEASED';UPDATE e2pay_disbursement_limit_requests SET status='REVOKED'");assert.ok((await rows(f))[0].reasons.some(x=>x.code==='NO_AVAILABLE_LIMIT'));
 });
 test('clients without a pay run are included; client/tenant scope cannot pull another client balance',async()=>{
  const f=funded();f.database.sqlite.exec("INSERT INTO clients(id,org_id,code,name,status) VALUES('C-OTHER','ORG-FIX','OTHER','Other client','ACTIVE')");assert.equal((await rows(f)).length,2);

@@ -20,6 +20,7 @@ function seed(){
  INSERT INTO clients(id,org_id,code,name,status) VALUES('C-P0B','ORG-P0B','CLI','Client','ACTIVE');
  INSERT INTO employees(id,org_id,client_id,employee_code,name,status_aktif) VALUES('E-P0B','ORG-P0B','C-P0B','E001','Employee','ACTIVE');
  INSERT INTO ewa_requests(id,org_id,client_id,employee_id,period,amount,status) VALUES('EWA-P0B','ORG-P0B','C-P0B','E-P0B','2026-10',100,'APPROVED');
+ UPDATE ewa_requests SET client_approval_status='APPROVED',client_approved_by='client@test' WHERE status='APPROVED';
  INSERT INTO payment_provider_accounts(id,org_id,client_id,provider,environment,account_scope,provider_sub_account_id,status,created_by)
  VALUES('PPA-P0B','ORG-P0B','C-P0B','E2PAY','UAT','SUB_ACCOUNT','SUB-P0B','ACTIVE','seed');
  INSERT INTO disbursement_requests(id,org_id,client_id,provider,provider_account_registry_id,provider_sub_account_id_snapshot,provider_environment,purpose,destination_mode,beneficiary_type,source_document_type,source_document_id,amount,recipient_count,client_reference,correlation_id,idempotency_key,routing_hash,status,approved_by_email,approved_at,created_by_email)

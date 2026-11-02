@@ -336,15 +336,21 @@ export async function onRequest({request,env}){
       const reason=clean(body.reason,500);
       if(reason.length<10) return secureJson({error:'Alasan revoke minimal 10 karakter'},422,request,env,METHODS);
       const reserved=await d1First(env.DB,`SELECT COUNT(*) AS count FROM e2pay_disbursement_limit_usage
-        WHERE limit_request_id=? AND status='RESERVED'`,[id]);
+        WHERE limit_request_id=? AND status='RESERVED'
+        UNION ALL SELECT COUNT(*) AS count FROM e2pay_disbursement_request_limit_usage WHERE limit_request_id=? AND status='RESERVED' ORDER BY count DESC LIMIT 1`,[id,id]);
       if(Number(reserved?.count||0)>0){
         return secureJson({error:'Limit memiliki payment reservation aktif dan belum dapat direvoke.',code:'E2PAY_LIMIT_HAS_ACTIVE_RESERVATION'},409,request,env,METHODS);
       }
-      const result=await d1Run(env.DB,`UPDATE e2pay_disbursement_limit_requests SET status='REVOKED',rejected_reason=?,
-        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='ACTIVE'`,
-        [reason,id,organizationId]);
-      if(Number(result?.meta?.changes||0)!==1) return secureJson({error:'Limit aktif tidak ditemukan'},409,request,env,METHODS);
-      await d1Batch(env.DB,[audit(organizationId,actor,'E2PAY_DISBURSEMENT_LIMIT_REVOKED',id,reason,correlationId)]);
+      const [result]=await d1Batch(env.DB,[{statement:`UPDATE e2pay_disbursement_limit_requests SET status='REVOKED',rejected_reason=?,
+        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND org_id=? AND status='ACTIVE'
+          AND NOT EXISTS(SELECT 1 FROM e2pay_disbursement_limit_usage WHERE limit_request_id=? AND status='RESERVED')
+          AND NOT EXISTS(SELECT 1 FROM e2pay_disbursement_request_limit_usage WHERE limit_request_id=? AND status='RESERVED')`,
+        bindings:[reason,id,organizationId,id,id]},
+        {statement:`INSERT INTO audit_logs(id,org_id,username,role,action,detail,entity,entity_id,correlation_id)
+          SELECT ?,?,?,?,'E2PAY_DISBURSEMENT_LIMIT_REVOKED',?,'e2pay_disbursement_limit',?,? WHERE changes()=1`,
+          bindings:[`AUD-${crypto.randomUUID()}`,organizationId,actor.email,actor.role,reason,id,correlationId]},
+      ]);
+      if(Number(result?.meta?.changes||0)!==1) return secureJson({error:'Status atau reservasi limit berubah. Muat ulang sebelum memproses kembali.',code:'E2PAY_LIMIT_CONCURRENT_TRANSITION',correlationId},409,request,env,METHODS);
       return secureJson({ok:true,id,status:'REVOKED',correlationId},200,request,env,METHODS);
     }
 

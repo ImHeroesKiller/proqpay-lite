@@ -112,7 +112,7 @@ test('Employee Services P0: employee submit snapshots payout destination from pr
   assert.equal(created.destination_account_last4,'7890');
 });
 
-test('Employee Services P0: REPAID is reconciliation-derived and writes a system audit event',async()=>{
+test('Employee Services P0: historical loan without collection evidence remains REPAYING and writes no collection audit',async()=>{
   const DB=new D1Mock(); await seed(DB);
   DB.sqlite.exec(`
     INSERT INTO payroll_submissions(id,org_id,client_id,project_id,service_plan_id,service_tier,period,state,created_by)
@@ -122,8 +122,7 @@ test('Employee Services P0: REPAID is reconciliation-derived and writes a system
       VALUES('EWA-REPAY-P0','ORG-OTSINDO','CLI-EWA-P0','EMP-EWA-P0','2026-09',200000,50000,250000,'REPAYING',500000,15,12,'SUB-EWA-P0');
   `);
   await markEwaRepaid(DB,'SUB-EWA-P0');
-  assert.equal(DB.sqlite.prepare("SELECT status FROM ewa_requests WHERE id='EWA-REPAY-P0'").get().status,'REPAID');
+  assert.equal(DB.sqlite.prepare("SELECT status FROM ewa_requests WHERE id='EWA-REPAY-P0'").get().status,'REPAYING');
   const audit=DB.sqlite.prepare("SELECT action,role FROM audit_logs WHERE entity_id='EWA-REPAY-P0' ORDER BY timestamp DESC LIMIT 1").get();
-  assert.equal(audit.action,'EWA_REPAID_RECONCILED');
-  assert.equal(audit.role,'SYSTEM');
+  assert.equal(audit,undefined);
 });

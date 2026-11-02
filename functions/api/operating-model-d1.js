@@ -1035,10 +1035,7 @@ async function executeAction(database, body, actor, env, organizationId) {
     } };
     if (!PROCESSOR_ROLES.has(actor.role) || !actor.permissions?.includes('submission:write')) return { status:403, data:{ error:'Hanya Payroll Processor yang dapat memfinalisasi input Pay Run', code:'PAY_RUN_FINALIZE_PERMISSION_REQUIRED' } };
     if (!assertClientScope(actor, env, submission.client_id) || !assertProjectScope(actor, submission.project_id)) return { status:403, data:{ error:'Scope denied' } };
-    try { await applyEwaRepayments(database, submission.id); }
-    catch (error) {
-      if (!/no such table|no such column/i.test(String(error?.message || error))) throw error;
-    }
+    await applyEwaRepayments(database, submission.id);
     // Finalisasi input is the explicit checkpoint that refreshes the visible bank
     // snapshot from the employee master. The full account is validated here and
     // fingerprinted later at Processor finalization before Controller approval.
@@ -1959,6 +1956,8 @@ export async function handleD1OperatingModel({ request, env }, actor) {
     const result = await executeAction(env.DB, body, actor, env, organizationId);
     return respond(result.data, result.status || 200);
   } catch (error) {
+    const code=String(error?.message||'').match(/EWA_(?:ALLOCATION_CONFLICT|ALLOCATED_PAYROLL_LINE_LOCKED|REPAYMENT_REVIEW_REQUIRED|REPAYMENT_EXCEEDS_NET|REPAYMENT_INVALID)/)?.[0];
+    if(code) return respond({error:'Alokasi potongan EWA memerlukan review. Baris yang sudah dialokasikan tidak dapat diubah atau dikeluarkan; periksa nominal dan pay run terkait.',code,requestId},409);
     return respond(publicError(error, requestId), 500);
   }
 }

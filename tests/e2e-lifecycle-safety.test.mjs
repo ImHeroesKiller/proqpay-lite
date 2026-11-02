@@ -38,7 +38,7 @@ test('reconciliation requires proof, exact totals, and heals EWA on replay', () 
   assert.match(core, /difference === 0/);
   assert.match(core, /instruction_total.*expected_total/s);
   assert.match(operating, /healCompletedPayment/);
-  assert.match(operating, /status='REPAID'/);
+  assert.match(operating, /markEwaRepaid\(env.DB, payment.submission_id\)/);
 });
 
 test('invoice creation is tied to completed PI and sequence is historical-safe', () => {
