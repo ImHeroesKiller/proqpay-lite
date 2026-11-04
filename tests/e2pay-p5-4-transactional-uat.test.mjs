@@ -5,10 +5,22 @@ import { phaseFor } from '../functions/api/e2pay-uat-validation.js';
 
 const read=(path)=>readFile(new URL('../'+path,import.meta.url),'utf8');
 
-test('P5.4 state machine gates on sub-account and liquidity before PI',()=>{
-  assert.equal(phaseFor({account:null,liquidity:null,pi:null,transaction:null,items:[]}), 'WAITING_SUBACCOUNT');
+test('P5.4 state machine gates on Master Account and liquidity before PI',()=>{
+  assert.equal(phaseFor({account:null,liquidity:null,pi:null,transaction:null,items:[]}), 'WAITING_MASTER_ACCOUNT');
   assert.equal(phaseFor({account:{id:'A'},liquidity:{ready:false},pi:null,transaction:null,items:[]}), 'WAITING_BALANCE');
   assert.equal(phaseFor({account:{id:'A'},liquidity:{ready:true},pi:null,transaction:null,items:[]}), 'READY_FOR_PI');
+});
+
+test('UAT reads Master balance snapshot without retired sub-account calls',async()=>{
+  const [validation,consoleSource]=await Promise.all([
+    read('functions/api/e2pay-uat-validation.js'),
+    read('src/components/E2PayOperationsConsole.tsx'),
+  ]);
+  assert.match(validation,/masterFundingReadiness/);
+  assert.match(validation,/payment_gateway_provider_snapshots/);
+  assert.match(validation,/masterAccount:account/);
+  assert.doesNotMatch(validation,/liquidityState\(account/);
+  assert.doesNotMatch(consoleSource,/getE2PaySubAccounts|upsertE2PaySubAccount|e2pay-tab-mapping|Sub-account belum mapped/);
 });
 
 test('P5.4 state machine requires Controller approval before canary execution',()=>{
