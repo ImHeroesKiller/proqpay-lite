@@ -67,9 +67,9 @@ const EMPTY_AD: Ad = {
   provider: "INTERNAL",
   action: "EWA",
   tag: "Advance Salary",
-  title: "Get Paid Sooner, Worry Less",
+  title: "Akses gaji lebih awal",
   desc: "Cairkan gaji yang sudah Anda kerjakan. Pengajuan diproses sesuai kebijakan perusahaan.",
-  cta: "Request Advance",
+  cta: "Ajukan Advance Salary",
   href: "",
   bg: "linear-gradient(115deg, #0f1b3a 0%, #1b2a52 55%, #24355f 100%)",
   imageUrl: "",
@@ -117,6 +117,7 @@ export default function PortalSettings() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [baseline, setBaseline] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
 
   const apply = useCallback((data: Record<string, unknown>) => {
     const nextPolicy = {
@@ -147,6 +148,7 @@ export default function PortalSettings() {
       setLoading(true);
       setMessage("");
       setOk("");
+      setSaveState("idle");
       const query = nextClient
         ? `?clientId=${encodeURIComponent(nextClient)}`
         : "";
@@ -192,8 +194,10 @@ export default function PortalSettings() {
       setOk(
         "Tersimpan. Portal karyawan memakai aturan ini pada muatan berikutnya.",
       );
+      setSaveState("saved");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Gagal menyimpan");
+      setSaveState("error");
     } finally {
       setBusy(false);
     }
@@ -258,8 +262,9 @@ export default function PortalSettings() {
     { label: "Layanan", value: policy.enabled ? "Aktif" : "Nonaktif", tone: policy.enabled ? "ok" : "off" },
     { label: "Plafond", value: `${Math.round(policy.maxPercent * 100)}%`, tone: "accent" },
     { label: "Fee", value: `${Number((policy.feeRate * 100).toFixed(2))}%`, tone: "neutral" },
-    { label: "Min. hari", value: `${policy.minDaysWorked} hari`, tone: "neutral" },
+    { label: "Hari dalam periode", value: `${policy.minDaysWorked} hari`, tone: "neutral" },
   ];
+  const saveLabel = busy ? "Menyimpan…" : message && saveState === "error" ? "Gagal menyimpan" : dirty ? "Perubahan belum disimpan" : saveState === "saved" ? "Perubahan tersimpan" : "Tidak ada perubahan";
 
   return (
     <section className="portal-workspace portal-config-workspace">
@@ -307,9 +312,9 @@ export default function PortalSettings() {
           <UiTabs
             items={[
               { value: "rules", label: "Advance Salary" },
-              { value: "copy", label: "Portal Content" },
-              { value: "ads", label: "Promotion" },
-              { value: "platform", label: "Tracking" },
+              { value: "copy", label: "Konten ESS" },
+              { value: "ads", label: "Promosi" },
+              { value: "platform", label: "Pelacakan" },
             ]}
             value={tab}
             onChange={(value) => setTab(value as typeof tab)}
@@ -392,7 +397,7 @@ export default function PortalSettings() {
             />
           </label>
           <label className="es-field">
-            Fee minimum berlaku jika pengajuan ≤ (Rp)
+            Batas nominal untuk fee minimum (Rp)
             <input
               type="number"
               min={0}
@@ -406,12 +411,15 @@ export default function PortalSettings() {
               }
             />
           </label>
+          <p className="portal-config-note">
+            Fee adalah nilai terbesar antara {Number((policy.feeRate * 100).toFixed(2))}% dari pengajuan dan Rp {IDR.format(policy.minFee)} untuk pengajuan sampai Rp {IDR.format(policy.minFeeAmount)}. Contoh pada Rp {IDR.format(policy.minFeeAmount)}: fee Rp {IDR.format(Math.max(Math.round(policy.minFeeAmount * policy.feeRate), policy.minFee))}.
+          </p>
           <div className="portal-config-section">
-            <strong>Eligibility</strong>
-            <div>Syarat hari berjalan dan masa kerja sebelum karyawan dapat mengajukan.</div>
+            <strong>Syarat pengajuan</strong>
+            <div>Kedua syarat di bawah harus terpenuhi sebelum karyawan dapat mengajukan.</div>
           </div>
           <label className="es-field">
-            Hari berjalan di bulan gaji (prorata)
+            Minimum hari dalam periode gaji (prorata)
             <input
               type="number"
               min={0}
@@ -425,8 +433,7 @@ export default function PortalSettings() {
               }
             />
             <span className="portal-config-help">
-              Bukan masa kerja. Contoh 10 = baru boleh ajukan setelah tanggal 10
-              bulan ini.
+              Jumlah hari kerja yang telah berjalan dalam periode gaji, bukan tanggal kalender atau masa kerja. Contoh: minimum 10 berarti pengajuan baru tersedia setelah 10 hari kerja periode ini dan syarat masa kerja terpenuhi.
             </span>
           </label>
           <label className="es-field">
@@ -474,8 +481,7 @@ export default function PortalSettings() {
               </select>
             </span>
             <span className="portal-config-help">
-              Dihitung dari join date di kontrak. 0 = tidak ada syarat masa
-              kerja.
+              Dihitung dari tanggal bergabung di kontrak. Contoh: bergabung 15 Oktober dan minimum 1 bulan berarti syarat ini terpenuhi pada 15 November. Nilai 0 berarti tanpa syarat masa kerja.
             </span>
           </label>
           <div className="portal-config-section">
@@ -876,24 +882,29 @@ export default function PortalSettings() {
 
           <section className="card portal-config-preview-card">
             <span className="portal-config-kicker">ESS preview</span>
+            <small>Pratinjau untuk {scopeLabel}{dirty ? " · perubahan belum disimpan" : ""}</small>
             <div className="portal-config-preview-shell">
               <div className="portal-config-preview-brand">ProQPay ESS</div>
-              <strong>{copy.ewaTitle || "Advance Salary"}</strong>
-              <p>{copy.ewaSubtitle || copy.ewaBody || "Advance Salary mengikuti policy aktif."}</p>
-              <div className="portal-config-preview-limit">Limit hingga {Math.round(policy.maxPercent * 100)}% · Fee {Number((policy.feeRate * 100).toFixed(2))}%</div>
-              <button type="button" disabled>{copy.ewaCta || "Ajukan Advance"}</button>
+              {policy.enabled ? <>
+                <strong>{copy.ewaTitle || "Advance Salary"}</strong>
+                <p>{copy.ewaSubtitle || copy.ewaBody || "Advance Salary mengikuti policy aktif."}</p>
+                <div className="portal-config-preview-limit">Limit hingga {Math.round(policy.maxPercent * 100)}% · Fee {Number((policy.feeRate * 100).toFixed(2))}%</div>
+                <button type="button" disabled>{copy.ewaCta || "Ajukan Advance"}</button>
+              </> : <>
+                <strong>Advance Salary nonaktif</strong>
+                <p>Pengajuan tidak tersedia untuk lingkup ini.</p>
+              </>}
             </div>
           </section>
         </aside>
       </div>
 
-      <UiActionBar
-        sticky
+      {dirty || busy || saveState === "error" ? <UiActionBar
         className="portal-config-savebar"
         meta={
           <div>
-            <strong>{dirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}</strong>
-            <p>{dirty ? "Simpan sebelum berpindah lingkup klien." : "Konfigurasi ini siap dipakai ESS pada muatan berikutnya."}</p>
+            <strong role="status">{saveLabel}</strong>
+            <p>{busy ? "Mohon tunggu hingga penyimpanan selesai." : dirty ? "Simpan sebelum berpindah lingkup klien." : saveState === "saved" ? "Konfigurasi akan dipakai ESS pada muatan berikutnya." : "Ubah pengaturan untuk mengaktifkan tombol simpan."}</p>
           </div>
         }
       >
@@ -910,7 +921,7 @@ export default function PortalSettings() {
         >
           {busy ? "Menyimpan…" : "Simpan perubahan"}
         </button>
-      </UiActionBar>
+      </UiActionBar> : null}
     </section>
   );
 }

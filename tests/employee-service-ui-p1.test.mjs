@@ -36,7 +36,7 @@ test('Employee Services UI P1: Portal Configuration protects unsaved changes and
   assert.match(settings,/Batalkan perubahan/);
   assert.match(settings,/Availability/);
   assert.match(settings,/Limit & fee/);
-  assert.match(settings,/Eligibility/);
+  assert.match(settings,/Syarat pengajuan/);
   assert.match(settings,/Repayment/);
   assert.match(settings,/Tampilan & tracking lanjutan/);
   assert.match(settings,/Portal Configuration/);

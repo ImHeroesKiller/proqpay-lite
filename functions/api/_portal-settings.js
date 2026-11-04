@@ -3,10 +3,16 @@ import { DEFAULT_EWA_POLICY, policyToRules } from './_ewa.js';
 
 export const DEFAULT_PORTAL_COPY = Object.freeze({
   companyTagline: 'Payroll & HR Digital',
-  heroSubtitle: 'Your pay hub — all your payroll info in one place',
+  heroSubtitle: 'Semua informasi gaji Anda dalam satu tempat',
   ewaTitle: 'Advance Salary',
   ewaSubtitle: 'Cairkan gaji yang sudah Anda kerjakan, tanpa menunggu gajian',
   ewaBody: 'Cairkan gaji yang sudah Anda kerjakan tanpa agunan. Biaya layanan transparan dan dipotong otomatis saat gajian.',
+  ewaCta: 'Ajukan Advance Salary',
+  ewaLimitCaption: 'Hingga {percent}% dari gaji bulan ini',
+});
+
+const LEGACY_ENGLISH_COPY = Object.freeze({
+  heroSubtitle: 'Your pay hub — all your payroll info in one place',
   ewaCta: 'Request Advance',
   ewaLimitCaption: "Up to {percent}% of this month's pay",
 });
@@ -30,9 +36,9 @@ export const DEFAULT_PORTAL_AD = Object.freeze({
   provider: 'INTERNAL',
   action: 'EWA',
   tag: 'Advance Salary',
-  title: 'Get Paid Sooner, Worry Less',
+  title: 'Akses gaji lebih awal',
   desc: 'Cairkan gaji yang sudah Anda kerjakan. Pengajuan diproses sesuai kebijakan perusahaan.',
-  cta: 'Request Advance',
+  cta: 'Ajukan Advance Salary',
   href: '',
   bg: 'linear-gradient(115deg, #0f1b3a 0%, #1b2a52 55%, #24355f 100%)',
   imageUrl: '',
@@ -98,7 +104,8 @@ export function sanitizeCopy(input = {}) {
   const out = {};
   for (const [key, max] of Object.entries(TEXT_LIMITS)) {
     if (!(key in DEFAULT_PORTAL_COPY)) continue;
-    out[key] = clip(source[key] ?? DEFAULT_PORTAL_COPY[key], max) || DEFAULT_PORTAL_COPY[key];
+    const value = source[key] === LEGACY_ENGLISH_COPY[key] ? DEFAULT_PORTAL_COPY[key] : source[key];
+    out[key] = clip(value ?? DEFAULT_PORTAL_COPY[key], max) || DEFAULT_PORTAL_COPY[key];
   }
   return out;
 }
