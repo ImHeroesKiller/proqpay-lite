@@ -316,12 +316,14 @@ export async function onRequest(context) {
   const type = action==='CLIENT_APPROVE_PAYROLL'?'PAYROLL_APPROVED'
     :action==='CLIENT_REQUEST_PAYROLL_REVISION'?'PAYROLL_REVISION'
     :action==='TRANSITION_SUBMISSION' && String(body?.toState)==='CLIENT_APPROVAL_PENDING'?'PAYROLL_REVIEW'
+    :action==='APPROVE_PAYMENT'?'PAYMENT_APPROVED'
+    :action==='REJECT_PAYMENT'?'PAYMENT_REJECTED'
     :action==='RECONCILE_PAYMENT'?'PAYMENT_COMPLETED':null;
   if(!type||request.method!=='POST') return response;
   return notifyAfterResponse(context,response,async(data)=>{
     const orgId=String(env.DEFAULT_ORG_ID||'ORG-OTSINDO');
     let id=String(body.submissionId||data.submission?.id||'');
-    if(!id && type==='PAYMENT_COMPLETED' && body.paymentInstructionId){
+    if(!id && ['PAYMENT_COMPLETED','PAYMENT_APPROVED','PAYMENT_REJECTED'].includes(type) && body.paymentInstructionId){
       const payment=await d1First(env.DB,'SELECT submission_id FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1',[String(body.paymentInstructionId),orgId]);
       id=String(payment?.submission_id||'');
     }
@@ -330,6 +332,8 @@ export async function onRequest(context) {
     const expected=type==='PAYROLL_APPROVED'?'CLIENT_APPROVED':type==='PAYROLL_REVISION'?'CLIENT_REVISION_REQUESTED':type==='PAYROLL_REVIEW'?'CLIENT_APPROVAL_PENDING':null;
     if(expected && row.state!==expected) return;
     if(type==='PAYMENT_COMPLETED' && (data.reconciliation?.status!=='MATCHED'||row.state!=='COMPLETED')) return;
+    if(type==='PAYMENT_APPROVED' && row.state!=='APPROVED_FOR_PAYMENT') return;
+    if(type==='PAYMENT_REJECTED' && row.state!=='REVISION_REQUIRED') return;
     await dispatchClientNotification(env,{type,clientId:row.client_id,reference:row.id,period:row.period,eventId:row.id+':'+type+':'+String(row.updated_at||'')});
   });
 }
