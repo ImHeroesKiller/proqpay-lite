@@ -96,6 +96,16 @@ test('AR gate warns near due date and blocks overdue or any-outstanding policies
   assert.equal(gate.blocked,false);
 });
 
+test('ProQPay invoice delivery can use authenticated Ubuntu SMTP gateway',async()=>{
+  const source=await read('functions/api/invoice-email.js');
+  assert.match(source,/PROQPAY_MAIL_GATEWAY_URL/);
+  assert.match(source,/PROQPAY_MAIL_GATEWAY_TOKEN/);
+  assert.match(source,/sendViaUbuntu/);
+  assert.match(source,/Bearer \$\{apiToken\}/);
+  assert.match(source,/contentType:'application\/pdf'/);
+  assert.match(source,/SHA-256/);
+});
+
 test('Invoice delivery uses provider-side attachment and controlled email relay',async()=>{
   const source=await read('functions/api/invoice-email.js');
   assert.match(source,/RESEND_API_KEY/);

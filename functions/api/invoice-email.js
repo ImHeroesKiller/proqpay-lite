@@ -22,7 +22,39 @@ function relayConfig(env){
   return {from,relayRecipient};
 }
 
+async function sendViaUbuntu(env,{recipient,cc,subject,html,filename,pdfBase64,idempotencyKey}) {
+  const apiUrl=String(env.PROQPAY_MAIL_GATEWAY_URL||'').trim();
+  const apiToken=String(env.PROQPAY_MAIL_GATEWAY_TOKEN||'').trim();
+  if(!apiUrl.startsWith('https://')||!apiToken) {
+    const error=new Error('Ubuntu SMTP gateway belum dikonfigurasi.');
+    error.code='INVOICE_EMAIL_PROVIDER_NOT_CONFIGURED';
+    throw error;
+  }
+  const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(idempotencyKey));
+  const requestId='invoice-'+Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
+  const payload={
+    requestId,recipient,cc:cc||null,subject,html,
+    attachments:[{filename,contentType:'application/pdf',content:pdfBase64}],
+  };
+  const response=await fetch(apiUrl,{
+    method:'POST',
+    headers:{'Authorization':`Bearer ${apiToken}`,'Content-Type':'application/json'},
+    body:JSON.stringify(payload),
+    signal:AbortSignal.timeout(28000),
+  });
+  const body=await response.json().catch(()=>({}));
+  if(!response.ok || !body?.ok || body?.status!=='SENT') {
+    const error=new Error(String(body?.error||`Ubuntu SMTP gateway HTTP ${response.status}`).slice(0,500));
+    error.code=body?.error==='SMTP_NOT_CONFIGURED'?'INVOICE_EMAIL_PROVIDER_NOT_CONFIGURED':'INVOICE_EMAIL_PROVIDER_FAILED';
+    error.httpStatus=response.status;
+    throw error;
+  }
+  return {id:requestId,relayRecipient:DEFAULT_RELAY_EMAIL,from:DEFAULT_FROM_EMAIL};
+}
 async function sendResend(env,{recipient,cc,subject,html,filename,pdfBase64,idempotencyKey,invoiceId}) {
+  if(String(env.PROQPAY_MAIL_GATEWAY_URL||'').trim()) {
+    return sendViaUbuntu(env,{recipient,cc,subject,html,filename,pdfBase64,idempotencyKey});
+  }
   const apiKey=String(env.RESEND_API_KEY||'').trim();
   const {from,relayRecipient}=relayConfig(env);
   if(!apiKey) {
