@@ -254,28 +254,24 @@ export default function PaymentGatewaySettings() {
     ? draftSaved && activationAcknowledged
     : draftSaved && executionReady && activationAcknowledged;
 
-  return <div style={{ display:'grid', gap:16 }}>
-    <div className="operations-summary-grid" style={{ margin:0 }}>
-      <div><span>Runtime aktif</span><strong>{activeProvider}</strong><small>{activeProvider === 'UNCONFIGURED' ? 'Payment execution nonaktif' : activeEnvironment}</small></div>
-      <div><span>Draft profile</span><strong>{form.provider}</strong><small>{form.environment}{isDraftDifferent ? ' · belum aktif' : ' · sama dengan runtime'}</small></div>
-      <div><span>Activation</span><strong>{server?.activatedAt ? 'RECORDED' : 'LEGACY'}</strong><small>{server?.activatedAt ? new Date(server.activatedAt).toLocaleString('id-ID') : 'Belum ada explicit activation'}</small></div>
+  return <div className="gateway-settings-simple">
+    <div className="gateway-runtime-status" role="status">
+      <span>Aktif: <strong>{activeProvider === 'UNCONFIGURED' ? 'Nonaktif' : `${activeProvider} · ${activeEnvironment}`}</strong></span>
+      <span>Draft: <strong>{form.provider === 'UNCONFIGURED' ? 'Nonaktif' : `${form.provider} · ${form.environment}`}</strong>{isDraftDifferent ? ' · belum diaktifkan' : ''}</span>
     </div>
 
-    <div className="app-notice-bubble" role="note">
-      <strong>Configure → Save Draft → Test → Activate</strong>
-      <span>Save dan Test tidak mengubah environment runtime. Production hanya aktif setelah test execution-ready dan aktivasi eksplisit oleh Super Admin.</span>
-    </div>
+    <p className="gateway-flow-note">Simpan draft → Uji koneksi → Aktifkan. Menyimpan dan menguji tidak mengubah koneksi aktif.</p>
 
     <div className="settings-form-grid">
       <label className="settings-field">
-        <span>PAYMENT_GATEWAY_PROVIDER</span>
+        <span>Provider</span>
         <select value={form.provider} disabled={loading || Boolean(busy)} onChange={(event) => patch({ provider:event.target.value as FormState['provider'] })}>
           <option value="E2PAY">E2PAY</option>
           <option value="UNCONFIGURED">Nonaktif / UNCONFIGURED</option>
         </select>
       </label>
       <label className="settings-field">
-        <span>E2PAY_ENV</span>
+        <span>Lingkungan</span>
         <select value={form.environment} disabled={loading || Boolean(busy)} onChange={(event) => patch({ environment:event.target.value as FormState['environment'] })}>
           <option value="UAT">UAT</option>
           <option value="PRODUCTION">PRODUCTION</option>
@@ -283,12 +279,11 @@ export default function PaymentGatewaySettings() {
       </label>
     </div>
 
-    {form.environment === 'PRODUCTION' ? <div className="app-notice-bubble app-notice-error" role="alert">
-      <strong>Production profile belum aktif hanya karena dipilih</strong>
-      <span>Credential Production terisolasi dari UAT. Runtime tetap pada profile aktif sampai tombol Activate Production dijalankan setelah test berhasil.</span>
-    </div> : null}
+    {form.environment === 'PRODUCTION' ? <p className="gateway-flow-note gateway-flow-warning" role="alert">Memilih Production belum mengaktifkannya. Koneksi aktif baru berubah setelah uji berhasil dan aktivasi eksplisit.</p> : null}
 
-    {form.provider === 'E2PAY' ? <div className="settings-form-grid">
+    {form.provider === 'E2PAY' ? <details className="gateway-settings-section">
+      <summary>Kredensial E2Pay <small>Isi hanya jika menambah atau mengganti data</small></summary>
+      <div className="settings-form-grid">
       {credentialFields.map((item) => <label className="settings-field" key={item.key}>
         <span>{item.label}</span>
         <input
@@ -304,27 +299,28 @@ export default function PaymentGatewaySettings() {
           {profileSummary(server, form.environment).stored?.[item.key] ? ' · kosongkan input jika tidak ingin mengganti' : ''}
         </small>
       </label>)}
-    </div> : null}
+      </div>
+    </details> : null}
 
     <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
       <button type="button" className="btn btn-primary" disabled={loading || Boolean(busy)} onClick={() => void save()}>
-        {busy === 'save' ? 'Menyimpan…' : 'Save Draft'}
+        {busy === 'save' ? 'Menyimpan…' : 'Simpan draft'}
       </button>
       <button type="button" className="btn" disabled={loading || Boolean(busy) || form.provider !== 'E2PAY' || !draftSaved} onClick={() => void testConnection()}>
-        {busy === 'test' ? 'Menguji…' : 'Test Connection'}
+        {busy === 'test' ? 'Menguji…' : 'Uji koneksi'}
       </button>
       <button type="button" className="btn" disabled={loading || Boolean(busy)} onClick={() => void load()}>
-        Refresh
+        Muat ulang
       </button>
     </div>
 
-    {activeProvider==='E2PAY'&&activeEnvironment==='UAT'?<section aria-label="Tes inquiry UAT" style={{display:'grid',gap:8}}>
-      <strong>Tes rekening UAT</strong>
-      <span>Membandingkan Rp15.000 dengan nominal berikut memakai koneksi aktif. Tidak menjalankan transfer atau mengubah DR.</span>
-      <label>Nominal pembanding<input type="number" min="1" max="1000000000" step="1" value={inquiryAmount} onChange={event=>setInquiryAmount(event.target.value)} disabled={Boolean(busy)}/></label>
+    {activeProvider==='E2PAY'&&activeEnvironment==='UAT'?<details className="gateway-settings-section" aria-label="Tes inquiry UAT">
+      <summary>Tes rekening UAT <small>Diagnostik tanpa transfer</small></summary>
+      <p>Membandingkan Rp15.000 dengan nominal berikut memakai koneksi aktif. Tidak menjalankan transfer atau mengubah DR.</p>
+      <label className="settings-field">Nominal pembanding<input type="number" min="1" max="1000000000" step="1" value={inquiryAmount} onChange={event=>setInquiryAmount(event.target.value)} disabled={Boolean(busy)}/></label>
       <button type="button" className="btn" disabled={loading||Boolean(busy)||!Number.isSafeInteger(Number(inquiryAmount))||Number(inquiryAmount)<=0||Number(inquiryAmount)>1000000000} onClick={()=>void testInquiry()}>{busy==='inquiry'?'Memeriksa…':'Tes inquiry UAT'}</button>
       {inquiryResults.length?<table><thead><tr><th>Nominal</th><th>Hasil</th><th>Respons</th></tr></thead><tbody>{inquiryResults.map(row=><tr key={row.amount}><td>{row.amount.toLocaleString('id-ID')}</td><td>{row.ok?'Berhasil':'Ditolak'}</td><td>{[row.diagnostic?.httpStatus,row.diagnostic?.providerCode,row.diagnostic?.reason||row.code].filter(Boolean).join(' · ')}</td></tr>)}</tbody></table>:null}
-    </section>:null}
+    </details>:null}
 
     {message ? <div className={'settings-status ' + message.type} role="status">{message.text}</div> : null}
 
@@ -359,10 +355,10 @@ export default function PaymentGatewaySettings() {
       {archiveOpen?<><UatArchiveSummary /><LegacyCompatibilityPanel /></>:null}
     </details>
 
-    <div style={{ borderTop:'1px solid var(--border-soft)', paddingTop:12, color:'var(--text3)', fontSize:11.5, lineHeight:1.6 }}>
+    <details className="gateway-settings-section gateway-settings-technical"><summary>Catatan teknis</summary><div>
       Credential disimpan terenkripsi di server. Password merchant dinormalisasi menjadi MD5 uppercase di backend dan tidak dikirim kembali ke browser. Funding bank dipakai hanya sebagai petunjuk bank tujuan VA untuk Top Up Wallet dan harus mengikuti informasi resmi dari E2Pay. Test Connection tidak menyimpan source account atau mengubah runtime; source account baru dipersist saat aktivasi eksplisit berhasil.
       {server?.updatedAt ? <div>Last draft update: {new Date(server.updatedAt).toLocaleString('id-ID')} · {server.updatedBy || '-'}</div> : null}
       {server?.activatedAt ? <div>Last activation: {new Date(server.activatedAt).toLocaleString('id-ID')} · {server.activatedBy || '-'}</div> : null}
-    </div>
+    </div></details>
   </div>;
 }
