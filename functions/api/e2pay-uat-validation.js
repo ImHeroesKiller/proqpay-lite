@@ -1,6 +1,9 @@
 import { authorize, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 import { d1All, d1First, hasD1 } from './_d1.js';
-import { activeProviderAccount, liquidityState } from './payment-provider-routing.js';
+import { activeProviderAccount } from './payment-provider-routing.js';
+import { masterFundingReadiness } from './e2pay-master-funding.js';
+import { gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
+import { e2payExecutionContract, e2payReadiness } from './payment-gateway-e2pay.js';
 
 const METHODS='GET, OPTIONS';
 const ROLES=['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'];
@@ -10,7 +13,7 @@ const BATCH_SUBMISSION='SUB-E2PAY-UAT-FRESH-001';
 function orgId(env,actor){ return String(actor?.orgId || env.DEFAULT_ORG_ID || 'ORG-OTSINDO'); }
 
 export function phaseFor({account,liquidity,pi,transaction,items}){
-  if(!account) return 'WAITING_SUBACCOUNT';
+  if(!account) return 'WAITING_MASTER_ACCOUNT';
   if(!liquidity?.ready) return 'WAITING_BALANCE';
   if(!pi) return 'READY_FOR_PI';
   if(pi.status==='PAYMENT_INSTRUCTION_READY') return 'READY_FOR_PI_SUBMIT';
@@ -28,7 +31,7 @@ export function phaseFor({account,liquidity,pi,transaction,items}){
   return 'REVIEW_REQUIRED';
 }
 
-async function readLane(database,organizationId,submissionId){
+async function readLane(database,organizationId,submissionId,runtimeEnv,snapshot){
   const submission=await d1First(database,`SELECT s.id,s.client_id,s.project_id,s.period,s.payment_period,s.state,
       c.name AS client_name,
       COALESCE((SELECT SUM(net_amount) FROM payroll_run_lines WHERE submission_id=s.id AND included=1),0) AS expected_total,
@@ -45,7 +48,16 @@ async function readLane(database,organizationId,submissionId){
     'UAT',
     submission.project_id||null,
   );
-  const liquidity=liquidityState(account,Number(submission.expected_total||0));
+  const liquidity=masterFundingReadiness({
+    snapshot,
+    credentialConfigured:e2payReadiness(runtimeEnv).configured,
+    executionContractValid:e2payExecutionContract(runtimeEnv,{accountId:snapshot?.account_id||''}).valid,
+    requiredAmount:Number(submission.expected_total||0),
+  });
+  if(account?.status!=='ACTIVE') {
+    liquidity.ready=false;
+    liquidity.state='MASTER_ACCOUNT_INACTIVE';
+  }
 
   const pi=await d1First(database,`SELECT id,document_no,status,expected_total,recipient_count,content_hash,
       provider_account_registry_id,provider_environment,provider_sub_account_id,created_at,updated_at
@@ -73,12 +85,9 @@ async function readLane(database,organizationId,submissionId){
       expectedTotal:Number(submission.expected_total||0),
       recipientCount:Number(submission.recipient_count||0),
     },
-    subAccount:account ? {
+    masterAccount:account ? {
       id:account.id,
-      masked:'••••'+String(account.provider_sub_account_id||'').slice(-4),
       status:account.status,
-      availableBalance:account.available_balance===null?null:Number(account.available_balance),
-      lastBalanceSyncAt:account.last_balance_sync_at,
     } : null,
     liquidity,
     paymentInstruction:pi ? {
@@ -128,9 +137,12 @@ export async function onRequest({request,env}){
   if(!hasD1(env)) return secureJson({error:'Cloudflare D1 binding unavailable',code:'D1_REQUIRED'},503,request,env,METHODS);
   try{
     const organizationId=orgId(env,authorization.actor);
+    const runtimeEnv=await gatewayRuntimeEnv(env.DB,env,organizationId,'UAT');
+    const snapshot=await d1First(env.DB,`SELECT account_id,balance,refreshed_at FROM payment_gateway_provider_snapshots
+      WHERE org_id=? AND provider='E2PAY' AND environment='UAT' LIMIT 1`,[organizationId]);
     const [canary,batch]=await Promise.all([
-      readLane(env.DB,organizationId,CANARY_SUBMISSION),
-      readLane(env.DB,organizationId,BATCH_SUBMISSION),
+      readLane(env.DB,organizationId,CANARY_SUBMISSION,runtimeEnv,snapshot),
+      readLane(env.DB,organizationId,BATCH_SUBMISSION,runtimeEnv,snapshot),
     ]);
     return secureJson({
       ok:true,

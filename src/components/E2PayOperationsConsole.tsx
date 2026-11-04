@@ -8,14 +8,9 @@ import {
   getE2PayCatalog,
   getE2PayOverview,
   getE2PayTransactions,
-  getE2PaySubAccounts,
   getE2PayUatValidation,
   runE2PayAction,
-  setE2PaySubAccountStatus,
-  syncE2PaySubAccountBalance,
-  upsertE2PaySubAccount,
   type E2PayAccountSnapshot,
-  type E2PaySubAccount,
   type E2PayUatLane,
   type E2PayCatalogItem,
   type E2PayTransactionRow,
@@ -44,7 +39,7 @@ function Field({label,type='text',value,onChange,placeholder}:{label:string;type
 }
 
 export default function E2PayOperationsConsole({canManage}:Props){
-  const [activeTab,setActiveTab]=useState<'wallet'|'mapping'|'uat'|'activity'|'technical'>('wallet');
+  const [activeTab,setActiveTab]=useState<'wallet'|'uat'|'activity'|'technical'>('wallet');
   const [account,setAccount]=useState<E2PayAccountSnapshot|null>(null);
   const [catalog,setCatalog]=useState<E2PayCatalogItem[]>([]);
   const [banks,setBanks]=useState<Array<{id:string;name:string;active:string|boolean}>>([]);
@@ -69,10 +64,6 @@ export default function E2PayOperationsConsole({canManage}:Props){
   const [lastResult,setLastResult]=useState('');
   const [topUpOpen,setTopUpOpen]=useState(false);
   const [copied,setCopied]=useState('');
-  const [subAccounts,setSubAccounts]=useState<E2PaySubAccount[]>([]);
-  const [subAccountClients,setSubAccountClients]=useState<Array<{id:string;code:string;name:string;status:string}>>([]);
-  const [subAccountSummary,setSubAccountSummary]=useState({total:0,active:0,draft:0,inactive:0,unmappedClients:0});
-  const [subAccountForm,setSubAccountForm]=useState({clientId:'',providerAccountId:'',providerSubAccountId:'',accountName:'',status:'DRAFT' as 'DRAFT'|'ACTIVE'|'INACTIVE'});
   const [uatValidation,setUatValidation]=useState<{canary:E2PayUatLane|null;batch:E2PayUatLane|null;protocol:string[]} | null>(null);
 
   const loadOverview=useCallback(async(force=false)=>{
@@ -87,18 +78,6 @@ export default function E2PayOperationsConsole({canManage}:Props){
     setLoading(false);
   },[]);
 
-  const loadSubAccounts=useCallback(async()=>{
-    try{
-      const result=await getE2PaySubAccounts(String(account?.environment||'UAT').toUpperCase());
-      setSubAccounts(result.accounts);
-      setSubAccountClients(result.clients);
-      setSubAccountSummary(result.summary);
-      setSubAccountForm((current)=>current.clientId?current:{...current,clientId:result.clients[0]?.id||''});
-    }catch(cause){
-      setError(cause instanceof Error?cause.message:'Sub-account registry gagal dimuat');
-    }
-  },[account]);
-
   const loadUatValidation=useCallback(async()=>{
     try{
       const result=await getE2PayUatValidation();
@@ -109,7 +88,6 @@ export default function E2PayOperationsConsole({canManage}:Props){
   },[]);
 
   useEffect(()=>{void loadOverview(false);},[loadOverview]);
-  useEffect(()=>{void loadSubAccounts();},[loadSubAccounts]);
   useEffect(()=>{void loadUatValidation();},[loadUatValidation]);
 
   useEffect(()=>{
@@ -133,48 +111,6 @@ export default function E2PayOperationsConsole({canManage}:Props){
       return null;
     }finally{setActionLoading('');}
   },[loadOverview]);
-
-  async function saveSubAccount(){
-    if(!subAccountForm.clientId) return;
-    setActionLoading('SAVE_SUBACCOUNT');setError('');setNotice('');
-    try{
-      await upsertE2PaySubAccount({
-        clientId:subAccountForm.clientId,
-        environment:String(account?.environment||'UAT').toUpperCase(),
-        providerAccountId:subAccountForm.providerAccountId||undefined,
-        providerSubAccountId:subAccountForm.providerSubAccountId||undefined,
-        accountName:subAccountForm.accountName||undefined,
-        status:subAccountForm.status,
-      });
-      setNotice('Mapping sub-account E2Pay tersimpan.');
-      setSubAccountForm((current)=>({...current,providerAccountId:'',providerSubAccountId:'',accountName:'',status:'DRAFT'}));
-      await loadSubAccounts();
-    }catch(cause){
-      setError(cause instanceof Error?cause.message:'Mapping sub-account gagal disimpan');
-    }finally{setActionLoading('');}
-  }
-
-  async function syncSubAccountBalance(id:string){
-    setActionLoading('SUBACCOUNT_BALANCE');setError('');setNotice('');
-    try{
-      await syncE2PaySubAccountBalance(id);
-      setNotice('Balance sub-account E2Pay tersinkron dari provider.');
-      await loadSubAccounts();
-    }catch(cause){
-      setError(cause instanceof Error?cause.message:'Balance sub-account gagal disinkron');
-    }finally{setActionLoading('');}
-  }
-
-  async function changeSubAccountStatus(id:string,status:'DRAFT'|'ACTIVE'|'INACTIVE'){
-    setActionLoading('SUBACCOUNT_STATUS');setError('');setNotice('');
-    try{
-      await setE2PaySubAccountStatus(id,status);
-      setNotice('Status sub-account diubah ke '+status+'.');
-      await loadSubAccounts();
-    }catch(cause){
-      setError(cause instanceof Error?cause.message:'Status sub-account gagal diubah');
-    }finally{setActionLoading('');}
-  }
 
   async function loadBanks(){
     setActionLoading('BANKS');setError('');
@@ -271,7 +207,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
     </DismissibleBubble>:null}
 
     <div className="e2pay-console-tabs" role="tablist" aria-label="Bagian Payment Gateway">
-      {([['wallet','Wallet'],['mapping','Sub-account'],['uat','UAT'],['activity','Riwayat & bank'],['technical','Teknis']] as const).map(([id,label])=><button key={id} type="button" role="tab" id={`e2pay-tab-${id}`} aria-selected={activeTab===id} aria-controls={`e2pay-panel-${id}`} tabIndex={activeTab===id?0:-1} className={activeTab===id?'btn btn-primary':'btn'} onClick={()=>setActiveTab(id)} onKeyDown={(event)=>{if(event.key!=='ArrowRight'&&event.key!=='ArrowLeft')return;event.preventDefault();const tabs=['wallet','mapping','uat','activity','technical'] as const;const next=tabs[(tabs.indexOf(id)+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length];setActiveTab(next);document.getElementById(`e2pay-tab-${next}`)?.focus();}}>{label}</button>)}
+      {([['wallet','Wallet'],['uat','UAT'],['activity','Riwayat & bank'],['technical','Teknis']] as const).map(([id,label])=><button key={id} type="button" role="tab" id={`e2pay-tab-${id}`} aria-selected={activeTab===id} aria-controls={`e2pay-panel-${id}`} tabIndex={activeTab===id?0:-1} className={activeTab===id?'btn btn-primary':'btn'} onClick={()=>setActiveTab(id)} onKeyDown={(event)=>{if(event.key!=='ArrowRight'&&event.key!=='ArrowLeft')return;event.preventDefault();const tabs=['wallet','uat','activity','technical'] as const;const next=tabs[(tabs.indexOf(id)+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length];setActiveTab(next);document.getElementById(`e2pay-tab-${next}`)?.focus();}}>{label}</button>)}
     </div>
     <div id="e2pay-panel-wallet" role="tabpanel" aria-labelledby="e2pay-tab-wallet" hidden={activeTab!=='wallet'}>
     <div className="e2pay-account-hero">
@@ -367,54 +303,6 @@ export default function E2PayOperationsConsole({canManage}:Props){
     </section>:null}
 
     </div>
-    <div id="e2pay-panel-mapping" role="tabpanel" aria-labelledby="e2pay-tab-mapping" hidden={activeTab!=='mapping'}>
-    <section className="integration-panel e2pay-subaccount-registry" aria-label="E2Pay Sub-account Registry">
-      <div className="integration-panel-head">
-        <div>
-          <strong>Client Sub-account Registry</strong>
-          <small>Isolasi sumber dana E2Pay per klien B2B di bawah akun utama MSG.</small>
-        </div>
-        <span>{subAccountSummary.active}/{subAccountSummary.total} active</span>
-      </div>
-      <div className="e2pay-endpoint-summary">
-        <span>{subAccountSummary.active} active</span>
-        <span>{subAccountSummary.draft} draft</span>
-        <span>{subAccountSummary.inactive} inactive</span>
-        <span>{subAccountSummary.unmappedClients} client belum mapping</span>
-      </div>
-      {canManage?<div className="e2pay-filter-grid">
-        <label><span>Client</span><select value={subAccountForm.clientId} onChange={(e)=>setSubAccountForm((v)=>({...v,clientId:e.target.value}))}>
-          <option value="">Pilih client</option>
-          {subAccountClients.map((client)=><option key={client.id} value={client.id}>{client.name} · {client.code}</option>)}
-        </select></label>
-        <Field label="Master / provider account ID" value={subAccountForm.providerAccountId} onChange={(value)=>setSubAccountForm((v)=>({...v,providerAccountId:value}))} placeholder="Opsional; dari itUP" />
-        <Field label="Provider sub-account ID" value={subAccountForm.providerSubAccountId} onChange={(value)=>setSubAccountForm((v)=>({...v,providerSubAccountId:value}))} placeholder="Isi setelah provisioning itUP" />
-        <Field label="Account name" value={subAccountForm.accountName} onChange={(value)=>setSubAccountForm((v)=>({...v,accountName:value}))} placeholder="Nama sub-account" />
-        <label><span>Status</span><select value={subAccountForm.status} onChange={(e)=>setSubAccountForm((v)=>({...v,status:e.target.value as 'DRAFT'|'ACTIVE'|'INACTIVE'}))}>
-          <option value="DRAFT">DRAFT</option><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option>
-        </select></label>
-        <div className="e2pay-subaccount-action"><button type="button" className="btn btn-primary" disabled={!subAccountForm.clientId||actionLoading==='SAVE_SUBACCOUNT'} onClick={()=>void saveSubAccount()}>
-          {actionLoading==='SAVE_SUBACCOUNT'?'Menyimpan…':'Simpan mapping'}
-        </button></div>
-      </div>:null}
-      <div className="e2pay-resource-list">
-        {subAccounts.map((row)=><article key={row.id}>
-          <div><strong>{row.clientName||row.clientCode||'Client'}</strong><span>{row.status}</span></div>
-          <small>{row.environment} · Sub-account {row.providerSubAccountIdMasked||'belum diprovisioning'} · {row.accountName||'nama belum tersedia'}</small>
-          <b>{row.availableBalance===null?'Balance belum sync':formatIDR(Number(row.availableBalance))}</b>
-          <em>{row.lastBalanceSyncAt?'Sync '+dateTime(row.lastBalanceSyncAt):'Belum ada balance sync'} · {row.liquidity?.state||'NOT_SYNCED'}</em>
-          {canManage?<div className="e2pay-subaccount-row-actions">
-            {row.status==='ACTIVE'?<button type="button" className="btn btn-compact" disabled={actionLoading==='SUBACCOUNT_BALANCE'} onClick={()=>void syncSubAccountBalance(row.id)}>{actionLoading==='SUBACCOUNT_BALANCE'?'Syncing…':'Sync balance'}</button>:null}
-            {row.status!=='ACTIVE'?<button type="button" className="btn btn-compact" disabled={actionLoading==='SUBACCOUNT_STATUS'} onClick={()=>void changeSubAccountStatus(row.id,'ACTIVE')}>Activate</button>:null}
-            {row.status==='ACTIVE'?<button type="button" className="btn btn-compact" disabled={actionLoading==='SUBACCOUNT_STATUS'} onClick={()=>void changeSubAccountStatus(row.id,'INACTIVE')}>Deactivate</button>:null}
-          </div>:null}
-        </article>)}
-        {!subAccounts.length?<div className="integration-empty">Belum ada sub-account yang dipetakan. Simpan sebagai DRAFT sampai itUP memberikan provider sub-account ID.</div>:null}
-      </div>
-      <p className="e2pay-governance-note">Satu sub-account per klien dan environment. Mapping ACTIVE memerlukan provider sub-account ID.</p>
-    </section>
-    </div>
-
     <div id="e2pay-panel-uat" role="tabpanel" aria-labelledby="e2pay-tab-uat" hidden={activeTab!=='uat'}>
     {String(account?.environment||'').toUpperCase()==='UAT' && uatValidation?<section className="integration-panel" aria-label="P5.4 UAT Disbursement Validation">
       <div className="integration-panel-head">
@@ -424,15 +312,15 @@ export default function E2PayOperationsConsole({canManage}:Props){
       {([['Canary',uatValidation.canary],['Batch',uatValidation.batch]] as Array<[string,E2PayUatLane|null]>).map(([label,row])=><article key={label} className="e2pay-uat-lane">
         <div><strong>{label}</strong><span>{row?.phase||'NOT_READY'}</span></div>
         <small>{row?(row.submission.recipientCount+' recipient · '+formatIDR(row.submission.expectedTotal)+' · '+row.submission.id):'Dataset belum tersedia'}</small>
-        <b>{row?.subAccount?('Sub-account '+row.subAccount.masked):'Sub-account belum mapped'}</b>
-        <em>{row?('Liquidity '+row.liquidity.state+' · PI '+(row.paymentInstruction?.status||'belum dibuat')+' · Gateway '+(row.transaction?.status||'belum ada')):'Menunggu deployment seed'}</em>
+        <b>{row?.masterAccount?('Master Account '+(row.masterAccount.status==='ACTIVE'?'aktif':'belum aktif')):'Master Account belum tersedia'}</b>
+        <em>{row?('Saldo Master '+row.liquidity.state+' · PI '+(row.paymentInstruction?.status||'belum dibuat')+' · Gateway '+(row.transaction?.status||'belum ada')):'Menunggu dataset UAT'}</em>
       </article>)}
       <DismissibleBubble className="app-notice-bubble app-notice-info" role="note">
         <strong>Authority tetap Payment Control</strong>
         <span>Card ini hanya observability. Generate/submit PI dilakukan Processor, approval dan Process Payment hanya Payroll Controller. Raw disbursement dari Integration Console tetap dinonaktifkan.</span>
       </DismissibleBubble>
       <details className="e2pay-collapsible"><summary>Langkah pengujian UAT</summary><ol className="e2pay-topup-steps">
-        <li>Pastikan canary menunjukkan <b>FUNDED</b> dan <b>READY_FOR_PI</b>.</li>
+        <li>Pastikan saldo Master siap dan canary menunjukkan <b>READY_FOR_PI</b>.</li>
         <li>Processor membuat + submit PI canary Rp15.000.</li>
         <li>Controller review immutable routing lalu approve dan Process Payment.</li>
         <li>Uji idempotent replay; jangan membuat financial attempt kedua.</li>
