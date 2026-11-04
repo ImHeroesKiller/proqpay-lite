@@ -702,8 +702,8 @@ export default function SettingsModal({
 
             {tab === "paymentGateway" && role === "SUPER_ADMIN" ? (
               <SettingsSection
-                title="E2Pay B2B Disbursement"
-                description="Konfigurasi provider dan credential payment gateway. Hanya Super Admin yang dapat membuka dan mengubah bagian ini."
+                title="Koneksi E2Pay"
+                description="Atur kredensial, uji koneksi, lalu aktifkan jika siap."
               >
                 <PaymentGatewaySettings />
               </SettingsSection>
@@ -838,15 +838,11 @@ export default function SettingsModal({
                     : "Tidak ada perubahan"}
               </span>
             </>
-          ) : (
+          ) : tab === "users" ? (
             <span>
-              {tab === "paymentGateway"
-                ? "Credential gateway disimpan melalui tombol pada panel E2Pay."
-                : tab === "portal"
-                  ? "Konfigurasi portal disimpan melalui tombol pada panel Portal Configuration."
-                  : "Perubahan user disimpan melalui tombol pada masing-masing kartu."}
+              Perubahan user disimpan melalui tombol pada masing-masing kartu.
             </span>
-          )}
+          ) : null}
           <div>
             <button type="button" className="btn" onClick={onClose}>
               {tab === "users" || tab === "paymentGateway" || tab === "portal" ? "Tutup" : "Batal"}

@@ -7,7 +7,6 @@ import {
   Notice as UiNotice,
   SectionCard as UiSectionCard,
   Tabs as UiTabs,
-  WorkspaceHeader as UiWorkspaceHeader,
 } from "@/components/ui/UnifiedSystem";
 
 type Policy = {
@@ -258,39 +257,20 @@ export default function PortalSettings() {
   const dirty = Boolean(baseline && currentFingerprint !== baseline);
   const selectedClient = clientId ? clients.find((client) => client.id === clientId) : null;
   const scopeLabel = selectedClient ? selectedClient.name : "Default organisasi";
-  const policySummary = [
-    { label: "Layanan", value: policy.enabled ? "Aktif" : "Nonaktif", tone: policy.enabled ? "ok" : "off" },
-    { label: "Plafond", value: `${Math.round(policy.maxPercent * 100)}%`, tone: "accent" },
-    { label: "Fee", value: `${Number((policy.feeRate * 100).toFixed(2))}%`, tone: "neutral" },
-    { label: "Hari dalam periode", value: `${policy.minDaysWorked} hari`, tone: "neutral" },
-  ];
   const saveLabel = busy ? "Menyimpan…" : message && saveState === "error" ? "Gagal menyimpan" : dirty ? "Perubahan belum disimpan" : saveState === "saved" ? "Perubahan tersimpan" : "Tidak ada perubahan";
 
   return (
     <section className="portal-workspace portal-config-workspace">
-      <UiWorkspaceHeader
-        eyebrow="EMPLOYEE SERVICES · CONFIGURATION"
-        title="Portal Configuration Control Center"
-        description="Atur policy Advance Salary, konten ESS, promosi, dan tracking per organisasi atau per klien tanpa menyentuh pay run, PI, maupun billing."
-        meta={<>
-          <span><strong>{scopeLabel}</strong> scope aktif</span>
-          <span>{inherited ? "Inherited dari organisasi" : "Client override aktif"}</span>
-          <span>{dirty ? "Ada perubahan belum disimpan" : "Konfigurasi sinkron"}</span>
-        </>}
-        action={<button type="button" className="btn" disabled={loading || busy} onClick={() => void load(clientId)}>{loading ? "Memuat…" : "Refresh konfigurasi"}</button>}
-      />
-
       <section className="portal-config-scope-card card">
         <div className="portal-config-scope-copy">
-          <span className="portal-config-kicker">Configuration scope</span>
-          <strong>{scopeLabel}</strong>
-          <small>{selectedClient ? `${selectedClient.code || selectedClient.id} · pengaturan khusus klien` : "Berlaku sebagai default untuk seluruh klien"}</small>
+          <strong>Pengaturan ESS</strong>
+          <small>{clientId ? (inherited ? "Mengikuti default organisasi" : "Pengaturan khusus klien") : "Default organisasi"} · {policy.enabled ? "Advance Salary aktif" : "Advance Salary nonaktif"}{dirty ? " · Belum disimpan" : ""}</small>
         </div>
         <div className="portal-config-scope-controls">
           <label>
             <span>Lingkup</span>
             <select value={clientId} onChange={(event) => void onClientChange(event.target.value)}>
-              <option value="">Semua klien (default org)</option>
+              <option value="">Semua klien (default organisasi)</option>
               {clients.map((client) => (
                 <option key={client.id} value={client.id}>
                   {client.name} ({client.code || client.id})
@@ -303,12 +283,12 @@ export default function PortalSettings() {
               Kembali ke default org
             </button>
           ) : null}
+          <button type="button" className="btn" disabled={loading || busy} onClick={() => void load(clientId)}>{loading ? "Memuat…" : "Muat ulang"}</button>
         </div>
       </section>
 
       <div className="portal-config-layout">
         <aside className="portal-config-nav card" aria-label="Bagian konfigurasi">
-          <div className="portal-config-nav-title">Konfigurasi</div>
           <UiTabs
             items={[
               { value: "rules", label: "Advance Salary" },
@@ -859,28 +839,8 @@ export default function PortalSettings() {
       ) : null}
 
         </div>
-        <aside className="portal-config-summary">
-          <section className="card portal-config-summary-card">
-            <span className="portal-config-kicker">Policy snapshot</span>
-            <h3>{scopeLabel}</h3>
-            <div className="portal-config-summary-grid">
-              {policySummary.map((item) => (
-                <div key={item.label} className={`portal-config-summary-item tone-${item.tone}`}>
-                  <span>{item.label}</span>
-                  <strong>{item.value}</strong>
-                </div>
-              ))}
-            </div>
-            <div className="portal-config-summary-status">
-              <span className={`portal-config-dot ${inherited ? "inherited" : "override"}`} />
-              <div>
-                <strong>{inherited ? "Inherited configuration" : "Client override"}</strong>
-                <small>{inherited ? "Menggunakan default organisasi." : "Klien ini memiliki pengaturan tersendiri."}</small>
-              </div>
-            </div>
-          </section>
-
-          <section className="card portal-config-preview-card">
+        {tab === "copy" ? <aside className="portal-config-summary">
+          {tab === "copy" ? <section className="card portal-config-preview-card">
             <span className="portal-config-kicker">ESS preview</span>
             <small>Pratinjau untuk {scopeLabel}{dirty ? " · perubahan belum disimpan" : ""}</small>
             <div className="portal-config-preview-shell">
@@ -895,8 +855,8 @@ export default function PortalSettings() {
                 <p>Pengajuan tidak tersedia untuk lingkup ini.</p>
               </>}
             </div>
-          </section>
-        </aside>
+          </section> : null}
+        </aside> : null}
       </div>
 
       {dirty || busy || saveState === "error" ? <UiActionBar
