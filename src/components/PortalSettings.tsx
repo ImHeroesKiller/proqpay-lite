@@ -67,9 +67,9 @@ const EMPTY_AD: Ad = {
   provider: "INTERNAL",
   action: "EWA",
   tag: "Advance Salary",
-  title: "Get Paid Sooner, Worry Less",
+  title: "Akses gaji lebih awal",
   desc: "Cairkan gaji yang sudah Anda kerjakan. Pengajuan diproses sesuai kebijakan perusahaan.",
-  cta: "Request Advance",
+  cta: "Ajukan Advance Salary",
   href: "",
   bg: "linear-gradient(115deg, #0f1b3a 0%, #1b2a52 55%, #24355f 100%)",
   imageUrl: "",
@@ -262,7 +262,7 @@ export default function PortalSettings() {
     { label: "Layanan", value: policy.enabled ? "Aktif" : "Nonaktif", tone: policy.enabled ? "ok" : "off" },
     { label: "Plafond", value: `${Math.round(policy.maxPercent * 100)}%`, tone: "accent" },
     { label: "Fee", value: `${Number((policy.feeRate * 100).toFixed(2))}%`, tone: "neutral" },
-    { label: "Min. hari", value: `${policy.minDaysWorked} hari`, tone: "neutral" },
+    { label: "Hari dalam periode", value: `${policy.minDaysWorked} hari`, tone: "neutral" },
   ];
   const saveLabel = busy ? "Menyimpan…" : message && saveState === "error" ? "Gagal menyimpan" : dirty ? "Perubahan belum disimpan" : saveState === "saved" ? "Perubahan tersimpan" : "Tidak ada perubahan";
 
@@ -312,9 +312,9 @@ export default function PortalSettings() {
           <UiTabs
             items={[
               { value: "rules", label: "Advance Salary" },
-              { value: "copy", label: "Portal Content" },
-              { value: "ads", label: "Promotion" },
-              { value: "platform", label: "Tracking" },
+              { value: "copy", label: "Konten ESS" },
+              { value: "ads", label: "Promosi" },
+              { value: "platform", label: "Pelacakan" },
             ]}
             value={tab}
             onChange={(value) => setTab(value as typeof tab)}
@@ -397,7 +397,7 @@ export default function PortalSettings() {
             />
           </label>
           <label className="es-field">
-            Fee minimum berlaku jika pengajuan ≤ (Rp)
+            Batas nominal untuk fee minimum (Rp)
             <input
               type="number"
               min={0}
@@ -411,12 +411,15 @@ export default function PortalSettings() {
               }
             />
           </label>
+          <p className="portal-config-note">
+            Fee adalah nilai terbesar antara {Number((policy.feeRate * 100).toFixed(2))}% dari pengajuan dan Rp {IDR.format(policy.minFee)} untuk pengajuan sampai Rp {IDR.format(policy.minFeeAmount)}. Contoh pada Rp {IDR.format(policy.minFeeAmount)}: fee Rp {IDR.format(Math.max(Math.round(policy.minFeeAmount * policy.feeRate), policy.minFee))}.
+          </p>
           <div className="portal-config-section">
-            <strong>Eligibility</strong>
-            <div>Syarat hari berjalan dan masa kerja sebelum karyawan dapat mengajukan.</div>
+            <strong>Syarat pengajuan</strong>
+            <div>Kedua syarat di bawah harus terpenuhi sebelum karyawan dapat mengajukan.</div>
           </div>
           <label className="es-field">
-            Hari berjalan di bulan gaji (prorata)
+            Minimum hari dalam periode gaji (prorata)
             <input
               type="number"
               min={0}
@@ -430,8 +433,7 @@ export default function PortalSettings() {
               }
             />
             <span className="portal-config-help">
-              Bukan masa kerja. Contoh 10 = baru boleh ajukan setelah tanggal 10
-              bulan ini.
+              Jumlah hari kerja yang telah berjalan dalam periode gaji, bukan tanggal kalender atau masa kerja. Contoh: minimum 10 berarti pengajuan baru tersedia setelah 10 hari kerja periode ini dan syarat masa kerja terpenuhi.
             </span>
           </label>
           <label className="es-field">
@@ -479,8 +481,7 @@ export default function PortalSettings() {
               </select>
             </span>
             <span className="portal-config-help">
-              Dihitung dari join date di kontrak. 0 = tidak ada syarat masa
-              kerja.
+              Dihitung dari tanggal bergabung di kontrak. Contoh: bergabung 15 Oktober dan minimum 1 bulan berarti syarat ini terpenuhi pada 15 November. Nilai 0 berarti tanpa syarat masa kerja.
             </span>
           </label>
           <div className="portal-config-section">
@@ -898,8 +899,7 @@ export default function PortalSettings() {
         </aside>
       </div>
 
-      <UiActionBar
-        sticky
+      {dirty || busy || saveState === "error" ? <UiActionBar
         className="portal-config-savebar"
         meta={
           <div>
@@ -921,7 +921,7 @@ export default function PortalSettings() {
         >
           {busy ? "Menyimpan…" : "Simpan perubahan"}
         </button>
-      </UiActionBar>
+      </UiActionBar> : null}
     </section>
   );
 }
