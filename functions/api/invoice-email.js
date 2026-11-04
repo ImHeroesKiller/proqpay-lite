@@ -11,6 +11,17 @@ function orgId(env){return String(env.DEFAULT_ORG_ID||'ORG-OTSINDO');}
 function escapeHtml(value=''){return String(value).replace(/[&<>"']/g,(ch)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
 function validEmail(value){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value||'').trim());}
 
+function relayConfig(env){
+  const from=String(env.BILLING_FROM_EMAIL||DEFAULT_FROM_EMAIL).trim();
+  const relayRecipient=String(env.BILLING_RELAY_EMAIL||DEFAULT_RELAY_EMAIL).trim().toLowerCase();
+  if(!validEmail(from)||!validEmail(relayRecipient)) {
+    const error=new Error('Konfigurasi email relay invoice tidak valid.');
+    error.code='INVOICE_EMAIL_PROVIDER_NOT_CONFIGURED';
+    throw error;
+  }
+  return {from,relayRecipient};
+}
+
 async function sendResend(env,{recipient,cc,subject,html,filename,pdfBase64,idempotencyKey,invoiceId}) {
   const apiKey=String(env.RESEND_API_KEY||'').trim();
   const {from,relayRecipient}=relayConfig(env);
