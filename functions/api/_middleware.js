@@ -1,4 +1,5 @@
 import { authenticateSession } from './_account-auth.js';
+import { applyApiSecurityHeaders } from './_response-security.js';
 
 function clean(value, max = 180) {
   return String(value || '').trim().replace(/[\r\n\t]+/g, ' ').slice(0, max);
@@ -116,9 +117,9 @@ export async function onRequest(context) {
 
   const headers = new Headers(response.headers);
   headers.set('X-Request-Id', correlationId);
-  return new Response(response.body, {
+  return applyApiSecurityHeaders(new Response(response.body, {
     status:response.status,
     statusText:response.statusText,
     headers,
-  });
+  }));
 }
