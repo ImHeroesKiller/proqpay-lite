@@ -482,10 +482,11 @@
 
 .portal-config-layout{
   display:grid;
-  grid-template-columns:minmax(0,1fr) minmax(220px,260px);
+  grid-template-columns:minmax(0,1fr);
   gap:14px;
   align-items:start;
 }
+.portal-config-layout:has(.portal-config-summary){grid-template-columns:minmax(0,1fr) minmax(220px,260px)}
 .portal-config-nav{
   grid-column:1/-1;
   padding:10px;
@@ -671,7 +672,7 @@
 }
 
 @media(max-width:1180px){
-  .portal-config-layout{grid-template-columns:minmax(0,1fr) minmax(200px,240px)}
+  .portal-config-layout:has(.portal-config-summary){grid-template-columns:minmax(0,1fr) minmax(200px,240px)}
   .portal-config-summary{
     position:static;
     grid-column:2;
@@ -682,7 +683,7 @@
   .portal-config-hero{display:grid}
   .portal-config-scope-card{align-items:stretch;flex-direction:column}
   .portal-config-scope-controls{min-width:0;width:100%}
-  .portal-config-layout{grid-template-columns:1fr}
+  .portal-config-layout,.portal-config-layout:has(.portal-config-summary){grid-template-columns:1fr}
   .portal-config-nav{
     position:static;
     display:block;
@@ -772,3 +773,17 @@
 @media(max-width:600px){.ewa-approval-page{gap:14px}.ewa-approval-page .ewa-filter-panel,.ewa-approval-page .ewa-list-card{padding:14px}.ewa-approval-page .ewa-approval-header{display:grid;gap:12px}.ewa-approval-page .ewa-approval-header h1{font-size:24px}.ewa-approval-page .ewa-approval-header p{font-size:12px}.ewa-approval-page .ui-header-meta{gap:6px;flex-wrap:wrap}.ewa-approval-page .ui-header-meta>span{font-size:11px;padding:5px 8px}.ewa-approval-page .ewa-filter-toggle{display:inline-flex}.ewa-section-heading h2{font-size:14px}.ewa-section-heading p{font-size:11px}.ewa-filter-actions{gap:5px}.ewa-filter-actions .btn{font-size:10px;padding:6px}.ewa-approval-filters{grid-template-columns:1fr 1fr;gap:10px}.ewa-approval-filters>label{display:none}.ewa-approval-filters .ewa-filter-search{display:flex;grid-column:1/-1}.ewa-approval-filters.is-open>label{display:flex}.ewa-kpi{padding:14px 10px;gap:8px}.ewa-kpi-icon{width:30px;height:30px;flex-basis:30px}.ewa-kpi-icon svg{width:18px;height:18px}.ewa-kpi-copy strong{font-size:25px}.ewa-kpi-copy small{font-size:10px}.ewa-approval-page .ewa-mobile-card{padding:14px}.ewa-approval-page .ewa-mobile-top{flex-wrap:wrap}.ewa-approval-page .ewa-row-actions .btn{min-height:38px;font-size:12px;flex:1}.ewa-approval-page .ui-pagination{gap:10px;flex-wrap:wrap}.ewa-approval-detail .es-detail-grid{grid-template-columns:1fr}.ewa-confirm-actions{flex-wrap:wrap}}
 
 .ewa-approval-page .ewa-new-badge strong{color:inherit}
+
+/* Compact Payment Gateway settings */
+.gateway-settings-simple{display:grid;gap:16px}
+.gateway-runtime-status{display:flex;gap:10px 24px;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-subtle);color:var(--text2);font-size:12px}
+.gateway-runtime-status strong{color:var(--text)}
+.gateway-flow-note{margin:0;color:var(--text3);font-size:12px;line-height:1.5}
+.gateway-flow-warning{padding:10px 12px;border-left:3px solid var(--accent);background:var(--accent-soft);color:var(--text)}
+.gateway-settings-section{min-width:0;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-surface)}
+.gateway-settings-section>summary{cursor:pointer;color:var(--text);font-size:12px;font-weight:700}
+.gateway-settings-section>summary small{display:block;margin-top:3px;color:var(--text3);font-size:10px;font-weight:400}
+.gateway-settings-section[open]>summary{margin-bottom:14px}
+.gateway-settings-section>p{margin:0 0 12px;color:var(--text3);font-size:11px}
+.gateway-settings-section table{width:100%;margin-top:12px;text-align:left}
+.gateway-settings-technical{color:var(--text3);font-size:11px;line-height:1.6}
