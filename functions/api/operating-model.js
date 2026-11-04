@@ -2,6 +2,7 @@ import { markEwaRepaid } from './_ewa.js';
 import { authorize, enforceRateLimit, handlePreflight, secureJson } from './_security.js';
 import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import { handleD1OperatingModel } from './operating-model-d1.js';
+import { dispatchClientNotification, notifyAfterResponse } from './_proqpay-notifications.js';
 
 const METHODS = 'GET, POST, OPTIONS';
 const ROLES = ['SUPER_ADMIN', 'PAYROLL_PROCESSOR', 'PAYROLL_CONTROLLER', 'CLIENT_USER'];
@@ -310,5 +311,21 @@ export async function onRequest(context) {
   if (guarded) return secureJson(guarded.data, guarded.status, request, env, METHODS);
   const snapshotGuard = await validateSnapshotCapture(body, authorization.actor, env);
   if (snapshotGuard) return secureJson(snapshotGuard.data, snapshotGuard.status, request, env, METHODS);
-  return handleD1OperatingModel(context, authorization.actor);
+  const response=await handleD1OperatingModel(context, authorization.actor);
+  const action=String(body?.action||'');
+  const type = action==='CLIENT_APPROVE_PAYROLL'?'PAYROLL_APPROVED'
+    :action==='CLIENT_REQUEST_PAYROLL_REVISION'?'PAYROLL_REVISION'
+    :action==='TRANSITION_SUBMISSION' && String(body?.toState)==='CLIENT_APPROVAL_PENDING'?'PAYROLL_REVIEW'
+    :action==='RECONCILE_PAYMENT'?'PAYMENT_COMPLETED':null;
+  if(!type||request.method!=='POST') return response;
+  return notifyAfterResponse(context,response,async(data)=>{
+    const orgId=String(env.DEFAULT_ORG_ID||'ORG-OTSINDO');
+    const id=String(body.submissionId||data.submission?.id||'');
+    const row=id?await d1First(env.DB,'SELECT id,client_id,period,state,updated_at FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1',[id,orgId]):null;
+    if(!row) return;
+    const expected=type==='PAYROLL_APPROVED'?'CLIENT_APPROVED':type==='PAYROLL_REVISION'?'CLIENT_REVISION_REQUESTED':type==='PAYROLL_REVIEW'?'CLIENT_APPROVAL_PENDING':null;
+    if(expected && row.state!==expected) return;
+    if(type==='PAYMENT_COMPLETED' && !data.reconciliation) return;
+    await dispatchClientNotification(env,{type,clientId:row.client_id,reference:row.id,period:row.period,eventId:row.id+':'+type+':'+String(row.updated_at||'')});
+  });
 }
