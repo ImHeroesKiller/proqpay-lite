@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { spawnSync } from 'node:child_process';
 
 const file=process.argv[2];
 if(!file || !fs.existsSync(file)){
@@ -45,9 +46,12 @@ function stripOrphanSchema(source){
       return `-- skipped orphan index for absent table ${table}`;
     },
   );
-  const triggerSanitized=sanitized.replace(
-    /CREATE\s+TRIGGER[\s\S]*?\bEND\s*;/gi,
-    (statement)=>{
+  const parsed=spawnSync('python3',['scripts/backup-trigger-spans.py'],{input:sanitized,encoding:'utf8',maxBuffer:1024*1024});
+  if(parsed.status!==0) throw new Error(`Could not parse backup triggers: ${parsed.stderr}`);
+  const spans=JSON.parse(parsed.stdout);
+  let triggerSanitized=sanitized;
+  for(const [start,end] of spans.reverse()){
+    const statement=sanitized.slice(start,end);
       const dependencies=[];
       const target=statement.match(/\bON\s+[`"]?([A-Za-z0-9_]+)[`"]?\s+(?:WHEN\b|BEGIN\b)/i);
       if(target?.[1]) dependencies.push(target[1]);
@@ -59,15 +63,14 @@ function stripOrphanSchema(source){
       }
       const normalizedDependencies=dependencies.map((name)=>String(name).toLowerCase());
       const missing=[...new Set(normalizedDependencies.filter((name)=>!declaredTables.has(name)))];
-      if(!missing.length) return statement;
+      if(!missing.length) continue;
       skipped.push({
         type:'ORPHAN_TRIGGER',
         tables:missing,
         statement:statement.slice(0,240),
       });
-      return `-- skipped orphan trigger referencing absent table(s): ${missing.join(', ')}`;
-    },
-  );
+      triggerSanitized=triggerSanitized.slice(0,start)+`-- skipped orphan trigger referencing absent table(s): ${missing.join(', ')}\n`+triggerSanitized.slice(end);
+  }
   return {sanitized:triggerSanitized,skipped};
 }
 
