@@ -7,6 +7,7 @@ import { consumeDisbursementRequestLimit, releaseDisbursementRequestLimit } from
 import { hasRecentMfa, mfaEnforcementMode } from './_security-context.js';
 import {applyCanonicalPayrollSettlement} from './canonical-payroll-settlement.js';
 import { applyCanonicalEwaSettlement } from './ewa-canonical-settlement.js';
+import { dispatchClientNotification } from './_proqpay-notifications.js';
 
 const METHODS='GET, POST, OPTIONS';
 function clean(value,limit=200){return String(value??'').trim().replace(/[\r\n\t]+/g,' ').slice(0,limit);}
@@ -46,7 +47,7 @@ async function acquireLock(database,id){
 }
 async function releaseLock(database,id,token){await d1Run(database,`UPDATE disbursement_executions SET execution_lock_token=NULL,execution_lock_expires_at=NULL,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND execution_lock_token=?`,[id,token]);}
 
-export async function onRequest({request,env}){
+export async function onRequest({request,env,waitUntil}){
   if(request.method==='OPTIONS') return handlePreflight(request,env,METHODS);
   if(!['GET','POST'].includes(request.method)) return secureJson({error:'Method not allowed'},405,request,env,METHODS);
   const authorization=await authorize(request,env,{roles:['SUPER_ADMIN','PAYROLL_PROCESSOR','PAYROLL_CONTROLLER'],mutating:request.method==='POST',methods:METHODS});
@@ -127,6 +128,22 @@ export async function onRequest({request,env}){
     }
     else if(result.outcome.attemptStatus==='PARTIAL') await consumeDisbursementRequestLimit(env.DB,dr.id,result.summary.settledAmount);
     else if(result.outcome.attemptStatus==='FAILED') await releaseDisbursementRequestLimit(env.DB,dr.id,'RECONCILIATION_CONFIRMED_ALL_FAILED');
+    if(result.outcome.attemptStatus==='MATCHED' && dr.status!=='RECONCILED' && waitUntil && String(env.PROQPAY_NOTIFICATION_EMAIL_ENABLED||'false')==='true') {
+      let period='-';
+      const documentType=String(dr.source_document_type||'');
+      if(documentType==='PAYMENT_INSTRUCTION') {
+        const payment=await d1First(env.DB,'SELECT ps.period FROM payment_instructions pi JOIN payroll_submissions ps ON ps.id=pi.submission_id AND ps.org_id=pi.org_id WHERE pi.id=? AND pi.org_id=? LIMIT 1',[dr.source_document_id,organizationId]);
+        period=String(payment?.period||'-');
+      } else if(documentType==='EWA_REQUEST') {
+        const advance=await d1First(env.DB,'SELECT period FROM ewa_requests WHERE id=? AND org_id=? LIMIT 1',[dr.source_document_id,organizationId]);
+        period=String(advance?.period||'-');
+      }
+      const type=documentType==='PAYMENT_INSTRUCTION'?'PAYMENT_COMPLETED':documentType==='EWA_REQUEST'?'EWA_REPAID':null;
+      if(type) waitUntil(dispatchClientNotification(env,{
+        type,clientId:dr.client_id,reference:dr.source_document_id,period,
+        eventId:dr.id+':CANONICAL_RECONCILED'
+      }).catch(()=>{}));
+    }
     return secureJson({ok:true,attemptId,outcome:result.outcome,summary:result.summary,providerFound:result.providerFound,providerMissing:result.providerMissing,...await detail(env.DB,organizationId,dr.id)},200,request,env,METHODS);
   }finally{await releaseLock(env.DB,execution.id,lock);}
 }

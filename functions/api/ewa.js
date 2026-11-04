@@ -1,4 +1,5 @@
 import { employeeEwaConfiguration } from './_ewa-entitlement.js';
+import { dispatchClientNotification } from './_proqpay-notifications.js';
 import { d1All, d1Batch, d1First, hasD1 } from './_d1.js';
 import { authorize, clientIdsFor, projectIdsFor, enforceRateLimit, handlePreflight, publicError, secureJson } from './_security.js';
 
@@ -11,7 +12,7 @@ function orgId(env, actor) {
   return String(env.DEFAULT_ORG_ID || actor?.orgId || 'ORG-OTSINDO');
 }
 
-export async function onRequest({ request, env }) {
+export async function onRequest({ request, env, waitUntil }) {
   if (request.method === 'OPTIONS') return handlePreflight(request, env, METHODS);
   if (!['GET', 'POST'].includes(request.method)) {
     return secureJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
@@ -162,7 +163,12 @@ export async function onRequest({ request, env }) {
           bindings: [`AUD-${crypto.randomUUID()}`,organizationId,actorId,`EWA_CLIENT_${clientStatus}`,JSON.stringify({requestId,decision:clientStatus,note:String(body.note||'').trim().slice(0,240)}),requestId] },
       ]);
       if (Number(result?.meta?.changes ?? 0) !== 1) return respond({error:'Status berubah. Muat ulang.'},409);
-      return respond({ok:true,request:await d1First(env.DB,'SELECT * FROM ewa_requests WHERE id=? AND org_id=?',[requestId,organizationId])});
+      const updated=await d1First(env.DB,'SELECT * FROM ewa_requests WHERE id=? AND org_id=?',[requestId,organizationId]);
+      if(waitUntil&&String(env.PROQPAY_NOTIFICATION_EMAIL_ENABLED||'false')==='true') waitUntil(dispatchClientNotification(env,{
+        type:action==='APPROVE'?'EWA_CLIENT_APPROVED':'EWA_REJECTED',clientId:updated.client_id,reference:updated.id,
+        period:updated.period,eventId:updated.id+':CLIENT_'+clientStatus+':'+String(updated.updated_at||'')
+      }).catch(()=>{}));
+      return respond({ok:true,request:updated});
     }
     if(['APPROVE','REJECT'].includes(action) && actor.role==='PAYROLL_CONTROLLER')return respond({error:'Processor menyiapkan pengajuan terlebih dahulu. Controller menyetujui eksekusi melalui Disbursement.',code:'EWA_PROCESSOR_REVIEW_REQUIRED'},403);
     if(action==='APPROVE' && current.configuration_version != null){
@@ -220,6 +226,10 @@ export async function onRequest({ request, env }) {
     }
 
     const updated = await d1First(env.DB, 'SELECT * FROM ewa_requests WHERE id=? AND org_id=?', [requestId, organizationId]);
+    if(waitUntil&&String(env.PROQPAY_NOTIFICATION_EMAIL_ENABLED||'false')==='true') waitUntil(dispatchClientNotification(env,{
+      type:nextStatus==='APPROVED'?'EWA_APPROVED':'EWA_REJECTED',clientId:updated.client_id,reference:updated.id,
+      period:updated.period,eventId:updated.id+':PROCESSOR_'+nextStatus+':'+String(updated.updated_at||'')
+    }).catch(()=>{}));
     return respond({ ok: true, request: updated });
   } catch (error) {
     return respond({ error: 'EWA request failed', ...publicError(error, crypto.randomUUID()) }, 500);

@@ -49,7 +49,7 @@ async function sendViaUbuntu(env,{recipient,cc,subject,html,filename,pdfBase64,i
     error.httpStatus=response.status;
     throw error;
   }
-  return {id:requestId,relayRecipient:DEFAULT_RELAY_EMAIL,from:DEFAULT_FROM_EMAIL};
+  return {id:requestId,relayRecipient:null,from:DEFAULT_FROM_EMAIL,transport:'UBUNTU_SMTP'};
 }
 async function sendResend(env,{recipient,cc,subject,html,filename,pdfBase64,idempotencyKey,invoiceId}) {
   if(String(env.PROQPAY_MAIL_GATEWAY_URL||'').trim()) {
@@ -190,7 +190,7 @@ export async function onRequest({request,env}) {
       await d1Run(env.DB,`UPDATE invoices SET email_status='SENT',email_provider_id=?,email_sent_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
         sent_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),email_last_error=NULL,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
         WHERE id=? AND org_id=?`,[sent.id||null,invoiceId,organizationId]);
-      await recordInvoiceDelivery(env.DB,{organizationId,invoiceId,channel:'EMAIL',recipient,status:'SUCCESS',providerMessageId:sent.id||null,pdfSha256:document.sha256,detail:JSON.stringify({transport:'RESEND_RELAY',relayRecipient:sent.relayRecipient,from:sent.from}),actor:authorization.actor.email});
+      await recordInvoiceDelivery(env.DB,{organizationId,invoiceId,channel:'EMAIL',recipient,status:'SUCCESS',providerMessageId:sent.id||null,pdfSha256:document.sha256,detail:JSON.stringify({transport:sent.transport||'RESEND_RELAY',relayRecipient:sent.relayRecipient,from:sent.from}),actor:authorization.actor.email});
       return secureJson({ok:true,status:'SENT',recipient,cc:cc||null,relayRecipient:sent.relayRecipient,providerMessageId:sent.id||null,pdfSha256:document.sha256},200,request,env,METHODS);
     }catch(error){
       const message=String(error?.message||error).slice(0,500);

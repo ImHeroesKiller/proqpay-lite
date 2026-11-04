@@ -7,6 +7,7 @@ import {
   payrollStageIndex, policyToRules, tenureDaysFromJoin, tenureMonthsFromJoin,
 } from '../_ewa.js';
 import { publicError } from '../_security.js';
+import { dispatchClientNotification } from '../_proqpay-notifications.js';
 import { revealEmployeeBankAccount } from '../_employee-bank-security.js';
 
 const METHODS = 'GET, POST, OPTIONS';
@@ -110,7 +111,7 @@ async function snapshot(database, actor) {
   };
 }
 
-export async function onRequest({ request, env }) {
+export async function onRequest({ request, env, waitUntil }) {
   if (request.method === 'OPTIONS') return employeeHandlePreflight(request, env, METHODS);
   if (!['GET', 'POST'].includes(request.method)) {
     return employeeJson({ error: 'Method not allowed' }, 405, request, env, METHODS);
@@ -221,6 +222,10 @@ export async function onRequest({ request, env }) {
         bindings: [`AUD-${crypto.randomUUID()}`,actor.orgId,actor.employeeCode,`${id} · ${amount}`,id]},
     ]);
     const created = await d1First(env.DB, 'SELECT * FROM ewa_requests WHERE id=?', [id]);
+    if(waitUntil&&String(env.PROQPAY_NOTIFICATION_EMAIL_ENABLED||'false')==='true') waitUntil(dispatchClientNotification(env,{
+      type:'EWA_SUBMITTED',clientId:actor.clientId,reference:created.id,period:created.period,
+      eventId:created.id+':SUBMITTED:'+String(created.updated_at||created.created_at||'')
+    }).catch(()=>{}));
     return respond({ ok: true, contractVersion: EMPLOYEE_SERVICES_CONTRACT_VERSION, request: created });
   } catch (error) {
     if (String(error?.message || '').includes('idx_ewa_one_open')) {
