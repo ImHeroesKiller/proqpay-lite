@@ -5,26 +5,45 @@ import { ensureInvoiceDocument, recordInvoiceDelivery } from './invoice-document
 
 const METHODS='POST, OPTIONS';
 const ROLES=['SUPER_ADMIN','PAYROLL_CONTROLLER'];
+const DEFAULT_FROM_EMAIL='no-reply@arywibowo.id';
+const DEFAULT_RELAY_EMAIL='ary@msg-os.com';
 function orgId(env){return String(env.DEFAULT_ORG_ID||'ORG-OTSINDO');}
 function escapeHtml(value=''){return String(value).replace(/[&<>"']/g,(ch)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
 function validEmail(value){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value||'').trim());}
 
-async function sendResend(env,{to,cc,subject,html,filename,pdfBase64,idempotencyKey}) {
-  const apiKey=String(env.RESEND_API_KEY||'').trim();
-  const from=String(env.BILLING_FROM_EMAIL||'').trim();
-  if(!apiKey||!from) {
-    const error=new Error('Email invoice belum dikonfigurasi. RESEND_API_KEY dan BILLING_FROM_EMAIL wajib tersedia.');
+function relayConfig(env){
+  const from=String(env.BILLING_FROM_EMAIL||DEFAULT_FROM_EMAIL).trim();
+  const relayRecipient=String(env.BILLING_RELAY_EMAIL||DEFAULT_RELAY_EMAIL).trim().toLowerCase();
+  if(!validEmail(from)||!validEmail(relayRecipient)) {
+    const error=new Error('Konfigurasi email relay invoice tidak valid.');
     error.code='INVOICE_EMAIL_PROVIDER_NOT_CONFIGURED';
     throw error;
   }
+  return {from,relayRecipient};
+}
+
+async function sendResend(env,{recipient,cc,subject,html,filename,pdfBase64,idempotencyKey,invoiceId}) {
+  const apiKey=String(env.RESEND_API_KEY||'').trim();
+  const {from,relayRecipient}=relayConfig(env);
+  if(!apiKey) {
+    const error=new Error('Email invoice belum dikonfigurasi. RESEND_API_KEY wajib tersedia.');
+    error.code='INVOICE_EMAIL_PROVIDER_NOT_CONFIGURED';
+    throw error;
+  }
+  const headers={
+    'X-ProQPay-Relay-Version':'1',
+    'X-ProQPay-Forward-To':recipient,
+    'X-ProQPay-Invoice-Id':String(invoiceId||''),
+  };
+  if(cc) headers['X-ProQPay-Forward-Cc']=cc;
   const payload={
     from,
-    to:[to],
+    to:[relayRecipient],
     subject,
     html,
+    headers,
     attachments:[{filename,content:pdfBase64,content_type:'application/pdf'}],
   };
-  if(cc) payload.cc=[cc];
   if(env.BILLING_REPLY_TO) payload.reply_to=String(env.BILLING_REPLY_TO);
   const response=await fetch('https://api.resend.com/emails',{
     method:'POST',
@@ -42,9 +61,8 @@ async function sendResend(env,{to,cc,subject,html,filename,pdfBase64,idempotency
     error.httpStatus=response.status;
     throw error;
   }
-  return {id:String(body?.id||'')};
+  return {id:String(body?.id||''),relayRecipient,from};
 }
-
 export async function onRequest({request,env}) {
   if(request.method==='OPTIONS') return handlePreflight(request,env,METHODS);
   if(request.method!=='POST') return secureJson({error:'Method not allowed'},405,request,env,METHODS);
@@ -101,14 +119,15 @@ export async function onRequest({request,env}) {
     </div>`;
     try{
       const sent=await sendResend(env,{
-        to:recipient,cc:cc||null,subject,html,filename:document.filename,pdfBase64:bytesToBase64(document.pdf),
+        recipient,cc:cc||null,subject,html,filename:document.filename,pdfBase64:bytesToBase64(document.pdf),
         idempotencyKey:`invoice/${invoiceId}/${document.sha256}/${recipient}`,
+        invoiceId,
       });
       await d1Run(env.DB,`UPDATE invoices SET email_status='SENT',email_provider_id=?,email_sent_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
         sent_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),email_last_error=NULL,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
         WHERE id=? AND org_id=?`,[sent.id||null,invoiceId,organizationId]);
-      await recordInvoiceDelivery(env.DB,{organizationId,invoiceId,channel:'EMAIL',recipient,status:'SUCCESS',providerMessageId:sent.id||null,pdfSha256:document.sha256,actor:authorization.actor.email});
-      return secureJson({ok:true,status:'SENT',recipient,cc:cc||null,providerMessageId:sent.id||null,pdfSha256:document.sha256},200,request,env,METHODS);
+      await recordInvoiceDelivery(env.DB,{organizationId,invoiceId,channel:'EMAIL',recipient,status:'SUCCESS',providerMessageId:sent.id||null,pdfSha256:document.sha256,detail:JSON.stringify({transport:'RESEND_RELAY',relayRecipient:sent.relayRecipient,from:sent.from}),actor:authorization.actor.email});
+      return secureJson({ok:true,status:'SENT',recipient,cc:cc||null,relayRecipient:sent.relayRecipient,providerMessageId:sent.id||null,pdfSha256:document.sha256},200,request,env,METHODS);
     }catch(error){
       const message=String(error?.message||error).slice(0,500);
       await d1Run(env.DB,`UPDATE invoices SET email_status='FAILED',email_last_error=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
