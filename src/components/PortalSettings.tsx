@@ -117,6 +117,7 @@ export default function PortalSettings() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [baseline, setBaseline] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
 
   const apply = useCallback((data: Record<string, unknown>) => {
     const nextPolicy = {
@@ -147,6 +148,7 @@ export default function PortalSettings() {
       setLoading(true);
       setMessage("");
       setOk("");
+      setSaveState("idle");
       const query = nextClient
         ? `?clientId=${encodeURIComponent(nextClient)}`
         : "";
@@ -192,8 +194,10 @@ export default function PortalSettings() {
       setOk(
         "Tersimpan. Portal karyawan memakai aturan ini pada muatan berikutnya.",
       );
+      setSaveState("saved");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Gagal menyimpan");
+      setSaveState("error");
     } finally {
       setBusy(false);
     }
@@ -260,6 +264,7 @@ export default function PortalSettings() {
     { label: "Fee", value: `${Number((policy.feeRate * 100).toFixed(2))}%`, tone: "neutral" },
     { label: "Min. hari", value: `${policy.minDaysWorked} hari`, tone: "neutral" },
   ];
+  const saveLabel = busy ? "Menyimpan…" : message && saveState === "error" ? "Gagal menyimpan" : dirty ? "Perubahan belum disimpan" : saveState === "saved" ? "Perubahan tersimpan" : "Tidak ada perubahan";
 
   return (
     <section className="portal-workspace portal-config-workspace">
@@ -876,12 +881,18 @@ export default function PortalSettings() {
 
           <section className="card portal-config-preview-card">
             <span className="portal-config-kicker">ESS preview</span>
+            <small>Pratinjau untuk {scopeLabel}{dirty ? " · perubahan belum disimpan" : ""}</small>
             <div className="portal-config-preview-shell">
               <div className="portal-config-preview-brand">ProQPay ESS</div>
-              <strong>{copy.ewaTitle || "Advance Salary"}</strong>
-              <p>{copy.ewaSubtitle || copy.ewaBody || "Advance Salary mengikuti policy aktif."}</p>
-              <div className="portal-config-preview-limit">Limit hingga {Math.round(policy.maxPercent * 100)}% · Fee {Number((policy.feeRate * 100).toFixed(2))}%</div>
-              <button type="button" disabled>{copy.ewaCta || "Ajukan Advance"}</button>
+              {policy.enabled ? <>
+                <strong>{copy.ewaTitle || "Advance Salary"}</strong>
+                <p>{copy.ewaSubtitle || copy.ewaBody || "Advance Salary mengikuti policy aktif."}</p>
+                <div className="portal-config-preview-limit">Limit hingga {Math.round(policy.maxPercent * 100)}% · Fee {Number((policy.feeRate * 100).toFixed(2))}%</div>
+                <button type="button" disabled>{copy.ewaCta || "Ajukan Advance"}</button>
+              </> : <>
+                <strong>Advance Salary nonaktif</strong>
+                <p>Pengajuan tidak tersedia untuk lingkup ini.</p>
+              </>}
             </div>
           </section>
         </aside>
@@ -892,8 +903,8 @@ export default function PortalSettings() {
         className="portal-config-savebar"
         meta={
           <div>
-            <strong>{dirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}</strong>
-            <p>{dirty ? "Simpan sebelum berpindah lingkup klien." : "Konfigurasi ini siap dipakai ESS pada muatan berikutnya."}</p>
+            <strong role="status">{saveLabel}</strong>
+            <p>{busy ? "Mohon tunggu hingga penyimpanan selesai." : dirty ? "Simpan sebelum berpindah lingkup klien." : saveState === "saved" ? "Konfigurasi akan dipakai ESS pada muatan berikutnya." : "Ubah pengaturan untuk mengaktifkan tombol simpan."}</p>
           </div>
         }
       >
