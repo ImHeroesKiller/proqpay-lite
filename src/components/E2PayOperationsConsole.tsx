@@ -44,6 +44,7 @@ function Field({label,type='text',value,onChange,placeholder}:{label:string;type
 }
 
 export default function E2PayOperationsConsole({canManage}:Props){
+  const [activeTab,setActiveTab]=useState<'wallet'|'mapping'|'uat'|'activity'|'technical'>('wallet');
   const [account,setAccount]=useState<E2PayAccountSnapshot|null>(null);
   const [catalog,setCatalog]=useState<E2PayCatalogItem[]>([]);
   const [banks,setBanks]=useState<Array<{id:string;name:string;active:string|boolean}>>([]);
@@ -269,6 +270,10 @@ export default function E2PayOperationsConsole({canManage}:Props){
       <span>ProQPay dapat memastikan Source ID terkonfigurasi, tetapi SSD tidak menyediakan read-only endpoint untuk memvalidasi nilainya sebelum transaksi. Nilai ini harus mengikuti Source ID resmi dari E2Pay.</span>
     </DismissibleBubble>:null}
 
+    <div className="e2pay-console-tabs" role="tablist" aria-label="Bagian Payment Gateway">
+      {([['wallet','Wallet'],['mapping','Sub-account'],['uat','UAT'],['activity','Riwayat & bank'],['technical','Teknis']] as const).map(([id,label])=><button key={id} type="button" role="tab" id={`e2pay-tab-${id}`} aria-selected={activeTab===id} aria-controls={`e2pay-panel-${id}`} tabIndex={activeTab===id?0:-1} className={activeTab===id?'btn btn-primary':'btn'} onClick={()=>setActiveTab(id)} onKeyDown={(event)=>{if(event.key!=='ArrowRight'&&event.key!=='ArrowLeft')return;event.preventDefault();const tabs=['wallet','mapping','uat','activity','technical'] as const;const next=tabs[(tabs.indexOf(id)+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length];setActiveTab(next);document.getElementById(`e2pay-tab-${next}`)?.focus();}}>{label}</button>)}
+    </div>
+    <div id="e2pay-panel-wallet" role="tabpanel" aria-labelledby="e2pay-tab-wallet" hidden={activeTab!=='wallet'}>
     <div className="e2pay-account-hero">
       <div className="e2pay-account-balance">
         <span>Available balance</span>
@@ -283,7 +288,8 @@ export default function E2PayOperationsConsole({canManage}:Props){
           {topUpOpen?'Tutup Top Up':'+ Top Up Wallet'}
         </button>
       </div>
-      <div className="e2pay-account-meta">
+      <details className="e2pay-account-meta e2pay-wallet-details">
+        <summary>Detail akun dan kesiapan eksekusi</summary>
         <div><span>Merchant</span><strong>{account?.accountName||'—'}</strong><small>{account?.accountIdMasked||'—'}</small></div>
         <div><span>Account group</span><strong>{account?.accountGroupName||'—'}</strong><small>{account?.phoneMasked||'Phone unavailable'}</small></div>
         <div><span>Last sync</span><strong>{dateTime(account?.refreshedAt)}</strong><small>{account?.readiness?.configured?'Execution ready':account?.readiness?.reason||'Not ready'}</small></div>
@@ -298,7 +304,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
                 : 'Source account belum dapat dicross-check'}
           </small>
         </div>
-      </div>
+      </details>
     </div>
 
     {topUpOpen?<section className="e2pay-topup-card" aria-label="Top Up Wallet E2Pay">
@@ -360,6 +366,8 @@ export default function E2PayOperationsConsole({canManage}:Props){
       <small className="e2pay-topup-note">Tombol utama menyalin Bank, VA, nama akun, environment, provider, dan waktu pengecekan dalam plain text. Tombol kecil “Salin VA” tetap tersedia jika hanya nomor VA yang dibutuhkan.</small>
     </section>:null}
 
+    </div>
+    <div id="e2pay-panel-mapping" role="tabpanel" aria-labelledby="e2pay-tab-mapping" hidden={activeTab!=='mapping'}>
     <section className="integration-panel e2pay-subaccount-registry" aria-label="E2Pay Sub-account Registry">
       <div className="integration-panel-head">
         <div>
@@ -403,12 +411,11 @@ export default function E2PayOperationsConsole({canManage}:Props){
         </article>)}
         {!subAccounts.length?<div className="integration-empty">Belum ada sub-account yang dipetakan. Simpan sebagai DRAFT sampai itUP memberikan provider sub-account ID.</div>:null}
       </div>
-      <DismissibleBubble className="app-notice-bubble app-notice-info" role="note">
-        <strong>Isolation control</strong>
-        <span>Satu provider sub-account hanya dapat dimiliki satu client pada environment yang sama. Mapping ACTIVE wajib memiliki provider sub-account ID; credential/token tetap berada di secure gateway settings dan tidak disimpan pada registry ini.</span>
-      </DismissibleBubble>
+      <p className="e2pay-governance-note">Satu sub-account per klien dan environment. Mapping ACTIVE memerlukan provider sub-account ID.</p>
     </section>
+    </div>
 
+    <div id="e2pay-panel-uat" role="tabpanel" aria-labelledby="e2pay-tab-uat" hidden={activeTab!=='uat'}>
     {String(account?.environment||'').toUpperCase()==='UAT' && uatValidation?<section className="integration-panel" aria-label="P5.4 UAT Disbursement Validation">
       <div className="integration-panel-head">
         <div><strong>P5.4 Transactional UAT</strong><small>Single-recipient canary lebih dulu, lalu recovery/reconciliation, baru batch 5 beneficiary.</small></div>
@@ -424,15 +431,17 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <strong>Authority tetap Payment Control</strong>
         <span>Card ini hanya observability. Generate/submit PI dilakukan Processor, approval dan Process Payment hanya Payroll Controller. Raw disbursement dari Integration Console tetap dinonaktifkan.</span>
       </DismissibleBubble>
-      <ol className="e2pay-topup-steps">
+      <details className="e2pay-collapsible"><summary>Langkah pengujian UAT</summary><ol className="e2pay-topup-steps">
         <li>Pastikan canary menunjukkan <b>FUNDED</b> dan <b>READY_FOR_PI</b>.</li>
         <li>Processor membuat + submit PI canary Rp15.000.</li>
         <li>Controller review immutable routing lalu approve dan Process Payment.</li>
         <li>Uji idempotent replay; jangan membuat financial attempt kedua.</li>
         <li>Bila UNKNOWN/timeout, jalankan reconciliation sebelum retry.</li>
         <li>Setelah canary selesai dan reconciliation MATCHED, lanjut batch 5 beneficiary Rp175.000.</li>
-      </ol>
-    </section>:null}
+      </ol></details>
+    </section>:<div className="integration-empty">Status UAT belum tersedia untuk environment ini.</div>}
+    </div>
+    <div id="e2pay-panel-activity" role="tabpanel" aria-labelledby="e2pay-tab-activity" hidden={activeTab!=='activity'}>
     <div className="integrations-two-col e2pay-operational-grid">
       <section className="integration-panel">
         <div className="integration-panel-head"><div><strong>Transaction history</strong><small>Riwayat transaksi provider</small></div><span>{transactionCount}</span></div>
@@ -452,7 +461,9 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <div className="e2pay-bank-list">{banks.slice(0,100).map((row)=><div key={row.id}><code>{row.id}</code><strong>{row.name}</strong><span>{String(row.active).toLowerCase()==='false'?'Inactive':'Active'}</span></div>)}{!banks.length?<div className="integration-empty">{banksLoaded?'Tidak ada bank yang cocok.':'Belum dimuat.'}</div>:null}</div>
       </section>
     </div>
+    </div>
 
+    <div id="e2pay-panel-technical" role="tabpanel" aria-labelledby="e2pay-tab-technical" hidden={activeTab!=='technical'}>
     <details className="e2pay-collapsible">
       <summary><span>API endpoint coverage</span><b>{catalog.length} endpoint</b></summary>
       <div className="e2pay-endpoint-summary">
@@ -552,5 +563,6 @@ export default function E2PayOperationsConsole({canManage}:Props){
     </details>:null}
 
     <div className="e2pay-governance-note">Disbursement tetap dijalankan melalui approved Payment Instruction di Payment Control.</div>
+    </div>
   </section>;
 }

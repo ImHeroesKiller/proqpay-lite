@@ -314,3 +314,18 @@
 .employee-profile-groups label { display:grid; gap:8px; font-size:12px; color:var(--text2); }
 .employee-profile-groups input[type=month] { max-width:240px; }
 .employee-profile-groups section[aria-label="Rincian payroll Data Intake"] dd { text-align:right; }
+
+/* Compact operations tabs and wallet details */
+.e2pay-console-tabs{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;border-bottom:1px solid var(--border-soft)}
+.e2pay-console-tabs .btn{flex:0 0 auto;white-space:nowrap}
+.e2pay-console [role="tabpanel"][hidden]{display:none}
+.e2pay-console [role="tabpanel"]{min-width:0}
+.e2pay-wallet-details{display:block;padding:12px;border:1px solid var(--border-soft);border-radius:12px;background:var(--bg-subtle)}
+.e2pay-wallet-details summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--text2)}
+.e2pay-wallet-details:not([open])>div{display:none}
+.e2pay-wallet-details[open]>div{margin-top:8px}
+.e2pay-account-meta.e2pay-wallet-details{display:block}
+.e2pay-wallet-details[open]>div{display:inline-grid;width:calc(50% - 5px);vertical-align:top}
+.e2pay-wallet-details[open]>div:nth-of-type(odd){margin-right:10px}
+
+@media(max-width:900px){.e2pay-wallet-details[open]>div{display:grid;width:100%}.e2pay-wallet-details[open]>div:nth-of-type(odd){margin-right:0}}
