@@ -254,7 +254,7 @@ test('settings endpoint keeps TEST non-persistent and requires explicit activati
   assert.doesNotMatch(endpoint.match(/if \(action === 'TEST'\)[\s\S]*?if \(action === 'ACTIVATE'\)/)?.[0] || '', /writeGatewaySecureSettings|activateGatewaySecureSettings/);
   assert.match(endpoint, /ACTIVATE_PRODUCTION/);
   assert.match(endpoint, /E2PAY_EXECUTION_NOT_READY/);
-  assert.match(ui, /Configure → Save Draft → Test → Activate/);
+  assert.match(ui, /Simpan draft → Uji koneksi → Aktifkan/);
   assert.match(ui, /Runtime payment belum berubah/);
   assert.match(ui, /Test Connection tidak menyimpan source account/);
 });
