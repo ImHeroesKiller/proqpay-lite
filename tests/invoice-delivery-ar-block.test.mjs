@@ -106,6 +106,17 @@ test('ProQPay invoice delivery can use authenticated Ubuntu SMTP gateway',async(
   assert.match(source,/SHA-256/);
 });
 
+test('Invoice notification uses professional ProQPay branded email template',async()=>{
+  const source=await read('functions/api/invoice-email.js');
+  assert.match(source,/AI PAYROLL OPERATING SYSTEM/);
+  assert.match(source,/Invoice telah diterbitkan/);
+  assert.match(source,/TOTAL INVOICE/);
+  assert.match(source,/PT Mandiri Semesta Gemilang/);
+  assert.match(source,/role="presentation"/);
+  assert.match(source,/escapeHtml\(snapshot\.client\.name\)/);
+  assert.match(source,/escapeHtml\(snapshot\.invoiceNumber\)/);
+});
+
 test('Invoice delivery uses provider-side attachment and controlled email relay',async()=>{
   const source=await read('functions/api/invoice-email.js');
   assert.match(source,/RESEND_API_KEY/);

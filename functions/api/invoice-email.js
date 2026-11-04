@@ -135,20 +135,52 @@ export async function onRequest({request,env}) {
 
     const snapshot=document.snapshot;
     const subject=`Invoice ${snapshot.invoiceNumber} · ${snapshot.client.name}`;
-    const html=`<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6;max-width:640px">
-      <h2 style="margin-bottom:4px">Invoice ${escapeHtml(snapshot.invoiceNumber)}</h2>
-      <p>Yth. Tim <strong>${escapeHtml(snapshot.client.name)}</strong>,</p>
-      <p>Terlampir invoice resmi untuk periode <strong>${escapeHtml(snapshot.period||'-')}</strong> dengan nilai
-      <strong>Rp ${Math.round(Number(snapshot.totalAmount||0)).toLocaleString('id-ID')}</strong>.</p>
-      <table style="border-collapse:collapse;width:100%;margin:18px 0">
-        <tr><td style="padding:7px;border-bottom:1px solid #e2e8f0">Nomor invoice</td><td style="padding:7px;border-bottom:1px solid #e2e8f0"><strong>${escapeHtml(snapshot.invoiceNumber)}</strong></td></tr>
-        <tr><td style="padding:7px;border-bottom:1px solid #e2e8f0">Periode</td><td style="padding:7px;border-bottom:1px solid #e2e8f0">${escapeHtml(snapshot.period||'-')}</td></tr>
-        <tr><td style="padding:7px;border-bottom:1px solid #e2e8f0">Jatuh tempo</td><td style="padding:7px;border-bottom:1px solid #e2e8f0">${escapeHtml(snapshot.dueDate||'-')}</td></tr>
-      </table>
-      <p>Mohon melakukan pembayaran sebelum tanggal jatuh tempo dan mencantumkan nomor invoice pada referensi pembayaran.</p>
-      <p>Terima kasih,<br><strong>${escapeHtml(snapshot.issuer.legalName)}</strong></p>
-      <p style="font-size:12px;color:#64748b">PDF A4 invoice terlampir pada email ini.</p>
-    </div>`;
+    const amount='Rp '+Math.round(Number(snapshot.totalAmount||0)).toLocaleString('id-ID');
+    const brand='ProQPay';
+    const html=`<!doctype html>
+<html lang="id">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#18253b">
+  <div style="display:none;font-size:1px;color:#f3f6fb;line-height:1px;max-height:0;opacity:0;overflow:hidden">Invoice ${escapeHtml(snapshot.invoiceNumber)} · ${escapeHtml(snapshot.client.name)}</div>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f3f6fb;padding:34px 12px"><tr><td align="center">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;background:#ffffff;border:1px solid #e3eaf3;border-radius:16px;overflow:hidden">
+      <tr><td style="background:#0a2550;padding:26px 32px">
+        <div style="font-size:25px;letter-spacing:-0.7px;font-weight:800;color:#ffffff">${brand}<span style="color:#39b7ef">.</span></div>
+        <div style="margin-top:5px;font-size:11px;letter-spacing:1.3px;color:#bed4f0">AI PAYROLL OPERATING SYSTEM</div>
+      </td></tr>
+      <tr><td style="padding:34px 32px 22px">
+        <div style="font-size:11px;letter-spacing:1.2px;font-weight:700;color:#2878bd">BILLING &amp; DOCUMENTS</div>
+        <h1 style="font-size:27px;line-height:1.3;letter-spacing:-.5px;margin:10px 0 12px;color:#0a2550">Invoice telah diterbitkan</h1>
+        <p style="font-size:14px;line-height:1.8;color:#45566e;margin:0 0 16px">Yth. Tim <strong style="color:#17243b">${escapeHtml(snapshot.client.name)}</strong>,</p>
+        <p style="font-size:14px;line-height:1.8;color:#45566e;margin:0">Bersama email ini kami sampaikan invoice layanan ProQPay untuk periode <strong>${escapeHtml(snapshot.period||'-')}</strong>. Dokumen resmi tersedia pada lampiran PDF.</p>
+      </td></tr>
+      <tr><td style="padding:0 32px 22px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f9ff;border:1px solid #dce8f8;border-radius:12px">
+          <tr><td style="padding:20px 22px">
+            <div style="font-size:11px;color:#58718f;font-weight:700;letter-spacing:.8px">TOTAL INVOICE</div>
+            <div style="font-size:29px;line-height:1.45;font-weight:800;color:#0a2550">${amount}</div>
+            <div style="font-size:12px;color:#387bb5;margin-top:5px">Dokumen pembayaran resmi terlampir</div>
+          </td></tr>
+        </table>
+      </td></tr>
+      <tr><td style="padding:0 32px 24px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#33455e;border-collapse:collapse">
+          <tr><td style="padding:12px 0;border-bottom:1px solid #e7edf5;color:#6c7c90">Nomor invoice</td><td align="right" style="padding:12px 0;border-bottom:1px solid #e7edf5;font-weight:700">${escapeHtml(snapshot.invoiceNumber)}</td></tr>
+          <tr><td style="padding:12px 0;border-bottom:1px solid #e7edf5;color:#6c7c90">Periode layanan</td><td align="right" style="padding:12px 0;border-bottom:1px solid #e7edf5;font-weight:700">${escapeHtml(snapshot.period||'-')}</td></tr>
+          <tr><td style="padding:12px 0;border-bottom:1px solid #e7edf5;color:#6c7c90">Jatuh tempo</td><td align="right" style="padding:12px 0;border-bottom:1px solid #e7edf5;font-weight:700">${escapeHtml(snapshot.dueDate||'-')}</td></tr>
+        </table>
+      </td></tr>
+      <tr><td style="padding:0 32px 32px">
+        <p style="font-size:13px;line-height:1.8;color:#52647a;margin:0 0 20px">Mohon melakukan pembayaran sesuai informasi pada invoice, dan mencantumkan nomor invoice sebagai referensi transaksi.</p>
+        <p style="font-size:13px;line-height:1.7;margin:0;color:#52647a">Hormat kami,<br><strong style="color:#0a2550">${escapeHtml(snapshot.issuer.legalName)}</strong></p>
+      </td></tr>
+      <tr><td style="background:#f8fafc;border-top:1px solid #e7edf5;padding:20px 32px">
+        <div style="font-size:12px;font-weight:700;color:#0a2550">ProQPay · PT Mandiri Semesta Gemilang</div>
+        <div style="font-size:11px;line-height:1.8;color:#8290a2;margin-top:6px">Email notifikasi otomatis. Mohon tidak membalas pesan ini.<br>© ProQPay · People. Operations. Technology.</div>
+      </td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`;
     try{
       const sent=await sendResend(env,{
         recipient,cc:cc||null,subject,html,filename:document.filename,pdfBase64:bytesToBase64(document.pdf),
