@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {NOTIFICATION_TYPES,renderNotificationTemplate,deliverProQPayNotification,dispatchClientNotification,notifyAfterResponse} from '../functions/api/_proqpay-notifications.js';
 
-test('all eleven ProQPay notification templates are branded and privacy-safe',()=>{
-  assert.equal(NOTIFICATION_TYPES.length,11);
+test('all twelve ProQPay notification templates are branded and privacy-safe',()=>{
+  assert.equal(NOTIFICATION_TYPES.length,12);
   for(const type of NOTIFICATION_TYPES) {
     const x=renderNotificationTemplate(type,{clientName:'PT UAT Test <script>',reference:'UAT-2026-01',period:'November 2026'});
     assert.match(x.subject,/^\[ProQPay\]/);
