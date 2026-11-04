@@ -320,12 +320,16 @@ export async function onRequest(context) {
   if(!type||request.method!=='POST') return response;
   return notifyAfterResponse(context,response,async(data)=>{
     const orgId=String(env.DEFAULT_ORG_ID||'ORG-OTSINDO');
-    const id=String(body.submissionId||data.submission?.id||'');
+    let id=String(body.submissionId||data.submission?.id||'');
+    if(!id && type==='PAYMENT_COMPLETED' && body.paymentInstructionId){
+      const payment=await d1First(env.DB,'SELECT submission_id FROM payment_instructions WHERE id=? AND org_id=? LIMIT 1',[String(body.paymentInstructionId),orgId]);
+      id=String(payment?.submission_id||'');
+    }
     const row=id?await d1First(env.DB,'SELECT id,client_id,period,state,updated_at FROM payroll_submissions WHERE id=? AND org_id=? LIMIT 1',[id,orgId]):null;
     if(!row) return;
     const expected=type==='PAYROLL_APPROVED'?'CLIENT_APPROVED':type==='PAYROLL_REVISION'?'CLIENT_REVISION_REQUESTED':type==='PAYROLL_REVIEW'?'CLIENT_APPROVAL_PENDING':null;
     if(expected && row.state!==expected) return;
-    if(type==='PAYMENT_COMPLETED' && !data.reconciliation) return;
+    if(type==='PAYMENT_COMPLETED' && (data.reconciliation?.status!=='MATCHED'||row.state!=='COMPLETED')) return;
     await dispatchClientNotification(env,{type,clientId:row.client_id,reference:row.id,period:row.period,eventId:row.id+':'+type+':'+String(row.updated_at||'')});
   });
 }
