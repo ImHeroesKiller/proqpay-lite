@@ -96,10 +96,16 @@ test('AR gate warns near due date and blocks overdue or any-outstanding policies
   assert.equal(gate.blocked,false);
 });
 
-test('Invoice delivery uses provider-side attachment and keeps sent status evidence',async()=>{
+test('Invoice delivery uses provider-side attachment and controlled email relay',async()=>{
   const source=await read('functions/api/invoice-email.js');
   assert.match(source,/RESEND_API_KEY/);
   assert.match(source,/BILLING_FROM_EMAIL/);
+  assert.match(source,/BILLING_RELAY_EMAIL/);
+  assert.match(source,/no-reply@arywibowo\.id/);
+  assert.match(source,/ary@msg-os\.com/);
+  assert.match(source,/X-ProQPay-Forward-To/);
+  assert.match(source,/X-ProQPay-Forward-Cc/);
+  assert.match(source,/to:\[relayRecipient\]/);
   assert.match(source,/https:\/\/api\.resend\.com\/emails/);
   assert.match(source,/Idempotency-Key/);
   assert.match(source,/attachments:\[\{filename,content:pdfBase64,content_type:'application\/pdf'\}\]/);
@@ -107,7 +113,6 @@ test('Invoice delivery uses provider-side attachment and keeps sent status evide
   assert.match(source,/sent_at=strftime/);
   assert.match(source,/invoice_delivery_events|recordInvoiceDelivery/);
 });
-
 test('Billing UI exposes A4 PDF, email delivery, issuer setup and AR payment policy',async()=>{
   const ui=await read('src/components/BillingWorkspace.tsx');
   const billing=await read('functions/api/billing.js');
