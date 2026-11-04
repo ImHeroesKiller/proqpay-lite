@@ -8,6 +8,8 @@ const TYPE = Object.freeze({
   EWA_CLIENT_APPROVED: { label:'Pengajuan EWA disetujui klien', kicker:'EWA APPROVAL', body:'Pengajuan Early Wage Access telah disetujui klien dan menunggu tahapan internal berikutnya. Persetujuan tidak berarti dana sudah dicairkan.', action:'Lihat Pengajuan EWA' },
   EWA_APPROVED: { label:'Pengajuan EWA disetujui', kicker:'EWA UPDATE', body:'Persetujuan internal EWA selesai. Pencairan dana hanya dilakukan melalui proses disbursement dan approval yang berlaku.', action:'Lihat Status EWA' },
   EWA_REJECTED: { label:'Pengajuan EWA ditolak', kicker:'EWA DECISION', body:'Pengajuan Early Wage Access telah ditolak. Periksa detail keputusan melalui portal ProQPay.', action:'Lihat Status EWA' },
+  PAYMENT_APPROVED: { label:'Payment Instruction telah disetujui', kicker:'PAYMENT APPROVAL', body:'Payment Instruction berhasil disetujui Controller dan siap melanjutkan proses pembayaran sesuai readiness dan otorisasi. Persetujuan bukan bukti bahwa dana sudah ditransfer.', action:'Lihat Payment Instruction' },
+  PAYMENT_REJECTED: { label:'Payment Instruction memerlukan revisi', kicker:'PAYMENT REVIEW', body:'Controller mengembalikan Payment Instruction untuk diperbaiki sebelum proses pembayaran dapat dilanjutkan.', action:'Tinjau Revisi Payment' },
   PAYMENT_COMPLETED: { label:'Pembayaran payroll telah direkonsiliasi', kicker:'PAYMENT STATUS', body:'Rekonsiliasi pembayaran payroll telah selesai. Silakan lihat bukti dan rincian pembayaran pada ProQPay.', action:'Lihat Pembayaran' },
   GENERAL: { label:'Informasi terbaru ProQPay', kicker:'NOTIFICATION', body:'Terdapat pembaruan operasional pada akun ProQPay Anda.', action:'Buka ProQPay' },
 });
