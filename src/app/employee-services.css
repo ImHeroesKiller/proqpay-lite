@@ -482,15 +482,16 @@
 
 .portal-config-layout{
   display:grid;
-  grid-template-columns:190px minmax(0,1fr) 280px;
+  grid-template-columns:minmax(0,1fr) minmax(220px,260px);
   gap:14px;
   align-items:start;
 }
 .portal-config-nav{
-  position:sticky;
-  top:74px;
-  padding:8px;
+  grid-column:1/-1;
+  padding:10px;
 }
+.portal-config-nav .ui-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;overflow:visible}
+.portal-config-nav .ui-tabs button{min-width:0;white-space:normal;text-align:center}
 .portal-config-nav-title{
   padding:8px 9px 10px;
   color:var(--text3);
@@ -658,8 +659,10 @@
 .portal-config-savebar{
   border-color:color-mix(in srgb,var(--accent) 25%,var(--border));
   box-shadow:0 16px 34px rgba(17,24,39,.13);
+  position:static;
 }
 .portal-config-savebar .btn-primary{min-width:138px}
+.portal-config-workspace{padding-bottom:16px}
 
 .theme-dark .portal-config-hero{
   background:
@@ -668,11 +671,11 @@
 }
 
 @media(max-width:1180px){
-  .portal-config-layout{grid-template-columns:170px minmax(0,1fr)}
+  .portal-config-layout{grid-template-columns:minmax(0,1fr) minmax(200px,240px)}
   .portal-config-summary{
     position:static;
     grid-column:2;
-    grid-template-columns:1fr 1fr;
+    grid-template-columns:1fr;
   }
 }
 @media(max-width:900px){
@@ -682,11 +685,9 @@
   .portal-config-layout{grid-template-columns:1fr}
   .portal-config-nav{
     position:static;
-    display:grid;
-    grid-template-columns:repeat(4,minmax(0,1fr));
-    gap:6px;
+    display:block;
   }
-  .portal-config-nav-title{grid-column:1/-1}
+  .portal-config-nav-title{grid-column:auto}
   .portal-config-nav-item{min-width:0}
   .portal-config-summary{grid-column:auto;grid-template-columns:1fr 1fr}
 }
@@ -696,7 +697,7 @@
   .portal-config-hero-actions .btn{width:100%}
   .portal-config-hero-meta{display:grid;grid-template-columns:1fr}
   .portal-config-scope-controls{display:grid}
-  .portal-config-nav{grid-template-columns:1fr 1fr}
+  .portal-config-nav .ui-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}
   .portal-config-main .portal-config-grid{grid-template-columns:1fr}
   .portal-config-main .portal-config-grid>.es-field{border-right:0!important}
   .portal-config-summary{grid-template-columns:1fr}
