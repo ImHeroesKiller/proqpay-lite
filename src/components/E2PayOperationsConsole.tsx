@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DismissibleBubble from '@/components/ui/DismissibleBubble';
 import { E2PAY_TEST_SCRIPT } from '@/lib/e2pay-test-script';
 import { formatIDR } from '@/lib/format';
@@ -31,6 +31,16 @@ const TECHNICAL_TABS=[
   ['phone','Phone number administration'],
 ] as const;
 
+const QUICK_TEST_LABELS: Partial<Record<number,string>> = {
+  1:'Get Access Token',
+  9:'Get Authorization',
+  10:'Get OAuth Token',
+  17:'Get Account',
+  19:'Get History',
+  20:'Get History · Limit 100',
+  22:'Get Bank List',
+};
+
 type TechnicalTab=typeof TECHNICAL_TABS[number][0];
 type TechnicalOutput={request:string;response:string};
 
@@ -57,8 +67,13 @@ function Field({label,type='text',value,onChange,placeholder}:{label:string;type
 }
 
 export default function E2PayOperationsConsole({canManage}:Props){
-  const [activeTab,setActiveTab]=useState<'wallet'|'uat'|'activity'|'technical'>('wallet');
+  const endpointDialog=useRef<HTMLDialogElement>(null);
+  const [requestedTab,setActiveTab]=useState<'wallet'|'uat'|'activity'|'technical'>('wallet');
   const [account,setAccount]=useState<E2PayAccountSnapshot|null>(null);
+  const isUat=String(account?.environment||'').toUpperCase()==='UAT';
+  const activeTab=requestedTab==='uat'&&!isUat?'wallet':requestedTab;
+  const tabs=([['wallet','Wallet'],['uat','UAT'],['activity','Riwayat & bank'],['technical','Teknis']] as const)
+    .filter(([id])=>id!=='uat'||isUat);
   const [catalog,setCatalog]=useState<E2PayCatalogItem[]>([]);
   const [banks,setBanks]=useState<Array<{id:string;name:string;active:string|boolean}>>([]);
   const [banksLoaded,setBanksLoaded]=useState(false);
@@ -114,7 +129,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
   },[]);
 
   useEffect(()=>{void loadOverview(false);},[loadOverview]);
-  useEffect(()=>{void loadUatValidation();},[loadUatValidation]);
+  useEffect(()=>{if(isUat) void loadUatValidation();},[isUat,loadUatValidation]);
 
   useEffect(()=>{
     if(String(account?.environment||'').toUpperCase()!=='UAT') return;
@@ -124,9 +139,9 @@ export default function E2PayOperationsConsole({canManage}:Props){
     });
   },[account?.environment]);
 
-  const run=useCallback(async(action:string,payload:Record<string,unknown>={},read?:()=>Promise<Record<string,unknown>>)=>{
+  const run=useCallback(async(action:string,payload:Record<string,unknown>={},read?:()=>Promise<Record<string,unknown>>,resultKey=outputKey)=>{
     const request=technicalJson(read ? {method:'GET',endpoint:'/api/e2pay-operations',query:payload} : {method:'POST',endpoint:'/api/e2pay-operations',body:{action,...payload}});
-    const setLastResult=(response:string)=>setTechnicalOutputs(current=>({...current,[outputKey]:{request,response}}));
+    const setLastResult=(response:string)=>setTechnicalOutputs(current=>({...current,[resultKey]:{request,response}}));
     setActionLoading(action);setError('');setNotice('');setLastResult('');
     try{
       const result=await (read ? read() : runE2PayAction(action,payload));
@@ -250,7 +265,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
     </DismissibleBubble>:null}
 
     <div className="e2pay-console-tabs" role="tablist" aria-label="Bagian Payment Gateway">
-      {([['wallet','Wallet'],['uat','UAT'],['activity','Riwayat & bank'],['technical','Teknis']] as const).map(([id,label])=><button key={id} type="button" role="tab" id={`e2pay-tab-${id}`} aria-selected={activeTab===id} aria-controls={`e2pay-panel-${id}`} tabIndex={activeTab===id?0:-1} className={activeTab===id?'btn btn-primary':'btn'} onClick={()=>setActiveTab(id)} onKeyDown={(event)=>{if(event.key!=='ArrowRight'&&event.key!=='ArrowLeft')return;event.preventDefault();const tabs=['wallet','uat','activity','technical'] as const;const next=tabs[(tabs.indexOf(id)+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length];setActiveTab(next);document.getElementById(`e2pay-tab-${next}`)?.focus();}}>{label}</button>)}
+      {tabs.map(([id,label],index)=><button key={id} type="button" role="tab" id={`e2pay-tab-${id}`} aria-selected={activeTab===id} aria-controls={`e2pay-panel-${id}`} tabIndex={activeTab===id?0:-1} className={activeTab===id?'btn btn-primary':'btn'} onClick={()=>setActiveTab(id)} onKeyDown={(event)=>{if(event.key!=='ArrowRight'&&event.key!=='ArrowLeft')return;event.preventDefault();const [next]=tabs[(index+(event.key==='ArrowRight'?1:tabs.length-1))%tabs.length];setActiveTab(next);document.getElementById(`e2pay-tab-${next}`)?.focus();}}>{label}</button>)}
     </div>
     <div id="e2pay-panel-wallet" role="tabpanel" aria-labelledby="e2pay-tab-wallet" hidden={activeTab!=='wallet'}>
     <div className="e2pay-account-hero">
@@ -346,7 +361,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
     </section>:null}
 
     </div>
-    <div id="e2pay-panel-uat" role="tabpanel" aria-labelledby="e2pay-tab-uat" hidden={activeTab!=='uat'}>
+    {isUat?<div id="e2pay-panel-uat" role="tabpanel" aria-labelledby="e2pay-tab-uat" hidden={activeTab!=='uat'}>
     {String(account?.environment||'').toUpperCase()==='UAT' && uatValidation?<section className="integration-panel" aria-label="P5.4 UAT Disbursement Validation">
       <div className="integration-panel-head">
         <div><strong>P5.4 Transactional UAT</strong><small>Single-recipient canary lebih dulu, lalu recovery/reconciliation, baru batch 5 beneficiary.</small></div>
@@ -371,7 +386,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <li>Setelah canary selesai dan reconciliation MATCHED, lanjut batch 5 beneficiary Rp175.000.</li>
       </ol></details>
     </section>:<div className="integration-empty">Status UAT belum tersedia untuk environment ini.</div>}
-    </div>
+    </div>:null}
     <div id="e2pay-panel-activity" role="tabpanel" aria-labelledby="e2pay-tab-activity" hidden={activeTab!=='activity'}>
     <div className="integrations-two-col e2pay-operational-grid">
       <section className="integration-panel">
@@ -395,8 +410,14 @@ export default function E2PayOperationsConsole({canManage}:Props){
     </div>
 
     <div id="e2pay-panel-technical" role="tabpanel" aria-labelledby="e2pay-tab-technical" hidden={activeTab!=='technical'}>
-    <details className="e2pay-collapsible">
-      <summary><span>API endpoint coverage</span><b>{catalog.length} endpoint</b></summary>
+    <button type="button" className="e2pay-endpoint-link" aria-haspopup="dialog" onClick={()=>endpointDialog.current?.showModal()}>
+      Daftar endpoint E2Pay ({catalog.length})
+    </button>
+    <dialog ref={endpointDialog} className="e2pay-endpoint-dialog" aria-labelledby="e2pay-endpoint-title">
+      <div className="e2pay-endpoint-dialog-header">
+        <h4 id="e2pay-endpoint-title">Daftar endpoint E2Pay</h4>
+        <form method="dialog"><button type="submit" className="btn">Tutup</button></form>
+      </div>
       <div className="e2pay-endpoint-summary">
         <span>{endpointCounts.get('LIVE_READ')||0} live read</span>
         <span>{endpointCounts.get('ADMIN_ACTION')||0} admin action</span>
@@ -408,40 +429,65 @@ export default function E2PayOperationsConsole({canManage}:Props){
         <thead><tr><th>Function</th><th>Method</th><th>Canonical path</th><th>Control</th></tr></thead>
         <tbody>{catalog.map((item)=><tr key={item.id}><td><strong>{item.function}</strong><small>{item.id}</small></td><td><code>{item.method}</code></td><td><code>{item.path}</code></td><td><span className={`e2pay-mode e2pay-mode-${item.mode.toLowerCase().replaceAll('_','-')}`}>{endpointMode(item.mode)}</span></td></tr>)}</tbody>
       </table></div>
-    </details>
+    </dialog>
 
     {canManage?<details className="e2pay-collapsible e2pay-admin-console">
       <summary><span>Advanced administration</span><b>Super Admin</b></summary>
       <div className="e2pay-admin-body">
-        <div className="e2pay-form-grid">
+        <div className="e2pay-technical-intro">
+          <h4>Pengujian teknis E2Pay</h4>
+          <p>Pilih kategori untuk menjalankan tes langsung atau mengisi form skenario.</p>
+        </div>
+        <div className="e2pay-form-grid e2pay-technical-filters">
           <label><span>Kategori tes</span>
             <select value={technicalTab} onChange={(event)=>{setTechnicalTab(event.target.value);setScriptInput('');}}>
               {TECHNICAL_TABS.map(([key,label])=><option key={key} value={key}>{label}</option>)}
             </select>
           </label>
-          {selectedScript?<label><span>Skenario test script</span>
-            <select value={scriptId} onChange={(event)=>{setScriptIndex(Number(event.target.value));setScriptInput('');}}>
-              {scriptCases.map(([id,,name])=><option key={id} value={id}>{id}. {name}</option>)}
+          {scriptCases.some(([id])=>!QUICK_TEST_LABELS[id])?<label><span>Skenario lainnya</span>
+            <select value={scriptId && QUICK_TEST_LABELS[scriptId]?"":scriptId} onChange={(event)=>{setScriptIndex(Number(event.target.value));setScriptInput('');}}>
+              <option value="" disabled>Pilih skenario</option>
+              {scriptCases.filter(([id])=>!QUICK_TEST_LABELS[id]).map(([id,,name])=><option key={id} value={id}>{id}. {name}</option>)}
             </select>
           </label>:null}
         </div>
+        {scriptCases.some(([id])=>QUICK_TEST_LABELS[id])?<section className="e2pay-quick-tests" aria-label="Tes tanpa input">
+          <h5>Tes tanpa input</h5>
+          <div className="e2pay-action-row">
+            {scriptCases.filter(([id])=>QUICK_TEST_LABELS[id]).map(([id])=><button key={id} type="button"
+              className={scriptId===id?'btn btn-primary':'btn'} disabled={Boolean(actionLoading)||account?.environment!=='UAT'}
+              onClick={()=>{
+                setScriptIndex(id);
+                const key=`script-${id}`;
+                if(id===19||id===20){
+                  const filters=id===20?{limit:100}:{};
+                  void run('TRANSACTIONS',{resource:'transactions',...filters},()=>getE2PayTransactions(filters),key);
+                }else if(id===22){
+                  void run('BANKS',{resource:'banks'},()=>getE2PayBanks(),key);
+                }else{
+                  const action=id===1?'HOST_AUTH_TEST':id===17?'REFRESH_ACCOUNT':'MERCHANT_AUTH_TEST';
+                  void run(action,{},undefined,key);
+                }
+              }}>{QUICK_TEST_LABELS[id]}</button>)}
+          </div>
+        </section>:null}
         <div className="e2pay-technical-layout">
           <div className="e2pay-technical-form">
         {selectedScript?<section className="e2pay-script-case">
-          <h5>Expected Result</h5>
+          <h5>{selectedScript[0]}. {selectedScript[2]}</h5>
+          <p>Expected Result</p>
           <pre className="e2pay-json-result">{selectedScript[3]}</pre>
           {[21,23].includes(scriptId||0)?<Field label={scriptId===21?'Client Ref uji':'Nama bank uji'} value={scriptInput} onChange={setScriptInput}/>:null}
-          {scriptId===1||scriptId===9||scriptId===10?<button type="button" className="btn" disabled={Boolean(actionLoading)||account?.environment!=='UAT'} onClick={()=>void run(scriptId===1?'HOST_AUTH_TEST':'MERCHANT_AUTH_TEST')}>Jalankan uji autentikasi</button>:null}
-          {scriptId===17?<button type="button" className="btn" disabled={Boolean(actionLoading)||account?.environment!=='UAT'} onClick={()=>void run('REFRESH_ACCOUNT')}>Jalankan Get Account</button>:null}
-          {scriptId && scriptId>=19 && scriptId<=23?<button type="button" className="btn" disabled={Boolean(actionLoading)||account?.environment!=='UAT'||([21,23].includes(scriptId)&&!scriptInput.trim())} onClick={()=>{
-            if(scriptId<=21){
-              const filters=scriptId===20?{limit:100}:scriptId===21?{clientRef:scriptInput.trim()}:{};
-              void run('TRANSACTIONS',{resource:'transactions',...filters},()=>getE2PayTransactions(filters));
-            }else{
-              const filters=scriptId===23?{name:scriptInput.trim()}:{};
-              void run('BANKS',{resource:'banks',...filters},()=>getE2PayBanks(filters));
-            }
-          }}>Jalankan skenario</button>:null}
+          {scriptId===21||scriptId===23?<button type="button" className="btn btn-primary"
+            disabled={Boolean(actionLoading)||account?.environment!=='UAT'||!scriptInput.trim()} onClick={()=>{
+              if(scriptId===21){
+                const filters={clientRef:scriptInput.trim()};
+                void run('TRANSACTIONS',{resource:'transactions',...filters},()=>getE2PayTransactions(filters));
+              }else{
+                const filters={name:scriptInput.trim()};
+                void run('BANKS',{resource:'banks',...filters},()=>getE2PayBanks(filters));
+              }
+            }}>Jalankan skenario</button>:null}
           {scriptId && scriptId>=29?<p>Validasi skenario pembayaran melalui Payment Control atau sandbox E2Pay yang terisolasi. Simpan hasil aktual di test script.</p>:null}
           {scriptId && [4,5,7,8,11,12,13,14,15,16,18,26,27].includes(scriptId)?<p>Jalankan pengujian negatif ini di sandbox E2Pay dengan data dan kredensial uji terpisah. Simpan respons aktual di test script.</p>:null}
         </section>:null}

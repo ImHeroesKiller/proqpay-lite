@@ -134,7 +134,7 @@ test('Integrations exposes account, endpoint catalog, history, banks, inquiry an
   const consoleSource=await read('src/components/E2PayOperationsConsole.tsx');
   assert.match(panel,/E2PayOperationsConsole/);
   assert.match(consoleSource,/Available balance/);
-  assert.match(consoleSource,/API endpoint coverage/);
+  assert.match(consoleSource,/Daftar endpoint E2Pay/);
   assert.match(consoleSource,/Transaction history/);
   assert.match(consoleSource,/Bank directory/);
   assert.match(consoleSource,/Disbursement inquiry/);

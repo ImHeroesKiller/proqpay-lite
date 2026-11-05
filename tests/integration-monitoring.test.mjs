@@ -143,7 +143,7 @@ test('Payment Gateway integration keeps primary operations visible and hides adv
   assert.match(panel, /Activate/);
   assert.match(consoleSource, /Transaction history/);
   assert.match(consoleSource, /Bank directory/);
-  assert.match(consoleSource, /API endpoint coverage/);
+  assert.match(consoleSource, /Daftar endpoint E2Pay/);
   assert.match(consoleSource, /Advanced administration/);
   assert.match(consoleSource, /Disbursement tetap dijalankan melalui approved Payment Instruction/);
   assert.doesNotMatch(panel, /Operational recovery path/);

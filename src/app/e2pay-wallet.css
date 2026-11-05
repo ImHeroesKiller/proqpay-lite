@@ -338,3 +338,21 @@
 .e2pay-technical-output-heading label{font-weight:700}
 .e2pay-technical-output textarea{display:block;width:100%;font-family:monospace;resize:vertical}
 @media(max-width:900px){.e2pay-technical-layout{grid-template-columns:minmax(0,1fr)}}
+
+.e2pay-admin-body .e2pay-technical-intro h4{margin:0;font-size:17px;line-height:1.35}
+.e2pay-technical-intro p,.e2pay-script-case p{margin:5px 0 8px;color:var(--text2);font-size:13px;line-height:1.5}
+.e2pay-admin-body .e2pay-technical-filters{margin:2px 0;gap:12px}
+.e2pay-technical-filters label>span,.e2pay-technical-form label>span{font-size:12px;color:var(--text2)}
+.e2pay-technical-filters select,.e2pay-technical-form input{min-height:38px;font-size:13px}
+.e2pay-admin-body .e2pay-quick-tests{padding:12px 14px}
+.e2pay-admin-body .e2pay-quick-tests h5,.e2pay-admin-body .e2pay-script-case h5{font-size:14px;line-height:1.4}
+.e2pay-quick-tests .btn{min-height:36px}
+.e2pay-technical-form{display:grid;align-content:start;gap:10px}
+.e2pay-technical-output-heading label{font-size:13px}
+.e2pay-technical-output textarea,.e2pay-script-case pre{font-size:12px;line-height:1.5}
+
+.e2pay-endpoint-link{padding:6px 0;margin-bottom:8px;border:0;background:transparent;color:var(--accent);font:inherit;text-decoration:underline;cursor:pointer}
+.e2pay-endpoint-dialog{margin:auto;width:min(760px,calc(100% - 32px));max-height:85dvh;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);overflow:auto}
+.e2pay-endpoint-dialog::backdrop{background:rgb(0 0 0 / 45%)}
+.e2pay-endpoint-dialog-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
+.e2pay-endpoint-dialog-header h4{margin:0;font-size:16px}
