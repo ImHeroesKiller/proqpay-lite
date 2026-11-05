@@ -251,7 +251,14 @@ export async function onRequest({request,env}){
       return secureJson({error:'Uji registrasi hanya tersedia di E2Pay UAT.',code:'E2PAY_UAT_REQUIRED',correlationId},409,request,env,METHODS);
     }
 
-    if(action==='BIND_MASTER_ACCOUNT'){
+    if(action==='HOST_AUTH_TEST'||action==='MERCHANT_AUTH_TEST'){
+      if(String(runtimeEnv.E2PAY_ENV).toUpperCase()!=='UAT'){
+        return secureJson({error:'Uji autentikasi hanya tersedia di E2Pay UAT.',code:'E2PAY_UAT_REQUIRED',correlationId},409,request,env,METHODS);
+      }
+      stage=action;
+      const token=await (action==='HOST_AUTH_TEST'?hostToken(runtimeEnv):userToken(runtimeEnv));
+      result={token:{accessTokenReceived:Boolean(token.accessToken),tokenType:token.tokenType,expiresIn:token.expiresIn,refreshTokenReceived:Boolean(token.refreshToken)}};
+    } else if(action==='BIND_MASTER_ACCOUNT'){
       // Administrative registry binding only; NEVER provisions merchant identity or moves funds.
       if(mfaEnforcementMode(env)==='ENFORCE' && !hasRecentMfa(authorization.actor,300))
         return secureJson({error:'MFA step-up diperlukan untuk registrasi Master Account',code:'MFA_STEP_UP_REQUIRED'},428,request,env,METHODS);

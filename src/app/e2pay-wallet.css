@@ -332,7 +332,7 @@
 
 .e2pay-technical-layout{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);gap:12px}
 .e2pay-technical-form,.e2pay-technical-output{min-width:0}
-.e2pay-technical-form>[role="tabpanel"]:not([hidden]),.e2pay-technical-output>section{padding:12px;border:1px solid var(--border-soft);border-radius:10px}
+.e2pay-technical-form>section:not([hidden]),.e2pay-technical-output>section{padding:12px;border:1px solid var(--border-soft);border-radius:10px}
 .e2pay-technical-output{display:grid;align-content:start;gap:10px}
 .e2pay-technical-output-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px}
 .e2pay-technical-output-heading label{font-weight:700}
