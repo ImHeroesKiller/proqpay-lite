@@ -21,6 +21,21 @@ type Props={ canManage:boolean };
 
 const E2PAY_UAT_DUMMY={accountId:'701075327',bankId:'permata',amount:'15000'} as const;
 
+const TECHNICAL_TABS=[
+  ['diagnostics','Diagnostics'],
+  ['inquiry','Disbursement inquiry'],
+  ['registration','Merchant registration'],
+  ['password','Password administration'],
+  ['phone','Phone number administration'],
+] as const;
+
+type TechnicalTab=typeof TECHNICAL_TABS[number][0];
+type TechnicalOutput={request:string;response:string};
+
+function technicalJson(value:unknown){
+  return JSON.stringify(value,(key,item)=>/password|passwd|secret|otp|token(?!PrefixReceived$|Type$|Returned$)|authorization|cookie|credential|api.?key|signature|pin$/i.test(key)?'[REDACTED]':item,2);
+}
+
 function dateTime(value?:string|null){
   if(!value) return '—';
   const date=new Date(value);
@@ -62,7 +77,9 @@ export default function E2PayOperationsConsole({canManage}:Props){
   const [reset,setReset]=useState({email:'',accountGroupId:'',token:'',newPassword:''});
   const [password,setPassword]=useState({password:'',newPassword:''});
   const [phone,setPhone]=useState({password:'',phone:'',token:''});
-  const [lastResult,setLastResult]=useState('');
+  const [technicalTab,setTechnicalTab]=useState<TechnicalTab>('diagnostics');
+  const [technicalOutputs,setTechnicalOutputs]=useState<Partial<Record<TechnicalTab,TechnicalOutput>>>({});
+  const technicalOutput=technicalOutputs[technicalTab];
   const [topUpOpen,setTopUpOpen]=useState(false);
   const [copied,setCopied]=useState('');
   const [uatValidation,setUatValidation]=useState<{canary:E2PayUatLane|null;batch:E2PayUatLane|null;protocol:string[]} | null>(null);
@@ -100,18 +117,20 @@ export default function E2PayOperationsConsole({canManage}:Props){
   },[account?.environment]);
 
   const run=useCallback(async(action:string,payload:Record<string,unknown>={})=>{
+    const request=technicalJson({method:'POST',endpoint:'/api/e2pay-operations',body:{action,...payload}});
+    const setLastResult=(response:string)=>setTechnicalOutputs(current=>({...current,[technicalTab]:{request,response}}));
     setActionLoading(action);setError('');setNotice('');setLastResult('');
     try{
       const result=await runE2PayAction(action,payload);
       if(action==='REGISTER_REQUEST'||action==='REGISTER_CONFIRM'){
         const evidence=result.registration as Record<string,unknown>|null;
         const {merchantRegistrationId,merchantId,accountGroupId,username,tokenPrefix}=evidence||{};
-        setLastResult(JSON.stringify({ok:true,action,correlationId:result.correlationId,merchantRegistrationId,merchantId,accountGroupId,tokenPrefixReceived:Boolean(tokenPrefix)},null,2));
+        setLastResult(technicalJson({ok:true,action,correlationId:result.correlationId,merchantRegistrationId,merchantId,accountGroupId,tokenPrefixReceived:Boolean(tokenPrefix)}));
         if(action==='REGISTER_REQUEST' && typeof username==='string'){
           setRegistration(current=>({...current,username}));
         }
       }else{
-        setLastResult(JSON.stringify(result,null,2));
+        setLastResult(technicalJson(result));
       }
       setNotice(`${action.replaceAll('_',' ')} berhasil.`);
       if(['REFRESH_ACCOUNT','CHANGE_PASSWORD','RESET_PASSWORD_CONFIRM','CHANGE_PHONE_CONFIRM'].includes(action)) void loadOverview(true);
@@ -119,14 +138,14 @@ export default function E2PayOperationsConsole({canManage}:Props){
     }catch(cause){
       if(cause instanceof E2PayApiError){
         const {status,code,stage,providerStatus,providerCode,providerRefId,providerReason,correlationId}=cause;
-        setLastResult(JSON.stringify({ok:false,action,status,code,stage,providerStatus,providerCode,providerRefId,providerReason,correlationId},null,2));
+        setLastResult(technicalJson({ok:false,action,status,code,stage,providerStatus,providerCode,providerRefId,providerReason,correlationId}));
       }else{
-        setLastResult(JSON.stringify({ok:false,action,code:'REQUEST_FAILED'},null,2));
+        setLastResult(technicalJson({ok:false,action,code:'REQUEST_FAILED'}));
       }
       setError(cause instanceof Error?cause.message:'Operasi E2Pay gagal');
       return null;
     }finally{setActionLoading('');}
-  },[loadOverview]);
+  },[loadOverview,technicalTab]);
 
   async function loadBanks(){
     setActionLoading('BANKS');setError('');
@@ -386,8 +405,23 @@ export default function E2PayOperationsConsole({canManage}:Props){
     {canManage?<details className="e2pay-collapsible e2pay-admin-console">
       <summary><span>Advanced administration</span><b>Super Admin</b></summary>
       <div className="e2pay-admin-body">
-        <section>
-          <h5>Diagnostics</h5>
+        <div className="e2pay-console-tabs" role="tablist" aria-label="Jenis uji teknis E2Pay">
+          {TECHNICAL_TABS.map(([key,label],index)=><button key={key} type="button" role="tab"
+            id={`e2pay-test-tab-${key}`} aria-controls={`e2pay-test-${key}`} aria-selected={technicalTab===key}
+            tabIndex={technicalTab===key?0:-1} className={technicalTab===key?"btn btn-primary":"btn"} onClick={()=>setTechnicalTab(key)} onKeyDown={(event)=>{
+              const next=event.key==='ArrowRight'?(index+1)%TECHNICAL_TABS.length
+                :event.key==='ArrowLeft'?(index+TECHNICAL_TABS.length-1)%TECHNICAL_TABS.length
+                :event.key==='Home'?0:event.key==='End'?TECHNICAL_TABS.length-1:index;
+              if(next===index) return;
+              event.preventDefault();
+              const nextKey=TECHNICAL_TABS[next][0];
+              setTechnicalTab(nextKey);
+              document.getElementById(`e2pay-test-tab-${nextKey}`)?.focus();
+            }}>{label}</button>)}
+        </div>
+        <div className="e2pay-technical-layout">
+          <div className="e2pay-technical-form">
+        <section id="e2pay-test-diagnostics" role="tabpanel" aria-labelledby="e2pay-test-tab-diagnostics" hidden={technicalTab!=='diagnostics'}>
           <div className="e2pay-action-row">
             <button type="button" className="btn" disabled={Boolean(actionLoading)} onClick={()=>void run('REFRESH_ACCOUNT')}>Refresh account</button>
             <button type="button" className="btn" disabled={Boolean(actionLoading)} onClick={()=>void run('VERIFY_USERNAME')}>Verify username</button>
@@ -395,8 +429,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
           </div>
         </section>
 
-        <details className="e2pay-admin-detail">
-          <summary>Disbursement inquiry</summary>
+        <section id="e2pay-test-inquiry" role="tabpanel" aria-labelledby="e2pay-test-tab-inquiry" hidden={technicalTab!=='inquiry'}>
           <p>Validasi rekening tujuan dan fee tanpa mengirim uang.</p>
           {String(account?.environment||'').toUpperCase()==='UAT'?<DismissibleBubble className="app-notice-bubble app-notice-info" role="note">
             <strong>E2Pay UAT dummy destination</strong>
@@ -411,10 +444,9 @@ export default function E2PayOperationsConsole({canManage}:Props){
             {String(account?.environment||'').toUpperCase()==='UAT'?<button type="button" className="btn" onClick={()=>setInquiry({...E2PAY_UAT_DUMMY})}>Gunakan dummy UAT</button>:null}
             <button type="button" className="btn" disabled={Boolean(actionLoading)} onClick={()=>void run('INQUIRY',{...inquiry,amount:Number(inquiry.amount)})}>Run inquiry</button>
           </div>
-        </details>
+        </section>
 
-        <details className="e2pay-admin-detail">
-          <summary>Merchant registration</summary>
+        <section id="e2pay-test-registration" role="tabpanel" aria-labelledby="e2pay-test-tab-registration" hidden={technicalTab!=='registration'}>
           <div className="e2pay-form-grid">
             <Field label="Phone" value={registration.phone} onChange={(value)=>setRegistration({...registration,phone:value})} />
             <Field label="Name" value={registration.name} onChange={(value)=>setRegistration({...registration,name:value})} />
@@ -434,10 +466,9 @@ export default function E2PayOperationsConsole({canManage}:Props){
             <Field label="Token / OTP" type="password" value={registration.token} onChange={(value)=>setRegistration({...registration,token:value})} />
           </div>
           <button type="button" className="btn" disabled={Boolean(actionLoading)||account?.environment!=='UAT'||!registration.username.trim()||!registration.password||!registration.token.trim()} onClick={()=>void run('REGISTER_CONFIRM',{username:registration.username,password:registration.password,token:registration.token})}>Complete registration</button>
-        </details>
+        </section>
 
-        <details className="e2pay-admin-detail">
-          <summary>Password administration</summary>
+        <section id="e2pay-test-password" role="tabpanel" aria-labelledby="e2pay-test-tab-password" hidden={technicalTab!=='password'}>
           <div className="e2pay-form-grid">
             <Field label="Current password" type="password" value={password.password} onChange={(value)=>setPassword({...password,password:value})} />
             <Field label="New password" type="password" value={password.newPassword} onChange={(value)=>setPassword({...password,newPassword:value})} />
@@ -454,10 +485,9 @@ export default function E2PayOperationsConsole({canManage}:Props){
             <button type="button" className="btn" disabled={Boolean(actionLoading)} onClick={()=>void run('RESET_PASSWORD_REQUEST',reset)}>Request reset token</button>
             <button type="button" className="btn" disabled={Boolean(actionLoading)} onClick={()=>void run('RESET_PASSWORD_CONFIRM',reset)}>Confirm reset</button>
           </div>
-        </details>
+        </section>
 
-        <details className="e2pay-admin-detail">
-          <summary>Phone number administration</summary>
+        <section id="e2pay-test-phone" role="tabpanel" aria-labelledby="e2pay-test-tab-phone" hidden={technicalTab!=='phone'}>
           <div className="e2pay-form-grid">
             <Field label="Current password" type="password" value={phone.password} onChange={(value)=>setPhone({...phone,password:value})} />
             <Field label="New phone" value={phone.phone} onChange={(value)=>setPhone({...phone,phone:value})} />
@@ -467,13 +497,24 @@ export default function E2PayOperationsConsole({canManage}:Props){
             <button type="button" className="btn" disabled={Boolean(actionLoading)} onClick={()=>void run('CHANGE_PHONE_REQUEST',phone)}>Request phone change</button>
             <button type="button" className="btn" disabled={Boolean(actionLoading)} onClick={()=>void run('CHANGE_PHONE_CONFIRM',{phone:phone.phone,token:phone.token})}>Confirm phone change</button>
           </div>
-        </details>
-
-        <section className="integration-diagnostics" aria-label="Output uji E2Pay">
-          <h5>Output uji E2Pay</h5>
-          <textarea className="input e2pay-json-result" aria-label="Output JSON E2Pay" readOnly rows={10} value={lastResult} placeholder="Hasil pengujian akan tampil di sini." />
-          <button type="button" className="btn" disabled={!lastResult} onClick={()=>void navigator.clipboard.writeText(lastResult)}>Salin JSON</button>
         </section>
+
+          </div>
+          <aside className="e2pay-technical-output" aria-label="Bukti uji E2Pay">
+            {(['request','response'] as const).map((kind)=>{
+              const title=kind==='request'?'Request':'Response';
+              const value=technicalOutput?.[kind]||'';
+              return <section key={kind}>
+                <div className="e2pay-technical-output-heading">
+                  <label htmlFor={`e2pay-technical-${kind}`}>{title}</label>
+                  <button type="button" className="btn" disabled={!value} onClick={()=>void navigator.clipboard.writeText(value)}>Salin {title}</button>
+                </div>
+                <textarea id={`e2pay-technical-${kind}`} className="input e2pay-json-result" readOnly rows={8} value={value}
+                  placeholder={kind==='request'?'Request ProQPay tampil setelah tes dijalankan.':'Hasil tes tampil di sini.'} />
+              </section>;
+            })}
+          </aside>
+        </div>
       </div>
     </details>:null}
 
