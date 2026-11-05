@@ -689,7 +689,7 @@ export async function e2payTransactionHistoryList(env, accessToken, filters = {}
     // E2Pay UAT rejects some sort-field combinations with HTTP 400 even though
     // sortField/sortOrder are documented query parameters. Retry the same
     // read-only query without optional sorting; never drop business filters.
-    if (!(error instanceof E2PayRequestError) || error.httpStatus !== 400) throw error;
+    if (!(error instanceof E2PayRequestError) || error.httpStatus !== 400 || !(filters.sortField || filters.sortOrder)) throw error;
     result=await requestHistory(buildParams(false));
   }
   const rows=Array.isArray(result?.data) ? result.data : [];

@@ -219,6 +219,7 @@ export async function onRequest({request,env}){
       }
 
       if(!readiness.configured) return secureJson({error:readiness.reason,code:'E2PAY_NOT_READY',readiness},503,request,env,METHODS);
+      stage='MERCHANT_AUTHENTICATION';
       const auth=await userToken(runtimeEnv);
 
       if(resource==='banks'){
@@ -233,6 +234,7 @@ export async function onRequest({request,env}){
       }
 
       if(resource==='transactions'){
+        stage='TRANSACTION_HISTORY';
         const filters=Object.fromEntries(url.searchParams.entries());
         delete filters.resource;
         const result=await e2payTransactionHistoryList(runtimeEnv,auth.accessToken,filters);
@@ -389,7 +391,10 @@ export async function onRequest({request,env}){
         JSON.stringify({code:code||'INTERNAL_ERROR',stage,errorType:clean(error?.name,80)}),correlationId)]);
     }catch{}
     const registrationFailure=stage==='REGISTER_REQUEST'||stage==='REGISTER_CONFIRM';
-    const failureMessage=registrationFailure && error?.providerDiagnostics
+    const historyFailure=stage==='TRANSACTION_HISTORY';
+    const failureMessage=historyFailure && error?.providerDiagnostics
+      ? `E2Pay menolak permintaan riwayat transaksi · HTTP ${error.httpStatus} · ${error.providerDiagnostics.providerCode||'UNKNOWN'}${error.providerDiagnostics.refId ? ' · ref E2Pay '+error.providerDiagnostics.refId : ''}`
+      : registrationFailure && error?.providerDiagnostics
       ? `E2Pay HTTP ${error.httpStatus} · ${error.providerDiagnostics.providerCode||'UNKNOWN'} · ${error.providerDiagnostics.registrationIssue||error.providerDiagnostics.reason}`
       : error instanceof Error?error.message:'E2Pay operation failed';
     return secureJson({
