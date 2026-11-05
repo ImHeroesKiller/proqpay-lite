@@ -5,6 +5,8 @@ import { d1Batch, d1First, d1Run, hasD1 } from './_d1.js';
 import { activateGatewaySecureSettings, gatewayRuntimeEnv } from './payment-gateway-settings-store.js';
 import {
   e2payAuthorize,
+  e2payAuthorizationCode,
+  e2payExchangeAuthorizationCode,
   e2payBankListPage,
   e2payExecutionContract,
   e2payChangePassword,
@@ -251,13 +253,26 @@ export async function onRequest({request,env}){
       return secureJson({error:'Uji registrasi hanya tersedia di E2Pay UAT.',code:'E2PAY_UAT_REQUIRED',correlationId},409,request,env,METHODS);
     }
 
-    if(action==='HOST_AUTH_TEST'||action==='MERCHANT_AUTH_TEST'){
+    if(['HOST_AUTH_TEST','MERCHANT_AUTH_TEST','MERCHANT_AUTHORIZATION_TEST','MERCHANT_OAUTH_TEST'].includes(action)){
       if(String(runtimeEnv.E2PAY_ENV).toUpperCase()!=='UAT'){
         return secureJson({error:'Uji autentikasi hanya tersedia di E2Pay UAT.',code:'E2PAY_UAT_REQUIRED',correlationId},409,request,env,METHODS);
       }
       stage=action;
-      const token=await (action==='HOST_AUTH_TEST'?hostToken(runtimeEnv):userToken(runtimeEnv));
-      result={token:{accessTokenReceived:Boolean(token.accessToken),tokenType:token.tokenType,expiresIn:token.expiresIn,refreshTokenReceived:Boolean(token.refreshToken)}};
+      if(action==='MERCHANT_AUTHORIZATION_TEST'){
+        const authorization=await e2payAuthorizationCode(runtimeEnv);
+        result={authorization:{status:authorization.status,authorizationCodeReceived:Boolean(authorization.code)}};
+      }else{
+        let token;
+        if(action==='MERCHANT_OAUTH_TEST'){
+          stage='MERCHANT_AUTHORIZATION_TEST';
+          const {code}=await e2payAuthorizationCode(runtimeEnv);
+          stage='MERCHANT_OAUTH_TEST';
+          token=await e2payExchangeAuthorizationCode(runtimeEnv,code);
+        }else{
+          token=await (action==='HOST_AUTH_TEST'?hostToken(runtimeEnv):userToken(runtimeEnv));
+        }
+        result={token:{accessTokenReceived:Boolean(token.accessToken),tokenType:token.tokenType,expiresIn:token.expiresIn,refreshTokenReceived:Boolean(token.refreshToken)}};
+      }
     } else if(action==='BIND_MASTER_ACCOUNT'){
       // Administrative registry binding only; NEVER provisions merchant identity or moves funds.
       if(mfaEnforcementMode(env)==='ENFORCE' && !hasRecentMfa(authorization.actor,300))
@@ -346,7 +361,9 @@ export async function onRequest({request,env}){
       });
       result={changed:true};
     } else if(action==='INQUIRY'){
+      stage='MERCHANT_AUTHENTICATION';
       const auth=await userToken(runtimeEnv);
+      stage='INQUIRY';
       result={inquiry:await e2payInquiry(runtimeEnv,auth.accessToken,body)};
     } else if(action==='LOGOUT'){
       const auth=await userToken(runtimeEnv);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DismissibleBubble from '@/components/ui/DismissibleBubble';
-import { E2PAY_TEST_SCRIPT } from '@/lib/e2pay-test-script';
+import { assessE2PayScenario, E2PAY_TEST_SCRIPT } from '@/lib/e2pay-test-script';
 import { formatIDR } from '@/lib/format';
 import {
   E2PayApiError,
@@ -26,7 +26,6 @@ const TECHNICAL_TABS=[
   ...Array.from(new Set<string>(E2PAY_TEST_SCRIPT.map(([,category])=>category))).map(category=>[category,category] as const),
   ['diagnostics','Diagnostics'],
   ['inquiry','Disbursement inquiry'],
-  ['registration','Merchant registration'],
   ['password','Password administration'],
   ['phone','Phone number administration'],
 ] as const;
@@ -142,28 +141,40 @@ export default function E2PayOperationsConsole({canManage}:Props){
   const run=useCallback(async(action:string,payload:Record<string,unknown>={},read?:()=>Promise<Record<string,unknown>>,resultKey=outputKey)=>{
     const request=technicalJson(read ? {method:'GET',endpoint:'/api/e2pay-operations',query:payload} : {method:'POST',endpoint:'/api/e2pay-operations',body:{action,...payload}});
     const setLastResult=(response:string)=>setTechnicalOutputs(current=>({...current,[resultKey]:{request,response}}));
+    const scenarioId=resultKey.startsWith('script-')?Number(resultKey.slice(7)):0;
+    const recordResult=(result:Record<string,unknown>)=>{
+      const assessment=assessE2PayScenario(scenarioId,result);
+      setLastResult(technicalJson({...result,assessment}));
+      return assessment;
+    };
     setActionLoading(action);setError('');setNotice('');setLastResult('');
     try{
       const result=await (read ? read() : runE2PayAction(action,payload));
+      let assessment;
       if(action==='REGISTER_REQUEST'||action==='REGISTER_CONFIRM'){
         const evidence=result.registration as Record<string,unknown>|null;
         const {merchantRegistrationId,merchantId,accountGroupId,username,tokenPrefix}=evidence||{};
-        setLastResult(technicalJson({ok:true,action,correlationId:result.correlationId,merchantRegistrationId,merchantId,accountGroupId,tokenPrefixReceived:Boolean(tokenPrefix)}));
+        assessment=recordResult({ok:true,action,correlationId:result.correlationId,merchantRegistrationId,merchantId,accountGroupId,tokenPrefixReceived:Boolean(tokenPrefix)});
         if(action==='REGISTER_REQUEST' && typeof username==='string'){
           setRegistration(current=>({...current,username}));
         }
       }else{
-        setLastResult(technicalJson(result));
+        assessment=recordResult(result);
       }
-      setNotice(`${action.replaceAll('_',' ')} berhasil.`);
+      if(assessment?.status==='Failed') setError('Failed · respons tidak sesuai Expected Result.');
+      else setNotice(assessment ? 'Passed · respons sesuai Expected Result.' : `${action.replaceAll('_',' ')} berhasil.`);
       if(['REFRESH_ACCOUNT','CHANGE_PASSWORD','RESET_PASSWORD_CONFIRM','CHANGE_PHONE_CONFIRM'].includes(action)) void loadOverview(true);
       return result;
     }catch(cause){
       if(cause instanceof E2PayApiError){
         const {status,code,stage,providerStatus,providerCode,providerRefId,providerReason,correlationId}=cause;
-        setLastResult(technicalJson({ok:false,action,status,code,stage,providerStatus,providerCode,providerRefId,providerReason,correlationId}));
+        const assessment=recordResult({ok:false,action,status,code,stage,providerStatus,providerCode,providerRefId,providerReason,correlationId});
+        if(assessment?.status==='Passed'){
+          setNotice('Passed · penolakan E2Pay sesuai Expected Result.');
+          return null;
+        }
       }else{
-        setLastResult(technicalJson({ok:false,action,code:'REQUEST_FAILED'}));
+        recordResult({ok:false,action,code:'REQUEST_FAILED'});
       }
       setError(cause instanceof Error?cause.message:'Operasi E2Pay gagal');
       return null;
@@ -465,7 +476,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
                 }else if(id===22){
                   void run('BANKS',{resource:'banks'},()=>getE2PayBanks(),key);
                 }else{
-                  const action=id===1?'HOST_AUTH_TEST':id===17?'REFRESH_ACCOUNT':'MERCHANT_AUTH_TEST';
+                  const action=id===1?'HOST_AUTH_TEST':id===17?'REFRESH_ACCOUNT':id===9?'MERCHANT_AUTHORIZATION_TEST':'MERCHANT_OAUTH_TEST';
                   void run(action,{},undefined,key);
                 }
               }}>{QUICK_TEST_LABELS[id]}</button>)}
@@ -516,7 +527,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
           </div>
         </section>
 
-        <section id="e2pay-test-registration" hidden={technicalTab!=='registration' && ![2,3,6].includes(scriptId||0)}>
+        <section id="e2pay-test-registration" aria-label="Merchant registration request" hidden={scriptId!==2}>
           <div className="e2pay-form-grid">
             <Field label="Phone" value={registration.phone} onChange={(value)=>setRegistration({...registration,phone:value})} />
             <Field label="Name" value={registration.name} onChange={(value)=>setRegistration({...registration,name:value})} />
@@ -530,6 +541,8 @@ export default function E2PayOperationsConsole({canManage}:Props){
             const {phone,name,email,partnerId,sourceId}=registration;
             void run('REGISTER_REQUEST',{phone,name,email,partnerId:partnerId.trim(),sourceId:sourceId.trim()});
           }}>Registration request</button>
+        </section>
+        <section id="e2pay-test-registration-confirm" aria-label="Confirm merchant registration" hidden={scriptId!==3 && scriptId!==6}>
           <div className="e2pay-form-grid">
             <Field label="Username / phone" value={registration.username} onChange={(username)=>setRegistration({...registration,username})} />
             <Field label="Password" type="password" value={registration.password} onChange={(value)=>setRegistration({...registration,password:value})} />

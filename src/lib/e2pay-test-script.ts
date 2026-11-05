@@ -33,3 +33,37 @@ export const E2PAY_TEST_SCRIPT = [
   [32, "Transaction", "Invalid inquiryId", "{\"code\": \"400\",\"refId\": \"a933264b3f2447f3bce5007c45970619\",\"errors\": [\"Please do another inquiry\",\"Silahkan hubungi 021-52920138.\"]}"],
   [33, "Transaction", "amount > balance", "{\"code\":\"\",\"refId\":\"\",\"errors\":[\"Saldo tidak mencukupi\",\"Silahkan hubungi 021-52920138.\"]}"],
 ] as const;
+
+export function assessE2PayScenario(id:number, result:Record<string,unknown>){
+  const outcome=(passed:boolean,reason:string)=>({status:passed?'Passed':'Failed',reason});
+  const rejected=typeof result.providerStatus==='number' && result.providerStatus>=400
+    && (result.providerStatus<500 || (id===28 && result.providerStatus===500));
+  if(id===6||id===25||id===28){
+    const matches=id===6
+      ? result.stage==='REGISTER_CONFIRM' && result.providerReason==='INVALID_OTP'
+      : result.stage==='INQUIRY' && (id===25
+        ? result.providerCode==='E1' && result.providerReason==='BANK_REJECTED'
+        : result.providerCode==='500' && result.providerReason==='AMOUNT_REJECTED');
+    return outcome(rejected&&matches,'E2Pay harus menolak pada tahap yang diuji dengan alasan yang sesuai.');
+  }
+  if(id===21||id===23){
+    return outcome(result.ok===true && result.rowCount===0 && Array.isArray(result.data) && result.data.length===0,'Respons sukses harus berisi daftar kosong dan rowCount 0.');
+  }
+  const token=result.token as Record<string,unknown>|undefined;
+  const authorization=result.authorization as Record<string,unknown>|undefined;
+  const account=result.account as Record<string,unknown>|undefined;
+  const inquiry=result.inquiry as Record<string,unknown>|undefined;
+  const checks:Partial<Record<number,boolean>>={
+    1:token?.accessTokenReceived===true,
+    2:typeof result.merchantRegistrationId==='string' && !!result.merchantRegistrationId && result.tokenPrefixReceived===true,
+    3:typeof result.merchantId==='string' && !!result.merchantId,
+    9:authorization?.status==='00' && authorization.authorizationCodeReceived===true,
+    10:token?.accessTokenReceived===true && String(token.tokenType).toLowerCase()==='bearer',
+    17:account?.available===true && Boolean(account.accountIdMasked) && typeof account.balance==='number',
+    19:Array.isArray(result.data) && typeof result.rowCount==='number',
+    20:Array.isArray(result.data) && result.data.length<=100 && typeof result.rowCount==='number',
+    22:Array.isArray(result.data) && typeof result.rowCount==='number',
+    24:Boolean(inquiry?.id) && typeof inquiry?.feeAmount==='number',
+  };
+  return id in checks ? outcome(result.ok===true&&checks[id]===true,'Respons harus sukses dan memuat bukti yang diharapkan.') : undefined;
+}

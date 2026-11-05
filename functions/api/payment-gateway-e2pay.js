@@ -167,13 +167,14 @@ async function responseDiagnostics(body,text) {
   }
   collect(body);
   const message=messages.join(' ').toLowerCase();
-  const reason=/signature|hmac|tanda tangan/.test(message)?'SIGNATURE_REJECTED':/account.*(not found|invalid)|rekening.*(salah|tidak)/.test(message)?'ACCOUNT_REJECTED':/bank.*(not found|invalid)/.test(message)?'BANK_REJECTED':/balance|saldo/.test(message)?'BALANCE_REJECTED':/unauthor|token|credential|otentikasi|autentikasi/.test(message)?'AUTH_REJECTED':/amount|nominal|minimum|maximum|limit/.test(message)?'AMOUNT_REJECTED':'PROVIDER_REJECTED';
+  const reason=/signature|hmac|tanda tangan/.test(message)?'SIGNATURE_REJECTED':/account.*(not found|invalid)|rekening.*(salah|tidak)/.test(message)?'ACCOUNT_REJECTED':/bank.*(not found|invalid|tidak terdaftar|tidak valid)/.test(message)?'BANK_REJECTED':/balance|saldo/.test(message)?'BALANCE_REJECTED':/unauthor|token|credential|otentikasi|autentikasi/.test(message)?'AUTH_REJECTED':/amount|nominal|minimum|maximum|limit/.test(message)?'AMOUNT_REJECTED':'PROVIDER_REJECTED';
   const registrationIssue=/email harus diisi|email is required/.test(message)?'EMAIL_REQUIRED'
     : /email.*(sudah terdaftar|already registered|already exists)/.test(message)?'EMAIL_ALREADY_REGISTERED'
     : /(?:nomor|phone|username).*?(sudah terdaftar|already registered|already exists)/.test(message)?'PHONE_ALREADY_REGISTERED'
     : /email.*(tidak valid|invalid)|invalid email/.test(message)?'INVALID_EMAIL'
     : /source.?id.*(invalid|tidak valid|tidak ditemukan)|invalid source.?id/.test(message)?'INVALID_SOURCE_ID'
-    : /(?:otp|token).*(salah|invalid|expired|kedaluwarsa)/.test(message)?'INVALID_OR_EXPIRED_OTP'
+    : /(?:otp|token|kode verifikasi).*(expired|kedaluwarsa)/.test(message)?'EXPIRED_OTP'
+    : /(?:otp|token|kode verifikasi).*(salah|invalid)|invalid otp/.test(message)?'INVALID_OTP'
     : null;
   const refId=String(body?.refId??'');
   // Only fixed categories and counts leave this function; provider text may contain secrets or PII.
@@ -324,7 +325,7 @@ export async function e2payHostAuthorize(env, fetchImpl = fetch) {
   };
 }
 
-export async function e2payAuthorize(env, fetchImpl = fetch) {
+export async function e2payAuthorizationCode(env, fetchImpl = fetch) {
   const readiness = e2payLoginReadiness(env);
   if (!readiness.configured) throw new E2PayConfigurationError(readiness.reason);
   const clientId = required(env, 'E2PAY_CLIENT_ID');
@@ -343,6 +344,12 @@ export async function e2payAuthorize(env, fetchImpl = fetch) {
   const code = String(authorization?.code || '').trim();
   if (!code) throw new E2PayRequestError('Authorization code E2Pay tidak tersedia', 'E2PAY_AUTH_CODE_MISSING');
 
+  return {code,status:String(authorization?.status||'')};
+}
+
+export async function e2payExchangeAuthorizationCode(env, code, fetchImpl = fetch) {
+  const clientId = required(env, 'E2PAY_CLIENT_ID');
+  const clientSecret = required(env, 'E2PAY_CLIENT_SECRET');
   const form = new URLSearchParams({
     client_id:clientId,
     client_secret:clientSecret,
@@ -364,6 +371,11 @@ export async function e2payAuthorize(env, fetchImpl = fetch) {
   };
 }
 
+
+export async function e2payAuthorize(env, fetchImpl = fetch) {
+  const {code}=await e2payAuthorizationCode(env,fetchImpl);
+  return e2payExchangeAuthorizationCode(env,code,fetchImpl);
+}
 
 export async function e2payRefreshAccessToken(env, refreshToken, fetchImpl = fetch) {
   const tokenValue=String(refreshToken || '').trim();
