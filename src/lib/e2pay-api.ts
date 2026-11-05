@@ -70,6 +70,9 @@ export class E2PayApiError extends Error {
   code?:string;
   stage?:string;
   providerStatus?:number|null;
+  providerCode?:string;
+  providerRefId?:string;
+  providerReason?:string;
   providerMessage?:string;
   correlationId?:string;
   constructor(message:string,response:Response,data:Record<string,unknown>={}){
@@ -77,6 +80,9 @@ export class E2PayApiError extends Error {
     this.name='E2PayApiError';
     this.status=response.status;
     this.code=typeof data.code==='string'?data.code:undefined;
+    this.providerCode=typeof data.providerCode==='string'?data.providerCode:undefined;
+    this.providerRefId=typeof data.providerRefId==='string'?data.providerRefId:undefined;
+    this.providerReason=typeof data.providerReason==='string'?data.providerReason:undefined;
     this.stage=typeof data.stage==='string'?data.stage:undefined;
     this.providerStatus=typeof data.providerStatus==='number'?data.providerStatus:null;
     this.providerMessage=typeof data.providerMessage==='string'?data.providerMessage:undefined;

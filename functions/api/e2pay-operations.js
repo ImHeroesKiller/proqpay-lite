@@ -247,6 +247,9 @@ export async function onRequest({request,env}){
     const body=await request.json();
     const action=String(body.action||'').trim().toUpperCase();
     let result;
+    if(['REGISTER_REQUEST','REGISTER_CONFIRM'].includes(action) && String(runtimeEnv.E2PAY_ENV).toUpperCase()!=='UAT'){
+      return secureJson({error:'Uji registrasi hanya tersedia di E2Pay UAT.',code:'E2PAY_UAT_REQUIRED',correlationId},409,request,env,METHODS);
+    }
 
     if(action==='BIND_MASTER_ACCOUNT'){
       // Administrative registry binding only; NEVER provisions merchant identity or moves funds.
@@ -295,10 +298,18 @@ export async function onRequest({request,env}){
       const refreshed=await e2payRefreshAccessToken(runtimeEnv,auth.refreshToken);
       result={token:{refreshed:true,tokenType:refreshed.tokenType,expiresIn:refreshed.expiresIn,refreshTokenReturned:Boolean(refreshed.refreshToken)}};
     } else if(action==='REGISTER_REQUEST'){
+      stage='REGISTER_REQUEST_VALIDATION';
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body.email||'').trim())){
+        return secureJson({error:'Email merchant UAT wajib valid.',code:'EMAIL_REQUIRED_OR_INVALID',correlationId,stage},422,request,env,METHODS);
+      }
+      stage='HOST_ACCESS_TOKEN';
       const host=await hostToken(runtimeEnv);
+      stage='REGISTER_REQUEST';
       result={registration:await e2payRegisterRequest(runtimeEnv,host.accessToken,body)};
     } else if(action==='REGISTER_CONFIRM'){
+      stage='HOST_ACCESS_TOKEN';
       const host=await hostToken(runtimeEnv);
+      stage='REGISTER_CONFIRM';
       result={registration:await e2payRegisterConfirm(runtimeEnv,host.accessToken,body)};
     } else if(action==='CHANGE_PASSWORD'){
       const auth=await userToken(runtimeEnv);
@@ -353,11 +364,21 @@ export async function onRequest({request,env}){
       await d1Batch(env.DB,[audit(organizationId,authorization.actor,'E2PAY_OPERATION_FAILED',
         JSON.stringify({code:code||'INTERNAL_ERROR',stage,errorType:clean(error?.name,80)}),correlationId)]);
     }catch{}
+    const registrationFailure=stage==='REGISTER_REQUEST'||stage==='REGISTER_CONFIRM';
+    const failureMessage=registrationFailure && error?.providerDiagnostics
+      ? `E2Pay HTTP ${error.httpStatus} · ${error.providerDiagnostics.providerCode||'UNKNOWN'} · ${error.providerDiagnostics.registrationIssue||error.providerDiagnostics.reason}`
+      : error instanceof Error?error.message:'E2Pay operation failed';
     return secureJson({
-      ...(status===500 ? publicError(error,correlationId) : {error:error instanceof Error?error.message:'E2Pay operation failed'}),
+      ...(status===500 ? publicError(error,correlationId) : {error:failureMessage}),
       code:code||undefined,
       correlationId,
       stage,
+      ...(error?.providerDiagnostics ? {
+        providerStatus:error.httpStatus,
+        providerCode:error.providerDiagnostics.providerCode,
+        providerRefId:error.providerDiagnostics.refId,
+        providerReason:error.providerDiagnostics.registrationIssue||error.providerDiagnostics.reason,
+      } : {}),
     },status,request,env,METHODS);
   }
 }

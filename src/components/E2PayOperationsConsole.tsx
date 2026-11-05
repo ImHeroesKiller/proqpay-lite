@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import DismissibleBubble from '@/components/ui/DismissibleBubble';
 import { formatIDR } from '@/lib/format';
 import {
+  E2PayApiError,
   getE2PayBanks,
   getE2PayCatalog,
   getE2PayOverview,
@@ -57,7 +58,7 @@ export default function E2PayOperationsConsole({canManage}:Props){
   const [txFrom,setTxFrom]=useState('');
   const [txUntil,setTxUntil]=useState('');
   const [inquiry,setInquiry]=useState({accountId:'',bankId:'',amount:''});
-  const [registration,setRegistration]=useState({phone:'',name:'',email:'',token:'',password:''});
+  const [registration,setRegistration]=useState({phone:'',name:'',email:'',partnerId:'',sourceId:'',username:'',token:'',password:''});
   const [reset,setReset]=useState({email:'',accountGroupId:'',token:'',newPassword:''});
   const [password,setPassword]=useState({password:'',newPassword:''});
   const [phone,setPhone]=useState({password:'',phone:'',token:''});
@@ -99,14 +100,29 @@ export default function E2PayOperationsConsole({canManage}:Props){
   },[account?.environment]);
 
   const run=useCallback(async(action:string,payload:Record<string,unknown>={})=>{
-    setActionLoading(action);setError('');setNotice('');
+    setActionLoading(action);setError('');setNotice('');setLastResult('');
     try{
       const result=await runE2PayAction(action,payload);
-      setLastResult(JSON.stringify(result,null,2));
+      if(action==='REGISTER_REQUEST'||action==='REGISTER_CONFIRM'){
+        const evidence=result.registration as Record<string,unknown>|null;
+        const {merchantRegistrationId,merchantId,accountGroupId,username,tokenPrefix}=evidence||{};
+        setLastResult(JSON.stringify({ok:true,action,correlationId:result.correlationId,merchantRegistrationId,merchantId,accountGroupId,tokenPrefixReceived:Boolean(tokenPrefix)},null,2));
+        if(action==='REGISTER_REQUEST' && typeof username==='string'){
+          setRegistration(current=>({...current,username}));
+        }
+      }else{
+        setLastResult(JSON.stringify(result,null,2));
+      }
       setNotice(`${action.replaceAll('_',' ')} berhasil.`);
       if(['REFRESH_ACCOUNT','CHANGE_PASSWORD','RESET_PASSWORD_CONFIRM','CHANGE_PHONE_CONFIRM'].includes(action)) void loadOverview(true);
       return result;
     }catch(cause){
+      if(cause instanceof E2PayApiError){
+        const {status,code,stage,providerStatus,providerCode,providerRefId,providerReason,correlationId}=cause;
+        setLastResult(JSON.stringify({ok:false,action,status,code,stage,providerStatus,providerCode,providerRefId,providerReason,correlationId},null,2));
+      }else{
+        setLastResult(JSON.stringify({ok:false,action,code:'REQUEST_FAILED'},null,2));
+      }
       setError(cause instanceof Error?cause.message:'Operasi E2Pay gagal');
       return null;
     }finally{setActionLoading('');}
@@ -402,15 +418,22 @@ export default function E2PayOperationsConsole({canManage}:Props){
           <div className="e2pay-form-grid">
             <Field label="Phone" value={registration.phone} onChange={(value)=>setRegistration({...registration,phone:value})} />
             <Field label="Name" value={registration.name} onChange={(value)=>setRegistration({...registration,name:value})} />
-            <Field label="Email" value={registration.email} onChange={(value)=>setRegistration({...registration,email:value})} />
+            <Field label="Email" type="email" value={registration.email} onChange={(value)=>setRegistration({...registration,email:value})} />
           </div>
-          <button type="button" className="btn" disabled={Boolean(actionLoading)} onClick={()=>void run('REGISTER_REQUEST',registration)}>Registration request</button>
           <div className="e2pay-form-grid">
-            <Field label="Username / phone" value={registration.phone} onChange={(value)=>setRegistration({...registration,phone:value})} />
+            <Field label="Partner ID" placeholder="Gunakan konfigurasi UAT" value={registration.partnerId} onChange={(partnerId)=>setRegistration({...registration,partnerId})} />
+            <Field label="Source ID" placeholder="Gunakan konfigurasi UAT" value={registration.sourceId} onChange={(sourceId)=>setRegistration({...registration,sourceId})} />
+          </div>
+          <button type="button" className="btn" disabled={Boolean(actionLoading)||account?.environment!=='UAT'||!registration.phone.trim()||!registration.name.trim()||!registration.email.trim()} onClick={()=>{
+            const {phone,name,email,partnerId,sourceId}=registration;
+            void run('REGISTER_REQUEST',{phone,name,email,partnerId:partnerId.trim(),sourceId:sourceId.trim()});
+          }}>Registration request</button>
+          <div className="e2pay-form-grid">
+            <Field label="Username / phone" value={registration.username} onChange={(username)=>setRegistration({...registration,username})} />
             <Field label="Password" type="password" value={registration.password} onChange={(value)=>setRegistration({...registration,password:value})} />
             <Field label="Token / OTP" type="password" value={registration.token} onChange={(value)=>setRegistration({...registration,token:value})} />
           </div>
-          <button type="button" className="btn" disabled={Boolean(actionLoading)} onClick={()=>void run('REGISTER_CONFIRM',{username:registration.phone,password:registration.password,token:registration.token})}>Complete registration</button>
+          <button type="button" className="btn" disabled={Boolean(actionLoading)||account?.environment!=='UAT'||!registration.username.trim()||!registration.password||!registration.token.trim()} onClick={()=>void run('REGISTER_CONFIRM',{username:registration.username,password:registration.password,token:registration.token})}>Complete registration</button>
         </details>
 
         <details className="e2pay-admin-detail">
@@ -446,7 +469,11 @@ export default function E2PayOperationsConsole({canManage}:Props){
           </div>
         </details>
 
-        {lastResult?<details className="integration-diagnostics"><summary>Last operation result</summary><pre className="e2pay-json-result">{lastResult}</pre></details>:null}
+        <section className="integration-diagnostics" aria-label="Output uji E2Pay">
+          <h5>Output uji E2Pay</h5>
+          <textarea className="input e2pay-json-result" aria-label="Output JSON E2Pay" readOnly rows={10} value={lastResult} placeholder="Hasil pengujian akan tampil di sini." />
+          <button type="button" className="btn" disabled={!lastResult} onClick={()=>void navigator.clipboard.writeText(lastResult)}>Salin JSON</button>
+        </section>
       </div>
     </details>:null}
 

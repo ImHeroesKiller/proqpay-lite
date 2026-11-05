@@ -92,3 +92,23 @@ test('confirmation can resolve provider account identity through the new merchan
   assert.match(api,/await e2payMerchantAccount\(merchantRuntimeEnv,merchantAuth\.accessToken\)/);
   assert.match(api,/stage:'CONFIRM_ACCOUNT_LOOKUP'/);
 });
+
+test('E2Pay registration failure retains a safe reason and reference for alphanumeric codes',async()=>{
+  await assert.rejects(e2payRegisterRequest(
+    {E2PAY_ENV:'UAT',E2PAY_SOURCE_ID:'SRC-UAT'},
+    'host-token',
+    {phone:'08123456789',name:'Client UAT',email:'ops@example.test'},
+    async()=>Response.json({
+      code:'E2',
+      refId:'7767118008194c3890c231402bb9dd32',
+      errors:['Nomor seluler 08123456789 sudah terdaftar'],
+    },{status:400}),
+  ),error=>{
+    assert.equal(error.httpStatus,400);
+    assert.equal(error.providerDiagnostics.providerCode,'E2');
+    assert.equal(error.providerDiagnostics.registrationIssue,'PHONE_ALREADY_REGISTERED');
+    assert.equal(error.providerDiagnostics.refId,'7767118008194c3890c231402bb9dd32');
+    assert.doesNotMatch(JSON.stringify(error.providerDiagnostics),/08123456789/);
+    return true;
+  });
+});

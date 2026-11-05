@@ -168,8 +168,16 @@ async function responseDiagnostics(body,text) {
   collect(body);
   const message=messages.join(' ').toLowerCase();
   const reason=/signature|hmac|tanda tangan/.test(message)?'SIGNATURE_REJECTED':/account.*(not found|invalid)|rekening.*(salah|tidak)/.test(message)?'ACCOUNT_REJECTED':/bank.*(not found|invalid)/.test(message)?'BANK_REJECTED':/balance|saldo/.test(message)?'BALANCE_REJECTED':/unauthor|token|credential|otentikasi|autentikasi/.test(message)?'AUTH_REJECTED':/amount|nominal|minimum|maximum|limit/.test(message)?'AMOUNT_REJECTED':'PROVIDER_REJECTED';
+  const registrationIssue=/email harus diisi|email is required/.test(message)?'EMAIL_REQUIRED'
+    : /email.*(sudah terdaftar|already registered|already exists)/.test(message)?'EMAIL_ALREADY_REGISTERED'
+    : /(?:nomor|phone|username).*?(sudah terdaftar|already registered|already exists)/.test(message)?'PHONE_ALREADY_REGISTERED'
+    : /email.*(tidak valid|invalid)|invalid email/.test(message)?'INVALID_EMAIL'
+    : /source.?id.*(invalid|tidak valid|tidak ditemukan)|invalid source.?id/.test(message)?'INVALID_SOURCE_ID'
+    : /(?:otp|token).*(salah|invalid|expired|kedaluwarsa)/.test(message)?'INVALID_OR_EXPIRED_OTP'
+    : null;
+  const refId=String(body?.refId??'');
   // Only fixed categories and counts leave this function; provider text may contain secrets or PII.
-  return {providerCode:/^[0-9]{1,6}$/.test(rawCode)?rawCode:null,reason,messageCount:messages.length,bodyBytes:encoder.encode(text).length,bodyFingerprint:await sha256Hex(text)};
+  return {providerCode:/^(?:[0-9]{1,6}|[A-Z][0-9]{1,5})$/.test(rawCode)?rawCode:null,refId:/^[a-f0-9-]{16,64}$/i.test(refId)?refId:null,registrationIssue,reason,messageCount:messages.length,bodyBytes:encoder.encode(text).length,bodyFingerprint:await sha256Hex(text)};
 }
 
 function timeoutMs(env) {
@@ -267,11 +275,13 @@ async function requestJson(env, path, init = {}, fetchImpl = fetch) {
         scalar(body?.code),
         nestedErrors,
       ].find(Boolean)?.slice(0,240) || '';
-      throw new E2PayRequestError(
+      const error = new E2PayRequestError(
         `E2Pay HTTP ${response.status}${String(path).split('?')[0]==='/b2b/merchant/me/sdp/inquiry'?` · ${audit.responseDiagnostics.providerCode||'UNKNOWN'} · ${audit.responseDiagnostics.reason}`:providerMessage ? ` · ${providerMessage}` : ''}`,
         'E2PAY_HTTP_ERROR',
         response.status,
       );
+      error.providerDiagnostics=audit.responseDiagnostics;
+      throw error;
     }
     audit.status='SUCCESS';
     return body;
