@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DismissibleBubble from '@/components/ui/DismissibleBubble';
-import { assessE2PayScenario, E2PAY_TEST_SCRIPT } from '@/lib/e2pay-test-script';
+import { assessE2PayScenario, formatE2PayTechnicalJson, E2PAY_TEST_SCRIPT } from '@/lib/e2pay-test-script';
 import { formatIDR } from '@/lib/format';
 import {
   E2PayApiError,
@@ -43,10 +43,6 @@ const QUICK_TEST_LABELS: Partial<Record<number,string>> = {
 type TechnicalTab=typeof TECHNICAL_TABS[number][0];
 type TechnicalOutput={request:string;response:string};
 
-function technicalJson(value:unknown){
-  return JSON.stringify(value,(key,item)=>/password|passwd|secret|otp|token(?!PrefixReceived$|Type$|Returned$)|authorization|cookie|credential|api.?key|signature|pin$/i.test(key)?'[REDACTED]':item,2);
-}
-
 function dateTime(value?:string|null){
   if(!value) return '—';
   const date=new Date(value);
@@ -78,6 +74,9 @@ export default function E2PayOperationsConsole({canManage}:Props){
   const [banksLoaded,setBanksLoaded]=useState(false);
   const [transactions,setTransactions]=useState<E2PayTransactionRow[]>([]);
   const [transactionsLoaded,setTransactionsLoaded]=useState(false);
+  const [transactionPage,setTransactionPage]=useState({
+    offset:0,hasNext:false,filters:{} as Record<string,string|undefined>,
+  });
   const [transactionCount,setTransactionCount]=useState(0);
   const [loading,setLoading]=useState(false);
   const [actionLoading,setActionLoading]=useState('');
@@ -139,12 +138,12 @@ export default function E2PayOperationsConsole({canManage}:Props){
   },[account?.environment]);
 
   const run=useCallback(async(action:string,payload:Record<string,unknown>={},read?:()=>Promise<Record<string,unknown>>,resultKey=outputKey)=>{
-    const request=technicalJson(read ? {method:'GET',endpoint:'/api/e2pay-operations',query:payload} : {method:'POST',endpoint:'/api/e2pay-operations',body:{action,...payload}});
+    const request=formatE2PayTechnicalJson(read ? {method:'GET',endpoint:'/api/e2pay-operations',query:payload} : {method:'POST',endpoint:'/api/e2pay-operations',body:{action,...payload}});
     const setLastResult=(response:string)=>setTechnicalOutputs(current=>({...current,[resultKey]:{request,response}}));
     const scenarioId=resultKey.startsWith('script-')?Number(resultKey.slice(7)):0;
     const recordResult=(result:Record<string,unknown>)=>{
       const assessment=assessE2PayScenario(scenarioId,result);
-      setLastResult(technicalJson({...result,assessment}));
+      setLastResult(formatE2PayTechnicalJson({...result,assessment}));
       return assessment;
     };
     setActionLoading(action);setError('');setNotice('');setLastResult('');
@@ -192,19 +191,21 @@ export default function E2PayOperationsConsole({canManage}:Props){
     }finally{setActionLoading('');}
   }
 
-  async function loadTransactions(){
+  async function loadTransactions(offset=0,reuseFilters=false){
+    const filters=!reuseFilters?{
+      clientRef:txClientRef.trim()||undefined,
+      responseCode:txResponseCode||undefined,
+      transactionTimestampFrom:txFrom ? txFrom+' 00:00:00' : undefined,
+      transactionTimestampUntil:txUntil ? txUntil+' 23:59:59' : undefined,
+    }:transactionPage.filters;
     setActionLoading('TRANSACTIONS');setError('');
     try{
-      const result=await getE2PayTransactions({
-        limit:50,
-        clientRef:txClientRef||undefined,
-        responseCode:txResponseCode||undefined,
-        transactionTimestampFrom:txFrom ? txFrom+' 00:00:00' : undefined,
-        transactionTimestampUntil:txUntil ? txUntil+' 23:59:59' : undefined,
-      });
-      setTransactions(result.data);setTransactionCount(result.rowCount);setTransactionsLoaded(true);
+      const result=await getE2PayTransactions({...filters,limit:50,offset});
+      setTransactions(result.data);
+      setTransactionCount(result.rowCount);
+      setTransactionsLoaded(true);
+      setTransactionPage({offset,filters,hasNext:result.data.length>0&&(result.data.length===50||result.rowCount>offset+result.data.length)});
     }catch(cause){
-      setTransactionsLoaded(false);
       setError(cause instanceof Error?cause.message:'Transaction history gagal dimuat');
     }finally{setActionLoading('');}
   }
@@ -409,7 +410,14 @@ export default function E2PayOperationsConsole({canManage}:Props){
           <Field label="Until" type="date" value={txUntil} onChange={setTxUntil} />
         </div>
         <button type="button" className="btn" disabled={actionLoading==='TRANSACTIONS'} onClick={()=>void loadTransactions()}>{actionLoading==='TRANSACTIONS'?'Loading…':'Load history'}</button>
-        <div className="e2pay-resource-list">{transactions.slice(0,50).map((row,index)=><article key={row.accountTransactionId||row.journalId||index}><div><strong>{row.transactionName||row.description||'Transaction'}</strong><span>{row.responseCode||'—'}</span></div><small>{row.clientRef||'No clientRef'} · {dateTime(row.transactionTimestamp)}</small><b>{formatIDR(Number(row.amount||0))}</b><em>{row.responseMessage||row.journalId||'—'}</em></article>)}{!transactions.length?<div className="integration-empty">{transactionsLoaded?'Tidak ada transaksi pada filter ini.':'Belum dimuat.'}</div>:null}</div>
+        <div className="e2pay-resource-list">{transactions.map((row,index)=><article key={row.accountTransactionId||row.journalId||index}><div><strong>{row.transactionName||row.description||'Transaction'}</strong><span>{row.responseCode||'—'}</span></div><small>{row.clientRef||'No clientRef'} · {dateTime(row.transactionTimestamp)}</small><b>{formatIDR(Number(row.amount||0))}</b><em>{row.responseMessage||row.journalId||'—'}</em></article>)}{!transactions.length?<div className="integration-empty">{transactionsLoaded?'Tidak ada transaksi pada filter ini.':'Belum dimuat.'}</div>:null}</div>
+        {transactionsLoaded?<nav className="e2pay-action-row" aria-label="Halaman riwayat transaksi">
+          <button type="button" className="btn" disabled={Boolean(actionLoading)||transactionPage.offset===0}
+            onClick={()=>void loadTransactions(Math.max(0,transactionPage.offset-50),true)}>Sebelumnya</button>
+          <span>Halaman {Math.floor(transactionPage.offset/50)+1}</span>
+          <button type="button" className="btn" disabled={Boolean(actionLoading)||!transactionPage.hasNext}
+            onClick={()=>void loadTransactions(transactionPage.offset+50,true)}>Berikutnya</button>
+        </nav>:null}
       </section>
 
       <section className="integration-panel">

@@ -224,3 +224,31 @@ test('Dashboard balance is an exclusive widget and integrations hide advanced de
   assert.doesNotMatch(gatewayPanel,/Operational recovery path/);
   assert.doesNotMatch(gatewayPanel,/Runtime diagnostics/);
 });
+
+test('Technical output preserves safe authorization and OAuth evidence without credentials',async()=>{
+  const {formatE2PayTechnicalJson}=await import('../src/lib/e2pay-test-script.ts');
+  const output=formatE2PayTechnicalJson({
+    authorization:{status:'00',authorizationCodeReceived:true,code:'test-auth-code'},
+    token:{accessTokenReceived:true,tokenType:'Bearer',expiresIn:300,accessToken:'test-access-secret'},
+    password:'test-password',
+  });
+  const evidence=JSON.parse(output);
+  assert.deepEqual(evidence.authorization,{status:'00',authorizationCodeReceived:true});
+  assert.equal(evidence.token.accessTokenReceived,true);
+  assert.equal(evidence.token.expiresIn,300);
+  assert.doesNotMatch(output,/test-auth-code|test-access-secret|test-password/);
+});
+
+test('History success requires rows while an unknown reference requires an empty response',async()=>{
+  const {assessE2PayScenario}=await import('../src/lib/e2pay-test-script.ts');
+  const empty={ok:true,data:[],rowCount:0};
+  const populated={ok:true,data:[{clientRef:'PQP-TEST'}],rowCount:1};
+  for(const id of [19,20,22]){
+    assert.equal(assessE2PayScenario(id,empty).status,'Failed');
+    assert.equal(assessE2PayScenario(id,populated).status,'Passed');
+  }
+  assert.equal(assessE2PayScenario(21,empty).status,'Passed');
+  assert.equal(assessE2PayScenario(21,populated).status,'Failed');
+  assert.equal(assessE2PayScenario(21,{...empty,ok:false,providerCode:'F1'}).status,'Failed');
+  assert.equal(assessE2PayScenario(20,{...populated,data:Array(101).fill({}),rowCount:101}).status,'Failed');
+});

@@ -662,11 +662,15 @@ export async function e2payTransactionHistoryList(env, accessToken, filters = {}
   const offset=String(Math.max(0,Number(filters.offset || 0) || 0));
   const allowed=['accountTransactionId','clientRef','description','transactionCode','transactionName','senderAccountId','senderAccountName','receiverAccountId','receiverAccountName','journalId','refJournalId','responseCode','responseMessage','transactionTimestampFrom','transactionTimestampUntil'];
 
+  const hasFilter=allowed.some(key=>String(filters[key]??'').trim());
+  const sortField=filters.sortField||(!hasFilter?'transactionTimestamp':'');
+  const sortOrder=filters.sortOrder||(!hasFilter?'DESCENDING':'');
+
   const buildParams=(includeSort=true)=>{
     const params=new URLSearchParams({ limit, offset });
     if(includeSort){
-      if(filters.sortField) params.set('sortField',String(filters.sortField));
-      if(filters.sortOrder) params.set('sortOrder',String(filters.sortOrder));
+      if(sortField) params.set('sortField',String(sortField));
+      if(sortOrder) params.set('sortOrder',String(sortOrder));
     }
     for (const key of allowed) {
       const value=filters[key];
@@ -689,7 +693,7 @@ export async function e2payTransactionHistoryList(env, accessToken, filters = {}
     // E2Pay UAT rejects some sort-field combinations with HTTP 400 even though
     // sortField/sortOrder are documented query parameters. Retry the same
     // read-only query without optional sorting; never drop business filters.
-    if (!(error instanceof E2PayRequestError) || error.httpStatus !== 400 || !(filters.sortField || filters.sortOrder)) throw error;
+    if (!(error instanceof E2PayRequestError) || error.httpStatus !== 400 || !hasFilter || !(sortField || sortOrder)) throw error;
     result=await requestHistory(buildParams(false));
   }
   const rows=Array.isArray(result?.data) ? result.data : [];

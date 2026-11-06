@@ -34,6 +34,33 @@ export const E2PAY_TEST_SCRIPT = [
   [33, "Transaction", "amount > balance", "{\"code\":\"\",\"refId\":\"\",\"errors\":[\"Saldo tidak mencukupi\",\"Silahkan hubungi 021-52920138.\"]}"],
 ] as const;
 
+const SECRET_FIELD = /password|passwd|secret|otp|token|authorization|cookie|credential|api.?key|signature|pin$/i;
+
+export function formatE2PayTechnicalJson(value:unknown){
+  return JSON.stringify(value,(key,item)=>{
+    if(key==='authorization' && item && typeof item==='object'){
+      return {
+        status:typeof item.status==='string' && /^\d{2}$/.test(item.status) ? item.status : undefined,
+        authorizationCodeReceived:item.authorizationCodeReceived===true,
+      };
+    }
+    if(key==='token' && item && typeof item==='object'){
+      return {
+        accessTokenReceived:item.accessTokenReceived===true,
+        tokenType:typeof item.tokenType==='string' && /^bearer$/i.test(item.tokenType) ? 'Bearer' : undefined,
+        expiresIn:typeof item.expiresIn==='number' && Number.isFinite(item.expiresIn) ? item.expiresIn : undefined,
+        refreshTokenReceived:item.refreshTokenReceived===true,
+        refreshTokenReturned:item.refreshTokenReturned===true,
+        refreshed:item.refreshed===true,
+      };
+    }
+    if(/^(authorizationCodeReceived|accessTokenReceived|refreshTokenReceived|refreshTokenReturned|tokenPrefixReceived)$/.test(key)
+      && typeof item==='boolean') return item;
+    if(key==='tokenType' && item==='Bearer') return item;
+    return SECRET_FIELD.test(key) ? '[REDACTED]' : item;
+  },2);
+}
+
 export function assessE2PayScenario(id:number, result:Record<string,unknown>){
   const outcome=(passed:boolean,reason:string)=>({status:passed?'Passed':'Failed',reason});
   const rejected=typeof result.providerStatus==='number' && result.providerStatus>=400
@@ -53,6 +80,7 @@ export function assessE2PayScenario(id:number, result:Record<string,unknown>){
   const authorization=result.authorization as Record<string,unknown>|undefined;
   const account=result.account as Record<string,unknown>|undefined;
   const inquiry=result.inquiry as Record<string,unknown>|undefined;
+  const hasRows=Array.isArray(result.data) && result.data.length>0 && typeof result.rowCount==='number' && result.rowCount>0;
   const checks:Partial<Record<number,boolean>>={
     1:token?.accessTokenReceived===true,
     2:typeof result.merchantRegistrationId==='string' && !!result.merchantRegistrationId && result.tokenPrefixReceived===true,
@@ -60,9 +88,9 @@ export function assessE2PayScenario(id:number, result:Record<string,unknown>){
     9:authorization?.status==='00' && authorization.authorizationCodeReceived===true,
     10:token?.accessTokenReceived===true && String(token.tokenType).toLowerCase()==='bearer',
     17:account?.available===true && Boolean(account.accountIdMasked) && typeof account.balance==='number',
-    19:Array.isArray(result.data) && typeof result.rowCount==='number',
-    20:Array.isArray(result.data) && result.data.length<=100 && typeof result.rowCount==='number',
-    22:Array.isArray(result.data) && typeof result.rowCount==='number',
+    19:hasRows,
+    20:hasRows && Array.isArray(result.data) && result.data.length<=100,
+    22:hasRows,
     24:Boolean(inquiry?.id) && typeof inquiry?.feeAmount==='number',
   };
   return id in checks ? outcome(result.ok===true&&checks[id]===true,'Respons harus sukses dan memuat bukti yang diharapkan.') : undefined;
